@@ -14,11 +14,12 @@ oh-my-agy is a small Antigravity-native harness. Prefer native Antigravity agent
 6. Reuse an idle subagent session for correction/re-review when Antigravity can re-awaken it; avoid throwing away useful context.
 7. Do not introduce automatic quota routing until real usage data demonstrates a need.
 8. Do not copy upstream OMO prompts verbatim. Adapt behavioral ideas to Antigravity-native tools and constraints.
+9. `writing` is Flash-only. If a writing task needs expensive reasoning, run that reasoning separately and pass the resulting facts/decisions back to Flash for prose generation.
 
 ## Current routing assumption
 
-- Flash: quick, unspecified-low, ordinary implementation, Explore, Librarian.
-- Pro: deep, ultrabrain, visual-engineering, artistry, unspecified-high, architect, complex implementation.
+- Flash: quick, unspecified-low, ordinary implementation, **all writing**, Explore, Librarian.
+- Pro: deep, ultrabrain, visual-engineering, artistry, unspecified-high, architect, complex non-writing implementation.
 - Sonnet 4.6: main/orchestration.
 - Opus 4.6: final review and exceptional escalation; Pro is review fallback.
 
