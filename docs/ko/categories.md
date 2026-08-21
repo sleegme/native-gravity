@@ -16,7 +16,7 @@ v0.1은 OMO 계열에서 사용되던 category 개념을 참고하되, Antigravi
 | `artistry` | Pro | 창의적 품질 자체가 중요한 작업 |
 | `unspecified-high` | Pro | 더 적합한 specialist category가 없는 큰 cross-module 작업 |
 | `architect` | Pro | 구현보다 설계/경계/이행비용/trade-off 판단이 중심인 자문 |
-| `writing` | Flash 기본 | 문서/기술 글쓰기. 난도와 중요도에 따라 Pro 승격 |
+| `writing` | **Flash 고정** | 문서/기술 글쓰기. writing 단계는 Pro/Claude로 승격하지 않음 |
 
 ## quick
 
@@ -54,7 +54,9 @@ UI/frontend 작업 전용입니다. 기존 theme/token/shared component와 spaci
 
 ## writing
 
-README, 개발 문서, 기술 설명, migration guide 등의 작업입니다. 기본값은 Flash이며 기술 복잡도나 영향도가 높으면 Pro 승격을 고려합니다.
+README, 개발 문서, 기술 설명, migration guide 등의 작업입니다. **writing은 항상 Flash가 실행합니다.** 문서가 길거나 중요하거나 기술적으로 복잡하다는 이유만으로 Pro, Sonnet, Opus로 올리지 않습니다.
+
+어려운 기술 분석, architecture 판단, 코드베이스 조사, 외부 검증이 필요하면 그 부분만 별도 category/agent에서 먼저 수행합니다. 이후 확정된 사실, 결정, source material을 Flash writing worker에 넘깁니다. 비싼 reasoning과 값싼 prose 생성을 분리하는 것이 기본 원칙입니다.
 
 ## Category 전달 방식
 
