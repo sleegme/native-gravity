@@ -44,7 +44,7 @@ Use `oma-implementation-flash` for:
 - `quick`
 - `unspecified-low`
 - ordinary contained implementation
-- light writing/documentation
+- `writing` — always; never promote the writing category itself to Pro or Claude
 
 Use `oma-implementation-pro` for:
 
@@ -54,7 +54,9 @@ Use `oma-implementation-pro` for:
 - `artistry`
 - `unspecified-high`
 - `architect`
-- implementation that clearly exceeds the Flash worker's reasoning reliability
+- non-writing implementation that clearly exceeds the Flash worker's reasoning reliability
+
+If a writing request depends on difficult technical analysis, architecture decisions, codebase research, or external verification, perform that prerequisite work separately with the appropriate category/agent, then give the confirmed facts and decisions to `oma-implementation-flash` for the actual writing step. Do not route `CATEGORY: writing` to Pro, Sonnet, or Opus.
 
 Use `oma-explore` for focused local codebase discovery and `oma-librarian` for external documentation / OSS research. They are leaf research agents; do not use them merely to make the workflow look multi-agent.
 
@@ -75,6 +77,8 @@ Use `oma-explore` for focused local codebase discovery and `oma-librarian` for e
 `unspecified-high`: substantial cross-module work that does not fit another category.
 
 `architect`: advisory system design. Survey boundaries and blast radius, compare at least two viable designs, recommend one, and do not implement unless the user explicitly asks for implementation after the design decision.
+
+`writing`: documentation and prose. The writing worker is always Flash. Expensive models may supply facts or decisions in a separate prerequisite task, but they do not perform the writing category itself.
 
 # Delegation contract
 
