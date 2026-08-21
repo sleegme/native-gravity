@@ -18,7 +18,7 @@ User
 Claude Sonnet 4.6
 Main / Orchestrator
   │
-  ├─ Gemini Flash     → 빠르고 가벼운 일반 작업
+  ├─ Gemini Flash     → 빠르고 가벼운 일반 작업 + 모든 writing
   ├─ Gemini 3.1 Pro   → deep / ultrabrain / 복잡한 구현
   ├─ Explore          → 로컬 코드베이스 탐색
   └─ Librarian        → 외부 문서/OSS 조사
@@ -42,9 +42,12 @@ Final review
 | --- | --- | --- |
 | Main / orchestration | Claude Sonnet 4.6 | Gemini 3.1 Pro |
 | `quick`, `unspecified-low`, 일반 구현 | Gemini Flash | Gemini Pro |
+| `writing` | Gemini Flash | **고정. writing 자체는 Pro/Claude로 승격하지 않음** |
 | Explore, Librarian | Gemini Flash | 필요할 때 Gemini Pro |
 | `deep`, `ultrabrain`, `visual-engineering`, `artistry`, `unspecified-high`, `architect` | Gemini Pro | Claude Opus 4.6 |
 | 최종 Review | Claude Opus 4.6 | Gemini Pro |
+
+문서 작성에 어려운 기술 판단이 필요하면 그 판단만 별도 `deep`/`architect`/research 단계에서 처리하고, 확정된 사실과 결론을 Flash writing worker에 넘깁니다. 최종 글쓰기 단계 자체는 Flash에 고정합니다.
 
 카테고리 의미와 세부 라우팅은 [categories.md](categories.md)를 참고하세요.
 
@@ -110,6 +113,7 @@ oma smoke
 - 구현 worker는 실제 파일을 읽고 기존 패턴을 확인한 뒤 수정합니다.
 - Review는 read-only이며 blocker 중심으로 판단합니다.
 - 결과에는 가능한 한 diff와 검증 evidence가 포함되어야 합니다.
+- `writing`은 Flash에 고정하고, 필요하면 별도 specialist가 사실/판단만 공급합니다.
 - 병렬 fan-out은 독립적인 작업에서만 사용합니다.
 - quota-aware routing은 실사용 burn-rate 데이터가 생기기 전까지 자동화하지 않습니다.
 
