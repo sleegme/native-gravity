@@ -16,7 +16,7 @@ A category is not merely a model selector. It also changes how the worker explor
 | `artistry` | Pro | creative work where quality depends on exploration |
 | `unspecified-high` | Pro | substantial cross-module work without a better category |
 | `architect` | Pro | advisory system design, migration cost, boundaries, trade-offs |
-| `writing` | Flash by default | docs/prose; promote to Pro when complexity or stakes justify it |
+| `writing` | **Flash only** | docs/prose; never promote the writing step to Pro or Claude |
 
 ## Category intent
 
@@ -54,7 +54,9 @@ Advisory by default. Survey module boundaries, data flow, ownership, migration c
 
 ### `writing`
 
-README files, technical documentation, migration guides, and similar prose. Flash is the default; promote to Pro for high-stakes or technically complex documents.
+README files, technical documentation, migration guides, and similar prose. **Writing is always executed by Flash.** Do not promote the writing category to Pro, Sonnet, or Opus because a document is long, important, or technically dense.
+
+If the document depends on difficult analysis, architecture decisions, codebase research, or external verification, run that work separately under the appropriate category/agent first. Then pass the confirmed facts, decisions, and source material to the Flash writing worker. This keeps expensive reasoning separate from inexpensive prose generation.
 
 ## Passing the category
 
