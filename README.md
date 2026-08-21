@@ -1,15 +1,15 @@
 # oh-my-agy
 
-Antigravity(AGY) 위에서 돌아가는 작은 멀티 에이전트 코딩 하네스입니다.
+[한국어 문서](docs/ko/README.md)
 
-[oh-my-openagent](https://github.com/code-yeongyu/oh-my-openagent) / OMO의 유용한 설계 아이디어에서 영감을 받았지만, OMO의 전체 런타임이나 에이전트 구성을 그대로 옮기지 않습니다. Antigravity의 native custom agent, subagent lifecycle, model tier, headless CLI를 우선 사용합니다.
+A small Antigravity-native multi-agent coding harness inspired by useful ideas from [oh-my-openagent](https://github.com/code-yeongyu/oh-my-openagent) / OMO, without porting OMO's full runtime or persona set.
 
-> 현재 상태: **v0.1 / experimental**  
-> 기본 구조와 라우팅은 구현되어 있지만, 실제 AGY 환경에서 전체 E2E 흐름은 아직 충분히 검증되지 않았습니다. 먼저 `oma smoke`로 설치/모델/에이전트 discovery를 확인한 뒤 사용하세요.
+> Status: **v0.1 / experimental**  
+> The basic harness and routing are implemented, but the full end-to-end flow has not yet been repeatedly validated on a real Antigravity installation. Run `oma smoke` first.
 
-## 목표
+## Goal
 
-OMA의 목표는 "모델 하나에게 모든 일을 시키는 것"이 아니라, AGY에서 사용할 수 있는 모델을 역할에 맞게 나누어 쓰는 것입니다.
+OMA separates coordination, implementation, research, and final review instead of asking one model to do everything.
 
 ```text
 User
@@ -18,10 +18,10 @@ User
 Claude Sonnet 4.6
 Main / Orchestrator
   │
-  ├─ Gemini Flash     → 빠르고 가벼운 일반 작업
-  ├─ Gemini 3.1 Pro   → deep / ultrabrain / 복잡한 구현
-  ├─ Explore          → 로컬 코드베이스 탐색
-  └─ Librarian        → 외부 문서/OSS 조사
+  ├─ Gemini Flash     → fast, inexpensive general work
+  ├─ Gemini 3.1 Pro   → deep / ultrabrain / complex implementation
+  ├─ Explore          → local codebase discovery
+  └─ Librarian        → external docs / OSS research
   │
   ▼
 Implementation evidence
@@ -32,23 +32,23 @@ Final review
   └─ fallback: Gemini Pro
 ```
 
-핵심 원칙은 **Main은 조율하고, Worker가 구현하고, Reviewer가 판정한다**입니다.
+The core rule is simple: **Main coordinates, workers implement, reviewers judge.**
 
-## v0.1 예상 배치
+## v0.1 routing hypothesis
 
-처음부터 quota 최적화를 추측하지 않고 아래 고정 배치로 실제 사용한 뒤, Gemini / Claude quota 중 어느 쪽이 먼저 닳는지 보고 조정합니다.
+Start with a fixed routing table, use it for real work, then rebalance after observing which Antigravity quota pool burns faster.
 
-| 역할 / 카테고리 | 기본 모델 | fallback / escalation |
+| Role / category | Primary | Fallback / escalation |
 | --- | --- | --- |
 | Main / orchestration | Claude Sonnet 4.6 | Gemini 3.1 Pro |
-| `quick`, `unspecified-low`, 일반 구현 | Gemini Flash | Gemini Pro |
-| Explore, Librarian | Gemini Flash | 필요할 때 Gemini Pro |
+| `quick`, `unspecified-low`, ordinary implementation | Gemini Flash | Gemini Pro |
+| Explore, Librarian | Gemini Flash | Gemini Pro when justified |
 | `deep`, `ultrabrain`, `visual-engineering`, `artistry`, `unspecified-high`, `architect` | Gemini Pro | Claude Opus 4.6 |
-| 최종 Review | Claude Opus 4.6 | Gemini Pro |
+| Final review | Claude Opus 4.6 | Gemini Pro |
 
-카테고리 의미와 세부 라우팅은 [docs/categories.md](docs/categories.md)를 참고하세요.
+See [docs/categories.md](docs/categories.md) for category semantics.
 
-## 설치
+## Install
 
 ```bash
 git clone https://github.com/sleegme/oh-my-agy.git
@@ -57,126 +57,71 @@ cd oh-my-agy
 oma smoke
 ```
 
-`install-dev.sh`는 현재 checkout을 다음 위치에 symlink 합니다.
+The development installer symlinks this checkout into the Antigravity plugin path and installs an `oma` convenience command under `~/.local/bin`.
 
-```text
-~/.gemini/antigravity-cli/plugins/oh-my-agy
-~/.local/bin/oma
-```
-
-`~/.local/bin`이 `PATH`에 없다면 쉘 설정에 추가해야 합니다.
-
-## 기본 사용법
-
-Main 세션 시작:
+## Basic usage
 
 ```bash
 oma main
-```
-
-Review packet 생성:
-
-```bash
 oma packet
-```
-
-Opus 최종 리뷰 실행:
-
-```bash
 oma review
-```
-
-설치/모델/에이전트 discovery 확인:
-
-```bash
 oma smoke
 ```
 
-실제로 작은 모델 호출까지 포함한 probe:
+`oma smoke --live` adds a tiny real model probe and therefore consumes quota.
 
-```bash
-oma smoke --live
-```
+See [docs/usage.md](docs/usage.md) for the full workflow.
 
-`--live`는 quota를 실제로 사용합니다.
-
-자세한 실행 흐름은 [docs/usage.md](docs/usage.md)를 참고하세요.
-
-## 작업 흐름
+## Workflow
 
 ```text
 1. User request
-2. Main이 task contract 작성
-3. category 선택
-4. Flash / Pro worker에 구현 위임
-5. worker가 diff + test/build/run evidence 반환
-6. review packet 생성
-7. Opus 또는 Pro reviewer가 GO / NO-GO 판정
-8. NO-GO면 blocker만 기존 worker session으로 되돌림
-9. 수정 후 같은 gate 재검토
+2. Main writes a task contract
+3. Main selects a category
+4. Flash or Pro worker implements
+5. Worker returns diff + test/build/run evidence
+6. OMA builds a review packet
+7. Opus or Pro reviewer returns GO / NO-GO
+8. On NO-GO, only concrete blockers return to the existing worker session
+9. Fix and re-review
 ```
 
-완료 판정은 단순히 worker가 "끝났다"고 말하는 것으로 하지 않습니다. 가능한 경우 실제 diff와 테스트/빌드/실행 결과가 있어야 합니다.
+A worker saying "done" is not sufficient evidence. When applicable, completion should be backed by the actual diff and relevant tests/build/run results.
 
-## 프로젝트 구조
+## Documentation
 
-```text
-.
-├─ agents/
-│  ├─ oma-main.md
-│  ├─ oma-implementation-flash.md
-│  ├─ oma-implementation-pro.md
-│  ├─ oma-review.md
-│  ├─ oma-explore.md
-│  └─ oma-librarian.md
-├─ bin/
-│  └─ oma
-├─ docs/
-│  ├─ architecture.md
-│  ├─ categories.md
-│  ├─ usage.md
-│  └─ status.md
-├─ scripts/
-│  ├─ install-dev.sh
-│  ├─ smoke-test.sh
-│  ├─ build-review-packet.sh
-│  └─ review-opus.sh
-├─ AGENTS.md
-└─ plugin.json
-```
+- [Architecture](docs/architecture.md)
+- [Categories and routing](docs/categories.md)
+- [Usage](docs/usage.md)
+- [Status](docs/status.md)
+- [Korean documentation](docs/ko/README.md)
 
-## 설계 원칙
+## Design principles
 
-- 에이전트 수를 필요 이상으로 늘리지 않습니다.
-- Role / Category / Model / Reasoning을 서로 다른 개념으로 취급합니다.
-- Main은 가능한 한 얇게 유지합니다.
-- 구현 worker는 실제 파일을 읽고 기존 패턴을 확인한 뒤 수정합니다.
-- Review는 read-only이며 blocker 중심으로 판단합니다.
-- 결과에는 가능한 한 diff와 검증 evidence가 포함되어야 합니다.
-- 병렬 fan-out은 독립적인 작업에서만 사용합니다.
-- quota-aware routing은 실사용 burn-rate 데이터가 생기기 전까지 자동화하지 않습니다.
+- Keep the agent set small.
+- Treat Role / Category / Model / Reasoning as separate concepts.
+- Keep Main thin.
+- Implementation workers inspect real files and existing patterns before editing.
+- Review stays read-only and blocker-focused.
+- Require concrete verification evidence where possible.
+- Use fan-out only for genuinely independent work.
+- Do not add automatic quota-aware routing before real burn-rate data exists.
 
-전체 구조는 [docs/architecture.md](docs/architecture.md)에 정리되어 있습니다.
+## Quota tuning
 
-## Quota 튜닝
+v0.1 intentionally uses fixed routing. If Claude quota burns first, move borderline work toward Gemini Pro; if Gemini quota burns first, consider moving selected heavy work in the other direction. The target is not minimum usage of any one model, but a practical balance between success rate and both quota pools.
 
-v0.1은 일부러 고정 라우팅입니다.
+## Current limitations
 
-예를 들어 실제 사용 후 Claude quota가 먼저 소진된다면 Sonnet/Opus가 맡는 범위를 Gemini Pro로 옮길 수 있고, 반대로 Gemini quota가 먼저 소진된다면 일부 고급 작업을 Claude 쪽으로 옮길 수 있습니다.
+- Antigravity custom-agent frontmatter, tool names, and model-tier behavior may drift between versions.
+- Exact Claude model pinning is handled at the headless CLI boundary rather than through the native Gemini `flash` / `pro` tiers.
+- The full E2E path, including Opus review, still needs validation on a real AGY installation.
+- Automatic quota telemetry and dynamic routing are not implemented yet.
 
-즉 목표는 특정 모델 사용량을 최소화하는 것이 아니라 **실제 작업 성공률을 유지하면서 두 quota pool의 소진 속도를 현실적으로 맞추는 것**입니다.
-
-## 현재 제한사항
-
-- AGY 버전에 따라 custom agent frontmatter/tool 이름/model tier 동작이 달라질 수 있습니다.
-- 정확한 Claude 모델 pinning은 native `model: pro`가 아니라 headless CLI 경계를 사용합니다.
-- Opus review 경로를 포함한 전체 E2E는 실제 AGY 환경에서 계속 검증해야 합니다.
-- 자동 quota telemetry / dynamic routing은 아직 없습니다.
-
-최신 확인 상태는 [docs/status.md](docs/status.md)를 참고하세요.
+See [docs/status.md](docs/status.md) for the latest validation checklist.
 
 ## Credits
 
-이 프로젝트는 OMO / oh-my-openagent의 category routing, 작은 역할 단위의 delegation, evidence 기반 완료, review gate 같은 설계 아이디어에서 많은 영감을 받았습니다.
+OMA is heavily inspired by design ideas from OMO / oh-my-openagent, including category routing, focused delegation, evidence-based completion, and explicit review gates.
 
-다만 OMA는 Antigravity-native 구조를 목표로 하며, upstream 코드나 프롬프트를 그대로 복사하는 대신 필요한 행동 원칙을 별도로 재구성하는 것을 기본 정책으로 합니다.
+The project is intended to remain Antigravity-native. The default policy is to re-express useful behavioral ideas for AGY rather than copy upstream code or prompts verbatim.
