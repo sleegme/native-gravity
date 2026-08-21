@@ -18,7 +18,7 @@ User
 Claude Sonnet 4.6
 Main / Orchestrator
   │
-  ├─ Gemini Flash     → fast, inexpensive general work
+  ├─ Gemini Flash     → fast, inexpensive general work + all writing
   ├─ Gemini 3.1 Pro   → deep / ultrabrain / complex implementation
   ├─ Explore          → local codebase discovery
   └─ Librarian        → external docs / OSS research
@@ -42,9 +42,12 @@ Start with a fixed routing table, use it for real work, then rebalance after obs
 | --- | --- | --- |
 | Main / orchestration | Claude Sonnet 4.6 | Gemini 3.1 Pro |
 | `quick`, `unspecified-low`, ordinary implementation | Gemini Flash | Gemini Pro |
+| `writing` | Gemini Flash | **fixed; no Pro/Claude escalation for writing itself** |
 | Explore, Librarian | Gemini Flash | Gemini Pro when justified |
 | `deep`, `ultrabrain`, `visual-engineering`, `artistry`, `unspecified-high`, `architect` | Gemini Pro | Claude Opus 4.6 |
 | Final review | Claude Opus 4.6 | Gemini Pro |
+
+If a writing task needs difficult technical reasoning, perform that reasoning as a separate research/deep/architect step and hand the resulting facts to Flash. The prose-writing step itself stays on Flash.
 
 See [docs/categories.md](docs/categories.md) for category semantics.
 
@@ -104,12 +107,13 @@ A worker saying "done" is not sufficient evidence. When applicable, completion s
 - Implementation workers inspect real files and existing patterns before editing.
 - Review stays read-only and blocker-focused.
 - Require concrete verification evidence where possible.
+- Keep `writing` on Flash; use separate specialist work only to supply facts or decisions when needed.
 - Use fan-out only for genuinely independent work.
 - Do not add automatic quota-aware routing before real burn-rate data exists.
 
 ## Quota tuning
 
-v0.1 intentionally uses fixed routing. If Claude quota burns first, move borderline work toward Gemini Pro; if Gemini quota burns first, consider moving selected heavy work in the other direction. The target is not minimum usage of any one model, but a practical balance between success rate and both quota pools.
+v0.1 intentionally uses fixed routing. If Claude quota burns first, move borderline work toward Gemini Pro; if Gemini quota burns first, consider moving selected heavy work in the other direction. The `writing` category is excluded from that balancing rule and remains Flash-only. The target is not minimum usage of any one model, but a practical balance between success rate and both quota pools.
 
 ## Current limitations
 
