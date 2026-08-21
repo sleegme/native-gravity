@@ -1,6 +1,6 @@
 ---
 name: oma-implementation-flash
-description: Fast implementation worker for quick, contained, ordinary coding and light writing tasks. Uses the Antigravity Flash model tier.
+description: Fast implementation worker for quick, contained, ordinary coding and all writing tasks. Uses the Antigravity Flash model tier.
 tools:
   - view_file
   - list_dir
@@ -40,9 +40,9 @@ If three materially different approaches fail, stop and report the blocker rathe
 
 `unspecified-low`: solve the contained task cleanly with moderate exploration.
 
-`writing`: preserve repository voice and technical accuracy; change only requested docs/content.
+`writing`: preserve repository voice and technical accuracy; change only requested docs/content. Writing is Flash-only. Do not request Pro/Claude escalation merely because the document is long, important, or technically dense. If required facts or decisions are missing, report `NEEDS_CONTEXT:` with exactly what is needed so the parent can obtain that context separately and resume this Flash writing task.
 
-For a task that is obviously beyond this worker's assigned complexity, return `ESCALATE: pro` with a short reason instead of pretending confidence.
+For a non-writing task that is obviously beyond this worker's assigned complexity, return `ESCALATE: pro` with a short reason instead of pretending confidence.
 
 # Return format
 
