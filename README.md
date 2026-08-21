@@ -1,22 +1,54 @@
 # oh-my-agy
 
-A small Antigravity-native multi-agent harness inspired by the useful parts of OMO, without porting OMO's full runtime or persona zoo.
+Antigravity(AGY) 위에서 돌아가는 작은 멀티 에이전트 코딩 하네스입니다.
 
-## v0.1 hypothesis
+[oh-my-openagent](https://github.com/code-yeongyu/oh-my-openagent) / OMO의 유용한 설계 아이디어에서 영감을 받았지만, OMO의 전체 런타임이나 에이전트 구성을 그대로 옮기지 않습니다. Antigravity의 native custom agent, subagent lifecycle, model tier, headless CLI를 우선 사용합니다.
 
-Start with a fixed routing table, use it for real work, then rebalance after observing which Antigravity quota pool burns faster.
+> 현재 상태: **v0.1 / experimental**  
+> 기본 구조와 라우팅은 구현되어 있지만, 실제 AGY 환경에서 전체 E2E 흐름은 아직 충분히 검증되지 않았습니다. 먼저 `oma smoke`로 설치/모델/에이전트 discovery를 확인한 뒤 사용하세요.
 
-| Role / category | Primary | Fallback / escalation |
+## 목표
+
+OMA의 목표는 "모델 하나에게 모든 일을 시키는 것"이 아니라, AGY에서 사용할 수 있는 모델을 역할에 맞게 나누어 쓰는 것입니다.
+
+```text
+User
+  │
+  ▼
+Claude Sonnet 4.6
+Main / Orchestrator
+  │
+  ├─ Gemini Flash     → 빠르고 가벼운 일반 작업
+  ├─ Gemini 3.1 Pro   → deep / ultrabrain / 복잡한 구현
+  ├─ Explore          → 로컬 코드베이스 탐색
+  └─ Librarian        → 외부 문서/OSS 조사
+  │
+  ▼
+Implementation evidence
+  │
+  ▼
+Claude Opus 4.6
+Final review
+  └─ fallback: Gemini Pro
+```
+
+핵심 원칙은 **Main은 조율하고, Worker가 구현하고, Reviewer가 판정한다**입니다.
+
+## v0.1 예상 배치
+
+처음부터 quota 최적화를 추측하지 않고 아래 고정 배치로 실제 사용한 뒤, Gemini / Claude quota 중 어느 쪽이 먼저 닳는지 보고 조정합니다.
+
+| 역할 / 카테고리 | 기본 모델 | fallback / escalation |
 | --- | --- | --- |
 | Main / orchestration | Claude Sonnet 4.6 | Gemini 3.1 Pro |
-| quick, unspecified-low, ordinary implementation | Gemini Flash | Gemini Pro |
-| Explore, Librarian | Gemini Flash | Gemini Pro when the parent decides it is worth the cost |
-| deep, ultrabrain, visual-engineering, artistry, unspecified-high, architect | Gemini Pro | Claude Opus 4.6 |
-| Final review | Claude Opus 4.6 | Gemini Pro |
+| `quick`, `unspecified-low`, 일반 구현 | Gemini Flash | Gemini Pro |
+| Explore, Librarian | Gemini Flash | 필요할 때 Gemini Pro |
+| `deep`, `ultrabrain`, `visual-engineering`, `artistry`, `unspecified-high`, `architect` | Gemini Pro | Claude Opus 4.6 |
+| 최종 Review | Claude Opus 4.6 | Gemini Pro |
 
-Antigravity custom-agent frontmatter currently exposes `inherit`, `flash`, and `pro` model tiers rather than exact model slugs. oh-my-agy therefore keeps cheap/heavy Gemini workers native, runs the main agent with Sonnet pinned at the CLI boundary, and pins Opus for the expensive review pass with a small headless wrapper.
+카테고리 의미와 세부 라우팅은 [docs/categories.md](docs/categories.md)를 참고하세요.
 
-## Install for local development
+## 설치
 
 ```bash
 git clone https://github.com/sleegme/oh-my-agy.git
@@ -25,32 +57,126 @@ cd oh-my-agy
 oma smoke
 ```
 
-The installer symlinks this checkout to `~/.gemini/antigravity-cli/plugins/oh-my-agy` and installs an `oma` convenience symlink under `~/.local/bin`.
+`install-dev.sh`는 현재 checkout을 다음 위치에 symlink 합니다.
 
-Start the harness with:
+```text
+~/.gemini/antigravity-cli/plugins/oh-my-agy
+~/.local/bin/oma
+```
+
+`~/.local/bin`이 `PATH`에 없다면 쉘 설정에 추가해야 합니다.
+
+## 기본 사용법
+
+Main 세션 시작:
 
 ```bash
 oma main
 ```
 
-`oma main` resolves the currently installed Sonnet 4.6 slug from `agy models` and launches `oma-main`. The main agent delegates implementation to Flash/Pro subagents according to category.
+Review packet 생성:
 
-For a final review from any project workspace:
+```bash
+oma packet
+```
+
+Opus 최종 리뷰 실행:
 
 ```bash
 oma review
 ```
 
-That command builds `.oma/review-packet.md`, resolves the current Opus 4.6 slug from `agy models`, and runs the read-only `oma-review` agent with Opus. If Opus is unavailable or quota-exhausted, `oma-main` is instructed to fall back to the native Pro review agent.
+설치/모델/에이전트 discovery 확인:
 
-## Safety / scope
+```bash
+oma smoke
+```
 
-- `oma-main` is a coordinator. It may write coordination state under `.oma/`, but substantive source edits belong to implementation workers.
-- `oma-review` has only read/search tools. It cannot edit files or run shell commands.
-- Implementation workers must inspect existing patterns before edits and provide concrete verification evidence before claiming completion.
-- Review is blocker-focused: `VERDICT: GO` or `VERDICT: NO-GO` with concrete blockers.
-- Fan-out is optional, not a default. Spawn parallel workers only for genuinely independent work where the saved time beats coordination overhead.
+실제로 작은 모델 호출까지 포함한 probe:
 
-## What to tune after real use
+```bash
+oma smoke --live
+```
 
-Do not guess an optimal routing table up front. Record which pool reaches its weekly/5-hour limit first, then shift borderline categories across the Gemini/Claude boundary. v0.1 deliberately keeps quota-aware automatic routing out of the core until there is real burn-rate data.
+`--live`는 quota를 실제로 사용합니다.
+
+자세한 실행 흐름은 [docs/usage.md](docs/usage.md)를 참고하세요.
+
+## 작업 흐름
+
+```text
+1. User request
+2. Main이 task contract 작성
+3. category 선택
+4. Flash / Pro worker에 구현 위임
+5. worker가 diff + test/build/run evidence 반환
+6. review packet 생성
+7. Opus 또는 Pro reviewer가 GO / NO-GO 판정
+8. NO-GO면 blocker만 기존 worker session으로 되돌림
+9. 수정 후 같은 gate 재검토
+```
+
+완료 판정은 단순히 worker가 "끝났다"고 말하는 것으로 하지 않습니다. 가능한 경우 실제 diff와 테스트/빌드/실행 결과가 있어야 합니다.
+
+## 프로젝트 구조
+
+```text
+.
+├─ agents/
+│  ├─ oma-main.md
+│  ├─ oma-implementation-flash.md
+│  ├─ oma-implementation-pro.md
+│  ├─ oma-review.md
+│  ├─ oma-explore.md
+│  └─ oma-librarian.md
+├─ bin/
+│  └─ oma
+├─ docs/
+│  ├─ architecture.md
+│  ├─ categories.md
+│  ├─ usage.md
+│  └─ status.md
+├─ scripts/
+│  ├─ install-dev.sh
+│  ├─ smoke-test.sh
+│  ├─ build-review-packet.sh
+│  └─ review-opus.sh
+├─ AGENTS.md
+└─ plugin.json
+```
+
+## 설계 원칙
+
+- 에이전트 수를 필요 이상으로 늘리지 않습니다.
+- Role / Category / Model / Reasoning을 서로 다른 개념으로 취급합니다.
+- Main은 가능한 한 얇게 유지합니다.
+- 구현 worker는 실제 파일을 읽고 기존 패턴을 확인한 뒤 수정합니다.
+- Review는 read-only이며 blocker 중심으로 판단합니다.
+- 결과에는 가능한 한 diff와 검증 evidence가 포함되어야 합니다.
+- 병렬 fan-out은 독립적인 작업에서만 사용합니다.
+- quota-aware routing은 실사용 burn-rate 데이터가 생기기 전까지 자동화하지 않습니다.
+
+전체 구조는 [docs/architecture.md](docs/architecture.md)에 정리되어 있습니다.
+
+## Quota 튜닝
+
+v0.1은 일부러 고정 라우팅입니다.
+
+예를 들어 실제 사용 후 Claude quota가 먼저 소진된다면 Sonnet/Opus가 맡는 범위를 Gemini Pro로 옮길 수 있고, 반대로 Gemini quota가 먼저 소진된다면 일부 고급 작업을 Claude 쪽으로 옮길 수 있습니다.
+
+즉 목표는 특정 모델 사용량을 최소화하는 것이 아니라 **실제 작업 성공률을 유지하면서 두 quota pool의 소진 속도를 현실적으로 맞추는 것**입니다.
+
+## 현재 제한사항
+
+- AGY 버전에 따라 custom agent frontmatter/tool 이름/model tier 동작이 달라질 수 있습니다.
+- 정확한 Claude 모델 pinning은 native `model: pro`가 아니라 headless CLI 경계를 사용합니다.
+- Opus review 경로를 포함한 전체 E2E는 실제 AGY 환경에서 계속 검증해야 합니다.
+- 자동 quota telemetry / dynamic routing은 아직 없습니다.
+
+최신 확인 상태는 [docs/status.md](docs/status.md)를 참고하세요.
+
+## Credits
+
+이 프로젝트는 OMO / oh-my-openagent의 category routing, 작은 역할 단위의 delegation, evidence 기반 완료, review gate 같은 설계 아이디어에서 많은 영감을 받았습니다.
+
+다만 OMA는 Antigravity-native 구조를 목표로 하며, upstream 코드나 프롬프트를 그대로 복사하는 대신 필요한 행동 원칙을 별도로 재구성하는 것을 기본 정책으로 합니다.
