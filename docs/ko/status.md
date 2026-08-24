@@ -13,7 +13,7 @@ Native Gravity는 현재 **v0.2 / experimental**입니다.
 - Reviewer read-only / blocker-focused
 - Explore/Librarian 별도 agent 제거
 - shell wrapper / review packet plumbing 제거
-- `.oma/` persistent state 제거
+- persistent coordination state 제거
 - risk-gated review
 
 ## 검증

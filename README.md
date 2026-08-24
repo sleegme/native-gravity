@@ -95,7 +95,7 @@ Not included:
 
 - replacement task/runtime engine
 - shell wrapper CLI
-- persistent `.oma/` state or review-packet plumbing
+- persistent coordination state or review-packet plumbing
 - automatic quota-aware routing
 - exact Claude/Opus subagent pinning
 - direct AI Studio API execution

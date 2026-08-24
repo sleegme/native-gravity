@@ -13,7 +13,7 @@ Native Gravity is currently **v0.2 / experimental**.
 - read-only blocker-focused Reviewer
 - focused research folded into existing roles instead of dedicated Explore/Librarian agents
 - shell wrapper CLI and review-packet plumbing removed
-- persistent `.oma/` coordination state removed
+- persistent coordination state removed
 - risk-gated review policy
 
 ## Validation split

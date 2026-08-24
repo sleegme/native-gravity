@@ -1,6 +1,6 @@
 # 사용법
 
-Native Gravity v0.2는 별도 `oma` 명령이나 shell wrapper 없이 Antigravity plugin으로 사용합니다.
+Native Gravity v0.2는 별도 wrapper CLI 없이 Antigravity plugin으로 직접 사용합니다.
 
 ## 설치
 

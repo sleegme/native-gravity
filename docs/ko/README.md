@@ -39,7 +39,7 @@ Antigravity
 = 실행 런타임 + 세션 + 모델 tier + 서브에이전트 lifecycle
 ```
 
-그래서 v0.2에서는 별도 shell CLI, review packet builder, `.oma/` 상태 저장을 제거했습니다.
+그래서 v0.2에서는 별도 shell CLI, review packet builder, persistent coordination state를 제거했습니다.
 
 ## 설치
 
@@ -72,7 +72,7 @@ Review는 모든 사소한 변경에 강제하지 않고 risk-gated로 사용합
 
 - 별도 task/runtime engine
 - shell wrapper CLI
-- `.oma/` persistent state
+- persistent coordination state
 - Explore/Librarian 별도 agent
 - 거대한 category/persona matrix
 - quota-aware routing

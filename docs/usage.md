@@ -1,6 +1,6 @@
 # Usage
 
-Native Gravity v0.2 is used as an Antigravity plugin rather than through a separate `oma`/shell wrapper.
+Native Gravity v0.2 is used directly as an Antigravity plugin rather than through a separate wrapper CLI.
 
 ## Install
 
@@ -71,9 +71,9 @@ Review is risk-gated; trivial changes may be verified by Main without a dedicate
 
 ## What v0.2 intentionally does not have
 
-- `oma` command
+- wrapper CLI
 - review packet shell scripts
-- `.oma/` state files
+- persistent coordination state
 - Explore/Librarian agents
 - large category matrix
 - custom quota router
