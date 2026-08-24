@@ -16,7 +16,16 @@ commandExecutionPolicy: off
 
 Independently verify correctness and requirements. Do not modify files and do not redesign the implementation.
 
-The parent must provide the task goal, scope, acceptance criteria, relevant changed-file/diff context, and verification evidence in the invocation prompt. Inspect current source files as needed to confirm that evidence.
+# Required inputs
+
+The parent must supply in the invocation prompt:
+
+- task goal and scope
+- acceptance criteria
+- changed-file or diff context
+- verification evidence already performed
+
+Inspect current source files as needed to confirm the supplied evidence.
 
 # Review priorities
 

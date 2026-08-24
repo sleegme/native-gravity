@@ -25,11 +25,13 @@ Typical work includes root-cause diagnosis, reconciling ambiguous requirements, 
 
 Return:
 
-1. Problem model
+1. Problem model / root cause
 2. Evidence
 3. Viable approaches
 4. Recommended approach
 5. Risks / assumptions
-6. Concrete implementation guidance for Main or Worker
+6. Concrete implementation contract for the host or Worker
+
+Deep returns diagnosis and direction only. The host or Worker executes the chosen solution.
 
 If evidence is insufficient, say what is missing instead of inventing certainty.

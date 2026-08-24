@@ -1,24 +1,42 @@
 # 현재 상태
 
-Native Gravity는 현재 **v0.2 / experimental**입니다.
+Native Gravity는 현재 **v0.2.1 / experimental**입니다.
 
-## v0.2 구현 완료
+## v0.2.1 구현
 
-- 순수 Antigravity plugin 구조
-- Main / Worker / Deep / Reviewer 4-role 구조
-- Main host로 Sonnet 4.6 권장
+- Antigravity Default agent를 host/coordinator로 유지
+- 기존 Main 동작을 `rules/orchestration.md`로 이동
+- Worker / Deep / Reviewer 3-subagent 구조
+- Host model로 Sonnet 4.6 권장
 - Worker = native `flash`
 - Deep / Reviewer = native `pro`
-- Deep을 task size가 아니라 uncertainty/diagnosis 기준으로 정의
-- Reviewer read-only / blocker-focused
-- Explore/Librarian 별도 agent 제거
-- shell wrapper / review packet plumbing 제거
-- persistent coordination state 제거
+- subagent 호출용 named delegation envelope 추가
+- Worker 종료 신호: `DONE` / `BLOCKED` / `NEEDS_DEEP`
+- Deep은 구현 대신 concrete implementation contract 반환
+- Reviewer는 `VERDICT: GO` / `VERDICT: NO-GO` 유지
+- shell wrapper / review packet / persistent coordination state 없음
 - risk-gated review
 
-## 검증
+## 왜 host 구조를 바꿨나
 
-실제 AGY 환경의 discovery, delegation, correction/session reuse, 대표 coding task 검증은 이슈 #3에서 추적합니다.
+v0.2 bootstrap에서 custom `gravity-main` primary가 plugin agent, workspace custom agent, built-in `research`에 대한 `invoke_subagent` 호출을 모두 같은 오류로 실패했습니다.
+
+`subagent "<name>" not found or not allowed to be invoked`
+
+반면 같은 환경의 Antigravity Default agent에서는 built-in `research` 호출이 성공했습니다. 그래서 v0.2.1은 native primary를 유지하고 Main contract를 rule로 내립니다.
+
+이것은 관측된 runtime behavior에 대한 compatibility workaround이며, custom primary delegation이 의도적으로 unsupported라고 단정하는 내용은 아닙니다.
+
+## 남은 검증
+
+Issue #3에서 다음을 확인해야 합니다.
+
+1. Default agent → `gravity-worker`
+2. Default agent → `gravity-deep`
+3. Default agent → `gravity-reviewer`
+4. Worker `NEEDS_DEEP` escalation
+5. Reviewer GO/NO-GO correction loop
+6. native host path로 bootstrap 재실행
 
 ## 다음 단계
 
