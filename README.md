@@ -4,7 +4,7 @@
 
 Native Gravity is a small orchestration plugin for Google Antigravity. It borrows the separation-of-responsibility philosophy of OMO-style harnesses while keeping implementation deliberately close to Antigravity's native primitives.
 
-> Status: **v0.2.1 / experimental**
+> Status: **v0.2.2 / experimental**
 
 ## Core idea
 
@@ -77,7 +77,14 @@ cd native-gravity
 agy plugin install .
 ```
 
-Use Antigravity's **Default agent** as the primary agent. For the recommended v0.2.1 mapping, use Claude Sonnet 4.6 as the active host/session model.
+If upgrading from an older Native Gravity installation, especially v0.2, use a clean reinstall so removed files such as `gravity-main.md` cannot remain in the staged plugin directory:
+
+```bash
+agy plugin uninstall native-gravity
+agy plugin install .
+```
+
+Use Antigravity's **Default agent** as the primary agent. For the recommended v0.2.2 mapping, use Claude Sonnet 4.6 as the active host/session model.
 
 ## Routing policy
 
@@ -96,7 +103,7 @@ Task size alone does not trigger Deep. A large mechanical edit can still be Work
 
 Review is risk-gated rather than mandatory for every trivial action.
 
-## v0.2.1 boundaries
+## v0.2.2 boundaries
 
 Not included:
 

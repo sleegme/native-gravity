@@ -1,6 +1,12 @@
 # Status
 
-Native Gravity is currently **v0.2.1 / experimental**.
+Native Gravity is currently **v0.2.2 / experimental**.
+
+## v0.2.2 patch
+
+v0.2.2 keeps the v0.2.1 native-host architecture unchanged and tightens upgrade guidance after runtime testing showed that an in-place plugin install could leave a removed `gravity-main.md` file staged from an older installation.
+
+A clean reinstall was verified to leave only the three current subagents: Worker, Deep, and Reviewer.
 
 ## Implemented in v0.2.1
 
@@ -27,16 +33,20 @@ The Antigravity Default agent successfully invoked built-in `research` in the sa
 
 This is a compatibility workaround based on observed runtime behavior, not a declaration that custom-primary delegation is intentionally unsupported.
 
-## Validation still required
+## Runtime validation
 
-Issue #3 remains the runtime gate. Before v0.2.1 is considered validated, test from the Default agent:
+Validated from the Default agent:
 
-1. invoke `gravity-worker` on a bounded read-only task
-2. invoke `gravity-deep` on a diagnostic task
-3. invoke `gravity-reviewer` on a supplied task contract
-4. exercise Worker `NEEDS_DEEP` escalation
-5. exercise Reviewer GO/NO-GO and correction routing
-6. repeat the Native Gravity bootstrap using the native host path
+- `gravity-worker` on a bounded read-only task
+- `gravity-reviewer` with a supplied review contract, returning `VERDICT: GO`
+- clean reinstall leaves only `gravity-worker`, `gravity-deep`, and `gravity-reviewer`
+
+Issue #3 remains the runtime gate. Still to validate:
+
+1. invoke `gravity-deep` on a diagnostic task
+2. exercise Worker `NEEDS_DEEP` escalation
+3. exercise Reviewer `VERDICT: NO-GO` and correction routing
+4. repeat the Native Gravity bootstrap using the native host path
 
 ## v0.3
 

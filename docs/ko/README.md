@@ -2,7 +2,7 @@
 
 Google Antigravity 위에 얹는 작은 orchestration 플러그인입니다. OMO 계열의 역할 분리 철학은 가져오되, 런타임을 다시 만들지 않고 Antigravity native 기능을 최대한 그대로 사용합니다.
 
-> 현재 상태: **v0.2.1 / experimental**
+> 현재 상태: **v0.2.2 / experimental**
 
 ## 핵심 구조
 
@@ -41,6 +41,13 @@ cd native-gravity
 agy plugin install .
 ```
 
+기존 Native Gravity 설치본에서 업그레이드하는 경우, 특히 v0.2에서 올라오는 경우에는 삭제된 `gravity-main.md` 같은 파일이 staged plugin 디렉터리에 남지 않도록 clean reinstall을 권장합니다.
+
+```bash
+agy plugin uninstall native-gravity
+agy plugin install .
+```
+
 Antigravity의 **Default agent**를 사용합니다. 권장 host/session model은 Claude Sonnet 4.6입니다.
 
 ## 라우팅
@@ -60,7 +67,7 @@ Deep은 단순히 "어려운 작업" 담당이 아닙니다. 작업량보다 **�
 
 Review는 모든 사소한 변경에 강제하지 않고 risk-gated로 사용합니다.
 
-## v0.2.1에서 하지 않는 것
+## v0.2.2에서 하지 않는 것
 
 - custom primary/Main agent
 - 별도 task/runtime engine
