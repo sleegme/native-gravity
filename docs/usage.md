@@ -104,7 +104,7 @@ This snapshots the task contract, implementation evidence, git status, and diff 
 oma review
 ```
 
-The target design is to run the same read-only `oma-review` harness with Claude Opus 4.6. The reviewer checks acceptance criteria, correctness, regressions, scope expansion, risky deletion, public/API behavior, and verification adequacy.
+The review wrapper pins Gemini 3.1 Pro High and runs the read-only `oma-review` harness. The reviewer checks acceptance criteria, correctness, regressions, scope expansion, risky deletion, public/API behavior, and verification adequacy.
 
 The final verdict is exactly one of:
 

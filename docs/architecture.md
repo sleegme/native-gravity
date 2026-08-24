@@ -24,8 +24,7 @@ oma-main / Claude Sonnet 4.6
          v
       review packet
          |
-         |-- primary: Claude Opus 4.6 + oma-review
-         `-- fallback: Gemini Pro + oma-review
+         `-- Gemini 3.1 Pro High + oma-review
 ```
 
 ## Four separate axes
@@ -66,7 +65,7 @@ Worker output is stored in `.oma/implementation-evidence.md`. `oma packet` combi
 
 ## Review gate
 
-Review is separate from implementation. The primary reviewer is Claude Opus 4.6, with Gemini Pro as the native fallback.
+Review is separate from implementation. `oma review` pins Gemini 3.1 Pro High for the final read-only gate. Native subagent invocation keeps `oma-review` on the `pro` tier so Antigravity can select the current Pro model if the exact CLI slug changes.
 
 The reviewer focuses on material blockers only:
 
@@ -120,10 +119,11 @@ Fan-out is optional, not a default. Parallel workers are useful only when tasks 
 The initial hypothesis is:
 
 ```text
-Gemini Flash  = inexpensive general labor
-Gemini Pro    = heavy implementation / difficult reasoning
-Sonnet 4.6    = Main coordinator
-Opus 4.6      = expensive final reviewer
+Gemini Flash   = inexpensive general labor
+Gemini Pro     = heavy implementation / difficult reasoning
+Sonnet 4.6     = Main coordinator
+Gemini 3.1 Pro = final reviewer
+Opus 4.6       = exceptional escalation
 ```
 
 v0.1 does not automate quota-aware routing. Real usage should determine later rebalancing.

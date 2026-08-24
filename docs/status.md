@@ -17,7 +17,7 @@ The architecture and core agent/routing files exist, but the full Antigravity fl
 - `oma` convenience CLI
 - development symlink installer
 - smoke test
-- Opus review wrapper
+- Gemini 3.1 Pro review wrapper
 - fixed v0.1 category routing
 
 ## Still needs validation
@@ -46,7 +46,7 @@ GO / NO-GO
 
 ### Review direct launch
 
-The current design tries to use the same review harness both as a native Pro fallback and as an exact Opus review launched through the CLI boundary.
+The current design uses the same read-only review harness both as a native `pro`-tier subagent and as an exact Gemini 3.1 Pro High review launched through the CLI boundary.
 
 The interaction between `mainAgent`, `subagent`, and direct `--agent` launch must be validated against the installed Antigravity version. This is one of the first things to test.
 
@@ -56,7 +56,7 @@ Antigravity custom-agent tool names and frontmatter schema may change. Unknown o
 
 ### Model slug drift
 
-`oma main` and `oma review` resolve Sonnet 4.6 / Opus 4.6 from `agy models`. If preview naming changes, use:
+`oma main` and `oma review` resolve Sonnet 4.6 / Gemini 3.1 Pro High from `agy models`. If preview naming changes, use:
 
 ```bash
 OMA_MAIN_MODEL=<slug> oma main
@@ -86,7 +86,7 @@ Treat v0.1 as a working initial release after the following are confirmed on rea
 - Main → Pro delegation succeeds
 - a worker performs a real source edit and verification
 - `oma packet` builds correctly
-- Opus review or Pro fallback review succeeds
+- Gemini 3.1 Pro review succeeds
 - NO-GO → same-worker correction → re-review succeeds
 
 ## Later candidates

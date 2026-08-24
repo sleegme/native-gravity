@@ -1,6 +1,6 @@
 ---
 name: oma-review
-description: Read-only final review gate. Checks the task contract, implementation evidence, current files, correctness, regressions, scope, and verification quality. Defaults to Pro so it can serve as the native fallback; the oma review wrapper overrides the model to Claude Opus 4.6.
+description: Read-only final review gate. Checks the task contract, implementation evidence, current files, correctness, regressions, scope, and verification quality. Uses the native Pro tier as a subagent; the oma review wrapper pins Gemini 3.1 Pro High explicitly.
 tools:
   - view_file
   - list_dir

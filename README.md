@@ -27,9 +27,8 @@ Main / Orchestrator
 Implementation evidence
   │
   ▼
-Claude Opus 4.6
+Gemini 3.1 Pro
 Final review
-  └─ fallback: Gemini Pro
 ```
 
 The core rule is simple: **Main coordinates, workers implement, reviewers judge.**
@@ -45,7 +44,7 @@ Start with a fixed routing table, use it for real work, then rebalance after obs
 | `writing` | Gemini Flash | **fixed; no Pro/Claude escalation for writing itself** |
 | Explore, Librarian | Gemini Flash | Gemini Pro when justified |
 | `deep`, `ultrabrain`, `visual-engineering`, `artistry`, `unspecified-high`, `architect` | Gemini Pro | Claude Opus 4.6 |
-| Final review | Claude Opus 4.6 | Gemini Pro |
+| Final review | Gemini 3.1 Pro High | native Pro tier if exact slug pin drifts |
 
 If a writing task needs difficult technical reasoning, perform that reasoning as a separate research/deep/architect step and hand the resulting facts to Flash. The prose-writing step itself stays on Flash.
 
@@ -84,7 +83,7 @@ See [docs/usage.md](docs/usage.md) for the full workflow.
 4. Flash or Pro worker implements
 5. Worker returns diff + test/build/run evidence
 6. OMA builds a review packet
-7. Opus or Pro reviewer returns GO / NO-GO
+7. Gemini 3.1 Pro reviewer returns GO / NO-GO
 8. On NO-GO, only concrete blockers return to the existing worker session
 9. Fix and re-review
 ```
@@ -118,8 +117,8 @@ v0.1 intentionally uses fixed routing. If Claude quota burns first, move borderl
 ## Current limitations
 
 - Antigravity custom-agent frontmatter, tool names, and model-tier behavior may drift between versions.
-- Exact Claude model pinning is handled at the headless CLI boundary rather than through the native Gemini `flash` / `pro` tiers.
-- The full E2E path, including Opus review, still needs validation on a real AGY installation.
+- Exact Sonnet and Gemini 3.1 Pro reviewer pinning is handled at the headless CLI boundary rather than through the native Gemini `flash` / `pro` tiers.
+- The full E2E path, including Gemini 3.1 Pro review, still needs validation on a real AGY installation.
 - Automatic quota telemetry and dynamic routing are not implemented yet.
 
 See [docs/status.md](docs/status.md) for the latest validation checklist.

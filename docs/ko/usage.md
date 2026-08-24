@@ -75,13 +75,13 @@ oma packet
 
 현재 task contract, evidence, git diff/status를 `.oma/review-packet.md`로 묶습니다.
 
-## 7. Opus review
+## 7. Gemini 3.1 Pro review
 
 ```bash
 oma review
 ```
 
-Reviewer는 read-only이며 acceptance criteria, correctness, regression, scope expansion, risky deletion, API/behavior contract, verification adequacy를 blocker 관점에서 검사합니다.
+Review wrapper는 Gemini 3.1 Pro High를 명시적으로 고정하고 read-only `oma-review` harness를 실행합니다. Reviewer는 acceptance criteria, correctness, regression, scope expansion, risky deletion, API/behavior contract, verification adequacy를 blocker 관점에서 검사합니다.
 
 최종 verdict는 `VERDICT: GO` 또는 `VERDICT: NO-GO`입니다.
 

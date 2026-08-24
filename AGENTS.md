@@ -21,7 +21,8 @@ oh-my-agy is a small Antigravity-native harness. Prefer native Antigravity agent
 - Flash: quick, unspecified-low, ordinary implementation, **all writing**, Explore, Librarian.
 - Pro: deep, ultrabrain, visual-engineering, artistry, unspecified-high, architect, complex non-writing implementation.
 - Sonnet 4.6: main/orchestration.
-- Opus 4.6: final review and exceptional escalation; Pro is review fallback.
+- Gemini 3.1 Pro: final review. `oma review` pins `gemini-3.1-pro-high`; native `oma-review` stays on the `pro` tier.
+- Opus 4.6: exceptional escalation only.
 
 ## Validation
 

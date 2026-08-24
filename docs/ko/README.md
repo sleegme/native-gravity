@@ -27,9 +27,8 @@ Main / Orchestrator
 Implementation evidence
   │
   ▼
-Claude Opus 4.6
+Gemini 3.1 Pro
 Final review
-  └─ fallback: Gemini Pro
 ```
 
 핵심 원칙은 **Main은 조율하고, Worker가 구현하고, Reviewer가 판정한다**입니다.
@@ -45,7 +44,7 @@ Final review
 | `writing` | Gemini Flash | **고정. writing 자체는 Pro/Claude로 승격하지 않음** |
 | Explore, Librarian | Gemini Flash | 필요할 때 Gemini Pro |
 | `deep`, `ultrabrain`, `visual-engineering`, `artistry`, `unspecified-high`, `architect` | Gemini Pro | Claude Opus 4.6 |
-| 최종 Review | Claude Opus 4.6 | Gemini Pro |
+| 최종 Review | Gemini 3.1 Pro High | exact slug가 바뀌면 native Pro tier |
 
 문서 작성에 어려운 기술 판단이 필요하면 그 판단만 별도 `deep`/`architect`/research 단계에서 처리하고, 확정된 사실과 결론을 Flash writing worker에 넘깁니다. 최종 글쓰기 단계 자체는 Flash에 고정합니다.
 
@@ -91,7 +90,7 @@ oma smoke
 4. Flash / Pro worker에 구현 위임
 5. worker가 diff + test/build/run evidence 반환
 6. review packet 생성
-7. Opus 또는 Pro reviewer가 GO / NO-GO 판정
+7. Gemini 3.1 Pro reviewer가 GO / NO-GO 판정
 8. NO-GO면 blocker만 기존 worker session으로 되돌림
 9. 수정 후 같은 gate 재검토
 ```

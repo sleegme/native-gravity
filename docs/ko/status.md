@@ -15,7 +15,7 @@ oh-my-agy는 현재 **v0.1 / experimental** 단계입니다.
 - `oma` convenience CLI
 - dev symlink installer
 - smoke test
-- Opus review wrapper
+- Gemini 3.1 Pro review wrapper
 - fixed v0.1 category routing
 
 ## 아직 검증이 필요한 항목
@@ -42,7 +42,7 @@ GO / NO-GO
 
 ### Review direct launch
 
-현재 review agent는 native Pro fallback과 exact Opus review를 같은 harness로 처리하려는 구조입니다. AGY 버전에 따라 custom agent의 `mainAgent` / `subagent` 조합과 `--agent` direct launch 동작을 실제 환경에서 확인해야 합니다.
+현재 review agent는 native `pro` tier와 exact Gemini 3.1 Pro High review를 같은 read-only harness로 처리하는 구조입니다. AGY 버전에 따라 custom agent의 `mainAgent` / `subagent` 조합과 `--agent` direct launch 동작을 실제 환경에서 확인해야 합니다.
 
 ### Tool / model drift
 
@@ -66,7 +66,7 @@ OMA_REVIEW_MODEL=<slug> oma review
 - Main → Flash / Pro delegation 성공
 - worker가 실제 source edit + verification 수행
 - `oma packet` 정상 생성
-- Opus review 또는 Pro fallback review 성공
+- Gemini 3.1 Pro review 성공
 - NO-GO → 동일 worker correction → 재검토 흐름 성공
 
 ## 이후 후보

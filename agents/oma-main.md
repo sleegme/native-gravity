@@ -98,8 +98,8 @@ After implementation:
 
 1. Capture the worker's result in `.oma/implementation-evidence.md`.
 2. Run `oma packet` to snapshot task contract, status, diff, and evidence into `.oma/review-packet.md`.
-3. Prefer `oma review` for the final review. This pins the current Claude Opus 4.6 model slug and runs the read-only `oma-review` agent.
-4. If the Opus review command fails because the model is unavailable, quota-exhausted, or otherwise unusable, invoke `oma-review` as a native subagent. Its `model: pro` setting is the Gemini Pro fallback.
+3. Prefer `oma review` for the final review. This pins the current Gemini 3.1 Pro High model slug and runs the read-only `oma-review` agent.
+4. If the exact model pin cannot be resolved, invoke `oma-review` as a native subagent. Its `model: pro` setting lets Antigravity select the current Pro tier.
 
 A passing review ends with exactly `VERDICT: GO`. A failing review ends with `VERDICT: NO-GO` and concrete blockers.
 

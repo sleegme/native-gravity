@@ -27,7 +27,7 @@ case "$cmd" in
     exec "$ROOT/scripts/build-review-packet.sh" "$@"
     ;;
   review)
-    exec "$ROOT/scripts/review-opus.sh" "$@"
+    exec "$ROOT/scripts/review-pro.sh" "$@"
     ;;
   smoke)
     exec "$ROOT/scripts/smoke-test.sh" "$@"
@@ -41,7 +41,7 @@ Usage: oma <command>
 
   main         Start oma-main with the current Claude Sonnet 4.6 slug
   packet       Build .oma/review-packet.md in the current git worktree
-  review       Run the read-only final reviewer with Claude Opus 4.6
+  review       Run the read-only final reviewer with Gemini 3.1 Pro High
   smoke        Check required models and custom-agent discovery; add --live for a tiny live probe
   install-dev  Symlink this checkout into the Antigravity CLI plugin path
 EOF

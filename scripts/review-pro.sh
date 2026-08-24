@@ -14,11 +14,11 @@ models="$(agy models 2>&1)"
 if [[ -n "${OMA_REVIEW_MODEL:-}" ]]; then
   model="$OMA_REVIEW_MODEL"
 else
-  model="$(printf '%s\n' "$models" | awk '{print $1}' | grep '^claude-opus-4-6' | head -n1 || true)"
+  model="$(printf '%s\n' "$models" | awk '{print $1}' | grep '^gemini-3\.1-pro-high$' | head -n1 || true)"
 fi
 
 if [[ -z "$model" ]]; then
-  echo "No Claude Opus 4.6 model slug found in 'agy models'." >&2
+  echo "No Gemini 3.1 Pro High model slug found in 'agy models'." >&2
   echo "Set OMA_REVIEW_MODEL explicitly to override." >&2
   exit 2
 fi

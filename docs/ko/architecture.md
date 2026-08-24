@@ -27,8 +27,7 @@ oma-main / Claude Sonnet 4.6
        ▼
     review packet
        │
-       ├─ primary: Claude Opus 4.6 + oma-review
-       └─ fallback: Gemini Pro + oma-review
+       └─ Gemini 3.1 Pro High + oma-review
 ```
 
 ## 네 축을 분리한다
@@ -69,7 +68,9 @@ Worker의 `done` 발언만으로 완료 처리하지 않습니다. 가능한 경
 
 ## Review gate
 
-기본 reviewer는 Claude Opus 4.6이며 acceptance criteria, correctness, regression, 위험한 삭제/scope expansion, public contract, 검증 부족, evidence와 실제 코드의 모순을 blocker 관점에서 확인합니다.
+`oma review`는 Gemini 3.1 Pro High를 명시적으로 고정해 read-only final gate를 실행합니다. Native subagent로 호출할 때는 `oma-review`의 `model: pro`를 유지해 exact CLI slug가 바뀌어도 Antigravity의 현재 Pro tier를 사용할 수 있게 합니다.
+
+Reviewer는 acceptance criteria, correctness, regression, 위험한 삭제/scope expansion, public contract, 검증 부족, evidence와 실제 코드의 모순을 blocker 관점에서 확인합니다.
 
 최종 출력은 `VERDICT: GO` 또는 `VERDICT: NO-GO`입니다. NO-GO인 경우 concrete blocker만 기존 implementation session으로 돌려보내는 것이 기본입니다.
 
@@ -111,10 +112,11 @@ Fan-out은 기본값이 아닙니다. 작업이 실제로 독립적이고, 같�
 ## Quota 관점
 
 ```text
-Gemini Flash  = 값싼 일반 노동
-Gemini Pro    = 고급 실무 / 어려운 reasoning
-Sonnet 4.6    = Main coordinator
-Opus 4.6      = expensive final reviewer
+Gemini Flash   = 값싼 일반 노동
+Gemini Pro     = 고급 실무 / 어려운 reasoning
+Sonnet 4.6     = Main coordinator
+Gemini 3.1 Pro = final reviewer
+Opus 4.6       = exceptional escalation
 ```
 
 실사용 후 Gemini / Claude 중 어느 pool이 먼저 소진되는지 관찰한 뒤 category와 review 비중을 이동시키는 것이 계획입니다.

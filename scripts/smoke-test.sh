@@ -59,11 +59,11 @@ if (( fail )); then
 fi
 
 if [[ "$live" == true ]]; then
-  opus="$(printf '%s\n' "$models" | awk '{print $1}' | grep '^claude-opus-4-6' | head -n1 || true)"
-  echo "Running one small live Opus/read-only probe; this consumes quota."
+  pro="$(printf '%s\n' "$models" | awk '{print $1}' | grep '^gemini-3\.1-pro-high$' | head -n1 || true)"
+  echo "Running one small live Gemini 3.1 Pro/read-only probe; this consumes quota."
   agy -p 'Reply with exactly PONG. Do not call tools.' \
     --agent oma-review \
-    --model "$opus" \
+    --model "$pro" \
     --output-format text \
     --print-timeout 2m \
     --sandbox
