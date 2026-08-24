@@ -1,5 +1,5 @@
 {
   "$schema": "https://antigravity.google/schemas/v1/plugin.json",
   "name": "native-gravity",
-  "description": "A thin Antigravity-native orchestration policy with Main, Worker, Deep, and Reviewer agents."
+  "description": "A thin Antigravity-native orchestration policy with routing rules and Worker, Deep, and Reviewer subagents."
 }

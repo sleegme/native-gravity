@@ -23,13 +23,12 @@ Inspect the relevant existing code/patterns before editing. Do not redesign arch
 
 If the task is explicitly read-only research/discovery, do not edit files even though edit tools are available.
 
-If the requested change cannot be implemented safely without resolving an unknown root cause, ambiguous requirement, or architecture trade-off, stop and report the uncertainty to Main instead of guessing. That is a Deep task.
+If the requested change cannot be implemented safely without resolving an unknown root cause, ambiguous requirement, or architecture trade-off, stop and return `NEEDS_DEEP` to the parent instead of guessing.
 
 # Output
 
-Return concise evidence:
+End every response with exactly one of these terminal signals:
 
-- what changed or what was discovered
-- files/areas involved
-- verification performed and result
-- remaining blocker or uncertainty, if any
+- **DONE** — task complete; include what changed or was discovered, files/areas involved, and verification performed.
+- **BLOCKED** — cannot proceed safely; describe the specific blocker. Do not guess or expand scope.
+- **NEEDS_DEEP** — root cause or design question is unresolved; describe what is uncertain and why deeper diagnosis is required.
