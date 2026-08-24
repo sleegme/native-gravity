@@ -1,130 +1,105 @@
-# oh-my-agy
+# Native Gravity
 
-[한국어 문서](docs/ko/README.md)
+[한국어](docs/ko/README.md)
 
-A small Antigravity-native multi-agent coding harness inspired by useful ideas from [oh-my-openagent](https://github.com/code-yeongyu/oh-my-openagent) / OMO, without porting OMO's full runtime or persona set.
+Native Gravity is a small orchestration plugin for Google Antigravity. It borrows the separation-of-responsibility philosophy of OMO-style harnesses while keeping implementation deliberately close to Antigravity's native primitives.
 
-> Status: **v0.1 / experimental**  
-> The basic harness and routing are implemented, but the full end-to-end flow has not yet been repeatedly validated on a real Antigravity installation. Run `oma smoke` first.
+> Status: **v0.2 / experimental**
 
-## Goal
-
-OMA separates coordination, implementation, research, and final review instead of asking one model to do everything.
+## Core idea
 
 ```text
 User
   │
   ▼
 Claude Sonnet 4.6
-Main / Orchestrator
+Gravity Main
   │
-  ├─ Gemini Flash     → fast, inexpensive general work + all writing
-  ├─ Gemini 3.1 Pro   → deep / ultrabrain / complex implementation
-  ├─ Explore          → local codebase discovery
-  └─ Librarian        → external docs / OSS research
-  │
-  ▼
-Implementation evidence
-  │
-  ▼
-Gemini 3.1 Pro
-Final review
+  ├─ Worker   → AGY Flash tier
+  ├─ Deep     → AGY Pro tier
+  └─ Reviewer → AGY Pro tier
 ```
 
-The core rule is simple: **Main coordinates, workers implement, reviewers judge.**
+The four roles are intentionally small:
 
-## v0.1 routing hypothesis
+- **Main** — owns the task and coordinates execution.
+- **Worker** — executes clear, bounded subtasks.
+- **Deep** — resolves ambiguity, diagnosis, and technical trade-offs before execution.
+- **Reviewer** — independently verifies correctness and requirements.
 
-Start with a fixed routing table, use it for real work, then rebalance after observing which Antigravity quota pool burns faster.
+`gravity-main` uses `model: inherit`, so select Claude Sonnet 4.6 as the host/session model when using the recommended v0.2 setup. Subagents stay on Antigravity's native `flash` / `pro` tiers rather than pinning exact model slugs.
 
-| Role / category | Primary | Fallback / escalation |
-| --- | --- | --- |
-| Main / orchestration | Claude Sonnet 4.6 | Gemini 3.1 Pro |
-| `quick`, `unspecified-low`, ordinary implementation | Gemini Flash | Gemini Pro |
-| `writing` | Gemini Flash | **fixed; no Pro/Claude escalation for writing itself** |
-| Explore, Librarian | Gemini Flash | Gemini Pro when justified |
-| `deep`, `ultrabrain`, `visual-engineering`, `artistry`, `unspecified-high`, `architect` | Gemini Pro | Claude Opus 4.6 |
-| Final review | Gemini 3.1 Pro High | native Pro tier if exact slug pin drifts |
+## Why plugin-only
 
-If a writing task needs difficult technical reasoning, perform that reasoning as a separate research/deep/architect step and hand the resulting facts to Flash. The prose-writing step itself stays on Flash.
+Native Gravity does not ship a replacement runtime or wrapper CLI in v0.2. Antigravity already provides custom agents, `invoke_subagent`, subagent lifecycle, session reuse, workspaces, tool permissions, and monitoring.
 
-See [docs/categories.md](docs/categories.md) for category semantics.
+```text
+Native Gravity decides:
+- which role should handle the work
+- what contract/prompt that role receives
+- when deeper diagnosis or independent review is justified
+
+Antigravity decides:
+- how agents run
+- lifecycle and sessions
+- model-tier resolution
+- workspace/subagent execution
+```
+
+## Layout
+
+```text
+native-gravity/
+├─ plugin.json
+├─ AGENTS.md
+├─ agents/
+│  ├─ gravity-main.md
+│  ├─ gravity-worker.md
+│  ├─ gravity-deep.md
+│  └─ gravity-reviewer.md
+└─ docs/
+```
 
 ## Install
 
-```bash
-git clone https://github.com/sleegme/oh-my-agy.git
-cd oh-my-agy
-./scripts/install-dev.sh
-oma smoke
-```
-
-The development installer symlinks this checkout into the Antigravity plugin path and installs an `oma` convenience command under `~/.local/bin`.
-
-## Basic usage
+With Antigravity CLI installed, clone this repository and install the plugin directory:
 
 ```bash
-oma main
-oma packet
-oma review
-oma smoke
+git clone https://github.com/sleegme/native-gravity.git
+cd native-gravity
+agy plugin install .
 ```
 
-`oma smoke --live` adds a tiny real model probe and therefore consumes quota.
+Then select `gravity-main` from `/agents`. For the recommended v0.2 mapping, use Claude Sonnet 4.6 as the active host model.
 
-See [docs/usage.md](docs/usage.md) for the full workflow.
-
-## Workflow
+## Routing policy
 
 ```text
-1. User request
-2. Main writes a task contract
-3. Main selects a category
-4. Flash or Pro worker implements
-5. Worker returns diff + test/build/run evidence
-6. OMA builds a review packet
-7. Gemini 3.1 Pro reviewer returns GO / NO-GO
-8. On NO-GO, only concrete blockers return to the existing worker session
-9. Fix and re-review
+clear + bounded
+→ Worker
+
+unclear root cause / ambiguous requirements / architecture trade-off
+→ Deep
+
+substantive or risky completed work that needs independent verification
+→ Reviewer
 ```
 
-A worker saying "done" is not sufficient evidence. When applicable, completion should be backed by the actual diff and relevant tests/build/run results.
+Task size alone does not trigger Deep. A large mechanical edit can still be Worker work; a two-line race-condition fix can require Deep if the cause is uncertain.
 
-## Documentation
+Review is risk-gated rather than mandatory for every trivial action.
 
-- [Architecture](docs/architecture.md)
-- [Categories and routing](docs/categories.md)
-- [Usage](docs/usage.md)
-- [Status](docs/status.md)
-- [Korean documentation](docs/ko/README.md)
+## v0.2 boundaries
 
-## Design principles
+Not included:
 
-- Keep the agent set small.
-- Treat Role / Category / Model / Reasoning as separate concepts.
-- Keep Main thin.
-- Implementation workers inspect real files and existing patterns before editing.
-- Review stays read-only and blocker-focused.
-- Require concrete verification evidence where possible.
-- Keep `writing` on Flash; use separate specialist work only to supply facts or decisions when needed.
-- Use fan-out only for genuinely independent work.
-- Do not add automatic quota-aware routing before real burn-rate data exists.
+- replacement task/runtime engine
+- shell wrapper CLI
+- persistent `.oma/` state or review-packet plumbing
+- automatic quota-aware routing
+- exact Claude/Opus subagent pinning
+- direct AI Studio API execution
 
-## Quota tuning
+The direct AI Studio execution path remains planned for v0.3.
 
-v0.1 intentionally uses fixed routing. If Claude quota burns first, move borderline work toward Gemini Pro; if Gemini quota burns first, consider moving selected heavy work in the other direction. The `writing` category is excluded from that balancing rule and remains Flash-only. The target is not minimum usage of any one model, but a practical balance between success rate and both quota pools.
-
-## Current limitations
-
-- Antigravity custom-agent frontmatter, tool names, and model-tier behavior may drift between versions.
-- Exact Sonnet and Gemini 3.1 Pro reviewer pinning is handled at the headless CLI boundary rather than through the native Gemini `flash` / `pro` tiers.
-- The full E2E path, including Gemini 3.1 Pro review, still needs validation on a real AGY installation.
-- Automatic quota telemetry and dynamic routing are not implemented yet.
-
-See [docs/status.md](docs/status.md) for the latest validation checklist.
-
-## Credits
-
-OMA is heavily inspired by design ideas from OMO / oh-my-openagent, including category routing, focused delegation, evidence-based completion, and explicit review gates.
-
-The project is intended to remain Antigravity-native. The default policy is to re-express useful behavioral ideas for AGY rather than copy upstream code or prompts verbatim.
+See [architecture](docs/architecture.md), [usage](docs/usage.md), and [status](docs/status.md).

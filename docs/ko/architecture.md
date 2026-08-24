@@ -1,122 +1,68 @@
 # 아키텍처
 
-oh-my-agy는 Antigravity 위에 별도의 거대한 런타임을 다시 만드는 대신, native custom agent와 subagent 기능을 최대한 그대로 사용합니다.
+Native Gravity v0.2는 별도의 agent runtime이 아니라 Antigravity native runtime에 얹는 작은 역할/정책 계층입니다.
 
 ```text
 User
   │
   ▼
-oma-main / Claude Sonnet 4.6
+gravity-main / host model (권장: Claude Sonnet 4.6)
   │
-  ├─ task contract 작성
-  ├─ category 선택
-  ├─ worker dispatch
-  │
-  ├─ oma-implementation-flash / Gemini Flash
-  │    └─ quick, unspecified-low, 일반 구현, 가벼운 writing
-  │
-  ├─ oma-implementation-pro / Gemini Pro
-  │    └─ deep, ultrabrain, visual-engineering,
-  │       artistry, unspecified-high, architect
-  │
-  ├─ oma-explore / Gemini Flash
-  ├─ oma-librarian / Gemini Flash
-  │
-  └─ implementation evidence
-       │
-       ▼
-    review packet
-       │
-       └─ Gemini 3.1 Pro High + oma-review
+  ├─ gravity-worker   / flash
+  ├─ gravity-deep     / pro
+  └─ gravity-reviewer / pro
 ```
 
-## 네 축을 분리한다
+## 역할과 모델을 분리한다
 
-OMA는 다음 네 가지를 같은 것으로 취급하지 않습니다.
+역할 계약은 오래 유지하고, 모델 배치는 현재 실행 정책으로 봅니다.
 
-- **Role**: coordinator, implementation, review, research처럼 에이전트가 맡는 책임
-- **Category**: `deep`, `quick`, `ultrabrain`처럼 해당 작업을 어떤 방식으로 처리할지 정하는 행동 모드
-- **Model**: 실제 작업을 수행하는 모델 또는 AGY model tier
-- **Reasoning**: 모델의 reasoning/effort 수준과 해당 category에서 요구하는 사고 깊이
+| 역할 | 책임 | v0.2 모델 정책 |
+| --- | --- | --- |
+| Main | 작업 소유·조율 | `inherit` (권장 host: Sonnet 4.6) |
+| Worker | 명확하고 bounded한 작업 실행 | `flash` |
+| Deep | 실행 전 불확실성 해소 | `pro` |
+| Reviewer | 결과 독립 검증 | `pro` |
 
-예를 들어 `deep`과 `ultrabrain`은 둘 다 Gemini Pro를 사용할 수 있지만 같은 작업이 아닙니다. `deep`은 넓은 탐색과 root-cause 추적, 완전한 delivery에 가깝고 `ultrabrain`은 어려운 논리, 설계, trade-off 판단에 더 가깝습니다.
+## Native-first 경계
 
-## Main은 얇게 유지한다
+Antigravity가 담당하는 것:
 
-`oma-main`의 주 역할은 사용자 요청 해석, task contract 생성, category 선택, worker 위임, evidence 수집, review gate 판단입니다. 실질적인 source edit은 implementation worker가 담당합니다.
+- agent discovery
+- `invoke_subagent`
+- subagent lifecycle
+- workspace
+- session reuse / messaging
+- tool permission / sandbox
+- model-tier resolution
 
-## Task contract
+Native Gravity가 담당하는 것:
 
-Main은 substantive 작업 전에 `.oma/task-contract.md`를 만듭니다.
+- 역할 정의
+- 위임 기준
+- 서브에이전트 prompt에 전달할 task contract
+- Deep escalation 기준
+- review 정책
+
+v0.2는 별도 CLI, runner, mailbox, state machine을 만들지 않습니다.
+
+## Worker와 Research
+
+Explore/Librarian을 별도 persona로 유지하지 않습니다. 명확한 로컬 탐색이나 외부 조사도 bounded task이면 Worker 모드로 처리하고, 불확실성을 해소해야 하는 조사라면 Deep으로 보냅니다.
+
+## Deep
+
+Deep의 기준은 complexity가 아니라 uncertainty입니다.
 
 ```text
-Goal
-Scope
-Non-goals
-Acceptance criteria
-Verification expected
-Selected category
+파일 20개 기계적 수정 → Worker
+파일 2개인데 race 원인 불명 → Deep
 ```
 
-이 contract는 구현 중 임의로 바뀌지 않는 것을 원칙으로 합니다.
+Deep은 기본적으로 read-only이며 diagnosis와 implementation guidance를 반환합니다.
 
-## Evidence 기반 완료
+## Reviewer
 
-Worker의 `done` 발언만으로 완료 처리하지 않습니다. 가능한 경우 실제 변경 파일, diff, targeted test, build/typecheck/lint, runtime 확인, 남은 risk/blocker를 evidence로 남깁니다.
+Reviewer는 read-only이고 blocker만 봅니다. Main이 현재 task contract, 변경 컨텍스트, 검증 evidence를 호출 시점에 전달하므로 별도 persistent review packet이 필요 없습니다.
 
-`.oma/implementation-evidence.md`에 worker 결과를 보존하고, `oma packet`이 이를 current diff/task contract와 함께 `.oma/review-packet.md`로 묶습니다.
-
-## Review gate
-
-`oma review`는 Gemini 3.1 Pro High를 명시적으로 고정해 read-only final gate를 실행합니다. Native subagent로 호출할 때는 `oma-review`의 `model: pro`를 유지해 exact CLI slug가 바뀌어도 Antigravity의 현재 Pro tier를 사용할 수 있게 합니다.
-
-Reviewer는 acceptance criteria, correctness, regression, 위험한 삭제/scope expansion, public contract, 검증 부족, evidence와 실제 코드의 모순을 blocker 관점에서 확인합니다.
-
-최종 출력은 `VERDICT: GO` 또는 `VERDICT: NO-GO`입니다. NO-GO인 경우 concrete blocker만 기존 implementation session으로 돌려보내는 것이 기본입니다.
-
-## 상태 envelope
-
-`.oma/` 디렉터리는 로컬 coordination state이며 gitignore 대상입니다.
-
-```text
-.oma/
-├─ task-contract.md
-├─ implementation-evidence.md
-└─ review-packet.md
-```
-
-## Correction loop
-
-```text
-Implementation
-    ↓
-Review
-    ↓
-NO-GO
-    ↓
-blocker only
-    ↓
-same worker session
-    ↓
-fix
-    ↓
-re-review
-```
-
-가능하면 기존 worker/reviewer session을 재사용합니다. v0.1에서는 반복 수정의 일반적인 상한을 두 번 정도로 잡습니다.
-
-## 병렬 실행
-
-Fan-out은 기본값이 아닙니다. 작업이 실제로 독립적이고, 같은 파일을 동시에 수정하지 않으며, 병합 비용이 작고, spawn/coordination 비용보다 절약되는 시간이 큰 경우에만 사용합니다.
-
-## Quota 관점
-
-```text
-Gemini Flash   = 값싼 일반 노동
-Gemini Pro     = 고급 실무 / 어려운 reasoning
-Sonnet 4.6     = Main coordinator
-Gemini 3.1 Pro = final reviewer
-Opus 4.6       = exceptional escalation
-```
-
-실사용 후 Gemini / Claude 중 어느 pool이 먼저 소진되는지 관찰한 뒤 category와 review 비중을 이동시키는 것이 계획입니다.
+Review는 risk-gated입니다.

@@ -1,184 +1,79 @@
 # Usage
 
-This document covers the basic local development and execution flow for oh-my-agy on Antigravity.
+Native Gravity v0.2 is used as an Antigravity plugin rather than through a separate `oma`/shell wrapper.
 
-## 1. Install
+## Install
 
 ```bash
-git clone https://github.com/sleegme/oh-my-agy.git
-cd oh-my-agy
-./scripts/install-dev.sh
+git clone https://github.com/sleegme/native-gravity.git
+cd native-gravity
+agy plugin install .
 ```
 
-The development installer symlinks the repository into:
+Open `/agents` in Antigravity and select `gravity-main`.
+
+For the recommended v0.2 setup, use Claude Sonnet 4.6 as the active host/session model. `gravity-main` itself uses `model: inherit`.
+
+## Normal flow
 
 ```text
-~/.gemini/antigravity-cli/plugins/oh-my-agy
+user request
+   ↓
+Main decides whether delegation helps
+   ↓
+clear bounded work ─────────────→ Worker
+uncertain diagnosis/trade-off ──→ Deep → Main/Worker
+   ↓
+implementation
+   ↓
+independent review when risk justifies it
+   ↓
+Reviewer → GO / NO-GO
 ```
 
-and creates the convenience command:
+## Delegation prompts
 
-```text
-~/.local/bin/oma
-```
+Because subagents start with their own context, Main should explicitly pass:
 
-If `oma` is not available, check:
+- goal
+- scope
+- non-goals
+- acceptance criteria
+- relevant evidence/current state
+- whether editing is allowed
+- expected output
 
-```bash
-command -v oma
-command -v agy
-```
+For normal sequential work, `Workspace: inherit` keeps agents on the same checkout.
 
-## 2. Smoke test
+## Worker
 
-Run the quota-free structural check first:
+Use Worker for clear bounded implementation, repetitive edits, focused codebase discovery, or explicit read-only research.
 
-```bash
-oma smoke
-```
+If the correct solution is unclear, Worker should return the uncertainty rather than performing an unsolicited redesign.
 
-It checks whether `agy` is on PATH, required models are visible through `agy models`, and OMA custom agents are discovered.
+## Deep
 
-A tiny live probe is available with:
+Use Deep when the task requires diagnosis or deciding what should be done before implementation. Deep is read-only by contract.
 
-```bash
-oma smoke --live
-```
+Examples:
 
-`--live` consumes real quota.
+- unknown failure root cause
+- conflicting requirements
+- architecture/API trade-offs
+- reconstructing existing code intent
+- repeated failed approaches
 
-## 3. Start Main
+## Reviewer
 
-From the repository you want OMA to work on:
+Reviewer is not an implementation agent. Main should include the task contract, relevant change/diff context, and verification evidence in its invocation prompt. Reviewer inspects current files and returns only material blockers plus `VERDICT: GO` or `VERDICT: NO-GO`.
 
-```bash
-oma main
-```
+Review is risk-gated; trivial changes may be verified by Main without a dedicated Reviewer call.
 
-`oma main` resolves the current Sonnet 4.6 model slug and starts the `oma-main` agent. Main analyzes the request, writes `.oma/task-contract.md`, selects a category, and delegates implementation.
+## What v0.2 intentionally does not have
 
-## 4. Worker routing
-
-The rough split is:
-
-```text
-small, clear work
-    ↓
-Flash
-
-complex implementation / deep / ultrabrain / UI / architecture
-    ↓
-Pro
-```
-
-Main passes `CATEGORY: <name>` to the worker. See [categories.md](categories.md) for category semantics.
-
-## 5. Evidence
-
-Implementation workers should return concrete evidence such as:
-
-```text
-Summary of changes
-Files changed
-Verification commands and outcomes
-Remaining risks / blockers
-```
-
-Main can persist this into `.oma/implementation-evidence.md`.
-
-## 6. Build a review packet
-
-```bash
-oma packet
-```
-
-This snapshots the task contract, implementation evidence, git status, and diff into:
-
-```text
-.oma/review-packet.md
-```
-
-## 7. Final review
-
-```bash
-oma review
-```
-
-The review wrapper pins Gemini 3.1 Pro High and runs the read-only `oma-review` harness. The reviewer checks acceptance criteria, correctness, regressions, scope expansion, risky deletion, public/API behavior, and verification adequacy.
-
-The final verdict is exactly one of:
-
-```text
-VERDICT: GO
-VERDICT: NO-GO
-```
-
-On NO-GO, send only concrete blockers back to the existing implementation worker session when practical.
-
-## 8. Correction loop
-
-```text
-worker implementation
-    ↓
-evidence
-    ↓
-review
-    ↓
-NO-GO
-    ↓
-blockers only
-    ↓
-same worker session
-    ↓
-fix
-    ↓
-review again
-```
-
-v0.1 treats roughly two materially different correction attempts as the normal cap before Main re-diagnoses the problem.
-
-## 9. Model overrides
-
-If automatic slug detection fails:
-
-```bash
-OMA_MAIN_MODEL=<model-slug> oma main
-OMA_REVIEW_MODEL=<model-slug> oma review
-```
-
-These are escape hatches for preview naming or model-slug drift.
-
-## 10. Observe quota burn
-
-v0.1 does not implement automatic quota-aware routing. For early testing, recording just the following is enough:
-
-```text
-Gemini remaining % before
-Claude/non-Gemini remaining % before
-category
-model used
-Gemini remaining % after
-Claude/non-Gemini remaining % after
-```
-
-Use that data to decide whether Gemini or Claude work needs to be rebalanced.
-
-## 11. Troubleshooting
-
-Start with:
-
-```bash
-agy --version
-agy models
-agy agents
-oma smoke
-```
-
-Then verify the plugin and command symlinks:
-
-```bash
-ls -l ~/.gemini/antigravity-cli/plugins/oh-my-agy
-ls -l ~/.local/bin/oma
-```
-
-Antigravity updates may require OMA changes if custom-agent tool names, frontmatter schema, or model behavior drifts.
+- `oma` command
+- review packet shell scripts
+- `.oma/` state files
+- Explore/Librarian agents
+- large category matrix
+- custom quota router

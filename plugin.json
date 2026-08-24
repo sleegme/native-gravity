@@ -1,5 +1,5 @@
 {
   "$schema": "https://antigravity.google/schemas/v1/plugin.json",
-  "name": "oh-my-agy",
-  "description": "A minimal Antigravity-native multi-agent coding harness with category routing and an expensive final review gate."
+  "name": "native-gravity",
+  "description": "A thin Antigravity-native orchestration policy with Main, Worker, Deep, and Reviewer agents."
 }

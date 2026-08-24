@@ -1,129 +1,101 @@
 # Architecture
 
-oh-my-agy prefers Antigravity-native custom agents and subagent lifecycle features over rebuilding a large external runtime.
+Native Gravity v0.2 is intentionally not a second agent runtime. It is a small set of behavioral contracts loaded into Antigravity's existing runtime.
 
 ```text
 User
   |
   v
-oma-main / Claude Sonnet 4.6
-  |-- task contract + category routing
+gravity-main / host model (recommended: Claude Sonnet 4.6)
   |
-  |-- oma-implementation-flash / Gemini Flash
-  |     `-- quick, unspecified-low, ordinary work, light writing
+  |-- gravity-worker   / flash
+  |      clear bounded execution
   |
-  |-- oma-implementation-pro / Gemini Pro
-  |     `-- deep, ultrabrain, visual-engineering,
-  |         artistry, unspecified-high, architect
+  |-- gravity-deep     / pro
+  |      diagnosis, ambiguity, trade-offs
   |
-  |-- oma-explore / Gemini Flash
-  |-- oma-librarian / Gemini Flash
-  |
-  `-- implementation evidence
-         |
-         v
-      review packet
-         |
-         `-- Gemini 3.1 Pro High + oma-review
+  `-- gravity-reviewer / pro
+         independent read-only verification
 ```
 
-## Four separate axes
+## Role and model are separate
 
-OMA deliberately separates four concepts:
+Role contracts are stable concepts; model assignments are current execution policy.
 
-- **Role**: coordinator, implementation, review, research.
-- **Category**: the behavioral mode for the task, such as `deep` or `ultrabrain`.
-- **Model**: the actual model or Antigravity model tier used to perform the task.
-- **Reasoning**: the amount and style of reasoning expected for that role/category.
+| Role | Contract | v0.2 model policy |
+| --- | --- | --- |
+| Main | Own and coordinate the task | `inherit` (recommended host: Sonnet 4.6) |
+| Worker | Execute clear bounded subtasks | `flash` |
+| Deep | Resolve uncertainty before execution | `pro` |
+| Reviewer | Independently verify delivered work | `pro` |
 
-Two categories may use the same model while still behaving differently. For example, `deep` emphasizes broad exploration, root-cause tracing, and complete delivery, while `ultrabrain` emphasizes difficult logic, architecture, and trade-off reasoning.
+Native Gravity does not pin exact subagent slugs because Antigravity custom subagents expose native model tiers. Future model changes should not require rewriting role definitions.
 
-## Keep Main thin
+## Native-first boundary
 
-`oma-main` interprets the request, writes a task contract, chooses a category, dispatches work, collects evidence, and decides what happens after review. Substantive source edits belong to implementation workers.
+Antigravity owns:
 
-## Task contract
+- custom-agent discovery
+- `invoke_subagent`
+- background/subagent lifecycle
+- workspace handling
+- session reuse and messaging
+- tool permissions and sandboxing
+- model-tier resolution
 
-Before substantive implementation, Main writes `.oma/task-contract.md` with:
+Native Gravity owns:
+
+- role definitions
+- delegation policy
+- task contracts passed through prompts
+- Deep escalation criteria
+- review policy
+
+No wrapper CLI, custom runner, durable mailbox, or state machine is introduced in v0.2.
+
+## Main
+
+Main interprets the request and chooses the minimum necessary orchestration. Main can perform trivial or integration-sensitive edits itself when delegation costs more than it saves.
+
+For normal sequential work, use the same current workspace and pass explicit task context to subagents. Subagents should not be assumed to inherit the parent's entire conversation context.
+
+## Worker
+
+Worker is the default leaf executor. Clear implementation and focused discovery/research can both be expressed as bounded Worker prompts. A separate Explore/Librarian persona is unnecessary in v0.2.
+
+Worker should stop rather than invent a solution when the real problem is uncertain.
+
+## Deep
+
+Deep is defined by uncertainty, not generic complexity:
 
 ```text
-Goal
-Scope
-Non-goals
-Acceptance criteria
-Verification expected
-Selected category
+large but mechanical edit -> Worker
+small change with unknown race-condition cause -> Deep
 ```
 
-The contract should remain stable during implementation unless the actual request changes.
+Deep is read-only and returns diagnosis plus implementation guidance. Main or Worker executes the chosen solution.
 
-## Evidence-based completion
+## Reviewer
 
-A worker claiming completion is not enough. When applicable, OMA expects concrete evidence such as changed files, diff inspection, targeted tests, build/typecheck/lint results, runtime checks, and remaining risks or blockers.
+Reviewer is independent, read-only, and blocker-focused. Main sends the current task contract, relevant change context, and verification evidence on demand rather than maintaining a persistent review packet.
 
-Worker output is stored in `.oma/implementation-evidence.md`. `oma packet` combines it with the task contract and current worktree diff into `.oma/review-packet.md`.
-
-## Review gate
-
-Review is separate from implementation. `oma review` pins Gemini 3.1 Pro High for the final read-only gate. Native subagent invocation keeps `oma-review` on the `pro` tier so Antigravity can select the current Pro model if the exact CLI slug changes.
-
-The reviewer focuses on material blockers only:
-
-- unmet acceptance criteria
-- correctness bugs
-- regressions
-- risky deletion or scope expansion
-- public/API/behavior contract violations
-- inadequate verification
-- contradictions between evidence and the actual code
-
-The final output is exactly `VERDICT: GO` or `VERDICT: NO-GO`.
-
-## State envelope
-
-`.oma/` is local coordination state and is gitignored:
-
-```text
-.oma/
-├─ task-contract.md
-├─ implementation-evidence.md
-└─ review-packet.md
-```
+Review is risk-gated. Trivial low-risk work does not need a mandatory extra model call.
 
 ## Correction loop
 
 ```text
-Implementation
-    ↓
-Review
-    ↓
+Worker implementation
+      ↓
+Reviewer (when justified)
+      ↓
 NO-GO
-    ↓
-blockers only
-    ↓
-same worker session
-    ↓
-fix
-    ↓
-re-review
+      ↓
+concrete blocker
+      ↓
+existing Worker session
+      ↓
+fix → re-review
 ```
 
-Reuse the existing worker/reviewer session when practical. v0.1 treats roughly two materially different correction attempts as the normal cap before Main re-diagnoses the problem.
-
-## Parallel execution
-
-Fan-out is optional, not a default. Parallel workers are useful only when tasks are genuinely independent, do not compete for the same files, are cheap to merge, and save more time than spawn/coordination overhead costs.
-
-## Quota view
-
-The initial hypothesis is:
-
-```text
-Gemini Flash   = inexpensive general labor
-Gemini Pro     = heavy implementation / difficult reasoning
-Sonnet 4.6     = Main coordinator
-Gemini 3.1 Pro = final reviewer
-Opus 4.6       = exceptional escalation
-```
-
-v0.1 does not automate quota-aware routing. Real usage should determine later rebalancing.
+If a repeated blocker reveals an incorrect diagnosis rather than an implementation mistake, route through Deep before retrying.
