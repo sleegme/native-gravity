@@ -1,12 +1,19 @@
 # 사용법
 
-Native Gravity v0.2.1은 별도 wrapper CLI 없이 Antigravity plugin으로 직접 사용합니다.
+Native Gravity v0.2.2는 별도 wrapper CLI 없이 Antigravity plugin으로 직접 사용합니다.
 
 ## 설치
 
 ```bash
 git clone https://github.com/sleegme/native-gravity.git
 cd native-gravity
+agy plugin install .
+```
+
+기존 설치본에서 업그레이드하는 경우, 특히 v0.2에서 올라오는 경우에는 삭제된 파일이 staged plugin 디렉터리에 남지 않도록 clean reinstall을 권장합니다.
+
+```bash
+agy plugin uninstall native-gravity
 agy plugin install .
 ```
 
@@ -60,6 +67,6 @@ Antigravity Default agent + Native Gravity rule
 
 ## Runtime note
 
-v0.2.1에서는 `gravity-main`을 custom primary로 사용하지 않습니다. v0.2 검증에서 해당 구성은 custom subagent와 built-in `research` 호출이 모두 실패했고, 같은 환경의 Default agent에서는 built-in `research`가 성공했습니다.
+v0.2.1부터 `gravity-main`을 custom primary로 사용하지 않습니다. v0.2 검증에서 해당 구성은 custom subagent와 built-in `research` 호출이 모두 실패했고, 같은 환경의 Default agent에서는 built-in `research`가 성공했습니다.
 
-Issue #3에서 Default agent → Native Gravity 세 subagent 호출을 계속 검증합니다.
+v0.2.2도 같은 native-host 구조를 유지합니다. Issue #3에서는 Deep escalation과 Reviewer correction routing 등 남은 runtime 검증을 계속 추적합니다.
