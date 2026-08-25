@@ -26,7 +26,7 @@ Host
 Recommended v0.3 model mapping:
 
 - Host: Claude Sonnet 4.6 as the active Antigravity session model.
-- Advisor: `inherit` so the normal Sonnet Host also supplies the local orchestration model.
+- Advisor: Antigravity `pro` tier (Gemini 3.1 Pro in the current v0.3 mapping).
 - Worker: Antigravity `flash` tier.
 - Explorer: Antigravity `flash` tier.
 - Deep: Antigravity `pro` tier.
