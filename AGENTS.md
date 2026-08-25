@@ -6,10 +6,10 @@ Native Gravity is a thin Antigravity-native orchestration plugin. Use Antigravit
 
 ## v0.3 development topology
 
-The Antigravity **Default agent** remains the Host/coordinator until custom-Main delegation is revalidated. Native Gravity v0.3 develops five specialized roles with a deliberately shallow graph:
+The Antigravity **Default agent** is the Host/coordinator for v0.3. Native Gravity does not define a separate `gravity-main` agent; Main behavior is expressed as orchestration policy applied to the native Host.
 
 ```text
-Host
+Host (Antigravity Default agent + Native Gravity rules)
 ├─ Advisor
 │  └─ Worker(s)
 ├─ Explorer
@@ -27,12 +27,22 @@ Recommended v0.3 model mapping:
 
 - Host: Claude Sonnet 4.6 as the active Antigravity session model.
 - Advisor: Antigravity `pro` tier (Gemini 3.1 Pro in the current v0.3 mapping).
-- Worker: Antigravity `flash` tier.
-- Explorer: Antigravity `flash` tier.
-- Deep: Antigravity `pro` tier.
-- Reviewer: Antigravity `pro` tier.
+- Worker: Antigravity `flash` tier (Gemini 3.7 Flash in the current v0.3 mapping).
+- Explorer: Antigravity `flash` tier (Gemini 3.7 Flash in the current v0.3 mapping).
+- Deep: Antigravity `pro` tier (Gemini 3.1 Pro in the current v0.3 mapping).
+- Reviewer: Antigravity `pro` tier (Gemini 3.1 Pro in the current v0.3 mapping).
 
 Role contracts remain conceptually separate from model identity. Model-family corrections and role x model overlays are tracked in issue #9.
+
+## Host policy layering
+
+Treat Main as policy, not as another agent definition:
+
+1. **Native Host** — Antigravity Default agent owns the primary session and platform lifecycle.
+2. **Generic Host policy** — `rules/orchestration.md` defines routing, authority, evidence, correction, and completion behavior independent of the active Host model.
+3. **Model-specific Host correction** — add a small model-family rule only when a fallback Host needs behavioral correction. The planned Gemini fallback layer belongs in `rules/models/gemini-host.md`; it must remain a correction delta rather than a duplicated Main prompt.
+
+Do not create a custom `gravity-main.md` merely to apply model-specific prompting. A custom Main should only be reconsidered in a future version if a concrete capability or isolation requirement cannot be expressed through Antigravity's native Host plus rules.
 
 ## Spawn authority
 
@@ -53,34 +63,37 @@ Explorer does not execute implementation work. It returns information the Host n
 
 Use Explorer for questions such as where behavior lives, what files participate in a path, what patterns already exist, and what current implementation evidence is available. Use Deep instead when the problem is not merely locating facts but deciding what those facts mean or how an uncertain problem should be solved.
 
-## Why no custom Main agent yet
+## Why Main stays native
 
-Runtime validation for v0.2 showed that a selected custom primary agent could declare `invoke_subagent` yet fail to invoke even the built-in `research` subagent, while the Default agent could invoke `research` successfully. Keep the Default-host compatibility path until issue #9 re-tests current Antigravity behavior under a minimal controlled configuration.
+The Host role is fundamentally coordination policy over capabilities Antigravity already owns: the primary session, subagent invocation, lifecycle, workspaces, and model selection. Duplicating the Default agent as `gravity-main` would add another compatibility and maintenance surface without adding a required v0.3 capability.
 
-Treat this as a compatibility decision based on observed runtime behavior, not as a claim that Antigravity intentionally forbids custom-primary delegation.
+Runtime validation from v0.2 also showed that custom-primary delegation could behave differently from the Default agent. v0.3 therefore avoids making custom-Main behavior a release dependency at all: Native Gravity controls Main behavior through rules and keeps the primary agent native.
 
 ## Design rules
 
 1. Native-first: if Antigravity already owns a lifecycle/runtime capability, do not rebuild it.
 2. Keep orchestration depth bounded: Host -> Advisor -> Worker is the only nested implementation path.
 3. Keep role and model separate so future model replacement does not require redesigning the graph.
-4. Advisor plans/delegates bounded execution but does not edit project source or perform final review.
-5. Worker executes; it does not redesign the task, spawn agents, or self-certify overall completion.
-6. Explorer gathers evidence directly for the Host and remains read-only.
-7. Deep is triggered by uncertainty, diagnosis, ambiguity, or trade-offs — not merely by task size.
-8. Reviewer is independent and blocker-focused. It does not modify files.
-9. Prefer prompt/rule/configuration changes over new runtime code when AGY-native primitives are sufficient.
-10. Do not add persistent coordination state, custom packet builders, shell runtime wrappers, or quota routing in v0.3.
+4. Main is a Host policy layer, not a custom Native Gravity agent.
+5. Advisor plans/delegates bounded execution but does not edit project source or perform final review.
+6. Worker executes; it does not redesign the task, spawn agents, or self-certify overall completion.
+7. Explorer gathers evidence directly for the Host and remains read-only.
+8. Deep is triggered by uncertainty, diagnosis, ambiguity, or trade-offs — not merely by task size.
+9. Reviewer is independent and blocker-focused. It does not modify files.
+10. Prefer prompt/rule/configuration changes over new runtime code when AGY-native primitives are sufficient.
+11. Do not add persistent coordination state, custom packet builders, shell runtime wrappers, or quota routing in v0.3.
 
 ## Validation
 
 Issue #9 owns v0.3 behavioral validation. In addition to model-specific harness behavior, explicitly verify:
 
-- Host -> Advisor invocation
+- Default Host -> Advisor invocation
 - Advisor -> Worker nested invocation
 - that Advisor does not route to non-Worker children
 - that Worker / Explorer / Deep / Reviewer remain leaves
 - that the Host does not bypass Advisor for ordinary implementation
 - Explorer usefulness without Advisor mediation
 - bounded parallel Worker delegation without overlapping write scopes
+- Host behavior under the generic orchestration rule
+- Gemini fallback Host behavior once the model-specific correction layer exists
 - completion only after Host-owned evidence inspection and required Reviewer GO
