@@ -1,11 +1,20 @@
 # Native Gravity orchestration policy
 
-Use Antigravity's Default primary agent as the Host while the custom-Main path is under v0.3 revalidation.
+Use Antigravity's Default primary agent as the Host. Native Gravity v0.3 does not define or require a custom Main agent; Main behavior is this policy applied to the native Host.
+
+## Host policy layering
+
+The Host behavior has two layers:
+
+1. **Generic orchestration policy** — this file defines role routing, authority, evidence, correction, and completion behavior independent of the active Host model.
+2. **Model-specific correction** — when a fallback Host has known behavioral weaknesses, apply a small correction rule in addition to this file. The planned Gemini fallback correction belongs in `rules/models/gemini-host.md` and should contain only the delta needed for Gemini behavior.
+
+Do not duplicate the full Main policy in a model-specific file. Do not create `gravity-main.md` solely for prompt control.
 
 ## Topology
 
 ```text
-Host
+Host (Antigravity Default agent + Native Gravity rules)
 ├─ gravity-advisor
 │  └─ gravity-worker(s)
 ├─ gravity-explorer
