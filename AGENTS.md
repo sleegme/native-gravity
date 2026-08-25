@@ -6,7 +6,7 @@ Native Gravity is a thin Antigravity-native orchestration plugin. Use Antigravit
 
 ## v0.3 development topology
 
-The Antigravity **Default agent** is the Host/coordinator for v0.3. Native Gravity does not define a separate `gravity-main` agent; Main behavior is expressed as orchestration policy applied to the native Host.
+The Antigravity **Default agent** is the Host/coordinator for v0.3. Native Gravity does not define a separate `gravity-main` agent; Main behavior is expressed as policy applied to the native Host.
 
 ```text
 Host (Antigravity Default agent + Native Gravity rules)
@@ -34,13 +34,38 @@ Recommended v0.3 model mapping:
 
 Role contracts remain conceptually separate from model identity. Model-family corrections and role x model overlays are tracked in issue #9.
 
+## Harness layering
+
+Keep the behavioral harness layered and small:
+
+1. **Native runtime / tool surface** — Antigravity owns lifecycle, sessions, workspaces, tool permissions, and subagent execution.
+2. **Generic behavioral harness** — `rules/harness.md` defines model-agnostic contract, authority, evidence, verification, escalation, handoff, and completion discipline for the Host. Equivalent core rules are repeated compactly inside each custom subagent because subagent rule inheritance must not be assumed.
+3. **Role contract** — `rules/orchestration.md` and each `agents/gravity-*.md` define topology and role-specific responsibilities.
+4. **Model-family correction** — small behavioral deltas for a model family, such as the planned Gemini corrections.
+5. **Role x model overlay** — only where a concrete role/model pairing demonstrates an additional failure mode.
+
+Do not duplicate a complete role prompt in a model-specific overlay merely to change a few behavioral rules.
+
+The generic behavioral baseline is model-agnostic and should enforce:
+
+- contract-first behavior
+- hard role/scope/authority boundaries
+- OBSERVED / INFERRED / UNKNOWN separation
+- current-evidence grounding
+- acceptance-linked verification
+- explicit escalation instead of guessing
+- convergence instead of repeated materially similar loops
+- compact handoffs instead of transcript replay
+- Host-only global completion authority
+
 ## Host policy layering
 
 Treat Main as policy, not as another agent definition:
 
 1. **Native Host** — Antigravity Default agent owns the primary session and platform lifecycle.
-2. **Generic Host policy** — `rules/orchestration.md` defines routing, authority, evidence, correction, and completion behavior independent of the active Host model.
-3. **Model-specific Host correction** — add a small model-family rule only when a fallback Host needs behavioral correction. The planned Gemini fallback layer belongs in `rules/models/gemini-host.md`; it must remain a correction delta rather than a duplicated Main prompt.
+2. **Generic behavioral harness** — `rules/harness.md` supplies the model-agnostic operating discipline.
+3. **Generic orchestration policy** — `rules/orchestration.md` defines routing, spawn authority, delegation, correction, and review flow.
+4. **Model-specific Host correction** — add a small model-family rule only when a fallback Host needs behavioral correction. The planned Gemini fallback layer belongs in `rules/models/gemini-host.md`; it must remain a correction delta rather than a duplicated Main prompt.
 
 Do not create a custom `gravity-main.md` merely to apply model-specific prompting. A custom Main should only be reconsidered in a future version if a concrete capability or isolation requirement cannot be expressed through Antigravity's native Host plus rules.
 
@@ -75,18 +100,22 @@ Runtime validation from v0.2 also showed that custom-primary delegation could be
 2. Keep orchestration depth bounded: Host -> Advisor -> Worker is the only nested implementation path.
 3. Keep role and model separate so future model replacement does not require redesigning the graph.
 4. Main is a Host policy layer, not a custom Native Gravity agent.
-5. Advisor plans/delegates bounded execution but does not edit project source or perform final review.
-6. Worker executes; it does not redesign the task, spawn agents, or self-certify overall completion.
-7. Explorer gathers evidence directly for the Host and remains read-only.
-8. Deep is triggered by uncertainty, diagnosis, ambiguity, or trade-offs — not merely by task size.
-9. Reviewer is independent and blocker-focused. It does not modify files.
-10. Prefer prompt/rule/configuration changes over new runtime code when AGY-native primitives are sufficient.
-11. Do not add persistent coordination state, custom packet builders, shell runtime wrappers, or quota routing in v0.3.
+5. Generic behavioral rules must remain model-agnostic; model-specific weaknesses belong in correction overlays.
+6. Advisor plans/delegates bounded execution but does not edit project source or perform final review.
+7. Worker executes; it does not redesign the task, spawn agents, or self-certify overall completion.
+8. Explorer gathers evidence directly for the Host and remains read-only.
+9. Deep is triggered by uncertainty, diagnosis, ambiguity, or trade-offs — not merely by task size.
+10. Reviewer is independent and blocker-focused. It does not modify files.
+11. Prefer prompt/rule/configuration changes over new runtime code when AGY-native primitives are sufficient.
+12. Do not add persistent coordination state, custom packet builders, shell runtime wrappers, or quota routing in v0.3.
 
 ## Validation
 
 Issue #9 owns v0.3 behavioral validation. In addition to model-specific harness behavior, explicitly verify:
 
+- generic contract/scope adherence across every role
+- OBSERVED / INFERRED / UNKNOWN separation on ambiguous tasks
+- unsupported success-claim rate and evidence grounding
 - Default Host -> Advisor invocation
 - Advisor -> Worker nested invocation
 - that Advisor does not route to non-Worker children
@@ -94,6 +123,8 @@ Issue #9 owns v0.3 behavioral validation. In addition to model-specific harness 
 - that the Host does not bypass Advisor for ordinary implementation
 - Explorer usefulness without Advisor mediation
 - bounded parallel Worker delegation without overlapping write scopes
-- Host behavior under the generic orchestration rule
+- repeated-failure escalation instead of materially similar looping
+- compact handoffs without unnecessary transcript replay
+- Host behavior under the generic harness and orchestration rule
 - Gemini fallback Host behavior once the model-specific correction layer exists
-- completion only after Host-owned evidence inspection and required Reviewer GO
+- completion only after Host-owned current evidence inspection and required Reviewer GO
