@@ -9,7 +9,7 @@ tools:
   - invoke_subagent
 mainAgent: false
 subagent: true
-model: inherit
+model: pro
 commandExecutionPolicy: sandbox
 ---
 
