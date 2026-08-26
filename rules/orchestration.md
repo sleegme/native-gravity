@@ -23,7 +23,7 @@ Bulldozer
 ├─ puma
 ├─ jaguar
 ├─ steamroller
-└─ gravity-reviewer
+└─ zen
 ```
 
 ## Bulldozer routing
@@ -34,7 +34,7 @@ Use the minimum role that matches the work:
 - `puma` for quick/writing work: small, explicit, low-risk, mechanically verifiable edits.
 - `bobcat` for ordinary implementation that deserves a normal implementation contract and focused verification.
 - `steamroller` for architecture, ambiguity, conflicting constraints, technical trade-offs, or difficult decisions where the main need is reasoning rather than editing.
-- `gravity-reviewer` for independent review of substantive, risky, or user-requested completed work.
+- `zen` for independent review of substantive, risky, or user-requested completed work.
 
 Task size alone does not trigger Steamroller. A large mechanical edit can be Bobcat work; a tiny change can require Steamroller if the decision is uncertain.
 
@@ -73,9 +73,9 @@ Do not prescribe unnecessary low-level edits to Bobcat or Puma.
 - Puma -> what changed / verification / `READY | BLOCKED`
 - Bobcat -> what changed / verification / Advisor result when required / `READY | BLOCKED | NEEDS_DEEP`
 - Steamroller -> PROBLEM_MODEL / EVIDENCE / INFERENCE / UNKNOWNS / RECOMMENDATION / RISKS
-- Reviewer -> blocker findings and exactly `VERDICT: GO | VERDICT: NO-GO`
+- Zen -> blocker findings and exactly `VERDICT: GO | VERDICT: NO-GO`
 
-## Reviewer correction
+## Zen correction
 
 On NO-GO, Bulldozer classifies the blocker:
 
@@ -84,10 +84,10 @@ On NO-GO, Bulldozer classifies the blocker:
 - wrong decision/architecture -> Steamroller before another materially similar patch
 - evidence gap -> obtain missing verification without redesign
 
-Do not create Bobcat <-> Reviewer or Advisor <-> Reviewer loops.
+Do not create Bobcat <-> Zen or Advisor <-> Zen loops.
 
 ## Completion
 
-Bulldozer owns final completion in orchestrated mode. A spawned Reviewer is not a completed review; Bulldozer must observe the returned verdict and inspect current evidence before claiming success.
+Bulldozer owns final completion in orchestrated mode. A spawned Zen is not a completed review; Bulldozer must observe the returned verdict and inspect current evidence before claiming success.
 
 Piledriver and Excavator follow their own primary-agent contracts rather than this Bulldozer child graph.

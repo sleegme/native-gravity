@@ -24,7 +24,7 @@ Bulldozer
 ├─ Puma
 ├─ Jaguar
 ├─ Steamroller
-└─ gravity-reviewer
+└─ Zen
 ```
 
 ### Piledriver
@@ -42,7 +42,7 @@ Excavator is an autonomous bounded troubleshooter. It investigates, reproduces, 
 - **Jaguar** — read-only factual discovery; Flash tier.
 - **Steamroller** — read-only architecture/ambiguity/trade-off reasoning; Pro tier.
 - **gravity-advisor** — read-only Bobcat-local ADVISE/CHECK gate; codename TBD.
-- **gravity-reviewer** — independent read-only final review; `Zen` remains only a candidate codename.
+- **Zen** — independent read-only final review; Pro tier.
 
 ## Routing
 
@@ -51,7 +51,7 @@ find / inspect                         -> Jaguar
 small + clear + low-risk / writing   -> Puma
 ordinary implementation               -> Bobcat
 architecture / ambiguity / trade-off -> Steamroller
-independent verification              -> Reviewer
+independent verification              -> Zen
 plan-first workflow                   -> Piledriver primary
 root-cause + autonomous repair        -> Excavator primary
 ```

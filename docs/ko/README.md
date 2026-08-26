@@ -24,7 +24,7 @@ Bulldozer
 ├─ Puma        — quick + writing / Flash
 ├─ Jaguar      — 탐색 / Flash
 ├─ Steamroller — 깊은 판단 / Pro
-└─ Reviewer    — 독립 검수 / Pro
+└─ Zen         — 독립 검수 / Pro
 ```
 
 라우팅 기준:
@@ -33,7 +33,7 @@ Bulldozer
 - 작고 명확하고 저위험 / writing -> Puma
 - 일반 구현 -> Bobcat
 - 아키텍처/모호성/트레이드오프 -> Steamroller
-- 독립 검수 -> Reviewer
+- 독립 검수 -> Zen
 
 v0.3.3의 Gemini 3.1 Pro 전역 mutation deny 훅은 제거했습니다. v0.4의 Excavator는 Pro-tier 자율 구현 역할이므로 직접 수정 권한이 필요합니다.
 

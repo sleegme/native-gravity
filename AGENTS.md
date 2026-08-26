@@ -32,7 +32,7 @@ Bulldozer
 ├─ Puma
 ├─ Jaguar
 ├─ Steamroller
-└─ gravity-reviewer
+└─ Zen
 ```
 
 - **Bobcat** — ordinary implementation worker; Flash tier; may consult `gravity-advisor` when the Host-selected gate requires it.
@@ -40,7 +40,7 @@ Bulldozer
 - **Jaguar** — read-only codebase discovery; Flash tier.
 - **Steamroller** — read-only deep reasoning for architecture, ambiguity, trade-offs, and difficult decisions; Pro tier.
 - **gravity-advisor** — read-only Bobcat-local advice/check gate; final codename not yet selected.
-- **gravity-reviewer** — independent read-only final review gate; `Zen` is only a candidate name until explicitly adopted.
+- **Zen** — independent read-only final review gate; Pro tier.
 
 ## Routing principle
 
@@ -50,7 +50,7 @@ Choose by **kind of work**, not by apparent task size alone.
 - small + clear + low-risk / writing / formatting / mechanical text/config -> Puma
 - ordinary implementation -> Bobcat
 - architecture / ambiguity / trade-off -> Steamroller
-- independent completion review -> gravity-reviewer
+- independent completion review -> Zen
 - plan-first user workflow -> Piledriver primary
 - difficult autonomous diagnosis + repair user workflow -> Excavator primary
 
@@ -100,12 +100,12 @@ Earlier Native Gravity testing found that an Antigravity custom primary agent co
 Before calling v0.4 stable, verify:
 
 1. Bulldozer is selectable as a primary agent.
-2. Bulldozer can invoke Bobcat, Puma, Jaguar, Steamroller, and gravity-reviewer.
+2. Bulldozer can invoke Bobcat, Puma, Jaguar, Steamroller, and Zen.
 3. Bobcat can invoke gravity-advisor and no other child.
 4. Piledriver is selectable and remains planning-only.
 5. Excavator is selectable, can edit, and is not blocked by a model-wide mutation guard.
 6. Puma handles quick/writing work without ritual Advisor use.
-7. Reviewer completion is based on an actually observed verdict.
+7. Zen completion is based on an actually observed verdict.
 
 ## Design rules
 
@@ -115,5 +115,5 @@ Before calling v0.4 stable, verify:
 4. Fit roles to model behavior before adding corrective harness weight.
 5. Use Puma for quick/writing work instead of burdening Bobcat with unnecessary review ceremony.
 6. Keep Jaguar factual and Steamroller decisional.
-7. Keep Advisor and Reviewer read-only.
+7. Keep Advisor and Zen read-only.
 8. Do not reintroduce a model-wide 3.1 Pro mutation deny while Excavator uses that model family for implementation.

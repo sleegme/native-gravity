@@ -17,7 +17,7 @@ Native Gravity v0.4는 모델을 억지로 같은 Host 행동에 맞추기보다
 - **Jaguar** — read-only 탐색. Flash.
 - **Steamroller** — read-only 깊은 판단. Pro.
 - **gravity-advisor** — Bobcat 전용 로컬 검토. 이름 미정.
-- **gravity-reviewer** — 최종 독립 검수. `Zen`은 후보일 뿐 아직 확정 아님.
+- **Zen** — 최종 독립 검수. Pro.
 
 ## 핵심 경계
 

@@ -26,7 +26,7 @@ Bulldozer
 ├─ Puma        — quick + writing / Flash
 ├─ Jaguar      — codebase exploration / Flash
 ├─ Steamroller — deep decisions / Pro
-└─ Reviewer    — independent final review / Pro
+└─ Zen         — independent final review / Pro
 ```
 
 Routing is based on the kind of work:
@@ -35,7 +35,7 @@ Routing is based on the kind of work:
 - small + clear + low-risk / writing -> Puma
 - ordinary implementation -> Bobcat
 - architecture / ambiguity / trade-off -> Steamroller
-- independent verification -> Reviewer
+- independent verification -> Zen
 
 Piledriver is for users who want a plan-first workflow. Excavator is for users who want one autonomous agent to dig into a difficult failure, find root cause, repair it, and verify the bounded result end-to-end.
 

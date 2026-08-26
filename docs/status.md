@@ -11,10 +11,9 @@
 Implemented:
 
 - peer primary modes: Bulldozer / Piledriver / Excavator
-- internal renames: Worker -> Bobcat, Explorer -> Jaguar, Deep -> Steamroller
+- internal renames: Worker -> Bobcat, Explorer -> Jaguar, Deep -> Steamroller, Reviewer -> Zen
 - new Puma quick/writing path
 - Bobcat -> gravity-advisor local gate retained
-- gravity-reviewer retained pending final codename decision
 - v0.3.3 global Gemini 3.1 Pro mutation hook removed because Excavator must edit
 - generic routing/docs updated for model-natural role allocation
 
@@ -25,9 +24,8 @@ Pending validation:
 - Excavator can edit and verify end-to-end on Pro tier
 - Puma handles quick/writing work without unnecessary Advisor ceremony
 - Bobcat -> Advisor gate still converges correctly after rename
-- Reviewer verdict is observed before completion claims
+- Zen verdict is observed before completion claims
 
 Naming still open:
 
 - Advisor codename
-- Reviewer codename (`Zen` is a candidate, not yet adopted)

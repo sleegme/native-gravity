@@ -24,7 +24,7 @@ Expected routing:
 - quick/writing -> Puma
 - implementation -> Bobcat
 - difficult decision -> Steamroller
-- independent final review -> gravity-reviewer
+- independent final review -> Zen
 
 ### Piledriver
 
@@ -47,7 +47,7 @@ Use Puma for clearly small, explicit, low-risk work such as straightforward writ
 Before trusting v0.4 for real work, confirm the current AGY runtime can:
 
 1. select all three primary agents;
-2. let Bulldozer invoke Bobcat/Puma/Jaguar/Steamroller/Reviewer;
+2. let Bulldozer invoke Bobcat/Puma/Jaguar/Steamroller/Zen;
 3. let Bobcat invoke gravity-advisor;
 4. let Excavator edit project source;
-5. return actual subagent/reviewer results instead of only launch acknowledgements.
+5. return actual subagent/Zen results instead of only launch acknowledgements.

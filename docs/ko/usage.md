@@ -12,7 +12,7 @@ v0.3.x에서 넘어올 때는 제거된 agent/hook 파일이 설치 디렉터리
 
 ## Bulldozer
 
-일반적인 멀티스텝 작업에 사용합니다. 내부적으로 Jaguar/Puma/Bobcat/Steamroller/Reviewer를 골라 호출합니다.
+일반적인 멀티스텝 작업에 사용합니다. 내부적으로 Jaguar/Puma/Bobcat/Steamroller/Zen을 골라 호출합니다.
 
 ## Piledriver
 
@@ -34,4 +34,4 @@ Puma는 writing, formatting, presentation-only, mechanical text/config 같은 qu
 2. Bobcat -> Advisor가 동작하는지
 3. Excavator가 Pro tier에서 수정 가능한지
 4. Puma가 작은 작업을 과한 ceremony 없이 끝내는지
-5. Reviewer launch가 아니라 실제 verdict를 받은 뒤 완료하는지
+5. Zen launch가 아니라 실제 verdict를 받은 뒤 완료하는지

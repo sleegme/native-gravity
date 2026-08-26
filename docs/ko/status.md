@@ -10,6 +10,7 @@
 - Worker -> Bobcat
 - Explorer -> Jaguar
 - Deep -> Steamroller
+- Reviewer -> Zen
 - Puma quick/writing 경로 추가
 - Bobcat -> Advisor gate 유지
 - v0.3.3 Gemini 3.1 Pro 전역 mutation guard 제거
@@ -22,9 +23,8 @@
 - Excavator direct edit + end-to-end verify
 - Puma quick/writing 효율
 - Bobcat -> Advisor CHECK 수렴
-- Reviewer 실제 verdict 관측
+- Zen 실제 verdict 관측
 
 미확정 이름:
 
 - Advisor
-- Reviewer (`Zen` 후보)
