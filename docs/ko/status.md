@@ -23,6 +23,7 @@
 - Excavator direct edit + end-to-end verify
 - Puma quick/writing 효율
 - Bobcat -> Advisor CHECK 수렴
+- Bobcat이 gravity-advisor 외 subagent를 호출하지 않음 (negative case)
 - Zen 실제 verdict 관측
 
 미확정 이름:

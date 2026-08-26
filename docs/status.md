@@ -24,6 +24,7 @@ Pending validation:
 - Excavator can edit and verify end-to-end on Pro tier
 - Puma handles quick/writing work without unnecessary Advisor ceremony
 - Bobcat -> Advisor gate still converges correctly after rename
+- Bobcat attempts no subagent other than gravity-advisor (negative delegation case)
 - Zen verdict is observed before completion claims
 
 Naming still open:

@@ -93,6 +93,6 @@ Downstream roles should receive the task contract and current artifact/evidence 
 
 Delegation and local readiness are not global completion.
 
-Only the Host may claim that the overall user task is complete. Subagents report local readiness, findings, diagnosis, blockers, or review verdicts according to their role contracts.
+Only the active primary agent (Bulldozer in orchestrated mode; Piledriver for plan readiness; Excavator for its explicitly bounded task) may claim completion of the work it owns. Subagents report local readiness, findings, diagnosis, blockers, or review verdicts according to their role contracts.
 
-The Host must inspect current artifact/evidence before making the final completion claim and must respect any required independent review gate.
+The active primary agent must inspect current artifact/evidence before making the final completion claim and must respect any required independent review gate.

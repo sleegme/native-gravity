@@ -1,5 +1,10 @@
 # v0.3.3 model policy
 
+> **HISTORICAL — SUPERSEDED BY v0.4.** This document describes v0.3.3 policy and is kept for reference only.
+> The Gemini 3.1 Pro mutation guard described here was removed in v0.4 (see `AGENTS.md`), the hooks no longer exist,
+> and the role names below (`gravity-worker`, `gravity-deep`, `gravity-explorer`, `gravity-reviewer`) were replaced by
+> the v0.4 roles (Bobcat, Steamroller, Jaguar, Zen). Do not treat this file as active policy.
+
 ## Host decision
 
 Gemini 3.7 Flash High is no longer a recommended or supported Native Gravity Host/Main configuration for v0.3.3.

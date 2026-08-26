@@ -9,7 +9,7 @@ tools:
 mainAgent: false
 subagent: true
 model: pro
-commandExecutionPolicy: off
+commandExecutionPolicy: sandbox
 ---
 
 # Role

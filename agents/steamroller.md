@@ -6,7 +6,6 @@ tools:
   - list_dir
   - find_by_name
   - grep_search
-  - run_command
 mainAgent: false
 subagent: true
 model: pro

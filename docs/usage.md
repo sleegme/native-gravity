@@ -48,6 +48,9 @@ Before trusting v0.4 for real work, confirm the current AGY runtime can:
 
 1. select all three primary agents;
 2. let Bulldozer invoke Bobcat/Puma/Jaguar/Steamroller/Zen;
-3. let Bobcat invoke gravity-advisor;
-4. let Excavator edit project source;
-5. return actual subagent/Zen results instead of only launch acknowledgements.
+3. let Bobcat invoke gravity-advisor — and observe that Bobcat attempts no other subagent (negative delegation case);
+4. let Piledriver stop at plan status instead of editing project source;
+5. let Excavator edit project source;
+6. return actual subagent/Zen results instead of only launch acknowledgements.
+
+If Excavator ends a task as `BLOCKED`, re-dispatch the open decision question through Bulldozer (`Steamroller`) rather than expecting Excavator to resolve it itself.

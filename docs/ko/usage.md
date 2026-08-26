@@ -30,8 +30,12 @@ Puma는 writing, formatting, presentation-only, mechanical text/config 같은 qu
 
 ## Alpha에서 먼저 볼 것
 
-1. Bulldozer가 internal subagent를 실제 호출하는지
-2. Bobcat -> Advisor가 동작하는지
-3. Excavator가 Pro tier에서 수정 가능한지
-4. Puma가 작은 작업을 과한 ceremony 없이 끝내는지
-5. Zen launch가 아니라 실제 verdict를 받은 뒤 완료하는지
+1. 세 primary(Bulldozer/Piledriver/Excavator)가 모두 선택 가능한지
+2. Bulldozer가 internal subagent를 실제 호출하는지
+3. Bobcat -> Advisor가 동작하는지, 그리고 Bobcat이 다른 subagent를 호출하지 않는지 (negative case)
+4. Piledriver가 구현 대신 PLAN_STATUS에서 멈추는지
+5. Excavator가 Pro tier에서 수정 가능한지 (model-wide mutation guard에 막히지 않는지)
+6. Puma가 작은 작업을 과한 ceremony 없이 끝내는지
+7. Zen launch가 아니라 실제 verdict를 받은 뒤 완료하는지
+
+Excavator가 `BLOCKED`로 끝나면, 그 결정 질문은 Excavator가 스스로 풀지 않고 Bulldozer(Steamroller)로 다시 보내 재검토합니다.
