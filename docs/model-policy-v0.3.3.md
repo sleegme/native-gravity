@@ -47,10 +47,33 @@ This change does not declare Gemini 3.1 Pro a proven Host replacement yet. Befor
 - evidence-grounded completion claims;
 - convergence and long-running task supervision.
 
-If 3.1 Pro also attempts to absorb implementation, prefer structural enforcement over additional personality prose.
+## Gemini 3.1 Pro mutation guard
+
+v0.3.3 adds a narrow Antigravity `PreToolUse` hard guard for project-file mutation tools.
+
+The current v0.3.3 model map gives Gemini 3.1 Pro only coordination or read-only duties:
+
+- experimental Gemini Host fallback;
+- `gravity-advisor`;
+- `gravity-deep`;
+- `gravity-reviewer`.
+
+None of those roles owns implementation edits. Therefore, when the hook payload reports a Gemini 3.1 Pro model and the model attempts a matched project-file mutation tool, Native Gravity denies the tool call and instructs the Host to route ordinary implementation to `gravity-worker`.
+
+The guard deliberately does **not** block Gemini 3.7 Flash mutation because `gravity-worker` is the implementation owner. Non-Gemini models are unaffected.
+
+This is a model-map-specific v0.3.3 enforcement slice, not a universal statement that Gemini 3.1 Pro can never implement. If the model map changes in a later version, this guard must be reevaluated with it.
+
+The first guard only covers Antigravity file-mutation tools matched in `hooks.json`. Shell-mediated mutation is not yet a hard capability boundary and remains outside this slice. Do not describe this hook as a complete sandbox.
 
 ## Enforcement direction
 
-Host implementation ownership is an orchestration invariant, not a model preference. Native Gravity should continue investigating Antigravity-native enforcement such as `PreToolUse` hooks or capability boundaries so a Host cannot silently replace Worker execution.
+Host implementation ownership is an orchestration invariant, not merely a model preference. Prompt correction remains useful for judgment, evidence discipline, intent classification, and normal routing, but a known model-specific ownership failure should not depend on prose alone when Antigravity exposes a native transition guard.
 
-The role-identification hook probe remains experimental and separate from this model-policy change.
+For v0.3.3 the enforcement split is:
+
+- prompt/rules: tell the model how to coordinate, delegate, verify, and complete;
+- Gemini 3.1 Pro `PreToolUse` guard: deny matched direct mutation attempts;
+- Worker role: retain implementation ownership and mutation authority.
+
+The separate role-identification probe remains useful for a future model-agnostic Host guard, but v0.3.3 does not require that experiment to protect the current Gemini 3.1 Pro model map.
