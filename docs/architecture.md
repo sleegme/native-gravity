@@ -1,50 +1,61 @@
 # Architecture
 
-Native Gravity v0.2.1 is intentionally not a second agent runtime. It is a small orchestration policy loaded into Antigravity's existing runtime.
+Native Gravity v0.3.1 remains intentionally not a second agent runtime. It is a thin orchestration and behavioral-harness layer loaded into Antigravity's existing runtime.
 
 ```text
 User
   |
   v
-Antigravity Default agent / host model
+Antigravity Default agent / Host
 (recommended: Claude Sonnet 4.6)
+  + rules/harness.md
   + rules/orchestration.md
   |
-  |-- gravity-worker   / flash
-  |      clear bounded execution
+  |-- gravity-worker / flash
+  |      bounded implementation owner
+  |        |
+  |        `-- gravity-advisor / pro
+  |               read-only ADVISE / CHECK gate
   |
-  |-- gravity-deep     / pro
+  |-- gravity-explorer / flash
+  |      read-only current-state discovery
+  |
+  |-- gravity-deep / pro
   |      diagnosis, ambiguity, trade-offs
   |
   `-- gravity-reviewer / pro
          independent read-only verification
 ```
 
-## Host and subagent roles are separate
+## Why v0.3.1 is Worker-driven
 
-The primary coordinator is Antigravity's Default agent. Native Gravity defines only the policy used by that host and three specialized subagent contracts.
+The first real v0.3 harness exercise exposed a topology mismatch. Advisor correctly modeled the implementation problem but then began executing the work itself while delegated execution was still pending. The role prompt already prohibited source edits; the more important problem was structural ownership.
 
-| Component | Contract | v0.2.1 model policy |
+v0.3.1 therefore makes Worker the implementation owner and moves the nested delegation edge:
+
+```text
+v0.3:   Host -> Advisor -> Worker
+v0.3.1: Host -> Worker -> Advisor
+```
+
+Advisor is now a read-only local consultant and gate. It can tell Worker what is wrong, but it cannot fix the problem itself.
+
+The design invariant is:
+
+> Advisor corrects through Worker, never instead of Worker.
+
+## Role and model separation
+
+| Component | Contract | Current model policy |
 | --- | --- | --- |
-| Host | Own and coordinate the task | active Antigravity session model; Sonnet 4.6 recommended |
-| Worker | Execute clear bounded subtasks | `flash` |
-| Deep | Resolve uncertainty before execution | `pro` |
-| Reviewer | Independently verify delivered work | `pro` |
+| Host | Global routing, arbitration, final completion | active Antigravity session model; Sonnet 4.6 recommended |
+| Worker | Own bounded implementation, edits, focused verification, Advisor loop | `flash` / Gemini 3.7 Flash |
+| Advisor | Read-only implementation advice and local acceptance gate | `pro` / Gemini 3.1 Pro |
+| Explorer | Read-only current-state discovery | `flash` / Gemini 3.7 Flash |
+| Deep | Resolve diagnosis/design uncertainty | `pro` / Gemini 3.1 Pro |
+| Reviewer | Independent final quality gate | `pro` / Gemini 3.1 Pro |
 
-Native Gravity does not pin exact subagent slugs because Antigravity custom subagents expose native model tiers. Future model changes should not require rewriting role definitions.
-
-## Why v0.2.1 removed gravity-main
-
-The v0.2 bootstrap uncovered a runtime compatibility blocker. With `gravity-main` selected as a custom primary agent, calls through `invoke_subagent` failed for:
-
-- plugin `gravity-deep`
-- plugin `gravity-worker`
-- a workspace custom `gravity-worker-test`
-- built-in `research`
-
-The same environment's Default agent successfully invoked built-in `research`.
-
-The observed error was `subagent "<name>" not found or not allowed to be invoked`. That evidence does not distinguish discovery from authorization internally, and it does not prove that custom-primary delegation is intentionally unsupported. v0.2.1 simply avoids replacing the native primary agent while issue #3 continues runtime validation.
+Role contracts remain separate from exact model identity. A future model swap should not require changing the graph unless runtime behavior demonstrates a new structural failure.
 
 ## Native-first boundary
 
@@ -53,9 +64,9 @@ Antigravity owns:
 - the primary agent
 - custom-agent discovery
 - `invoke_subagent`
-- background/subagent lifecycle
+- subagent lifecycle
 - workspace handling
-- session reuse and messaging
+- sessions
 - tool permissions and sandboxing
 - model-tier resolution
 - plugin rule loading
@@ -65,26 +76,56 @@ Native Gravity owns:
 - orchestration/routing rules
 - specialized subagent role definitions
 - task contracts passed through prompts
+- evidence and completion discipline
+- local Advisor gate
 - Deep escalation criteria
-- review policy
+- independent Reviewer policy
 
-No wrapper CLI, custom runner, durable mailbox, or state machine is introduced in v0.2.1.
+No wrapper CLI, custom runner, durable mailbox, or replacement state machine is introduced.
 
 ## Host policy
 
-The former Main behavior now lives in `rules/orchestration.md`. The host interprets the request and chooses the minimum necessary orchestration. It may perform trivial or integration-sensitive work directly when delegation costs more than it saves.
+Main remains policy, not a custom agent. Antigravity's Default agent is the Host.
 
-When delegation is useful, the host passes an explicit envelope: `ROLE_REASON`, `GOAL`, `SCOPE`, `NON_GOALS`, `ACCEPTANCE`, `EVIDENCE`, `EDIT_POLICY`, and `EXPECTED_OUTPUT`.
+For ordinary implementation, Host sends Worker an explicit bounded contract containing the useful subset of:
+
+- `ROLE_REASON`
+- `GOAL`
+- `SCOPE`
+- `NON_GOALS`
+- `ACCEPTANCE`
+- `EVIDENCE`
+- `EDIT_POLICY`
+- `EXPECTED_OUTPUT`
+
+Host does not need to pre-decompose every edit. Worker owns execution inside that contract.
 
 ## Worker
 
-Worker is the default leaf executor. Clear implementation and focused discovery/research can both be expressed as bounded Worker prompts.
+Worker is the implementation owner and the only nested delegator.
 
-Worker ends with one terminal signal:
+Worker may invoke `gravity-advisor` only. It may use Advisor in two modes:
 
-- `DONE`
-- `BLOCKED`
+- `ADVISE` — bounded implementation-local judgment
+- `CHECK` — mandatory current-state local acceptance gate before Worker may report `READY`
+
+Worker remains responsible for all source edits and focused verification across correction cycles.
+
+## Advisor
+
+Advisor is read-only and does not invoke subagents.
+
+In `ADVISE` mode it returns bounded guidance or `NEEDS_DEEP`.
+
+In `CHECK` mode it inspects the current artifact and returns:
+
+- `VERDICT: ACCEPT`
+- `VERDICT: REVISE`
 - `NEEDS_DEEP`
+
+`VERDICT: REVISE` must identify concrete acceptance-linked defects for Worker to repair. Advisor does not perform the repair.
+
+`VERDICT: ACCEPT` authorizes only Worker's local `READY`; it is not global completion and does not replace Reviewer.
 
 ## Deep
 
@@ -95,24 +136,48 @@ large but mechanical edit -> Worker
 small change with unknown race-condition cause -> Deep
 ```
 
-Deep is read-only and returns diagnosis plus a concrete implementation contract. The host or Worker executes the chosen solution.
+Deep is read-only and returns diagnosis plus a bounded implementation direction. Host then routes implementation back to Worker.
+
+## Explorer
+
+Explorer is a direct Host read-only specialist for factual discovery: where behavior lives, which files/symbols participate, what implementation exists, and what current evidence is available.
 
 ## Reviewer
 
-Reviewer is independent, read-only, and blocker-focused. The host sends the task goal/scope, acceptance criteria, change context, and verification evidence on invocation.
+Reviewer is independent, read-only, and blocker-focused. It receives the original/current task contract and current artifact/evidence rather than persuasive self-assessment from Worker or Advisor by default.
 
-Review is risk-gated. Trivial low-risk work does not need a mandatory extra model call.
+Advisor CHECK and Reviewer serve different purposes:
 
-## Correction loop
+- Advisor improves and gates the bounded implementation loop.
+- Reviewer independently evaluates delivered work for the Host.
+
+## Correction flow
 
 ```text
-Worker implementation
-      ↓
-Reviewer (when justified)
-      ↓
-NO-GO
-      ↓
-classify blocker
-  ├─ implementation defect → existing Worker session → fix → re-review
-  └─ wrong diagnosis       → Deep → new implementation contract
+Host
+  |
+  v
+Worker implementation + focused verification
+  |
+  v
+Advisor CHECK
+  |\
+  | REVISE -> Worker repair -> CHECK again
+  |
+  ` ACCEPT
+      |
+      v
+   Worker READY
+      |
+      v
+     Host
+      |
+      v
+Reviewer (when required)
+  |\
+  | NO-GO -> Host classifies -> Worker repair or Deep
+  |
+  ` GO -> Host inspects current evidence -> final completion
 ```
+
+Repeated materially similar local failures escalate instead of looping indefinitely.
