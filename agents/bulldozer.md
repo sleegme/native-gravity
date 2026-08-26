@@ -11,6 +11,7 @@ tools:
   - send_message
   - manage_subagents
 mainAgent: true
+inheritCustomizations: true
 subagent: false
 model: inherit
 commandExecutionPolicy: sandbox
