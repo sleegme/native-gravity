@@ -17,7 +17,7 @@ Host (Antigravity Default agent + Native Gravity rules)
 └─ Reviewer
 ```
 
-- **Worker** — implementation owner. It executes the Host contract, may consult Advisor during implementation, and MUST obtain Advisor acceptance before reporting local readiness.
+- **Worker** — implementation owner. It executes the Host contract, may consult Advisor when permitted, and obeys the Host-selected local Advisor gate.
 - **Advisor** — read-only implementation consultant and local quality gate. It advises or returns ACCEPT/REVISE; it never edits project source and never owns execution.
 - **Explorer** — read-only discovery leaf. It gathers codebase structure, current-state evidence, and candidate locations directly for the Host.
 - **Deep** — read-only reasoning leaf for ambiguity, diagnosis, and technical trade-offs.
@@ -49,6 +49,19 @@ Host -> Worker -> Advisor(CHECK)
 Worker may also call Advisor in `ADVISE` mode when a bounded implementation judgment is useful. Architecture/root-cause uncertainty still escalates to Host -> Deep rather than turning Advisor into a second Main.
 
 The invariant is: **Advisor corrects through Worker, never instead of Worker.**
+
+## Host-selected Advisor gate
+
+The Host chooses the local gate in every Worker packet:
+
+- `ADVISOR_GATE: REQUIRED` — substantive implementation must pass current Advisor CHECK before Worker may report `READY`.
+- `ADVISOR_GATE: NONE` — clearly low-risk mechanical work may self-verify and return `READY` without Advisor.
+
+There is no `OPTIONAL` value in v0.3.1. Worker must not decide to downgrade oversight for itself.
+
+Typical `NONE` work includes straightforward writing/rewrite, formatting, presentation-only changes, and text-only documentation edits with explicit supplied content. Typical code, behavior, test, runtime configuration, API, state/lifecycle/concurrency, multi-criterion, or Reviewer-repair work is `REQUIRED`.
+
+When classification is materially uncertain, use `REQUIRED`.
 
 ## Harness layering
 
@@ -95,14 +108,16 @@ Keep the graph shallow and explicit:
 4. Worker may invoke **gravity-advisor only**.
 5. Advisor, Explorer, Deep, and Reviewer are leaf agents and must not invoke subagents.
 6. Advisor cannot edit project source or certify final task completion.
-7. Worker cannot report `READY` until an Advisor `CHECK` returns `VERDICT: ACCEPT` for the current implementation state.
-8. Final review and completion remain Host-owned; Advisor acceptance is not Reviewer approval.
+7. Under `ADVISOR_GATE: REQUIRED`, Worker cannot report `READY` until an Advisor `CHECK` returns `VERDICT: ACCEPT` for the current implementation state.
+8. Under `ADVISOR_GATE: NONE`, Worker self-verifies against the Host contract and may report `READY` without Advisor.
+9. Worker cannot change the Host-selected gate.
+10. Final review and completion remain Host-owned; Advisor acceptance is not Reviewer approval.
 
 This is a bounded two-level implementation loop, not a recursive swarm.
 
 ## Advisor gate
 
-Worker uses Advisor in two modes:
+When the Host selects `REQUIRED`, Worker uses Advisor in two modes:
 
 - **ADVISE** — bounded implementation judgment when Worker has a concrete question but no Deep-level uncertainty.
 - **CHECK** — mandatory local acceptance gate before Worker may report `READY`.
@@ -113,6 +128,8 @@ For `CHECK`:
 - Worker repairs them and requests CHECK again.
 - `VERDICT: ACCEPT` allows Worker to report local `READY`.
 - `NEEDS_DEEP` stops the local loop and returns control through Worker to Host for Deep routing.
+
+When the Host selects `NONE`, Worker should not invoke Advisor merely for ritual confirmation. It still performs bounded self-verification.
 
 Repeated materially similar REVISE cycles must converge or escalate; do not ping-pong indefinitely.
 
@@ -135,7 +152,7 @@ The Host role is fundamentally coordination policy over capabilities Antigravity
 5. Generic behavioral rules must remain model-agnostic; model-specific weaknesses belong in correction overlays.
 6. Worker owns implementation and all project-source edits for its bounded contract.
 7. Advisor is read-only; it advises, checks, and returns defects to Worker rather than fixing them itself.
-8. Worker cannot self-certify local readiness; current-state Advisor acceptance is required.
+8. Host owns local-gate selection; Worker must not weaken it.
 9. Explorer gathers evidence directly for the Host and remains read-only.
 10. Deep is triggered by uncertainty, diagnosis, ambiguity, or trade-offs — not merely by task size.
 11. Reviewer is independent and blocker-focused. It does not modify files.
@@ -148,10 +165,11 @@ Issue #9 owns behavioral validation. v0.3.1 must explicitly verify:
 
 - generic contract/scope adherence across every role
 - Default Host -> Worker invocation for ordinary implementation
-- Worker -> Advisor nested invocation
+- Worker -> Advisor nested invocation when `ADVISOR_GATE: REQUIRED`
+- Advisor bypass for legitimate `ADVISOR_GATE: NONE` work such as simple writing
+- that Worker never downgrades REQUIRED to NONE
 - that Worker can invoke Advisor but no other child
 - that Advisor / Explorer / Deep / Reviewer remain leaves
-- mandatory Advisor CHECK before Worker `READY`
 - REVISE -> Worker repair -> CHECK convergence
 - Advisor source-edit prohibition
 - Advisor acceptance does not bypass Host-owned Reviewer/final completion
