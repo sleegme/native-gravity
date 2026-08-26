@@ -1,0 +1,17 @@
+{
+  "native-gravity-gemini-mutation-guard": {
+    "enabled": true,
+    "PreToolUse": [
+      {
+        "matcher": "write_to_file|replace_file_content|multi_replace_file_content",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 hooks/gemini_mutation_guard.py",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}
