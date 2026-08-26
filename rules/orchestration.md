@@ -98,9 +98,9 @@ Use for clearly low-risk, mechanically verifiable work where the Pro-tier local 
 
 Typical NONE work includes:
 
-- straightforward writing or rewriting
+- straightforward writing, rewriting, summarization, or translation when the source/goal is explicit
 - formatting or presentation-only changes
-- text-only documentation edits with explicit supplied content
+- text-only documentation edits with explicit supplied content and no behavioral contract change
 - mechanical metadata/text changes with no behavioral effect
 
 `NONE` does not waive verification. Worker still inspects the current artifact and performs bounded self-verification against the Host contract.
