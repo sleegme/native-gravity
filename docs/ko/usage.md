@@ -1,72 +1,37 @@
 # 사용법
 
-Native Gravity v0.2.2는 별도 wrapper CLI 없이 Antigravity plugin으로 직접 사용합니다.
-
-## 설치
+> v0.4 alpha
 
 ```bash
-git clone https://github.com/sleegme/native-gravity.git
-cd native-gravity
-agy plugin install .
-```
-
-기존 설치본에서 업그레이드하는 경우, 특히 v0.2에서 올라오는 경우에는 삭제된 파일이 staged plugin 디렉터리에 남지 않도록 clean reinstall을 권장합니다.
-
-```bash
+git switch feat/v0.4-construction-primary-agents
 agy plugin uninstall native-gravity
 agy plugin install .
 ```
 
-Antigravity의 **Default agent**를 primary로 사용합니다. 권장 host/session model은 Claude Sonnet 4.6입니다.
+v0.3.x에서 넘어올 때는 제거된 agent/hook 파일이 설치 디렉터리에 남지 않도록 clean reinstall을 권장합니다.
 
-Plugin rule이 Native Gravity의 routing policy를 제공하고, `gravity-worker`, `gravity-deep`, `gravity-reviewer`는 custom subagent로 남습니다.
+## Bulldozer
 
-## 기본 흐름
+일반적인 멀티스텝 작업에 사용합니다. 내부적으로 Jaguar/Puma/Bobcat/Steamroller/Reviewer를 골라 호출합니다.
 
-```text
-사용자 요청
-  ↓
-Antigravity Default agent + Native Gravity rule
-  ├─ 명확한 실행 → Worker
-  ├─ 불확실한 진단/판단 → Deep → host/Worker
-  └─ 필요 시 독립 검증 → Reviewer
-```
+## Piledriver
 
-서브에이전트가 부모 대화 전체를 자동으로 안다고 가정하지 말고, 호출 prompt에 다음 named field를 명시합니다.
+구현 전에 계획을 먼저 만들고 싶을 때 사용합니다. 프로젝트 소스는 수정하지 않고 실행 가능한 계획 패킷만 반환합니다.
 
-- `ROLE_REASON`
-- `GOAL`
-- `SCOPE`
-- `NON_GOALS`
-- `ACCEPTANCE`
-- `EVIDENCE`
-- `EDIT_POLICY`
-- `EXPECTED_OUTPUT`
+## Excavator
 
-일반적인 순차 작업은 같은 checkout을 보는 `Workspace: inherit`가 자연스럽습니다.
+"왜 망가졌는지 파서 직접 고쳐" 유형에 사용합니다. bounded 문제를 조사하고 root cause를 찾은 뒤 수정과 검증까지 직접 수행합니다.
 
-## Worker
+## Bobcat / Puma
 
-명확한 구현, 반복 수정, focused discovery/research를 맡깁니다.
+Bobcat은 일반 구현 담당이며 Bulldozer가 `ADVISOR_GATE: REQUIRED | NONE`을 선택합니다.
 
-종료 시 정확히 하나를 반환합니다.
+Puma는 writing, formatting, presentation-only, mechanical text/config 같은 quick/low-risk 작업 전용이며 Advisor를 부르지 않습니다.
 
-- `DONE` — 작업 완료 + 검증 evidence
-- `BLOCKED` — 안전하게 진행할 수 없는 구체적 blocker
-- `NEEDS_DEEP` — 무엇을 해야 하는지 아직 불명확해 진단 필요
+## Alpha에서 먼저 볼 것
 
-## Deep
-
-원인 불명, 요구사항 충돌, 설계 trade-off, 기존 의도 복원, 반복 실패처럼 실행 전에 diagnosis가 필요한 경우 사용합니다. Deep은 read-only이며 concrete implementation contract를 반환합니다.
-
-## Reviewer
-
-구현 에이전트와 독립적으로 요구사항/정확성/regression/scope/검증을 확인합니다. Host가 task goal/scope, acceptance criteria, 변경 컨텍스트, evidence를 prompt에 함께 전달합니다.
-
-최종 출력은 `VERDICT: GO` 또는 `VERDICT: NO-GO`입니다.
-
-## Runtime note
-
-v0.2.1부터 `gravity-main`을 custom primary로 사용하지 않습니다. v0.2 검증에서 해당 구성은 custom subagent와 built-in `research` 호출이 모두 실패했고, 같은 환경의 Default agent에서는 built-in `research`가 성공했습니다.
-
-v0.2.2도 같은 native-host 구조를 유지합니다. Issue #3에서는 Deep escalation과 Reviewer correction routing 등 남은 runtime 검증을 계속 추적합니다.
+1. Bulldozer가 internal subagent를 실제 호출하는지
+2. Bobcat -> Advisor가 동작하는지
+3. Excavator가 Pro tier에서 수정 가능한지
+4. Puma가 작은 작업을 과한 ceremony 없이 끝내는지
+5. Reviewer launch가 아니라 실제 verdict를 받은 뒤 완료하는지

@@ -1,81 +1,40 @@
 # Native Gravity
 
-Google Antigravity 위에 얹는 작은 orchestration 플러그인입니다. OMO 계열의 역할 분리 철학은 가져오되, 런타임을 다시 만들지 않고 Antigravity native 기능을 최대한 그대로 사용합니다.
+Native Gravity는 Google Antigravity의 네이티브 실행 구조를 유지하면서 역할별 하네스를 제공하는 소형 오케스트레이션 플러그인입니다.
 
-> 현재 상태: **v0.2.2 / experimental**
+> 상태: **v0.4 alpha / 런타임 검증 전**
 
-## 핵심 구조
+## Primary 모드
 
 ```text
 User
-  │
-  ▼
-Antigravity Default agent
-(권장 host model: Claude Sonnet 4.6)
-  + Native Gravity orchestration rule
-  │
-  ├─ Worker   → AGY Flash tier
-  ├─ Deep     → AGY Pro tier
-  └─ Reviewer → AGY Pro tier
+├─ Bulldozer  — 범용 Host / 오케스트레이터
+├─ Piledriver — 계획 전용
+└─ Excavator  — 자율 트러블슈터 / 수리 담당
 ```
 
-v0.2.1에서는 Native Gravity가 primary agent를 교체하지 않습니다. Antigravity의 Default agent를 그대로 host로 사용하고, plugin rule과 세 개의 전문 subagent만 제공합니다.
+세 Primary는 동급 진입점입니다. Piledriver와 Excavator는 Bulldozer의 하위 에이전트가 아닙니다.
 
-- **Worker** — 범위가 명확하고 독립적으로 수행 가능한 작업을 처리하는 실행 에이전트
-- **Deep** — 원인·요구사항·해법이 불명확한 문제를 분석해 무엇을 해야 하는지 결정하는 진단 에이전트
-- **Reviewer** — 구현 결과가 요구사항과 품질 기준을 만족하는지 독립적으로 검증하는 검수 에이전트
-
-서브에이전트는 exact model slug를 강제로 고정하지 않고 AGY의 `flash` / `pro` tier를 사용합니다.
-
-## 왜 Default agent가 host인가
-
-v0.2 bootstrap 검증에서 `gravity-main`을 custom primary agent로 선택했을 때 `invoke_subagent`가 plugin agent, workspace custom agent, built-in `research` 모두를 거부했습니다. 같은 환경의 Default agent에서는 built-in `research` 호출이 성공했습니다.
-
-그래서 v0.2.1은 기존 Main의 행동을 `rules/orchestration.md`로 옮기고 Antigravity native primary를 그대로 사용합니다. 이것은 관측된 runtime 동작에 대한 compatibility 결정이지, custom primary delegation이 의도적으로 금지됐다는 뜻은 아닙니다.
-
-## 설치
-
-```bash
-git clone https://github.com/sleegme/native-gravity.git
-cd native-gravity
-agy plugin install .
-```
-
-기존 Native Gravity 설치본에서 업그레이드하는 경우, 특히 v0.2에서 올라오는 경우에는 삭제된 `gravity-main.md` 같은 파일이 staged plugin 디렉터리에 남지 않도록 clean reinstall을 권장합니다.
-
-```bash
-agy plugin uninstall native-gravity
-agy plugin install .
-```
-
-Antigravity의 **Default agent**를 사용합니다. 권장 host/session model은 Claude Sonnet 4.6입니다.
-
-## 라우팅
+## Bulldozer 내부 팀
 
 ```text
-명확하고 bounded한 실행
-→ Worker
-
-원인 불명 / 요구사항 모호 / 설계 trade-off
-→ Deep
-
-실질적이거나 위험한 구현의 독립 검증
-→ Reviewer
+Bulldozer
+├─ Bobcat      — 일반 구현 / Flash
+│  └─ Advisor  — 로컬 조언 + CHECK / Pro
+├─ Puma        — quick + writing / Flash
+├─ Jaguar      — 탐색 / Flash
+├─ Steamroller — 깊은 판단 / Pro
+└─ Reviewer    — 독립 검수 / Pro
 ```
 
-Deep은 단순히 "어려운 작업" 담당이 아닙니다. 작업량보다 **불확실성, diagnosis, trade-off**가 기준입니다.
+라우팅 기준:
 
-Review는 모든 사소한 변경에 강제하지 않고 risk-gated로 사용합니다.
+- 찾기/현황 파악 -> Jaguar
+- 작고 명확하고 저위험 / writing -> Puma
+- 일반 구현 -> Bobcat
+- 아키텍처/모호성/트레이드오프 -> Steamroller
+- 독립 검수 -> Reviewer
 
-## v0.2.2에서 하지 않는 것
+v0.3.3의 Gemini 3.1 Pro 전역 mutation deny 훅은 제거했습니다. v0.4의 Excavator는 Pro-tier 자율 구현 역할이므로 직접 수정 권한이 필요합니다.
 
-- custom primary/Main agent
-- 별도 task/runtime engine
-- shell wrapper CLI
-- persistent coordination state
-- Explore/Librarian 별도 agent
-- quota-aware routing
-- exact Opus subagent pinning
-- AI Studio direct execution
-
-AI Studio 직접 호출은 v0.3 이슈에서 다룹니다.
+현재 가장 중요한 검증 항목은 **custom primary인 Bulldozer가 현 AGY 버전에서 내부 subagent를 실제로 호출할 수 있는가**입니다.
