@@ -15,7 +15,7 @@ Antigravity Default agent / Host
   |      bounded implementation owner
   |        |
   |        `-- gravity-advisor / pro
-  |               read-only ADVISE / CHECK gate
+  |               read-only ADVISE / CHECK gate when Host requires it
   |
   |-- gravity-explorer / flash
   |      read-only current-state discovery
@@ -44,12 +44,29 @@ The design invariant is:
 
 > Advisor corrects through Worker, never instead of Worker.
 
+## Risk-gated Advisor fast path
+
+The local Pro-tier gate is not useful for every task. v0.3.1 therefore makes Advisor use Host-selected rather than universally mandatory.
+
+Every Worker packet selects:
+
+- `ADVISOR_GATE: REQUIRED`
+- `ADVISOR_GATE: NONE`
+
+The Host owns this classification. Worker cannot weaken or reinterpret it.
+
+Use `REQUIRED` for substantive code/behavior/test/runtime/configuration work, multi-criterion acceptance, Reviewer repairs, and work where correctness depends on interpretation. If the classification is materially uncertain, use `REQUIRED`.
+
+Use `NONE` for clearly low-risk mechanical work such as straightforward writing/rewrite, formatting, presentation-only changes, or text-only documentation edits with explicit supplied content. `NONE` skips the Pro-tier ritual but not verification: Worker still checks the current artifact against the Host contract.
+
+There is intentionally no `OPTIONAL` value because it would transfer gate-selection authority back to Worker.
+
 ## Role and model separation
 
 | Component | Contract | Current model policy |
 | --- | --- | --- |
-| Host | Global routing, arbitration, final completion | active Antigravity session model; Sonnet 4.6 recommended |
-| Worker | Own bounded implementation, edits, focused verification, Advisor loop | `flash` / Gemini 3.7 Flash |
+| Host | Global routing, gate selection, arbitration, final completion | active Antigravity session model; Sonnet 4.6 recommended |
+| Worker | Own bounded implementation, edits, focused verification, optional-by-policy Advisor loop | `flash` / Gemini 3.7 Flash |
 | Advisor | Read-only implementation advice and local acceptance gate | `pro` / Gemini 3.1 Pro |
 | Explorer | Read-only current-state discovery | `flash` / Gemini 3.7 Flash |
 | Deep | Resolve diagnosis/design uncertainty | `pro` / Gemini 3.1 Pro |
@@ -77,7 +94,7 @@ Native Gravity owns:
 - specialized subagent role definitions
 - task contracts passed through prompts
 - evidence and completion discipline
-- local Advisor gate
+- Host-selected local Advisor gate
 - Deep escalation criteria
 - independent Reviewer policy
 
@@ -96,6 +113,7 @@ For ordinary implementation, Host sends Worker an explicit bounded contract cont
 - `ACCEPTANCE`
 - `EVIDENCE`
 - `EDIT_POLICY`
+- `ADVISOR_GATE`
 - `EXPECTED_OUTPUT`
 
 Host does not need to pre-decompose every edit. Worker owns execution inside that contract.
@@ -104,10 +122,12 @@ Host does not need to pre-decompose every edit. Worker owns execution inside tha
 
 Worker is the implementation owner and the only nested delegator.
 
-Worker may invoke `gravity-advisor` only. It may use Advisor in two modes:
+Under `ADVISOR_GATE: REQUIRED`, Worker may invoke `gravity-advisor` only and uses Advisor in two modes:
 
 - `ADVISE` — bounded implementation-local judgment
 - `CHECK` — mandatory current-state local acceptance gate before Worker may report `READY`
+
+Under `ADVISOR_GATE: NONE`, Worker does not invoke Advisor merely for confirmation; it performs bounded self-verification and may report local `READY` when the Host contract is evidenced.
 
 Worker remains responsible for all source edits and focused verification across correction cycles.
 
@@ -148,10 +168,12 @@ Reviewer is independent, read-only, and blocker-focused. It receives the origina
 
 Advisor CHECK and Reviewer serve different purposes:
 
-- Advisor improves and gates the bounded implementation loop.
+- Advisor improves and gates the bounded implementation loop when the Host marks it REQUIRED.
 - Reviewer independently evaluates delivered work for the Host.
 
 ## Correction flow
+
+Required local gate:
 
 ```text
 Host
@@ -167,17 +189,13 @@ Advisor CHECK
   ` ACCEPT
       |
       v
-   Worker READY
-      |
-      v
-     Host
-      |
-      v
-Reviewer (when required)
-  |\
-  | NO-GO -> Host classifies -> Worker repair or Deep
-  |
-  ` GO -> Host inspects current evidence -> final completion
+   Worker READY -> Host -> Reviewer when required
 ```
 
-Repeated materially similar local failures escalate instead of looping indefinitely.
+Fast path:
+
+```text
+Host -> Worker implementation + self-verification -> READY -> Host
+```
+
+Repeated materially similar local failures escalate instead of looping indefinitely. Final completion remains Host-owned, and required independent Reviewer approval remains separate from the local Advisor gate.
