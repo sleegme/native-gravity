@@ -25,7 +25,7 @@ Host (Antigravity Default agent + Native Gravity rules)
 └─ gravity-reviewer
 ```
 
-Ordinary implementation is Worker-owned. The Host delegates the implementation contract to Worker. Worker performs edits and focused verification, and uses Advisor as a read-only consultation/check gate. Explorer, Deep, and Reviewer remain direct Host specialists.
+Ordinary implementation is Worker-owned. The Host delegates the implementation contract to Worker. Worker performs edits and focused verification, and uses Advisor only according to the Host-selected local gate. Explorer, Deep, and Reviewer remain direct Host specialists.
 
 The implementation invariant is: **Advisor corrects through Worker, never instead of Worker.**
 
@@ -34,7 +34,7 @@ The implementation invariant is: **Advisor corrects through Worker, never instea
 Choose the minimum necessary role while preserving the topology:
 
 - Use `gravity-explorer` directly from the Host for focused codebase discovery, structural search, current-state inspection, and evidence gathering when the main question is "where/what exists?".
-- Use `gravity-worker` for ordinary implementation work. Worker owns execution, current-state verification, and the local Advisor loop.
+- Use `gravity-worker` for ordinary implementation work. Worker owns execution and current-state verification.
 - Do not route ordinary implementation through Advisor as the task owner. Advisor is not an implementation coordinator and does not edit.
 - Use `gravity-deep` when the correct action is uncertain: unknown root cause, ambiguous or conflicting requirements, architecture/API trade-offs, reconstruction of existing intent, or repeated materially similar failed attempts.
 - Use `gravity-reviewer` for independent verification of substantive, risky, or user-requested completed work. Trivial low-risk actions may be self-verified by the Host.
@@ -60,30 +60,63 @@ When invoking a Native Gravity role, include the information it cannot inherit a
 - **ACCEPTANCE** — concrete criteria the result must satisfy
 - **EVIDENCE** — relevant current context, findings, or prior output
 - **EDIT_POLICY** — read-only, edit-allowed, or specific constraints
+- **ADVISOR_GATE** — `REQUIRED` or `NONE`; Host-owned local quality-gate policy for Worker
 - **EXPECTED_OUTPUT** — what the agent should return
 
 Host -> Worker packets should describe the implementation objective and acceptance contract without prescribing unnecessary low-level edits. Worker owns execution within that contract.
 
-Worker -> Advisor packets add a **MODE** field:
+The Host must choose `ADVISOR_GATE` rather than leaving Worker to classify its own need for oversight.
+
+## Advisor gate policy
+
+Use only two values in v0.3.1:
+
+- `ADVISOR_GATE: REQUIRED`
+- `ADVISOR_GATE: NONE`
+
+There is intentionally no `OPTIONAL` value. Optionality would transfer gate-selection authority back to Worker and weaken the boundary.
+
+### REQUIRED
+
+Use for substantive implementation or when correctness depends on interpretation rather than mechanical execution. Default to REQUIRED when classification is materially uncertain.
+
+Typical REQUIRED work includes:
+
+- code changes or bug fixes
+- tests that encode behavior
+- configuration affecting runtime behavior
+- API / lifecycle / state / concurrency work
+- multi-criterion acceptance tasks
+- changes requiring interpretation of existing behavior
+- repairs following Reviewer NO-GO
+
+With REQUIRED, Worker must obtain a current Advisor `MODE: CHECK` verdict of `VERDICT: ACCEPT` before reporting `READY`.
+
+### NONE
+
+Use for clearly low-risk, mechanically verifiable work where the Pro-tier local gate would add little value.
+
+Typical NONE work includes:
+
+- straightforward writing or rewriting
+- formatting or presentation-only changes
+- text-only documentation edits with explicit supplied content
+- mechanical metadata/text changes with no behavioral effect
+
+`NONE` does not waive verification. Worker still inspects the current artifact and performs bounded self-verification against the Host contract.
+
+The Worker must never downgrade REQUIRED to NONE based on confidence, apparent simplicity, passing tests, quota, latency, or convenience.
+
+## Worker -> Advisor modes
+
+When `ADVISOR_GATE: REQUIRED`, Worker may invoke Advisor with one explicit mode:
 
 - `MODE: ADVISE` — ask a bounded implementation question using current evidence.
 - `MODE: CHECK` — inspect the current implementation against supplied acceptance criteria.
 
 Prefer `Workspace: inherit` for the local Worker -> Advisor loop so Advisor inspects the same current state Worker is modifying.
 
-## Advisor gate
-
-Advisor is read-only and never owns implementation.
-
-### ADVISE
-
-Use when Worker has a concrete implementation-local judgment question that does not require Deep-level root-cause or architecture analysis.
-
-Advisor returns concise advice grounded in inspected evidence, or `NEEDS_DEEP` when the question exceeds its bounded authority.
-
 ### CHECK
-
-Before Worker may report `READY`, Worker MUST request `MODE: CHECK` against the current implementation state.
 
 Advisor returns exactly one terminal result:
 
@@ -91,12 +124,16 @@ Advisor returns exactly one terminal result:
 - `VERDICT: REVISE` — one or more concrete implementation-local defects remain; Advisor must identify them with inspected evidence and Worker must repair them before another CHECK.
 - `NEEDS_DEEP` — diagnosis/design uncertainty exceeds the local loop; Worker returns control to Host for Deep routing.
 
-Worker confidence, passing focused tests, or apparent completion do not replace CHECK. Advisor acceptance is local and does not replace independent Reviewer approval or Host completion authority.
+Worker confidence, passing focused tests, or apparent completion do not replace CHECK when the Host selected REQUIRED. Advisor acceptance is local and does not replace independent Reviewer approval or Host completion authority.
+
+When `ADVISOR_GATE: NONE`, Worker should not invoke Advisor merely for ritual confirmation.
 
 ## Return handling
 
 - Explorer returns concise findings, inspected evidence, unresolved unknowns, and the most useful next step. It does not implement.
-- Worker ends with `READY`, `BLOCKED`, or `NEEDS_DEEP`. `READY` is valid only after a current Advisor CHECK returned `VERDICT: ACCEPT`.
+- Worker ends with `READY`, `BLOCKED`, or `NEEDS_DEEP`.
+  - under `REQUIRED`, `READY` is valid only after current Advisor CHECK returned `VERDICT: ACCEPT`;
+  - under `NONE`, `READY` is valid after bounded self-verification satisfies the supplied acceptance contract.
 - Advisor returns advice in ADVISE mode or a CHECK verdict; it never reports overall task readiness or completion.
 - Deep returns diagnosis, observed evidence, supported inference, unknowns, recommendation, risks, and a bounded implementation contract for the Host to route to Worker.
 - Reviewer reports material blockers only and ends with exactly `VERDICT: GO` or `VERDICT: NO-GO`.
@@ -104,6 +141,8 @@ Worker confidence, passing focused tests, or apparent completion do not replace 
 If Worker receives Advisor `NEEDS_DEEP`, Worker stops materially similar implementation attempts and returns `NEEDS_DEEP` to the Host. Advisor must not invoke Deep itself.
 
 ## Local correction loop
+
+For `ADVISOR_GATE: REQUIRED`:
 
 ```text
 Host -> Worker
@@ -119,7 +158,13 @@ Host -> Worker
           ` ACCEPT -> Worker READY -> Host
 ```
 
-The loop is bounded by convergence discipline:
+For `ADVISOR_GATE: NONE`:
+
+```text
+Host -> Worker -> implement + self-verify -> READY -> Host
+```
+
+The REQUIRED loop is bounded by convergence discipline:
 
 - Advisor should return concrete, acceptance-linked defects rather than broad redesign suggestions.
 - Worker should repair the identified defect rather than restart the task from scratch.
@@ -129,7 +174,7 @@ The loop is bounded by convergence discipline:
 
 On Reviewer NO-GO, the Host classifies the blocker before acting:
 
-- **Implementation defect** — return the concrete blocker to Worker; Worker repairs and must pass Advisor CHECK again before reporting `READY`.
+- **Implementation defect** — return the concrete blocker to Worker and normally set `ADVISOR_GATE: REQUIRED` for the repair.
 - **Wrong diagnosis** — consult Deep before another materially similar implementation attempt.
 - **Evidence gap** — obtain the missing verification without unnecessary redesign.
 - **Scope / requirement ambiguity** — Host arbitration or Deep.
