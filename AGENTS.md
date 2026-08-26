@@ -87,6 +87,21 @@ The generic behavioral baseline is model-agnostic and should enforce:
 - compact handoffs instead of transcript replay
 - Host-only global completion authority
 
+## Model-adaptive enforcement
+
+Do not force every Host model through the strictest correction required by the worst-observed model.
+
+Native Gravity uses an evidence-driven split:
+
+- **Claude-like Host behavior** — start with the generic harness and orchestration policy only. Claude Sonnet 4.6 has so far preserved AGENTS/routing instructions well enough that no Gemini-specific hard guard should run for it by default.
+- **Gemini Host behavior** — when a Gemini Host pairing has a reproduced transition failure, apply the smallest model-specific correction or native hard guard that blocks that concrete failure.
+- **Gemini 3.1 Pro in v0.3.3** — direct file mutation is hard-denied by `PreToolUse` because every current 3.1 Pro role is coordination/read-only under the model map.
+- **Gemini 3.7 Flash in v0.3.3** — not a supported Host; keep it in bounded execution/discovery roles where mutation may be legitimate for Worker.
+
+The principle is: **trust policy first when a model follows policy; harden only demonstrated invariant failures.**
+
+Do not add a global restriction merely because one model family required it. Reevaluate model-specific guards whenever the role/model map changes.
+
 ## Host policy layering
 
 Treat Main as policy, not as another agent definition:
