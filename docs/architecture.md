@@ -66,8 +66,8 @@ There is intentionally no `OPTIONAL` value because it would transfer gate-select
 | Component | Contract | Current model policy |
 | --- | --- | --- |
 | Host | Global routing, gate selection, arbitration, final completion | active Antigravity session model; Sonnet 4.6 recommended |
-| Worker | Own bounded implementation, edits, focused verification, optional-by-policy Advisor loop | `flash` / Gemini 3.7 Flash |
-| Advisor | Read-only implementation advice and local acceptance gate | `pro` / Gemini 3.1 Pro |
+| Worker | Own bounded implementation, edits, focused verification, Host-selected Advisor loop | `flash` / Gemini 3.7 Flash |
+| Advisor | Read-only implementation advice and local acceptance gate when selected | `pro` / Gemini 3.1 Pro |
 | Explorer | Read-only current-state discovery | `flash` / Gemini 3.7 Flash |
 | Deep | Resolve diagnosis/design uncertainty | `pro` / Gemini 3.1 Pro |
 | Reviewer | Independent final quality gate | `pro` / Gemini 3.1 Pro |
@@ -133,7 +133,7 @@ Worker remains responsible for all source edits and focused verification across 
 
 ## Advisor
 
-Advisor is read-only and does not invoke subagents.
+Advisor is read-only and does not invoke subagents. It is not a universal mandatory hop; the Host decides whether a Worker task uses the local Advisor gate.
 
 In `ADVISE` mode it returns bounded guidance or `NEEDS_DEEP`.
 
