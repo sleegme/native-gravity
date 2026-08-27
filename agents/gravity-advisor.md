@@ -1,6 +1,6 @@
 ---
 name: gravity-advisor
-description: Read-only implementation advisor and local quality gate for Bobcat when Bulldozer selects ADVISOR_GATE: REQUIRED.
+description: Read-only implementation advisor and local quality gate for Bobcat when Bulldozer sets ADVISOR_GATE to REQUIRED.
 tools:
   - view_file
   - list_dir

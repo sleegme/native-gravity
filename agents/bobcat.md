@@ -11,6 +11,7 @@ tools:
   - replace_file_content
   - invoke_subagent
 mainAgent: false
+inheritCustomizations: true
 subagent: true
 model: flash
 commandExecutionPolicy: sandbox
