@@ -2,10 +2,9 @@
 
 > v0.4 alpha
 
-Install or reinstall the plugin from the v0.4 branch:
+Install or reinstall the plugin from the checked-out repository:
 
 ```bash
-git switch feat/v0.4-construction-primary-agents
 agy plugin uninstall native-gravity
 agy plugin install .
 ```

@@ -58,7 +58,6 @@ An older Native Gravity test found that a custom primary could fail to invoke su
 ```bash
 git clone https://github.com/sleegme/native-gravity.git
 cd native-gravity
-git switch feat/v0.4-construction-primary-agents
 agy plugin uninstall native-gravity
 agy plugin install .
 ```

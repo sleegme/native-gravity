@@ -3,7 +3,6 @@
 > v0.4 alpha
 
 ```bash
-git switch feat/v0.4-construction-primary-agents
 agy plugin uninstall native-gravity
 agy plugin install .
 ```
