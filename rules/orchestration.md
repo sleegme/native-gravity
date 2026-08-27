@@ -34,7 +34,7 @@ Use the minimum role that matches the work:
 - `puma` for quick/writing work: small, explicit, low-risk, mechanically verifiable edits.
 - `bobcat` for ordinary implementation that deserves a normal implementation contract and focused verification.
 - `steamroller` for architecture, ambiguity, conflicting constraints, technical trade-offs, or difficult decisions where the main need is reasoning rather than editing.
-- `zen` for independent review of substantive, risky, or user-requested completed work.
+- `zen` for independent adversarial review of substantive, risky, or user-requested completed work.
 
 Task size alone does not trigger Steamroller. A large mechanical edit can be Bobcat work; a tiny change can require Steamroller if the decision is uncertain.
 
@@ -74,6 +74,18 @@ Do not prescribe unnecessary low-level edits to Bobcat or Puma.
 - Bobcat -> what changed / verification / Advisor result when required / `READY | BLOCKED | NEEDS_DEEP`
 - Steamroller -> PROBLEM_MODEL / EVIDENCE / INFERENCE / UNKNOWNS / RECOMMENDATION / RISKS
 - Zen -> blocker findings and exactly `VERDICT: GO | VERDICT: NO-GO`
+
+## Zen independent verification
+
+Zen has `run_command` so it can reproduce or check verification evidence instead of trusting the implementation path's claims.
+
+- Zen has no direct file-mutation tools.
+- Every Zen shell call must begin with `NTG_ZEN_VERIFY=1 `.
+- The plugin `PreToolUse` hook rejects common intentional mutation forms only for marked Zen verification commands.
+- Zen must not use shell to repair the implementation. A denied mutation attempt or missing required evidence remains a review result; repair returns through Bulldozer.
+- Do not pre-filter evidence to only previously successful checks. Supply the task contract and current artifact context and let Zen choose the verification needed for its verdict.
+
+The marker guard is a narrow behavioral backstop, not a general shell sandbox or a model-wide policy.
 
 ## Zen correction
 

@@ -40,7 +40,7 @@ Bulldozer
 - **Jaguar** — read-only codebase discovery; Flash tier.
 - **Steamroller** — read-only deep reasoning for architecture, ambiguity, trade-offs, and difficult decisions; Pro tier.
 - **gravity-advisor** — read-only Bobcat-local advice/check gate; final codename not yet selected.
-- **Zen** — independent read-only final review gate; Pro tier.
+- **Zen** — independent non-mutating final review gate; Pro tier; may run verification commands to gather its own evidence.
 
 ## Routing principle
 
@@ -91,7 +91,15 @@ Do not constrain every model according to the worst-observed model.
 
 v0.4 changes the role/model map, so the v0.3.3 global Gemini 3.1 Pro mutation deny is no longer valid: Excavator is expected to mutate project source. Model-specific guards must be reevaluated whenever a model is assigned a role with different authority.
 
-Use targeted prompt/rule correction only for reproduced role-specific failures. Do not add shell blacklists, custom coordination runtimes, or persistent state merely to force one model family to imitate another.
+Use targeted prompt/rule correction for role-specific failures. Do not add broad model-wide shell blacklists, custom coordination runtimes, or persistent state merely to force one model family to imitate another. A narrow role-scoped behavioral guard is acceptable when a reproduced failure cannot be controlled reliably by prose alone.
+
+## Zen verification boundary
+
+Zen may execute shell commands only to independently reproduce or verify evidence. It has no direct file-mutation tools.
+
+Zen prefixes every verification command with `NTG_ZEN_VERIFY=1 `. The plugin's `PreToolUse` hook uses that explicit marker to reject common intentional shell-mediated mutation paths while leaving other agents' shell calls untouched.
+
+This is a behavioral backstop for a known role-boundary failure, not a complete read-only shell sandbox. Do not generalize it into a model-wide mutation deny.
 
 ## Compatibility validation required
 
@@ -106,6 +114,7 @@ Before calling v0.4 stable, verify:
 5. Excavator is selectable, can edit, and is not blocked by a model-wide mutation guard.
 6. Puma handles quick/writing work without ritual Advisor use.
 7. Zen completion is based on an actually observed verdict.
+8. Zen can run independent verification commands while common intentional source-mutation shell attempts are denied by the Zen marker guard.
 
 ## Design rules
 
@@ -115,5 +124,5 @@ Before calling v0.4 stable, verify:
 4. Fit roles to model behavior before adding corrective harness weight.
 5. Use Puma for quick/writing work instead of burdening Bobcat with unnecessary review ceremony.
 6. Keep Jaguar factual and Steamroller decisional.
-7. Keep Advisor and Zen read-only.
+7. Keep Advisor read-only and Zen non-mutating.
 8. Do not reintroduce a model-wide 3.1 Pro mutation deny while Excavator uses that model family for implementation.
