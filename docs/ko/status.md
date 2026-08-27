@@ -2,7 +2,7 @@
 
 현재 개발 브랜치: `feat/v0.4-construction-primary-agents`
 
-상태: **v0.4 alpha — 구조 구현 완료, 런타임 검증 대기**
+상태: **v0.4 alpha — AGY 1.1.21 런타임 검증 통과, alpha 사용 준비 완료**
 
 완료:
 
@@ -16,7 +16,7 @@
 - v0.3.3 Gemini 3.1 Pro 전역 mutation guard 제거
 - v0.4 라우팅/문서 반영
 
-검증 필요:
+AGY 1.1.21 검증 완료:
 
 - Bulldozer custom primary delegation
 - Piledriver planning-only 행동

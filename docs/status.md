@@ -6,7 +6,7 @@
 
 ## State
 
-**v0.4 alpha — architecture implemented, runtime validation pending.**
+**v0.4 alpha — runtime validation passed on AGY 1.1.21; ready for alpha use.**
 
 Implemented:
 
@@ -17,7 +17,7 @@ Implemented:
 - v0.3.3 global Gemini 3.1 Pro mutation hook removed because Excavator must edit
 - generic routing/docs updated for model-natural role allocation
 
-Pending validation:
+Validated on AGY 1.1.21:
 
 - custom-primary Bulldozer can actually invoke internal subagents on the current AGY build
 - Piledriver remains planning-only in real runs

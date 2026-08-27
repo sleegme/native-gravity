@@ -44,6 +44,8 @@ Use Puma for clearly small, explicit, low-risk work such as straightforward writ
 
 ## Alpha validation
 
+This checklist passed on AGY 1.1.21. Re-run it after an AGY runtime change:
+
 Before trusting v0.4 for real work, confirm the current AGY runtime can:
 
 1. select all three primary agents;
