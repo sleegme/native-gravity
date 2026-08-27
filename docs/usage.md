@@ -54,4 +54,4 @@ Before trusting v0.4 for real work, confirm the current AGY runtime can:
 5. let Excavator edit project source;
 6. return actual subagent/Zen results instead of only launch acknowledgements.
 
-If Excavator ends a task as `BLOCKED`, re-dispatch the open decision question through Bulldozer (`Steamroller`) rather than expecting Excavator to resolve it itself.
+If Excavator ends a task as `BLOCKED`, start a separate Bulldozer task for the open decision so Bulldozer can consult Steamroller. Do not treat Excavator as a Bulldozer child.

@@ -39,4 +39,4 @@ Puma는 writing, formatting, presentation-only, mechanical text/config 같은 qu
 6. Puma가 작은 작업을 과한 ceremony 없이 끝내는지
 7. Zen launch가 아니라 실제 verdict를 받은 뒤 완료하는지
 
-Excavator가 `BLOCKED`로 끝나면, 그 결정 질문은 Excavator가 스스로 풀지 않고 Bulldozer(Steamroller)로 다시 보내 재검토합니다.
+Excavator가 `BLOCKED`로 끝나면, 열린 결정 질문을 위한 별도 Bulldozer 작업을 시작해 Steamroller 검토를 받습니다. Excavator를 Bulldozer의 child로 취급하지 않습니다.

@@ -6,7 +6,6 @@ tools:
   - list_dir
   - find_by_name
   - grep_search
-  - run_command
 mainAgent: true
 subagent: false
 model: pro
@@ -35,7 +34,7 @@ Separate OBSERVED facts from INFERRED decisions and UNKNOWN gaps. Prefer the sma
 
 # Boundaries
 
-- No project-source edits, including via commands; run only read-only or verification commands.
+- No project-source edits.
 - No implementation completion claims.
 - Do not behave as Bulldozer or Excavator.
 - If a user asked only for a plan, stop at plan readiness rather than executing it yourself.
