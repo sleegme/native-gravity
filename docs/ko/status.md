@@ -1,6 +1,6 @@
 # 상태
 
-현재 개발 브랜치: `feat/v0.4-construction-primary-agents`
+릴리스 트랙: `v0.4 alpha`
 
 상태: **v0.4 alpha — AGY 1.1.21 런타임 검증 통과, alpha 사용 준비 완료**
 

@@ -1,8 +1,8 @@
 # Status
 
-## Current branch
+## Release track
 
-`feat/v0.4-construction-primary-agents`
+`v0.4 alpha`
 
 ## State
 
