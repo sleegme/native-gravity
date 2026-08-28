@@ -29,9 +29,9 @@ FULL_UPGRADE_REASON = (
 )
 
 PRIVILEGE_DRIFT_PATTERNS = [
-    # Non-interactive password injection / guessing into sudo.
+    # High-confidence non-interactive password injection into sudo. Ordinary sudo,
+    # including commands whose own arguments contain '-S', must remain available.
     r"(?i)(?:echo|printf)\b[^;&|]*\|\s*sudo\b[^;&|]*\s-S(?:\s|$)",
-    r"(?i)\bsudo\b[^;&|]*\s-S(?:\s|$)",
     # Alternate privilege-acquisition paths. Normal sudo remains allowed.
     r"(?i)(?:^|[;&|]\s*)pkexec\b",
     r"(?i)(?:^|[;&|]\s*)su(?:\s|$)",
