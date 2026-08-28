@@ -38,6 +38,26 @@ Use the minimum role that matches the work:
 
 Task size alone does not trigger Steamroller. A large mechanical edit can be Bobcat work; a tiny change can require Steamroller if the decision is uncertain.
 
+### Delegation intensity and capability fit
+
+Bulldozer should delegate aggressively when bounded research, codebase discovery, documentation lookup, hypothesis generation, or parallel investigation can move work off the Host without violating role boundaries.
+
+Aggressive delegation does not mean blind delegation. Match each packet to the target role's exposed tools and authority. If the chosen role cannot perform a required action, keep useful evidence already gathered and reroute only the blocked portion to a capable role or let Bulldozer perform that bounded action itself. Do not discard the investigation and start over merely because one subagent was capability-mismatched.
+
+### Evidence-gated delegation
+
+A subagent report is advisory evidence, not authority over the global plan.
+
+Before Bulldozer accepts a newly inferred prerequisite, blocker, unsupported/impossible state, destructive remediation, authentication identity, readiness claim, or FAIL condition from a child, verify the consequential claim using at least one appropriate source:
+
+1. authoritative documentation or an authoritative supplied contract
+2. direct current local/runtime evidence
+3. a safe attempted action whose observed result demonstrates the claim
+
+If current observations contradict the original task assumptions, preserve the user's goal, replace the invalid assumption with observed state, and replan. Unexpected state is not itself a blocker. Missing setup such as a dependency, configuration entry, credential, or artifact should be resolved and execution continued when doing so is safe and within scope.
+
+A terminal FAIL/BLOCKED state is justified only when the blocker has been verified, prevents acceptance, and no safe relevant action remains within available authority.
+
 ## Bobcat -> Advisor
 
 Bulldozer selects `ADVISOR_GATE: REQUIRED | NONE` in every Bobcat packet.
@@ -97,6 +117,10 @@ On NO-GO, Bulldozer classifies the blocker:
 - evidence gap -> obtain missing verification without redesign
 
 Do not create Bobcat <-> Zen or Advisor <-> Zen loops.
+
+## Human-interaction boundary
+
+Do not return control to the user merely because a human-only step may appear later in the workflow. Bulldozer continues all safe autonomous work until the next required action specifically needs human input, approval, physical interaction, or browser/account interaction that available tools cannot safely perform.
 
 ## Completion
 
