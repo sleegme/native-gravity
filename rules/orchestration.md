@@ -1,49 +1,105 @@
-# Native Gravity orchestration policy
+@harness.md
 
-Use Antigravity's default primary agent as the host. Native Gravity does not replace the primary agent in v0.2.1.
+# Native Gravity v0.4 orchestration policy
 
-## Routing
+v0.4 has three peer user-selectable primary modes plus internal specialists.
 
-Choose the minimum necessary orchestration:
+## Primary modes
 
-- Use `gravity-worker` when the work is clear, bounded, and executable without substantial diagnosis. This includes ordinary implementation, repetitive changes, focused codebase discovery, and explicit read-only research.
-- Use `gravity-deep` when the correct action is uncertain: unknown root cause, ambiguous or conflicting requirements, architecture/API trade-offs, reconstruction of existing intent, or repeated materially different failed attempts.
-- Use `gravity-reviewer` for independent verification of substantive, risky, or user-requested completed work. Trivial low-risk changes may be self-verified by the host.
+```text
+Bulldozer  = general Host / orchestrator
+Piledriver = plan-first strategist
+Excavator  = autonomous troubleshooter / deep repair owner
+```
 
-Task size alone does not trigger Deep.
+Piledriver and Excavator are not Bulldozer subagents. Do not route them as children of Bulldozer.
 
-## Delegation contract
+## Bulldozer topology
 
-When invoking a Native Gravity subagent, include the information it cannot inherit automatically. Use these named fields in the prompt:
+```text
+Bulldozer
+├─ bobcat
+│  └─ gravity-advisor
+├─ puma
+├─ jaguar
+├─ steamroller
+└─ zen
+```
 
-- **ROLE_REASON** — why this agent role is being invoked
-- **GOAL** — what must be accomplished
-- **SCOPE** — files, components, or areas in play
-- **NON_GOALS** — explicit exclusions to prevent scope creep
-- **ACCEPTANCE** — concrete criteria the result must satisfy
-- **EVIDENCE** — relevant current context, findings, or prior output
-- **EDIT_POLICY** — read-only, edit-allowed, or specific constraints
-- **EXPECTED_OUTPUT** — what the agent should return
+## Bulldozer routing
 
-Prefer `Workspace: inherit` for normal sequential work so agents inspect the same current checkout. Use isolated workspaces only when genuinely useful for parallel independent work.
+Use the minimum role that matches the work:
 
-## Return handling
+- `jaguar` for factual discovery, codebase mapping, structural search, and current-state evidence.
+- `puma` for quick/writing work: small, explicit, low-risk, mechanically verifiable edits.
+- `bobcat` for ordinary implementation that deserves a normal implementation contract and focused verification.
+- `steamroller` for architecture, ambiguity, conflicting constraints, technical trade-offs, or difficult decisions where the main need is reasoning rather than editing.
+- `zen` for independent adversarial review of substantive, risky, or user-requested completed work.
 
-- Worker should end with exactly one terminal signal: `DONE`, `BLOCKED`, or `NEEDS_DEEP`.
-- Deep returns diagnosis, evidence, approaches, recommendation, risks/assumptions, and a concrete implementation contract. Deep does not implement the solution.
-- Reviewer reports material blockers only and ends with exactly `VERDICT: GO` or `VERDICT: NO-GO`.
+Task size alone does not trigger Steamroller. A large mechanical edit can be Bobcat work; a tiny change can require Steamroller if the decision is uncertain.
 
-If Worker returns `NEEDS_DEEP`, consult Deep before another implementation attempt.
+## Bobcat -> Advisor
 
-## Correction loop
+Bulldozer selects `ADVISOR_GATE: REQUIRED | NONE` in every Bobcat packet.
 
-On a review blocker, classify it before acting:
+Bobcat may invoke `gravity-advisor` only.
 
-- **Implementation defect** — send the concrete blocker back to the existing Worker session when practical.
-- **Wrong diagnosis** — consult Deep before another implementation attempt.
+- REQUIRED: substantive code/behavior/test/runtime/API/state/lifecycle work, or material implementation uncertainty.
+- NONE: clearly low-risk mechanical work when Bobcat is still appropriate.
 
-Spawn a replacement Worker only when the existing session cannot continue.
+Puma never invokes Advisor. Its purpose is to keep quick/writing work out of the heavier Bobcat gate loop.
+
+Advisor CHECK returns `VERDICT: ACCEPT`, `VERDICT: REVISE`, or `NEEDS_DEEP`. In v0.4, `NEEDS_DEEP` means Bobcat returns control to Bulldozer, which may route the decision question to Steamroller.
+
+## Delegation packet
+
+When invoking an internal specialist, include relevant fields:
+
+- ROLE_REASON
+- GOAL
+- SCOPE
+- NON_GOALS
+- ACCEPTANCE
+- EVIDENCE
+- EDIT_POLICY
+- ADVISOR_GATE (Bobcat only)
+- EXPECTED_OUTPUT
+
+Do not prescribe unnecessary low-level edits to Bobcat or Puma.
+
+## Return contracts
+
+- Jaguar -> FINDINGS / EVIDENCE / UNKNOWNS / RECOMMENDED_NEXT_STEP
+- Puma -> what changed / verification / `READY | BLOCKED`
+- Bobcat -> what changed / verification / Advisor result when required / `READY | BLOCKED | NEEDS_DEEP`
+- Steamroller -> PROBLEM_MODEL / EVIDENCE / INFERENCE / UNKNOWNS / RECOMMENDATION / RISKS
+- Zen -> blocker findings and exactly `VERDICT: GO | VERDICT: NO-GO`
+
+## Zen independent verification
+
+Zen has `run_command` so it can reproduce or check verification evidence instead of trusting the implementation path's claims.
+
+- Zen has no direct file-mutation tools.
+- Every Zen shell call must begin with `NTG_ZEN_VERIFY=1 `.
+- The plugin `PreToolUse` hook rejects common intentional mutation forms only for marked Zen verification commands.
+- Zen must not use shell to repair the implementation. A denied mutation attempt or missing required evidence remains a review result; repair returns through Bulldozer.
+- Do not pre-filter evidence to only previously successful checks. Supply the task contract and current artifact context and let Zen choose the verification needed for its verdict.
+
+The marker guard is a narrow behavioral backstop, not a general shell sandbox or a model-wide policy.
+
+## Zen correction
+
+On NO-GO, Bulldozer classifies the blocker:
+
+- implementation defect -> Bobcat repair, normally REQUIRED
+- quick/mechanical defect -> Puma only if the repair remains genuinely low-risk and explicit
+- wrong decision/architecture -> Steamroller before another materially similar patch
+- evidence gap -> obtain missing verification without redesign
+
+Do not create Bobcat <-> Zen or Advisor <-> Zen loops.
 
 ## Completion
 
-Delegation is not completion. Inspect the current files and relevant verification evidence before reporting the task done. If independent review was required, do not report completion before a Reviewer `VERDICT: GO`.
+Bulldozer owns final completion in orchestrated mode. A spawned Zen is not a completed review; Bulldozer must observe the returned verdict and inspect current evidence before claiming success.
+
+Piledriver and Excavator follow their own primary-agent contracts rather than this Bulldozer child graph.

@@ -1,57 +1,47 @@
 # Status
 
-Native Gravity is currently **v0.2.2 / experimental**.
+## Release track
 
-## v0.2.2 patch
+`v0.4 alpha`
 
-v0.2.2 keeps the v0.2.1 native-host architecture unchanged and tightens upgrade guidance after runtime testing showed that an in-place plugin install could leave a removed `gravity-main.md` file staged from an older installation.
+## State
 
-A clean reinstall was verified to leave only the three current subagents: Worker, Deep, and Reviewer.
+**v0.4 alpha — core runtime validation passed on AGY 1.1.21; ready for alpha use.**
 
-## Implemented in v0.2.1
+Implemented:
 
-- Antigravity Default agent retained as the host/coordinator
-- former Main behavior moved into `rules/orchestration.md`
-- three specialized subagents: Worker / Deep / Reviewer
-- recommended Sonnet 4.6 host model
-- native `flash` Worker tier
-- native `pro` Deep and Reviewer tiers
-- named delegation envelope for subagent calls
-- Worker terminal signals: `DONE` / `BLOCKED` / `NEEDS_DEEP`
-- Deep returns a concrete implementation contract rather than editing source
-- Reviewer keeps deterministic `VERDICT: GO` / `VERDICT: NO-GO`
-- shell wrapper CLI, review-packet plumbing, and persistent coordination state remain absent
-- risk-gated review policy
+- peer primary modes: Bulldozer / Piledriver / Excavator
+- internal renames: Worker -> Bobcat, Explorer -> Jaguar, Deep -> Steamroller, Reviewer -> Zen
+- new Puma quick/writing path
+- Bobcat -> gravity-advisor local gate retained
+- v0.3.3 global Gemini 3.1 Pro mutation hook removed because Excavator must edit
+- generic routing/docs updated for model-natural role allocation
+- Zen now has verification-only `run_command` plus a marker-scoped `PreToolUse` behavioral guard for common intentional shell mutation paths
+- Excavator now has a marker-scoped shell guard that preserves ordinary sudo while rejecting stdin-password privilege acquisition, alternate local privilege paths, shell-history credential mining, and broad system upgrades
+- deterministic Excavator guard regression coverage in `tests/test_excavator_shell_guard.py`
 
-## Why v0.2.1 changed the host architecture
+Validated on AGY 1.1.21:
 
-The v0.2 bootstrap reproduced the same `invoke_subagent` failure from the custom `gravity-main` primary agent against plugin agents, a workspace custom agent, and built-in `research`:
+- custom-primary Bulldozer can actually invoke internal subagents on the current AGY build
+- Piledriver remains planning-only in real runs
+- Excavator can edit and verify end-to-end on Pro tier
+- Puma handles quick/writing work without unnecessary Advisor ceremony
+- Bobcat -> Advisor gate still converges correctly after rename
+- Bobcat attempts no subagent other than gravity-advisor (negative delegation case)
+- Zen verdict is observed before completion claims
 
-`subagent "<name>" not found or not allowed to be invoked`
+Pending live revalidation after the shell-guard changes:
 
-The Antigravity Default agent successfully invoked built-in `research` in the same environment. v0.2.1 therefore keeps the native Default agent as host and treats the former Main contract as policy/rules.
+- Zen can run independent verification commands with the required `NTG_ZEN_VERIFY=1` marker
+- Zen-marked common direct-mutation shell attempts are denied while ordinary verification commands still run
+- Excavator-marked ordinary sudo diagnostics and bounded repairs still run
+- Excavator-marked `sudo -S`, `sudo su`, `pkexec`, local root SSH, shell-history credential mining, and full-system upgrade paths are denied
+- wrapper forms such as `env pkexec`, `command ssh root@localhost`, and `bash -c 'sudo apt upgrade'` are denied
+- downstream command arguments such as `sudo somecmd -S value` do not produce a sudo-stdin false positive
+- Bulldozer and other agents' unmarked shell calls are unaffected
 
-This is a compatibility workaround based on observed runtime behavior, not a declaration that custom-primary delegation is intentionally unsupported.
+The Zen and Excavator guards are behavioral backstops, not complete shell or privilege sandboxes. AGY 1.1.21 still does not expose a native agent-specific read-only shell policy or reliable custom-agent identity in `PreToolUse` payloads.
 
-## Runtime validation
+Naming still open:
 
-Validated from the Default agent:
-
-- `gravity-worker` on a bounded read-only task
-- `gravity-reviewer` with a supplied review contract, returning `VERDICT: GO`
-- clean reinstall leaves only `gravity-worker`, `gravity-deep`, and `gravity-reviewer`
-
-Issue #3 remains the runtime gate. Still to validate:
-
-1. invoke `gravity-deep` on a diagnostic task
-2. exercise Worker `NEEDS_DEEP` escalation
-3. exercise Reviewer `VERDICT: NO-GO` and correction routing
-4. repeat the Native Gravity bootstrap using the native host path
-
-## v0.3
-
-Issue #2 tracks a direct Google AI Studio execution path. It should remain an additional execution lane rather than replacing Antigravity's native runtime.
-
-## Design rule going forward
-
-Do not add orchestration machinery merely because it is possible. Add code only when repeated real AGY failures demonstrate that prompts, roles, rules, native subagents, or MCP cannot solve the problem cleanly.
+- Advisor codename
