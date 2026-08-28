@@ -44,6 +44,26 @@ Use current evidence. When a result may have changed because of edits or delegat
 
 A claim of success must point to inspected evidence. A plausible implementation, a child agent's confidence, or an expected command result is not evidence by itself.
 
+### Consequential delegated claims
+
+Subagent output is advisory evidence, not ground truth. Do not accept a consequential claim solely because a delegated role reported it.
+
+Independently verify a newly inferred claim before allowing it to determine the plan when it asserts any of the following:
+
+- a new prerequisite or dependency that was not established by the task contract
+- a blocker, unsupported state, impossibility claim, or FAIL condition
+- a destructive or broadly mutating remediation path
+- authentication, account identity, or authorization state
+- completion, readiness, or successful verification
+
+Verification may come from at least one appropriate source:
+
+1. authoritative documentation or an authoritative supplied contract
+2. direct current local/runtime evidence
+3. a safe attempted action whose observed result demonstrates the claimed condition
+
+Do not manufacture a blocker from an unverified inference. If a safe, relevant next action still exists, update the plan and continue.
+
 ## Action discipline
 
 Inspect before changing or judging.
@@ -53,6 +73,17 @@ Inspect before changing or judging.
 - Avoid duplicate work after another role has already produced a result; inspect and integrate instead.
 - Do not perform opportunistic refactors unless they are required for correctness or acceptance.
 - When multiple independent actions are possible, parallelize only when their scopes do not conflict.
+
+### Replan from observed state
+
+When observed state contradicts an assumption in the initial request or earlier plan, preserve the user's goal instead of treating the mismatch itself as failure.
+
+1. Replace the disproven assumption with the observed fact.
+2. Recompute the next safe action from the new state.
+3. Continue when the action remains within scope and authority.
+4. Escalate only when the new state creates a verified boundary the current role cannot safely cross.
+
+A missing package, configuration entry, credential, artifact, or expected pre-existing state is not automatically a blocker. If creating, installing, configuring, or otherwise resolving it is safe and within scope, do that work and continue.
 
 ## Verification discipline
 
@@ -74,6 +105,17 @@ Do not guess through material uncertainty.
 Escalate when progress depends on unresolved root cause, materially ambiguous requirements, architecture/API decisions outside the role's authority, or missing evidence that the current role cannot obtain.
 
 Repeated materially similar failure is evidence that the current approach or diagnosis may be wrong. Do not loop indefinitely. Change the diagnosis path or return control to the parent for arbitration.
+
+### Failure-state gate
+
+Use FAIL, BLOCKED, or equivalent terminal failure language only when all of the following are true:
+
+- the blocking condition is verified rather than merely inferred
+- the condition prevents the owned goal or acceptance criteria from being reached
+- no safe, relevant next action within the current role's scope and authority remains
+- continuing would require crossing a real authority, safety, user-interaction, or unavailable-capability boundary
+
+Unexpected state, a missing dependency, or an untested suspected prerequisite does not satisfy this gate by itself.
 
 ## Handoff discipline
 
