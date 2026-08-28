@@ -93,6 +93,21 @@ v0.4 changes the role/model map, so the v0.3.3 global Gemini 3.1 Pro mutation de
 
 Use targeted prompt/rule correction for role-specific failures. Do not add broad model-wide shell blacklists, custom coordination runtimes, or persistent state merely to force one model family to imitate another. A narrow role-scoped behavioral guard is acceptable when a reproduced failure cannot be controlled reliably by prose alone.
 
+## Excavator shell boundary
+
+Excavator is allowed to use `sudo` when privileged inspection or repair is relevant to its bounded task. The safety boundary is not "no sudo"; it is preventing missing authorization or broad side effects from becoming a new objective.
+
+Excavator prefixes every shell command with `NTG_EXCAVATOR=1 `. The plugin's `PreToolUse` hook uses that explicit marker to reject a narrow set of reproduced failure modes while leaving other agents untouched:
+
+- non-interactive sudo password injection or guessing
+- alternate privilege-acquisition paths such as `su`, `pkexec`, or root SSH to localhost
+- mining interactive shell history as an authentication source
+- full-system upgrades used as exploratory troubleshooting
+
+The guard deliberately does **not** block ordinary `sudo` diagnostics or task-relevant privileged repair. Excavator must still honor user-provided prohibitions, keep conclusions proportional to evidence, stop materially repetitive branches, and distinguish READ_ONLY, REVERSIBLE, and PERSISTENT_OR_DESTRUCTIVE effects. Persistent or destructive changes require an exact change description, backup where applicable, rollback path, and evidence-backed justification before execution.
+
+This is a role-specific backstop for observed Excavator drift, not a general privilege sandbox or a replacement for the role prompt.
+
 ## Zen verification boundary
 
 Zen may execute shell commands only to independently reproduce or verify evidence. It has no direct file-mutation tools.
@@ -115,6 +130,7 @@ Before calling v0.4 stable, verify:
 6. Puma handles quick/writing work without ritual Advisor use.
 7. Zen completion is based on an actually observed verdict.
 8. Zen can run independent verification commands while common intentional source-mutation shell attempts are denied by the Zen marker guard.
+9. Excavator-marked shell calls allow ordinary sudo diagnostics while rejecting the reproduced privilege-drift and full-upgrade paths without affecting other agents.
 
 ## Design rules
 
@@ -126,3 +142,4 @@ Before calling v0.4 stable, verify:
 6. Keep Jaguar factual and Steamroller decisional.
 7. Keep Advisor read-only and Zen non-mutating.
 8. Do not reintroduce a model-wide 3.1 Pro mutation deny while Excavator uses that model family for implementation.
+9. Guard Excavator by effect and privilege-acquisition behavior, not by banning sudo itself.
