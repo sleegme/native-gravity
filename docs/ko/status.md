@@ -1,55 +1,46 @@
-# 현재 상태
+# 상태
 
-Native Gravity는 현재 **v0.2.2 / experimental**입니다.
+릴리스 트랙: `v0.4 alpha`
 
-## v0.2.2 patch
+상태: **v0.4 alpha — AGY 1.1.21 핵심 런타임 검증 통과, alpha 사용 준비 완료**
 
-v0.2.2는 v0.2.1의 native-host 구조를 그대로 유지합니다. Runtime 검증 중 기존 설치본 위에 `agy plugin install .`을 다시 실행하면 source에서 삭제된 `gravity-main.md`가 staged plugin 디렉터리에 남을 수 있는 사례를 확인해, 업그레이드 시 clean reinstall 안내를 추가했습니다.
+완료:
 
-Clean reinstall 후에는 현재 구조대로 Worker / Deep / Reviewer 세 subagent만 남는 것을 확인했습니다.
+- Bulldozer / Piledriver / Excavator Primary 3종
+- Worker -> Bobcat
+- Explorer -> Jaguar
+- Deep -> Steamroller
+- Reviewer -> Zen
+- Puma quick/writing 경로 추가
+- Bobcat -> Advisor gate 유지
+- v0.3.3 Gemini 3.1 Pro 전역 mutation guard 제거
+- v0.4 라우팅/문서 반영
+- Zen verification-only `run_command` + marker-scoped `PreToolUse` guard 추가
+- Excavator 일반 sudo는 유지하면서 stdin-password 권한 획득, 우회 privilege path, shell-history credential mining, 전체 시스템 업그레이드를 막는 marker-scoped shell guard 추가
+- `tests/test_excavator_shell_guard.py`에 Excavator guard 회귀 테스트 추가
 
-## v0.2.1 구현
+AGY 1.1.21 검증 완료:
 
-- Antigravity Default agent를 host/coordinator로 유지
-- 기존 Main 동작을 `rules/orchestration.md`로 이동
-- Worker / Deep / Reviewer 3-subagent 구조
-- Host model로 Sonnet 4.6 권장
-- Worker = native `flash`
-- Deep / Reviewer = native `pro`
-- subagent 호출용 named delegation envelope 추가
-- Worker 종료 신호: `DONE` / `BLOCKED` / `NEEDS_DEEP`
-- Deep은 구현 대신 concrete implementation contract 반환
-- Reviewer는 `VERDICT: GO` / `VERDICT: NO-GO` 유지
-- shell wrapper / review packet / persistent coordination state 없음
-- risk-gated review
+- Bulldozer custom primary delegation
+- Piledriver planning-only 행동
+- Excavator direct edit + end-to-end verify
+- Puma quick/writing 효율
+- Bobcat -> Advisor CHECK 수렴
+- Bobcat이 gravity-advisor 외 subagent를 호출하지 않음 (negative case)
+- Zen 실제 verdict 관측
 
-## 왜 host 구조를 바꿨나
+shell guard 변경 후 실제 AGY 재검증 대기:
 
-v0.2 bootstrap에서 custom `gravity-main` primary가 plugin agent, workspace custom agent, built-in `research`에 대한 `invoke_subagent` 호출을 모두 같은 오류로 실패했습니다.
+- Zen이 `NTG_ZEN_VERIFY=1` marker로 독립 verification command를 실행하는지
+- Zen-marked source mutation 시도는 막고 정상 검증 command는 허용하는지
+- Excavator-marked 일반 sudo 진단/수리는 정상 동작하는지
+- Excavator-marked `sudo -S`, `sudo su`, `pkexec`, localhost root SSH, shell-history credential mining, full-system upgrade는 거부되는지
+- `env pkexec`, `command ssh root@localhost`, `bash -c 'sudo apt upgrade'` 같은 wrapper 형태도 거부되는지
+- `sudo somecmd -S value`처럼 sudo 뒤 실행 명령의 `-S` 인자는 오탐하지 않는지
+- Bulldozer 등 다른 agent의 unmarked shell call에는 영향이 없는지
 
-`subagent "<name>" not found or not allowed to be invoked`
+Zen/Excavator guard는 완전한 shell 또는 privilege sandbox가 아니라 역할 이탈에 대한 behavioral backstop입니다. AGY 1.1.21의 `PreToolUse` payload에는 아직 신뢰할 수 있는 custom-agent identity가 없고 agent별 read-only shell policy도 없습니다.
 
-반면 같은 환경의 Antigravity Default agent에서는 built-in `research` 호출이 성공했습니다. 그래서 v0.2.1은 native primary를 유지하고 Main contract를 rule로 내립니다.
+미확정 이름:
 
-이것은 관측된 runtime behavior에 대한 compatibility workaround이며, custom primary delegation이 의도적으로 unsupported라고 단정하는 내용은 아닙니다.
-
-## Runtime 검증
-
-Default agent 기준 확인 완료:
-
-- `gravity-worker` bounded read-only task
-- supplied review contract를 받은 `gravity-reviewer`가 `VERDICT: GO` 반환
-- clean reinstall 후 `gravity-worker`, `gravity-deep`, `gravity-reviewer` 세 파일만 staged
-
-Issue #3에서 아직 확인할 항목:
-
-1. Default agent → `gravity-deep` diagnostic task
-2. Worker `NEEDS_DEEP` escalation
-3. Reviewer `VERDICT: NO-GO`와 correction routing
-4. native host path로 bootstrap 재실행
-
-## 다음 단계
-
-v0.3의 AI Studio direct execution path는 이슈 #2에서 추적합니다.
-
-앞으로도 AGY native primitive로 해결 가능한 문제를 별도 runtime 코드로 재구현하지 않는 것을 기본 원칙으로 둡니다.
+- Advisor

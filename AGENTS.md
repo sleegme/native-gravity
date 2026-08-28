@@ -2,129 +2,144 @@
 
 ## Project intent
 
-Native Gravity is a thin Antigravity-native orchestration plugin. Use Antigravity's own primary agent, subagent lifecycle, session management, model tiers, delegation primitives, and rule system instead of recreating OMO/OpenCode runtime machinery.
+Native Gravity is a thin Antigravity-native orchestration plugin. Prefer Antigravity's native agent lifecycle, model tiers, workspaces, rules, and delegation primitives over custom runtime machinery.
 
-## v0.3 development topology
+## v0.4 architecture
 
-The Antigravity **Default agent** is the Host/coordinator for v0.3. Native Gravity does not define a separate `gravity-main` agent; Main behavior is expressed as policy applied to the native Host.
+v0.4 separates **user-selectable primary modes** from **internal specialists** and maps models to roles that fit their observed behavior instead of forcing every model through one Host shape.
+
+### User-selectable primary agents
 
 ```text
-Host (Antigravity Default agent + Native Gravity rules)
-├─ Advisor
-│  └─ Worker(s)
-├─ Explorer
-├─ Deep
-└─ Reviewer
+User
+├─ Bulldozer  — general Host / orchestrator
+├─ Piledriver — plan-first strategist
+└─ Excavator  — autonomous troubleshooter / deep repair owner
 ```
 
-- **Advisor** — bounded local orchestrator for implementation work. It decomposes Host contracts, delegates only to Worker, and integrates compact Worker results.
-- **Worker** — execution leaf. It edits and verifies only the bounded implementation packet received from Advisor.
-- **Explorer** — read-only discovery leaf. It gathers codebase structure, current-state evidence, and candidate locations directly for the Host.
-- **Deep** — read-only reasoning leaf for ambiguity, diagnosis, and technical trade-offs.
-- **Reviewer** — read-only independent quality gate for delivered artifacts and evidence.
+These three are peers. Piledriver and Excavator are not children of Bulldozer.
 
-Recommended v0.3 model mapping:
+- **Bulldozer** owns general orchestration, routing, integration, verification, and final completion.
+- **Piledriver** owns planning only: requirements, acceptance, task graph, dependencies, risks, and verification strategy. It does not implement project source.
+- **Excavator** owns a bounded difficult problem end-to-end: investigate, reproduce, diagnose, repair, and verify. It is intentionally allowed to implement directly.
 
-- Host: Claude Sonnet 4.6 as the active Antigravity session model.
-- Advisor: Antigravity `pro` tier (Gemini 3.1 Pro in the current v0.3 mapping).
-- Worker: Antigravity `flash` tier (Gemini 3.7 Flash in the current v0.3 mapping).
-- Explorer: Antigravity `flash` tier (Gemini 3.7 Flash in the current v0.3 mapping).
-- Deep: Antigravity `pro` tier (Gemini 3.1 Pro in the current v0.3 mapping).
-- Reviewer: Antigravity `pro` tier (Gemini 3.1 Pro in the current v0.3 mapping).
+### Internal specialists
 
-Role contracts remain conceptually separate from model identity. Model-family corrections and role x model overlays are tracked in issue #9.
+```text
+Bulldozer
+├─ Bobcat
+│  └─ gravity-advisor
+├─ Puma
+├─ Jaguar
+├─ Steamroller
+└─ Zen
+```
 
-## Harness layering
+- **Bobcat** — ordinary implementation worker; Flash tier; may consult `gravity-advisor` when the Host-selected gate requires it.
+- **Puma** — quick/writing worker for small, explicit, low-risk mechanical work; Flash tier; no nested delegation.
+- **Jaguar** — read-only codebase discovery; Flash tier.
+- **Steamroller** — read-only deep reasoning for architecture, ambiguity, trade-offs, and difficult decisions; Pro tier.
+- **gravity-advisor** — read-only Bobcat-local advice/check gate; final codename not yet selected.
+- **Zen** — independent non-mutating final review gate; Pro tier; may run verification commands to gather its own evidence.
 
-Keep the behavioral harness layered and small:
+## Routing principle
 
-1. **Native runtime / tool surface** — Antigravity owns lifecycle, sessions, workspaces, tool permissions, and subagent execution.
-2. **Generic behavioral harness** — `rules/harness.md` defines model-agnostic contract, authority, evidence, verification, escalation, handoff, and completion discipline for the Host. Equivalent core rules are repeated compactly inside each custom subagent because subagent rule inheritance must not be assumed.
-3. **Role contract** — `rules/orchestration.md` and each `agents/gravity-*.md` define topology and role-specific responsibilities.
-4. **Model-family correction** — small behavioral deltas for a model family, such as the planned Gemini corrections.
-5. **Role x model overlay** — only where a concrete role/model pairing demonstrates an additional failure mode.
+Choose by **kind of work**, not by apparent task size alone.
 
-Do not duplicate a complete role prompt in a model-specific overlay merely to change a few behavioral rules.
+- factual discovery / locate existing behavior -> Jaguar
+- small + clear + low-risk / writing / formatting / mechanical text/config -> Puma
+- ordinary implementation -> Bobcat
+- architecture / ambiguity / trade-off -> Steamroller
+- independent completion review -> Zen
+- plan-first user workflow -> Piledriver primary
+- difficult autonomous diagnosis + repair user workflow -> Excavator primary
 
-The generic behavioral baseline is model-agnostic and should enforce:
+## Primary-mode boundaries
 
-- contract-first behavior
-- hard role/scope/authority boundaries
-- OBSERVED / INFERRED / UNKNOWN separation
-- current-evidence grounding
-- acceptance-linked verification
-- explicit escalation instead of guessing
-- convergence instead of repeated materially similar loops
-- compact handoffs instead of transcript replay
-- Host-only global completion authority
+Bulldozer, Piledriver, and Excavator are independent entry points.
 
-## Host policy layering
+- Do not make Bulldozer spawn Piledriver or Excavator merely because their specialty is relevant.
+- Piledriver returns a plan packet; it does not claim implementation completion.
+- Excavator may edit because direct autonomous repair is the point of the role.
+- Bulldozer remains the normal orchestration mode and delegates project edits to Bobcat or Puma.
 
-Treat Main as policy, not as another agent definition:
+## Bobcat Advisor gate
 
-1. **Native Host** — Antigravity Default agent owns the primary session and platform lifecycle.
-2. **Generic behavioral harness** — `rules/harness.md` supplies the model-agnostic operating discipline.
-3. **Generic orchestration policy** — `rules/orchestration.md` defines routing, spawn authority, delegation, correction, and review flow.
-4. **Model-specific Host correction** — add a small model-family rule only when a fallback Host needs behavioral correction. The planned Gemini fallback layer belongs in `rules/models/gemini-host.md`; it must remain a correction delta rather than a duplicated Main prompt.
+Bulldozer selects `ADVISOR_GATE: REQUIRED | NONE` for Bobcat.
 
-Do not create a custom `gravity-main.md` merely to apply model-specific prompting. A custom Main should only be reconsidered in a future version if a concrete capability or isolation requirement cannot be expressed through Antigravity's native Host plus rules.
+- `REQUIRED` for substantive code/behavior/API/state/lifecycle/test work or materially uncertain implementation.
+- `NONE` for clearly low-risk mechanical work when Bobcat is still the chosen worker.
+- Puma exists specifically so most quick/writing work does not need to enter the Bobcat -> Advisor loop.
 
-## Spawn authority
+Bobcat may invoke `gravity-advisor` only. Advisor corrects through Bobcat, never instead of Bobcat.
 
-Keep the graph shallow and explicit:
+## Evidence and completion
 
-1. The Host may invoke Advisor, Explorer, Deep, and Reviewer.
-2. Ordinary implementation must go through Advisor. The Host should not invoke Worker directly.
-3. Advisor is the only Native Gravity subagent with nested delegation authority.
-4. Advisor may invoke **gravity-worker only**. It must not invoke Explorer, Deep, Reviewer, Advisor, `self`, `research`, or arbitrary dynamic subagents.
-5. Worker, Explorer, Deep, and Reviewer are leaf agents and must not invoke subagents.
-6. Advisor cannot certify final task completion. Final review and completion remain Host-owned.
+Across all roles:
 
-This is a bounded two-level orchestration design, not a recursive swarm.
+- separate OBSERVED, INFERRED, and UNKNOWN
+- verify current artifacts rather than trusting prior-agent claims
+- do not treat a launched subagent, started test, or plausible patch as a completed transition
+- keep handoffs compact and acceptance-linked
+- converge or escalate instead of repeating materially similar loops
 
-## Why Explorer bypasses Advisor
+Bulldozer alone owns global completion in orchestrated mode. Piledriver owns only plan readiness. Excavator owns completion of its explicitly bounded autonomous task.
 
-Explorer does not execute implementation work. It returns information the Host needs to decide what to do, so an intermediate execution coordinator adds cost without adding useful authority.
+## Model-adaptive policy
 
-Use Explorer for questions such as where behavior lives, what files participate in a path, what patterns already exist, and what current implementation evidence is available. Use Deep instead when the problem is not merely locating facts but deciding what those facts mean or how an uncertain problem should be solved.
+Do not constrain every model according to the worst-observed model.
 
-## Why Main stays native
+v0.4 changes the role/model map, so the v0.3.3 global Gemini 3.1 Pro mutation deny is no longer valid: Excavator is expected to mutate project source. Model-specific guards must be reevaluated whenever a model is assigned a role with different authority.
 
-The Host role is fundamentally coordination policy over capabilities Antigravity already owns: the primary session, subagent invocation, lifecycle, workspaces, and model selection. Duplicating the Default agent as `gravity-main` would add another compatibility and maintenance surface without adding a required v0.3 capability.
+Use targeted prompt/rule correction for role-specific failures. Do not add broad model-wide shell blacklists, custom coordination runtimes, or persistent state merely to force one model family to imitate another. A narrow role-scoped behavioral guard is acceptable when a reproduced failure cannot be controlled reliably by prose alone.
 
-Runtime validation from v0.2 also showed that custom-primary delegation could behave differently from the Default agent. v0.3 therefore avoids making custom-Main behavior a release dependency at all: Native Gravity controls Main behavior through rules and keeps the primary agent native.
+## Excavator shell boundary
+
+Excavator is allowed to use `sudo` when privileged inspection or repair is relevant to its bounded task. The safety boundary is not "no sudo"; it is preventing missing authorization or broad side effects from becoming a new objective.
+
+Excavator prefixes every shell command with `NTG_EXCAVATOR=1 `. The plugin's `PreToolUse` hook uses that explicit marker to reject a narrow set of reproduced failure modes while leaving other agents untouched:
+
+- non-interactive sudo password injection or guessing
+- alternate privilege-acquisition paths such as `su`, `pkexec`, or root SSH to localhost
+- mining interactive shell history as an authentication source
+- full-system upgrades used as exploratory troubleshooting
+
+The guard deliberately does **not** block ordinary `sudo` diagnostics or task-relevant privileged repair. Excavator must still honor user-provided prohibitions, keep conclusions proportional to evidence, stop materially repetitive branches, and distinguish READ_ONLY, REVERSIBLE, and PERSISTENT_OR_DESTRUCTIVE effects. Persistent or destructive changes require an exact change description, backup where applicable, rollback path, and evidence-backed justification before execution.
+
+This is a role-specific backstop for observed Excavator drift, not a general privilege sandbox or a replacement for the role prompt.
+
+## Zen verification boundary
+
+Zen may execute shell commands only to independently reproduce or verify evidence. It has no direct file-mutation tools.
+
+Zen prefixes every verification command with `NTG_ZEN_VERIFY=1 `. The plugin's `PreToolUse` hook uses that explicit marker to reject common intentional shell-mediated mutation paths while leaving other agents' shell calls untouched.
+
+This is a behavioral backstop for a known role-boundary failure, not a complete read-only shell sandbox. Do not generalize it into a model-wide mutation deny.
+
+## Compatibility validation required
+
+Earlier Native Gravity testing found that an Antigravity custom primary agent could fail to invoke subagents even when the Default agent could. v0.4 therefore treats **Bulldozer custom-primary delegation** as an explicit runtime validation gate, not an assumed capability.
+
+Before calling v0.4 stable, verify:
+
+1. Bulldozer is selectable as a primary agent.
+2. Bulldozer can invoke Bobcat, Puma, Jaguar, Steamroller, and Zen.
+3. Bobcat can invoke gravity-advisor and no other child.
+4. Piledriver is selectable and remains planning-only.
+5. Excavator is selectable, can edit, and is not blocked by a model-wide mutation guard.
+6. Puma handles quick/writing work without ritual Advisor use.
+7. Zen completion is based on an actually observed verdict.
+8. Zen can run independent verification commands while common intentional source-mutation shell attempts are denied by the Zen marker guard.
+9. Excavator-marked shell calls allow ordinary sudo diagnostics while rejecting the reproduced privilege-drift and full-upgrade paths without affecting other agents.
 
 ## Design rules
 
-1. Native-first: if Antigravity already owns a lifecycle/runtime capability, do not rebuild it.
-2. Keep orchestration depth bounded: Host -> Advisor -> Worker is the only nested implementation path.
-3. Keep role and model separate so future model replacement does not require redesigning the graph.
-4. Main is a Host policy layer, not a custom Native Gravity agent.
-5. Generic behavioral rules must remain model-agnostic; model-specific weaknesses belong in correction overlays.
-6. Advisor plans/delegates bounded execution but does not edit project source or perform final review.
-7. Worker executes; it does not redesign the task, spawn agents, or self-certify overall completion.
-8. Explorer gathers evidence directly for the Host and remains read-only.
-9. Deep is triggered by uncertainty, diagnosis, ambiguity, or trade-offs — not merely by task size.
-10. Reviewer is independent and blocker-focused. It does not modify files.
-11. Prefer prompt/rule/configuration changes over new runtime code when AGY-native primitives are sufficient.
-12. Do not add persistent coordination state, custom packet builders, shell runtime wrappers, or quota routing in v0.3.
-
-## Validation
-
-Issue #9 owns v0.3 behavioral validation. In addition to model-specific harness behavior, explicitly verify:
-
-- generic contract/scope adherence across every role
-- OBSERVED / INFERRED / UNKNOWN separation on ambiguous tasks
-- unsupported success-claim rate and evidence grounding
-- Default Host -> Advisor invocation
-- Advisor -> Worker nested invocation
-- that Advisor does not route to non-Worker children
-- that Worker / Explorer / Deep / Reviewer remain leaves
-- that the Host does not bypass Advisor for ordinary implementation
-- Explorer usefulness without Advisor mediation
-- bounded parallel Worker delegation without overlapping write scopes
-- repeated-failure escalation instead of materially similar looping
-- compact handoffs without unnecessary transcript replay
-- Host behavior under the generic harness and orchestration rule
-- Gemini fallback Host behavior once the model-specific correction layer exists
-- completion only after Host-owned current evidence inspection and required Reviewer GO
+1. Native-first.
+2. Primary modes are peers, not a hierarchy.
+3. Keep the internal graph shallow.
+4. Fit roles to model behavior before adding corrective harness weight.
+5. Use Puma for quick/writing work instead of burdening Bobcat with unnecessary review ceremony.
+6. Keep Jaguar factual and Steamroller decisional.
+7. Keep Advisor read-only and Zen non-mutating.
+8. Do not reintroduce a model-wide 3.1 Pro mutation deny while Excavator uses that model family for implementation.
+9. Guard Excavator by effect and privilege-acquisition behavior, not by banning sudo itself.

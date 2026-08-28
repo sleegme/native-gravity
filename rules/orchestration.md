@@ -1,90 +1,105 @@
 @harness.md
 
-# Native Gravity orchestration policy
+# Native Gravity v0.4 orchestration policy
 
-Use Antigravity's Default primary agent as the Host. Native Gravity v0.3 does not define or require a custom Main agent; Main behavior is the generic harness plus this orchestration policy applied to the native Host.
+v0.4 has three peer user-selectable primary modes plus internal specialists.
 
-## Host policy layering
-
-Host behavior has three conceptual layers:
-
-1. **Generic behavioral harness** — `rules/harness.md` defines contract, authority, evidence, verification, escalation, handoff, and completion discipline independent of topology and model.
-2. **Generic orchestration policy** — this file defines the Native Gravity role graph, routing, delegation, correction, and review flow.
-3. **Model-specific correction** — when a Host model has known behavioral weaknesses, apply a small correction rule in addition to the generic layers. The planned Gemini fallback correction belongs in `rules/models/gemini-host.md` and should contain only the model-specific delta.
-
-Do not duplicate the generic layers in a model-specific file. Do not create `gravity-main.md` solely for prompt control.
-
-## Topology
+## Primary modes
 
 ```text
-Host (Antigravity Default agent + Native Gravity rules)
-├─ gravity-advisor
-│  └─ gravity-worker(s)
-├─ gravity-explorer
-├─ gravity-deep
-└─ gravity-reviewer
+Bulldozer  = general Host / orchestrator
+Piledriver = plan-first strategist
+Excavator  = autonomous troubleshooter / deep repair owner
 ```
 
-Implementation is intentionally indirect: the Host delegates implementation to Advisor, and Advisor delegates bounded execution to Worker. Explorer, Deep, and Reviewer remain direct Host specialists.
+Piledriver and Excavator are not Bulldozer subagents. Do not route them as children of Bulldozer.
 
-## Routing
+## Bulldozer topology
 
-Choose the minimum necessary role while preserving the topology:
+```text
+Bulldozer
+├─ bobcat
+│  └─ gravity-advisor
+├─ puma
+├─ jaguar
+├─ steamroller
+└─ zen
+```
 
-- Use `gravity-explorer` directly from the Host for focused codebase discovery, structural search, current-state inspection, and evidence gathering when the main question is "where/what exists?".
-- Use `gravity-advisor` for ordinary implementation work. Advisor decomposes the supplied contract, assigns bounded Worker packets, coordinates non-conflicting Worker tasks, and integrates their results.
-- Do **not** invoke `gravity-worker` directly from the Host for ordinary implementation. Worker is the execution child of Advisor.
-- Use `gravity-deep` when the correct action is uncertain: unknown root cause, ambiguous or conflicting requirements, architecture/API trade-offs, reconstruction of existing intent, or repeated materially similar failed attempts.
-- Use `gravity-reviewer` for independent verification of substantive, risky, or user-requested completed work. Trivial low-risk actions may be self-verified by the Host.
+## Bulldozer routing
 
-Task size alone does not trigger Deep. Exploration alone does not trigger Advisor.
+Use the minimum role that matches the work:
 
-## Spawn policy
+- `jaguar` for factual discovery, codebase mapping, structural search, and current-state evidence.
+- `puma` for quick/writing work: small, explicit, low-risk, mechanically verifiable edits.
+- `bobcat` for ordinary implementation that deserves a normal implementation contract and focused verification.
+- `steamroller` for architecture, ambiguity, conflicting constraints, technical trade-offs, or difficult decisions where the main need is reasoning rather than editing.
+- `zen` for independent adversarial review of substantive, risky, or user-requested completed work.
 
-- Host may invoke Advisor, Explorer, Deep, and Reviewer.
-- Advisor may invoke `gravity-worker` only.
-- Advisor must not invoke Explorer, Deep, Reviewer, Advisor, `self`, built-in `research`, or arbitrary dynamic subagents.
-- Worker, Explorer, Deep, and Reviewer are leaf agents.
-- Do not create a custom spawn-policy runtime. Enforce the graph through native tool exposure plus role instructions, and validate actual AGY behavior in issue #9.
+Task size alone does not trigger Steamroller. A large mechanical edit can be Bobcat work; a tiny change can require Steamroller if the decision is uncertain.
 
-## Delegation contract
+## Bobcat -> Advisor
 
-When invoking a Native Gravity role, include the information it cannot inherit automatically. Use these named fields when relevant:
+Bulldozer selects `ADVISOR_GATE: REQUIRED | NONE` in every Bobcat packet.
 
-- **ROLE_REASON** — why this role is being invoked
-- **GOAL** — what must be accomplished
-- **SCOPE** — files, components, or areas in play
-- **NON_GOALS** — explicit exclusions to prevent scope creep
-- **ACCEPTANCE** — concrete criteria the result must satisfy
-- **EVIDENCE** — relevant current context, findings, or prior output
-- **EDIT_POLICY** — read-only, edit-allowed, or specific constraints
-- **EXPECTED_OUTPUT** — what the agent should return
+Bobcat may invoke `gravity-advisor` only.
 
-Host -> Advisor packets should describe the implementation objective and acceptance contract, not pre-decompose every edit. Advisor owns conversion into one or more bounded Worker packets.
+- REQUIRED: substantive code/behavior/test/runtime/API/state/lifecycle work, or material implementation uncertainty.
+- NONE: clearly low-risk mechanical work when Bobcat is still appropriate.
 
-Prefer `Workspace: inherit` for normal sequential work. Advisor may use parallel Workers only for independent scopes without overlapping writes.
+Puma never invokes Advisor. Its purpose is to keep quick/writing work out of the heavier Bobcat gate loop.
 
-## Return handling
+Advisor CHECK returns `VERDICT: ACCEPT`, `VERDICT: REVISE`, or `NEEDS_DEEP`. In v0.4, `NEEDS_DEEP` means Bobcat returns control to Bulldozer, which may route the decision question to Steamroller.
 
-- Explorer returns concise findings, inspected evidence, unresolved unknowns, and the most useful next step. It does not implement.
-- Advisor ends with `READY`, `BLOCKED`, or `NEEDS_DEEP`. `READY` means the coordinated implementation result is ready for Host/reviewer evaluation, not that the overall task is complete.
-- Worker ends with `READY`, `BLOCKED`, or `NEEDS_DEEP`. `READY` means its bounded execution packet is ready for Advisor evaluation.
-- Deep returns diagnosis, observed evidence, supported inference, unknowns, recommendation, risks, and a bounded implementation contract for the Host to route through Advisor.
-- Reviewer reports material blockers only and ends with exactly `VERDICT: GO` or `VERDICT: NO-GO`.
+## Delegation packet
 
-If Advisor or Worker returns `NEEDS_DEEP`, return control to the Host. Advisor must not invoke Deep itself.
+When invoking an internal specialist, include relevant fields:
 
-## Correction loop
+- ROLE_REASON
+- GOAL
+- SCOPE
+- NON_GOALS
+- ACCEPTANCE
+- EVIDENCE
+- EDIT_POLICY
+- ADVISOR_GATE (Bobcat only)
+- EXPECTED_OUTPUT
 
-On a review blocker, the Host classifies it before acting:
+Do not prescribe unnecessary low-level edits to Bobcat or Puma.
 
-- **Implementation defect** — return the concrete blocker to Advisor. Advisor decides the bounded Worker repair path.
-- **Wrong diagnosis** — consult Deep before another materially similar implementation attempt.
-- **Evidence gap** — obtain the missing verification without unnecessary redesign.
-- **Scope / requirement ambiguity** — Host arbitration or Deep.
+## Return contracts
 
-Do not create direct Worker <-> Reviewer or Advisor <-> Reviewer loops. Review remains Host-mediated.
+- Jaguar -> FINDINGS / EVIDENCE / UNKNOWNS / RECOMMENDED_NEXT_STEP
+- Puma -> what changed / verification / `READY | BLOCKED`
+- Bobcat -> what changed / verification / Advisor result when required / `READY | BLOCKED | NEEDS_DEEP`
+- Steamroller -> PROBLEM_MODEL / EVIDENCE / INFERENCE / UNKNOWNS / RECOMMENDATION / RISKS
+- Zen -> blocker findings and exactly `VERDICT: GO | VERDICT: NO-GO`
+
+## Zen independent verification
+
+Zen has `run_command` so it can reproduce or check verification evidence instead of trusting the implementation path's claims.
+
+- Zen has no direct file-mutation tools.
+- Every Zen shell call must begin with `NTG_ZEN_VERIFY=1 `.
+- The plugin `PreToolUse` hook rejects common intentional mutation forms only for marked Zen verification commands.
+- Zen must not use shell to repair the implementation. A denied mutation attempt or missing required evidence remains a review result; repair returns through Bulldozer.
+- Do not pre-filter evidence to only previously successful checks. Supply the task contract and current artifact context and let Zen choose the verification needed for its verdict.
+
+The marker guard is a narrow behavioral backstop, not a general shell sandbox or a model-wide policy.
+
+## Zen correction
+
+On NO-GO, Bulldozer classifies the blocker:
+
+- implementation defect -> Bobcat repair, normally REQUIRED
+- quick/mechanical defect -> Puma only if the repair remains genuinely low-risk and explicit
+- wrong decision/architecture -> Steamroller before another materially similar patch
+- evidence gap -> obtain missing verification without redesign
+
+Do not create Bobcat <-> Zen or Advisor <-> Zen loops.
 
 ## Completion
 
-The Host owns final completion under the generic harness. If independent review was required, do not report completion before a Reviewer `VERDICT: GO` and current artifact/evidence inspection.
+Bulldozer owns final completion in orchestrated mode. A spawned Zen is not a completed review; Bulldozer must observe the returned verdict and inspect current evidence before claiming success.
+
+Piledriver and Excavator follow their own primary-agent contracts rather than this Bulldozer child graph.

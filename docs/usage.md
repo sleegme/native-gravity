@@ -1,102 +1,57 @@
 # Usage
 
-Native Gravity v0.2.2 is used directly as an Antigravity plugin rather than through a separate wrapper CLI.
+> v0.4 alpha
 
-## Install
-
-```bash
-git clone https://github.com/sleegme/native-gravity.git
-cd native-gravity
-agy plugin install .
-```
-
-When upgrading from an older installation, especially v0.2, use a clean reinstall so removed files do not remain in the staged plugin directory:
+Install or reinstall the plugin from the checked-out repository:
 
 ```bash
 agy plugin uninstall native-gravity
 agy plugin install .
 ```
 
-Use Antigravity's **Default agent** as the primary agent. For the recommended v0.2.2 setup, use Claude Sonnet 4.6 as the active host/session model.
+Use a clean reinstall when switching from v0.3.x so removed legacy agent and hook files cannot remain staged.
 
-The plugin rule supplies Native Gravity's routing policy; `gravity-worker`, `gravity-deep`, and `gravity-reviewer` remain callable custom subagents.
+## Choose a primary mode
 
-## Normal flow
+### Bulldozer
 
-```text
-user request
-   ↓
-Antigravity Default agent + Native Gravity rule
-   ↓
-clear bounded work ─────────────→ Worker
-uncertain diagnosis/trade-off ──→ Deep → host/Worker
-   ↓
-implementation
-   ↓
-independent review when risk justifies it
-   ↓
-Reviewer → GO / NO-GO
-```
+Use for normal multi-step work where you want orchestration and specialist routing.
 
-## Delegation prompts
+Expected routing:
 
-Because subagents start with their own context, the host should explicitly pass these named fields:
+- discovery -> Jaguar
+- quick/writing -> Puma
+- implementation -> Bobcat
+- difficult decision -> Steamroller
+- independent final review -> Zen
 
-- `ROLE_REASON`
-- `GOAL`
-- `SCOPE`
-- `NON_GOALS`
-- `ACCEPTANCE`
-- `EVIDENCE`
-- `EDIT_POLICY`
-- `EXPECTED_OUTPUT`
+### Piledriver
 
-For normal sequential work, `Workspace: inherit` keeps agents on the same checkout.
+Use when you want a plan before execution. It should inspect enough current state to ground the plan, but must not implement project source.
 
-## Worker
+Expected output: GOAL, ACCEPTANCE, TASK_GRAPH, OWNERSHIP_SUGGESTION, RISKS_AND_UNCERTAINTY, RECOMMENDED_VERIFICATION, PLAN_STATUS.
 
-Use Worker for clear bounded implementation, repetitive edits, focused codebase discovery, or explicit read-only research.
+### Excavator
 
-Worker ends with exactly one terminal signal:
+Use when the task is essentially "this is broken; dig until you find the cause and fix it." Excavator is allowed to edit directly and should complete a bounded diagnose -> repair -> verify loop.
 
-- `DONE` — task complete with concrete verification evidence
-- `BLOCKED` — cannot proceed safely because of a specific blocker
-- `NEEDS_DEEP` — the correct action is uncertain and needs diagnosis
+## Bobcat vs Puma
 
-## Deep
+Use Bobcat for ordinary behavior-bearing implementation. Bulldozer chooses `ADVISOR_GATE: REQUIRED | NONE`.
 
-Use Deep when the task requires diagnosis or deciding what should be done before implementation. Deep is read-only by contract.
+Use Puma for clearly small, explicit, low-risk work such as straightforward writing, formatting, presentation-only edits, or mechanical text changes. Puma has no Advisor gate and no nested delegation.
 
-Examples:
+## Alpha validation
 
-- unknown failure root cause
-- conflicting requirements
-- architecture/API trade-offs
-- reconstructing existing code intent
-- repeated failed approaches
+This checklist passed on AGY 1.1.21. Re-run it after an AGY runtime change:
 
-Deep returns a concrete implementation contract for the host or Worker rather than editing source itself.
+Before trusting v0.4 for real work, confirm the current AGY runtime can:
 
-## Reviewer
+1. select all three primary agents;
+2. let Bulldozer invoke Bobcat/Puma/Jaguar/Steamroller/Zen;
+3. let Bobcat invoke gravity-advisor — and observe that Bobcat attempts no other subagent (negative delegation case);
+4. let Piledriver stop at plan status instead of editing project source;
+5. let Excavator edit project source;
+6. return actual subagent/Zen results instead of only launch acknowledgements.
 
-Reviewer is not an implementation agent. The host should include the task goal/scope, acceptance criteria, relevant change/diff context, and verification evidence in its invocation prompt.
-
-Reviewer inspects current files and returns only material blockers plus `VERDICT: GO` or `VERDICT: NO-GO`.
-
-Review is risk-gated; trivial changes may be verified by the host without a dedicated Reviewer call.
-
-## Runtime note
-
-v0.2.1 intentionally stopped using `gravity-main` as a custom primary agent. During v0.2 validation, that configuration failed to invoke both custom subagents and the built-in `research` subagent, while the Default agent successfully invoked `research` in the same environment.
-
-v0.2.2 keeps the same native-host architecture. Issue #3 tracks the remaining runtime validation, especially Deep escalation and Reviewer correction routing.
-
-## What v0.2.2 intentionally does not have
-
-- custom primary/Main agent
-- wrapper CLI
-- review packet shell scripts
-- persistent coordination state
-- Explore/Librarian agents
-- large category matrix
-- custom quota router
+If Excavator ends a task as `BLOCKED`, start a separate Bulldozer task for the open decision so Bulldozer can consult Steamroller. Do not treat Excavator as a Bulldozer child.
