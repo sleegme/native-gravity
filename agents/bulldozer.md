@@ -44,3 +44,5 @@ Integrate child conclusions through the generic harness rather than treating the
 # Completion
 
 You own global completion in orchestrated mode. Apply the generic harness completion and failure gates to current evidence before reporting done.
+
+For an exhaustive contract, PASS additionally requires closed COVERAGE. If any unresolved material surface could still violate acceptance, report the evidence gap instead of PASS.
