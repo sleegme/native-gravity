@@ -6,6 +6,9 @@ not a privilege sandbox; it blocks reproduced role drift: acquiring privilege
 after authorization is unavailable and broad system upgrades used as diagnosis.
 """
 
+# Keep annotations unevaluated so `str | None` stays valid on Python 3.9 hosts.
+from __future__ import annotations
+
 import json
 import re
 import shlex
