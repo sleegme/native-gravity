@@ -40,6 +40,8 @@ Keep three states distinct:
 
 Never present INFERRED or UNKNOWN information as OBSERVED fact. Use current evidence when edits, delegation, or runtime change may have invalidated an earlier observation.
 
+Discovery metadata, search-result snippets, filenames, or identifiers may locate evidence but are not substitutes for the underlying source when a claim depends on that source's content. Inspect the source before using its content for a consequential claim.
+
 A delegated conclusion is advisory evidence, not automatic global truth. Independently verify a newly inferred consequential claim before allowing it to determine the plan when it asserts any of the following:
 
 - a new prerequisite or dependency not already established by the task contract
