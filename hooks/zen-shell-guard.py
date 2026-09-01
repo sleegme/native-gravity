@@ -5,6 +5,9 @@ Only commands explicitly marked by Zen are inspected. Other agents are unaffecte
 This is intentionally a narrow role-behavior guard, not a general shell sandbox.
 """
 
+# Keep annotations unevaluated so `str | None` stays valid on Python 3.9 hosts.
+from __future__ import annotations
+
 import json
 import re
 import shlex
@@ -18,10 +21,15 @@ DENY_REASON = (
 )
 
 MUTATING_PATTERNS = [
-    r"(?i)(?:^|[;&|]\s*)(?:sudo\s+)?(?:rm|mv|cp|install|touch|truncate|dd)\b",
+    # `tee` is a direct write path equivalent to output redirection, including `tee -a`.
+    r"(?i)(?:^|[;&|]\s*)(?:sudo\s+)?(?:rm|mv|cp|install|touch|truncate|dd|tee)\b",
     r"(?i)(?:^|[;&|]\s*)(?:sudo\s+)?sed\b[^;&|]*\s-i(?:\s|$)",
     r"(?i)(?:^|[;&|]\s*)(?:sudo\s+)?perl\b[^;&|]*\s-(?:p?i|i\w*)\b",
-    r"(?i)(?:^|[;&|]\s*)git\s+(?:add|commit|checkout|switch|restore|reset|clean|merge|rebase|cherry-pick|am|apply)\b",
+    # `stash` mutates the working tree and `push` mutates remote repository state.
+    # Leading global options are tolerated so `git -C dir push` cannot trivially bypass.
+    r"(?i)(?:^|[;&|]\s*)git\s+"
+    r"(?:(?:-C|-c|--git-dir|--work-tree|--namespace)(?:=|\s+)\S+\s+)*"
+    r"(?:add|commit|checkout|switch|restore|reset|clean|merge|rebase|cherry-pick|am|apply|stash|push)\b",
     r"(?i)(?:^|[;&|]\s*)(?:npm|pnpm|yarn|pip3?|uv|cargo|apt(?:-get)?|dnf|yum|pacman)\s+(?:install|add|remove|uninstall|update|upgrade|fmt)\b",
     r"(?i)(?:^|[;&|]\s*)prettier\b[^;&|]*--write\b",
     r"(?i)(?:^|[;&|]\s*)gofmt\b[^;&|]*\s-w(?:\s|$)",
