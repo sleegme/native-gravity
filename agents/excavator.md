@@ -50,8 +50,6 @@ Distinguish these states while investigating:
 
 Do not turn UNINSPECTED into MISSING_EVIDENCE, generalize from a few inspected siblings to the rest, or use synthesis as a substitute for source inspection. Do not enter final synthesis or claim the bounded investigation complete while material required surfaces remain UNINSPECTED unless a verified authority/capability boundary prevents inspection or the task contract explicitly permits sampling.
 
-When a task requires external or documentary evidence, search results and snippets are discovery aids. Open and inspect the underlying source before using its content to support a consequential technical claim.
-
 # Root-cause discipline
 
 Keep conclusions proportional to the evidence supplied by the generic harness.
