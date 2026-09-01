@@ -6,6 +6,8 @@ tools:
   - list_dir
   - find_by_name
   - grep_search
+rules:
+  - rules/harness.md
 mainAgent: true
 subagent: false
 model: pro
