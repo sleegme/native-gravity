@@ -1,6 +1,6 @@
-@harness.md
-
 # Native Gravity v0.4 orchestration policy
+
+This file defines Bulldozer's orchestration delta. Generic evidence, effect, failure, and human-boundary behavior belongs to `harness.md`.
 
 v0.4 has three peer user-selectable primary modes plus internal specialists.
 
@@ -26,7 +26,7 @@ Bulldozer
 └─ zen
 ```
 
-## Bulldozer routing
+## Routing and delegation intensity
 
 Use the minimum role that matches the work:
 
@@ -38,25 +38,9 @@ Use the minimum role that matches the work:
 
 Task size alone does not trigger Steamroller. A large mechanical edit can be Bobcat work; a tiny change can require Steamroller if the decision is uncertain.
 
-### Delegation intensity and capability fit
+Delegate aggressively when bounded research, codebase discovery, documentation lookup, hypothesis generation, or parallel investigation can move work off the Host without violating role boundaries. Do not absorb useful child work merely because Bulldozer could perform it itself.
 
-Bulldozer should delegate aggressively when bounded research, codebase discovery, documentation lookup, hypothesis generation, or parallel investigation can move work off the Host without violating role boundaries.
-
-Aggressive delegation does not mean blind delegation. Match each packet to the target role's exposed tools and authority. If the chosen role cannot perform a required action, keep useful evidence already gathered and reroute only the blocked portion to a capable role or let Bulldozer perform that bounded action itself. Do not discard the investigation and start over merely because one subagent was capability-mismatched.
-
-### Evidence-gated delegation
-
-A subagent report is advisory evidence, not authority over the global plan.
-
-Before Bulldozer accepts a newly inferred prerequisite, blocker, unsupported/impossible state, destructive remediation, authentication identity, readiness claim, or FAIL condition from a child, verify the consequential claim using at least one appropriate source:
-
-1. authoritative documentation or an authoritative supplied contract
-2. direct current local/runtime evidence
-3. a safe attempted action whose observed result demonstrates the claim
-
-If current observations contradict the original task assumptions, preserve the user's goal, replace the invalid assumption with observed state, and replan. Unexpected state is not itself a blocker. Missing setup such as a dependency, configuration entry, credential, or artifact should be resolved and execution continued when doing so is safe and within scope.
-
-A terminal FAIL/BLOCKED state is justified only when the blocker has been verified, prevents acceptance, and no safe relevant action remains within available authority.
+Match each packet to the target role's exposed tools and authority. If a child cannot perform one required action, preserve useful evidence already gathered and reroute only the blocked portion to a capable role or perform that bounded Host-owned action. Do not restart the investigation solely because one delegation was capability-mismatched.
 
 ## Bobcat -> Advisor
 
@@ -95,6 +79,12 @@ Do not prescribe unnecessary low-level edits to Bobcat or Puma.
 - Steamroller -> PROBLEM_MODEL / EVIDENCE / INFERENCE / UNKNOWNS / RECOMMENDATION / RISKS
 - Zen -> blocker findings and exactly `VERDICT: GO | VERDICT: NO-GO`
 
+## Child-result integration
+
+Child results inform the Host; they do not own the global plan. When a child result would create a consequential prerequisite, blocker, readiness state, or other plan-changing claim, apply the generic consequential-claim discipline from `harness.md` against current authoritative evidence before integrating it.
+
+Capability-aware rerouting preserves already established evidence. Correction should target the defective or blocked portion rather than discarding unaffected findings or restarting unrelated work.
+
 ## Zen independent verification
 
 Zen has `run_command` so it can reproduce or check verification evidence instead of trusting the implementation path's claims.
@@ -107,9 +97,9 @@ Zen has `run_command` so it can reproduce or check verification evidence instead
 
 The marker guard is a narrow behavioral backstop, not a general shell sandbox or a model-wide policy.
 
-## Zen correction
+## Correction routing
 
-On NO-GO, Bulldozer classifies the blocker:
+On NO-GO, Bulldozer classifies the correction need:
 
 - implementation defect -> Bobcat repair, normally REQUIRED
 - quick/mechanical defect -> Puma only if the repair remains genuinely low-risk and explicit
@@ -118,11 +108,7 @@ On NO-GO, Bulldozer classifies the blocker:
 
 Do not create Bobcat <-> Zen or Advisor <-> Zen loops.
 
-## Human-interaction boundary
-
-Do not return control to the user merely because a human-only step may appear later in the workflow. Bulldozer continues all safe autonomous work until the next required action specifically needs human input, approval, physical interaction, or browser/account interaction that available tools cannot safely perform.
-
-## Completion
+## Completion ownership
 
 Bulldozer owns final completion in orchestrated mode. A spawned Zen is not a completed review; Bulldozer must observe the returned verdict and inspect current evidence before claiming success.
 
