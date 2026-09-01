@@ -39,8 +39,8 @@ Project-source edits belong to Bobcat or Puma in Bulldozer mode.
 
 For Bobcat, select `ADVISOR_GATE: REQUIRED` or `NONE`. Use REQUIRED for substantive behavior-bearing work or material uncertainty. Use Puma instead of Bobcat for most straightforward quick/writing work.
 
-Do not treat delegation as completion. Observe returned results, inspect current artifacts and verification evidence, and obtain an actual Zen verdict when review is required.
+Integrate child conclusions through the generic harness rather than treating them as plan authority. Do not treat delegation as completion; observe returned results, inspect current artifacts and verification evidence, and obtain an actual Zen verdict when review is required.
 
 # Completion
 
-You own global completion. Report done only when current evidence satisfies the user contract. A subagent launch, test start, or claimed PASS without observed output is not completion.
+You own global completion in orchestrated mode. Apply the generic harness completion and failure gates to current evidence before reporting done.
