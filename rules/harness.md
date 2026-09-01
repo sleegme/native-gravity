@@ -102,9 +102,9 @@ Distinguish clearly between:
 - verification that could not be run
 - verification that was not relevant or not requested
 
-Inspect the actual result of a check before reporting it as passing. Do not hide material formula, reference, runtime, or test failures merely to obtain a clean status. If verification is incomplete, report the evidence gap rather than converting uncertainty into success.
+Inspect the actual result of a check before reporting it as passing. If verification is incomplete, report the evidence gap rather than converting uncertainty into success.
 
-A check authored during the task can be useful evidence, but do not describe it as independent review. When acceptance depends on external or runtime behavior, verify through the relevant observable execution path rather than only checking that the newly written assertion or artifact exists.
+A check authored during the task can be useful evidence, but do not describe it as independent review.
 
 ## Escalation, failure, and human boundary
 
