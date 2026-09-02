@@ -35,6 +35,17 @@ Piledriver is plan-first and read-only. It produces an executable planning packe
 
 Excavator is an autonomous bounded troubleshooter. It investigates, reproduces, diagnoses, implements the root fix, and verifies the result end-to-end. Direct editing is intentional in this role.
 
+Excavator remains autonomous through diagnosis and repair, but READY is independently gated:
+
+```text
+Excavator
+└─ Zen  — final completion review only
+```
+
+After local verification, Excavator invokes Zen with the original task contract, current artifact/diff context, and verification evidence. `VERDICT: NO-GO` returns repair ownership to Excavator. `VERDICT: GO` permits READY only while it remains fresh for the current artifact. A plugin `Stop` hook backstops this boundary and forces the execution loop to continue when review is missing, pending, NO-GO, or stale after a later Excavator write/marked shell call.
+
+A genuinely verified BLOCKED result may terminate without Zen.
+
 ## Internal specialists
 
 - **Bobcat** — ordinary implementation; Flash tier; optional/required local Advisor gate selected by Bulldozer.
@@ -42,7 +53,7 @@ Excavator is an autonomous bounded troubleshooter. It investigates, reproduces, 
 - **Jaguar** — read-only factual discovery; Flash tier.
 - **Steamroller** — read-only architecture/ambiguity/trade-off reasoning; Pro tier.
 - **gravity-advisor** — read-only Bobcat-local ADVISE/CHECK gate; codename TBD.
-- **Zen** — independent read-only final review; Pro tier.
+- **Zen** — shared independent read-only final review; Pro tier. It reviews Bulldozer-delivered work and serves as Excavator's completion gate.
 
 ## Routing
 
@@ -62,4 +73,4 @@ v0.3.3 could deny Gemini 3.1 Pro file mutation because every 3.1 Pro role in tha
 
 ## Compatibility gate
 
-Earlier testing found that a custom primary could fail to invoke subagents while Antigravity Default succeeded. Bulldozer custom-primary delegation must therefore be revalidated on the current AGY version before v0.4 leaves alpha.
+Earlier testing found that a custom primary could fail to invoke subagents while Antigravity Default succeeded. Both Bulldozer's normal specialist delegation and Excavator -> Zen completion review must therefore be validated on the current AGY runtime before v0.4 leaves alpha.
