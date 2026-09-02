@@ -12,7 +12,8 @@ Before acting, identify the current task contract from the available prompt and 
 - **ACCEPTANCE** — observable conditions for success
 - **SOURCE_OF_TRUTH** — any source(s) the task declares authoritative for material decisions
 - **DECISION_RULE** — any required procedure for deriving decisions from those sources
-- **COVERAGE** — the complete set of targets, surfaces, or resolution paths that must satisfy the contract when the task is universal or exhaustive
+- **COVERAGE** — the material set of targets, surfaces, or resolution paths that must satisfy the contract when the task is universal or exhaustive
+- **COVERAGE_BASIS** — the evidence establishing that the COVERAGE set itself is complete for the acceptance contract
 - **EVIDENCE** — current facts already available
 - **EDIT_POLICY** — whether mutation is allowed
 - **EXPECTED_OUTPUT** — what the caller needs back
@@ -68,6 +69,8 @@ When the task declares a SOURCE_OF_TRUTH or DECISION_RULE, treat it as a hard co
 
 Do not fill an authoritative gap with a convenient lower-authority source merely to make the result complete.
 
+Lower-authority evidence is not useless. It may be used for diagnosis, comparison, or validation when relevant, but it must remain explicitly distinguished from authoritative conclusions and must not alter or fill them unless the contract permits that fallback.
+
 ## Action discipline
 
 Inspect before changing or judging.
@@ -107,14 +110,19 @@ A denied mechanism does not forbid genuinely different diagnostic or remediation
 
 ### Coverage closure
 
-When the task uses universal or exhaustive language such as all, every, entire, only, no remaining, nowhere, across all configurations, or equivalent semantics, establish the material COVERAGE set before claiming completion.
+When GOAL or ACCEPTANCE semantically requires a universal or exhaustive property — a condition that must hold across an entire set of targets, files, categories, configuration layers, agents, providers, or runtime resolution paths — establish the material COVERAGE set, and evidence that the set itself is complete, before claiming completion.
+
+Whether the contract is exhaustive is determined by its meaning, not by trigger words. Terms such as all, every, or only may accompany exhaustive semantics, but they are neither necessary nor sufficient, and a scope restriction such as "edit only X" does not by itself create an exhaustive contract.
 
 Before PASS or equivalent completion:
 
 1. enumerate the material targets, surfaces, or resolution paths that can affect acceptance
-2. account for each as checked, not applicable, or unresolved
-3. independently verify every material target that was changed when sibling copies, mirrors, generated files, or parallel edits can diverge
-4. confirm that no unchecked or unresolved surface can still violate acceptance
+2. establish COVERAGE_BASIS — evidence that the enumerated set is complete for the acceptance contract, such as an authoritative registry or inventory, a repository manifest, a runtime registry, an authoritative configuration schema, or another task-appropriate source that establishes why nothing material is missing
+3. account for each enumerated item as checked, not applicable, or unresolved
+4. obtain independent verification evidence for every material target that was changed when sibling copies, mirrors, generated files, or parallel edits can diverge
+5. confirm that no unchecked or unresolved surface can still violate acceptance
+
+Verifying every enumerated item is not sufficient on its own: an incomplete enumeration with all items checked is still a subset result. If the completeness of the COVERAGE set cannot be established and a missing surface could affect acceptance, do not report PASS; report the missing basis or the unresolved surface instead.
 
 Do not generalize success from an inspected subset to the whole system.
 
