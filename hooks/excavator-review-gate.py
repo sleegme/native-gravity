@@ -193,7 +193,7 @@ def tail_is_blocked(records: list[Any]) -> bool:
 
 
 _READY_LINE = re.compile(r"^\s*READY\s*$")
-_STATUS_READY = re.compile(r"\bSTATUS\b\s*[:\-\u2014]\s*\bREADY\b")
+_STATUS_READY_LINE = re.compile(r"^\s*STATUS\s*[:\-\u2014]\s*READY\s*$")
 
 
 def _latest_assistant_text(record: Any) -> str | None:
@@ -210,7 +210,7 @@ def tail_has_ready_attempt(records: list[Any]) -> bool:
 
     Recognised forms:
     - A standalone line containing exactly ``READY`` (Excavator output contract).
-    - An explicit status field such as ``STATUS: READY`` or ``STATUS — READY``.
+    - A standalone status line such as ``STATUS: READY`` or ``STATUS — READY``.
 
     Mentions of READY inside explanatory sentences, negations, progress
     updates, user-input requests, or older assistant messages are **not**
@@ -221,10 +221,8 @@ def tail_has_ready_attempt(records: list[Any]) -> bool:
         if assistant_text is None:
             continue
         for line in assistant_text.splitlines():
-            if _READY_LINE.match(line):
+            if _READY_LINE.match(line) or _STATUS_READY_LINE.match(line):
                 return True
-        if _STATUS_READY.search(assistant_text):
-            return True
         # Most recent assistant message found but contained no explicit
         # READY declaration — this is not a completion attempt.
         return False
