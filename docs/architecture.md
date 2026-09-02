@@ -43,6 +43,17 @@ Jaguar is used when target identity, current state, or other material planning f
 
 Excavator is an autonomous bounded troubleshooter. It investigates, reproduces, diagnoses, implements the root fix, and verifies the result end-to-end. Direct editing is intentional in this role.
 
+Excavator remains autonomous through diagnosis and repair, but READY is independently gated:
+
+```text
+Excavator
+└─ Zen  — final completion review only
+```
+
+After local verification, Excavator invokes Zen with the original task contract, current artifact/diff context, and verification evidence. `VERDICT: NO-GO` returns repair ownership to Excavator. `VERDICT: GO` permits READY only while it remains fresh for the current artifact. A plugin `Stop` hook backstops this boundary and forces the execution loop to continue when review is missing, pending, NO-GO, or stale after a later Excavator write/marked shell call.
+
+A genuinely verified BLOCKED result may terminate without Zen.
+
 ## Internal specialists
 
 - **Bobcat** — ordinary implementation; Flash tier; optional/required local Strix Halo gate selected by Bulldozer.
@@ -50,7 +61,7 @@ Excavator is an autonomous bounded troubleshooter. It investigates, reproduces, 
 - **Jaguar** — read-only factual discovery; Flash tier.
 - **Steamroller** — read-only architecture/ambiguity/trade-off reasoning; Pro tier.
 - **Strix Halo** — read-only Bobcat-local ADVISE/CHECK gate; Pro tier.
-- **Zen** — independent non-mutating final review; Pro tier. Reviews delivered work for Bulldozer and plan readiness for Piledriver.
+- **Zen** — shared independent non-mutating final review; Pro tier. It reviews Bulldozer-delivered work, serves as Excavator's completion gate, and reviews plan readiness for Piledriver.
 
 ## Routing
 
@@ -70,4 +81,4 @@ v0.3.3 could deny Gemini 3.1 Pro file mutation because every 3.1 Pro role in tha
 
 ## Compatibility gate
 
-Earlier testing found that a custom primary could fail to invoke subagents while Antigravity Default succeeded. Custom-primary delegation must therefore be validated on the current AGY version before v0.4 leaves alpha, including Bulldozer's worker graph and Piledriver's Jaguar/Zen planning graph.
+Earlier testing found that a custom primary could fail to invoke subagents while Antigravity Default succeeded. Custom-primary delegation must therefore be validated on the current AGY version before v0.4 leaves alpha, including Bulldozer's worker graph, Piledriver's Jaguar/Zen planning graph, and Excavator -> Zen completion review.
