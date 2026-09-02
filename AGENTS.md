@@ -21,7 +21,7 @@ These three are peers. Piledriver and Excavator are not children of Bulldozer.
 
 - **Bulldozer** owns general orchestration, routing, integration, verification, and final completion.
 - **Piledriver** owns planning only: requirements, acceptance, task graph, dependencies, risks, and verification strategy. It does not implement project source.
-- **Excavator** owns a bounded difficult problem end-to-end: investigate, reproduce, diagnose, repair, and verify. It is intentionally allowed to implement directly.
+- **Excavator** owns a bounded difficult problem end-to-end: investigate, reproduce, diagnose, repair, verify, then obtain independent Zen review before READY. It is intentionally allowed to implement directly.
 
 ### Internal specialists
 
@@ -33,6 +33,9 @@ Bulldozer
 ├─ Jaguar
 ├─ Steamroller
 └─ Zen
+
+Excavator
+└─ Zen  — completion review only
 ```
 
 - **Bobcat** — ordinary implementation worker; Flash tier; may consult `gravity-advisor` when the Host-selected gate requires it.
@@ -40,7 +43,7 @@ Bulldozer
 - **Jaguar** — read-only codebase discovery; Flash tier.
 - **Steamroller** — read-only deep reasoning for architecture, ambiguity, trade-offs, and difficult decisions; Pro tier.
 - **gravity-advisor** — read-only Bobcat-local advice/check gate; final codename not yet selected.
-- **Zen** — independent non-mutating final review gate; Pro tier; may run verification commands to gather its own evidence.
+- **Zen** — shared independent non-mutating final review gate; Pro tier; may run verification commands to gather its own evidence. Bulldozer uses it for orchestrated completion review; Excavator may invoke it only as its final completion reviewer.
 
 ## Routing principle
 
@@ -60,7 +63,7 @@ Bulldozer, Piledriver, and Excavator are independent entry points.
 
 - Do not make Bulldozer spawn Piledriver or Excavator merely because their specialty is relevant.
 - Piledriver returns a plan packet; it does not claim implementation completion.
-- Excavator may edit because direct autonomous repair is the point of the role.
+- Excavator may edit because direct autonomous repair is the point of the role. Its only child is Zen, used after local verification as an independent completion gate.
 - Bulldozer remains the normal orchestration mode and delegates project edits to Bobcat or Puma.
 
 ## Bobcat Advisor gate
@@ -83,7 +86,7 @@ Across all roles:
 - keep handoffs compact and acceptance-linked
 - converge or escalate instead of repeating materially similar loops
 
-Bulldozer alone owns global completion in orchestrated mode. Piledriver owns only plan readiness. Excavator owns completion of its explicitly bounded autonomous task.
+Bulldozer alone owns global completion in orchestrated mode. Piledriver owns only plan readiness. Excavator owns completion of its explicitly bounded autonomous task only after its own verification and an observed Zen `VERDICT: GO` for the current artifact. A genuinely BLOCKED Excavator task may terminate without Zen when the generic BLOCKED gate is satisfied.
 
 ## Model-adaptive policy
 
@@ -92,6 +95,14 @@ Do not constrain every model according to the worst-observed model.
 v0.4 changes the role/model map, so the v0.3.3 global Gemini 3.1 Pro mutation deny is no longer valid: Excavator is expected to mutate project source. Model-specific guards must be reevaluated whenever a model is assigned a role with different authority.
 
 Use targeted prompt/rule correction for role-specific failures. Do not add broad model-wide shell blacklists, custom coordination runtimes, or persistent state merely to force one model family to imitate another. A narrow role-scoped behavioral guard is acceptable when a reproduced failure cannot be controlled reliably by prose alone.
+
+## Excavator completion review boundary
+
+Excavator performs diagnosis, repair, and local verification itself. Zen is not part of the diagnostic loop; it is an independent final check against the supplied task contract and the current artifact.
+
+The plugin `Stop` hook backstops this boundary. On a normal Excavator stop it requires an observed Zen `VERDICT: GO`; a newer Zen invocation without a verdict, `VERDICT: NO-GO`, or a later direct write/marked Excavator shell call forces the execution loop to continue. A later write or marked shell call makes an older GO stale and requires fresh verification plus a fresh Zen review.
+
+The hook deliberately permits a verified BLOCKED termination and abnormal runtime termination rather than manufacturing an infinite completion loop.
 
 ## Excavator shell boundary
 
@@ -118,7 +129,7 @@ This is a behavioral backstop for a known role-boundary failure, not a complete 
 
 ## Compatibility validation required
 
-Earlier Native Gravity testing found that an Antigravity custom primary agent could fail to invoke subagents even when the Default agent could. v0.4 therefore treats **Bulldozer custom-primary delegation** as an explicit runtime validation gate, not an assumed capability.
+Earlier Native Gravity testing found that an Antigravity custom primary agent could fail to invoke subagents even when the Default agent could. v0.4 therefore treats custom-primary delegation paths as explicit runtime validation gates, not assumed capabilities.
 
 Before calling v0.4 stable, verify:
 
@@ -127,10 +138,12 @@ Before calling v0.4 stable, verify:
 3. Bobcat can invoke gravity-advisor and no other child.
 4. Piledriver is selectable and remains planning-only.
 5. Excavator is selectable, can edit, and is not blocked by a model-wide mutation guard.
-6. Puma handles quick/writing work without ritual Advisor use.
-7. Zen completion is based on an actually observed verdict.
-8. Zen can run independent verification commands while common intentional source-mutation shell attempts are denied by the Zen marker guard.
-9. Excavator-marked shell calls allow ordinary sudo diagnostics while rejecting the reproduced privilege-drift and full-upgrade paths without affecting other agents.
+6. Excavator can invoke Zen and cannot complete READY without observing the current Zen verdict.
+7. A Zen `VERDICT: NO-GO` or a post-GO Excavator write/marked shell call causes correction plus a fresh review before READY.
+8. Puma handles quick/writing work without ritual Advisor use.
+9. Zen completion is based on an actually observed verdict.
+10. Zen can run independent verification commands while common intentional source-mutation shell attempts are denied by the Zen marker guard.
+11. Excavator-marked shell calls allow ordinary sudo diagnostics while rejecting the reproduced privilege-drift and full-upgrade paths without affecting other agents.
 
 ## Design rules
 
@@ -143,3 +156,4 @@ Before calling v0.4 stable, verify:
 7. Keep Advisor read-only and Zen non-mutating.
 8. Do not reintroduce a model-wide 3.1 Pro mutation deny while Excavator uses that model family for implementation.
 9. Guard Excavator by effect and privilege-acquisition behavior, not by banning sudo itself.
+10. Keep Excavator autonomous through diagnosis and repair, but require an independent Zen gate before READY.
