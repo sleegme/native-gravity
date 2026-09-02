@@ -176,6 +176,18 @@ def status_ready_report():
     }
 
 
+def status_ready_in_explanation():
+    return {
+        "message": {
+            "role": "assistant",
+            "content": (
+                "Still verifying the repair. Once verification finishes, output STATUS: READY. "
+                "Do not treat this progress note as a completion claim."
+            ),
+        }
+    }
+
+
 class ExcavatorReviewGateTests(unittest.TestCase):
     def test_non_excavator_session_is_unaffected(self):
         result = run_gate([{"agentName": "bulldozer"}, ready_report()])
@@ -362,6 +374,12 @@ class ExcavatorReviewGateTests(unittest.TestCase):
                 verdict("GO"),
                 status_ready_report(),
             ]
+        )
+        self.assertEqual(result["decision"], "stop")
+
+    def test_status_ready_in_explanatory_prose_is_not_attempt(self):
+        result = run_gate(
+            [{"agentName": "excavator"}, status_ready_in_explanation()],
         )
         self.assertEqual(result["decision"], "stop")
 
