@@ -192,18 +192,42 @@ def tail_is_blocked(records: list[Any]) -> bool:
     return False
 
 
-def tail_has_ready_attempt(records: list[Any]) -> bool:
-    """Return True when the transcript tail indicates Excavator is attempting READY.
+_READY_LINE = re.compile(r"^\s*READY\s*$")
+_STATUS_READY = re.compile(r"\bSTATUS\b\s*[:\-\u2014]\s*\bREADY\b")
 
-    A READY attempt requires the word READY in the most recent assistant
-    content.  Progress updates, user-input requests, and ordinary stops
-    without a completion claim are not READY attempts.
+
+def _latest_assistant_text(record: Any) -> str | None:
+    for node in iter_dicts(record):
+        role = str(node.get("role") or "").strip().lower()
+        if role == "assistant":
+            return text_content(node)
+    return None
+
+
+def tail_has_ready_attempt(records: list[Any]) -> bool:
+    """Return True only when the most recent assistant content contains an
+    explicit terminal READY declaration matching the output contract.
+
+    Recognised forms:
+    - A standalone line containing exactly ``READY`` (Excavator output contract).
+    - An explicit status field such as ``STATUS: READY`` or ``STATUS — READY``.
+
+    Mentions of READY inside explanatory sentences, negations, progress
+    updates, user-input requests, or older assistant messages are **not**
+    attempts.
     """
     for record in reversed(records[-5:]):
-        for node in iter_dicts(record):
-            role = str(node.get("role") or "").strip().lower()
-            if role == "assistant" and re.search(r"\bREADY\b", text_content(node)):
+        assistant_text = _latest_assistant_text(record)
+        if assistant_text is None:
+            continue
+        for line in assistant_text.splitlines():
+            if _READY_LINE.match(line):
                 return True
+        if _STATUS_READY.search(assistant_text):
+            return True
+        # Most recent assistant message found but contained no explicit
+        # READY declaration — this is not a completion attempt.
+        return False
     return False
 
 

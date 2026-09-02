@@ -126,6 +126,56 @@ def user_input_request():
     }
 
 
+def not_ready_statement():
+    return {
+        "message": {
+            "role": "assistant",
+            "content": "Not READY yet. Still waiting for test results.",
+        }
+    }
+
+
+def ready_in_explanation():
+    return {
+        "message": {
+            "role": "assistant",
+            "content": (
+                "The task is not complete. Before we can declare READY, "
+                "we need to confirm the root cause with direct evidence "
+                "and obtain a Zen VERDICT: GO on the current artifact."
+            ),
+        }
+    }
+
+
+def ready_in_progress_sentence():
+    return {
+        "message": {
+            "role": "assistant",
+            "content": (
+                "Progress: verified 3 of 4 acceptance criteria. "
+                "The fourth requires a live endpoint check; "
+                "READY cannot be claimed until that succeeds."
+            ),
+        }
+    }
+
+
+def status_ready_report():
+    return {
+        "message": {
+            "role": "assistant",
+            "content": (
+                "ROOT_CAUSE — CONFIRMED\n"
+                "CHANGES — fixed\n"
+                "VERIFICATION_EVIDENCE — tests passed\n"
+                "ZEN_VERDICT — VERDICT: GO\n"
+                "STATUS: READY"
+            ),
+        }
+    }
+
+
 class ExcavatorReviewGateTests(unittest.TestCase):
     def test_non_excavator_session_is_unaffected(self):
         result = run_gate([{"agentName": "bulldozer"}, ready_report()])
@@ -256,6 +306,62 @@ class ExcavatorReviewGateTests(unittest.TestCase):
                 excavator_shell("grep -r 'dispatch' src/"),
                 progress_update(),
             ],
+        )
+        self.assertEqual(result["decision"], "stop")
+
+    def test_not_ready_yet_is_not_completion_attempt(self):
+        result = run_gate(
+            [{"agentName": "excavator"}, not_ready_statement()],
+        )
+        self.assertEqual(result["decision"], "stop")
+
+    def test_ready_in_explanation_sentence_is_not_attempt(self):
+        result = run_gate(
+            [{"agentName": "excavator"}, ready_in_explanation()],
+        )
+        self.assertEqual(result["decision"], "stop")
+
+    def test_ready_in_progress_report_is_not_attempt(self):
+        result = run_gate(
+            [{"agentName": "excavator"}, ready_in_progress_sentence()],
+        )
+        self.assertEqual(result["decision"], "stop")
+
+    def test_past_ready_followed_by_progress_update_may_stop(self):
+        result = run_gate(
+            [
+                {"agentName": "excavator"},
+                ready_report(),
+                progress_update(),
+            ],
+        )
+        self.assertEqual(result["decision"], "stop")
+
+    def test_past_ready_followed_by_user_input_request_may_stop(self):
+        result = run_gate(
+            [
+                {"agentName": "excavator"},
+                ready_report(),
+                user_input_request(),
+            ],
+        )
+        self.assertEqual(result["decision"], "stop")
+
+    def test_status_ready_is_completion_attempt(self):
+        result = run_gate(
+            [{"agentName": "excavator"}, status_ready_report()],
+        )
+        self.assertEqual(result["decision"], "continue")
+        self.assertIn("Zen", result["reason"])
+
+    def test_status_ready_with_zen_go_allows_stop(self):
+        result = run_gate(
+            [
+                {"agentName": "excavator"},
+                zen_call(),
+                verdict("GO"),
+                status_ready_report(),
+            ]
         )
         self.assertEqual(result["decision"], "stop")
 
