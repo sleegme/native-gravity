@@ -101,6 +101,31 @@ def excavator_shell(command="git status --short"):
     }
 
 
+def progress_update():
+    return {
+        "message": {
+            "role": "assistant",
+            "content": (
+                "Still investigating the dispatch path. Found 2 of 4 expected "
+                "config layers so far. Continuing to inspect the remaining sources."
+            ),
+        }
+    }
+
+
+def user_input_request():
+    return {
+        "message": {
+            "role": "assistant",
+            "content": (
+                "The repair requires choosing between two viable approaches. "
+                "Which direction should I take: option A (minimal patch) or "
+                "option B (refactor the resolver)?"
+            ),
+        }
+    }
+
+
 class ExcavatorReviewGateTests(unittest.TestCase):
     def test_non_excavator_session_is_unaffected(self):
         result = run_gate([{"agentName": "bulldozer"}, ready_report()])
@@ -209,6 +234,28 @@ class ExcavatorReviewGateTests(unittest.TestCase):
             [{"agentName": "excavator"}, ready_report()],
             termination_reason="error",
             error="boom",
+        )
+        self.assertEqual(result["decision"], "stop")
+
+    def test_excavator_progress_update_without_ready_may_stop(self):
+        result = run_gate(
+            [{"agentName": "excavator"}, progress_update()],
+        )
+        self.assertEqual(result["decision"], "stop")
+
+    def test_excavator_user_input_request_without_ready_may_stop(self):
+        result = run_gate(
+            [{"agentName": "excavator"}, user_input_request()],
+        )
+        self.assertEqual(result["decision"], "stop")
+
+    def test_excavator_mid_investigation_stop_may_proceed(self):
+        result = run_gate(
+            [
+                {"agentName": "excavator"},
+                excavator_shell("grep -r 'dispatch' src/"),
+                progress_update(),
+            ],
         )
         self.assertEqual(result["decision"], "stop")
 
