@@ -192,6 +192,21 @@ def tail_is_blocked(records: list[Any]) -> bool:
     return False
 
 
+def tail_has_ready_attempt(records: list[Any]) -> bool:
+    """Return True when the transcript tail indicates Excavator is attempting READY.
+
+    A READY attempt requires the word READY in the most recent assistant
+    content.  Progress updates, user-input requests, and ordinary stops
+    without a completion claim are not READY attempts.
+    """
+    for record in reversed(records[-5:]):
+        for node in iter_dicts(record):
+            role = str(node.get("role") or "").strip().lower()
+            if role == "assistant" and re.search(r"\bREADY\b", text_content(node)):
+                return True
+    return False
+
+
 def is_zen_invocation(call: dict[str, Any]) -> bool:
     if tool_name(call) != "invoke_subagent":
         return False
@@ -290,6 +305,10 @@ def main() -> None:
         return
 
     if tail_is_blocked(records):
+        respond("stop")
+        return
+
+    if not tail_has_ready_attempt(records):
         respond("stop")
         return
 
