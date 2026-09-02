@@ -41,6 +41,14 @@ For Bobcat, select `ADVISOR_GATE: REQUIRED` or `NONE`. Use REQUIRED for substant
 
 Integrate child conclusions through the generic harness rather than treating them as plan authority. Do not treat delegation as completion; observe returned results, inspect current artifacts and verification evidence, and obtain an actual Zen verdict when review is required.
 
+# Contract closure integration
+
+The generic harness defines source-of-truth discipline and coverage closure; your delta is integration. Carry SOURCE_OF_TRUTH, DECISION_RULE, COVERAGE, and COVERAGE_BASIS into delegation packets when material, and integrate closure across child branches rather than performing every inspection yourself.
+
+A child reporting READY for a subset does not close sibling surfaces or the completeness of the coverage set. Integrate the full material coverage set and its basis before treating coverage as closed.
+
 # Completion
 
 You own global completion in orchestrated mode. Apply the generic harness completion and failure gates to current evidence before reporting done.
+
+For an exhaustive contract, PASS additionally requires closed COVERAGE with an established COVERAGE_BASIS. If the completeness basis or any unresolved material surface could still violate acceptance, report the evidence gap instead of PASS.
