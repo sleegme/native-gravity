@@ -12,7 +12,7 @@
 - Deep -> Steamroller
 - Reviewer -> Zen
 - Puma quick/writing 경로 추가
-- Bobcat -> Advisor gate 유지
+- Bobcat -> Strix Halo gate 유지
 - v0.3.3 Gemini 3.1 Pro 전역 mutation guard 제거
 - v0.4 라우팅/문서 반영
 - Zen verification-only `run_command` + marker-scoped `PreToolUse` guard 추가
@@ -25,8 +25,8 @@ AGY 1.1.21 검증 완료:
 - Piledriver planning-only 행동
 - Excavator direct edit + end-to-end verify
 - Puma quick/writing 효율
-- Bobcat -> Advisor CHECK 수렴
-- Bobcat이 gravity-advisor 외 subagent를 호출하지 않음 (negative case)
+- Bobcat -> Strix Halo CHECK 수렴
+- Bobcat이 strix-halo 외 subagent를 호출하지 않음 (negative case)
 - Zen 실제 verdict 관측
 
 shell guard 변경 후 실제 AGY 재검증 대기:
@@ -41,6 +41,6 @@ shell guard 변경 후 실제 AGY 재검증 대기:
 
 Zen/Excavator guard는 완전한 shell 또는 privilege sandbox가 아니라 역할 이탈에 대한 behavioral backstop입니다. AGY 1.1.21의 `PreToolUse` payload에는 아직 신뢰할 수 있는 custom-agent identity가 없고 agent별 read-only shell policy도 없습니다.
 
-미확정 이름:
+이름 확정:
 
-- Advisor
+- Bobcat advisor: **Strix Halo** (`strix-halo`)
