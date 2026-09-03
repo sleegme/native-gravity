@@ -1,6 +1,10 @@
 # Usage
 
-> v0.4 alpha
+> - **Native Gravity**: 0.4.0
+> - **Status**: alpha
+> - **Compatibility**:
+>   - AGY 1.1.21 — validated
+>   - AGY 1.1.24 — validated
 
 Install or reinstall the plugin from the checked-out repository:
 
@@ -43,9 +47,9 @@ Use Puma for clearly small, explicit, low-risk work such as straightforward writ
 
 ## Alpha validation
 
-This checklist passed on AGY 1.1.21. Re-run it after an AGY runtime change:
+This checklist passed on AGY 1.1.21 and AGY 1.1.24. Re-run it after an AGY runtime change:
 
-Before trusting v0.4 for real work, confirm the current AGY runtime can:
+Before trusting 0.4.0 for real work, confirm the current AGY runtime can:
 
 1. select all three primary agents;
 2. let Bulldozer invoke Bobcat/Puma/Jaguar/Steamroller/Zen;

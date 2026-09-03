@@ -129,9 +129,9 @@ This is a behavioral backstop for a known role-boundary failure, not a complete 
 
 ## Compatibility validation required
 
-Earlier Native Gravity testing found that an Antigravity custom primary agent could fail to invoke subagents even when the Default agent could. v0.4 therefore treats custom-primary delegation paths as explicit runtime validation gates, not assumed capabilities.
+Earlier Native Gravity testing found that an Antigravity custom primary agent could fail to invoke subagents even when the Default agent could. Native Gravity therefore treats custom-primary delegation paths as explicit runtime validation gates, not assumed capabilities.
 
-Before calling v0.4 stable, verify:
+Before calling 0.4.0 stable, verify:
 
 1. Bulldozer is selectable as a primary agent.
 2. Bulldozer can invoke Bobcat, Puma, Jaguar, Steamroller, and Zen.

@@ -4,9 +4,13 @@
 
 Native Gravity is a small orchestration plugin for Google Antigravity. It keeps the runtime native and specializes agent roles around the behavior each model is naturally good at.
 
-> Status: **v0.4 alpha / runtime-validated on AGY 1.1.21**
+> - **Native Gravity**: 0.4.0
+> - **Status**: alpha
+> - **Compatibility**:
+>   - AGY 1.1.21 — validated
+>   - AGY 1.1.24 — validated
 
-## v0.4 primary modes
+## Primary modes
 
 ```text
 User
@@ -51,7 +55,7 @@ Native Gravity does not ship a replacement runtime or wrapper CLI. Antigravity o
 
 ## Alpha compatibility gate
 
-An older Native Gravity test found that a custom primary could fail to invoke subagents while the Antigravity Default agent succeeded. On AGY 1.1.21, a clean install now validates Bulldozer's internal delegation and the nested Bulldozer -> Bobcat -> gravity-advisor gate. Revalidate this compatibility gate when the AGY runtime changes.
+An older Native Gravity test found that a custom primary could fail to invoke subagents while the Antigravity Default agent succeeded. On AGY 1.1.21 and AGY 1.1.24, a clean install validates Bulldozer's internal delegation and the nested Bulldozer -> Bobcat -> gravity-advisor gate. Revalidate this compatibility gate when the AGY runtime changes. See [Versioning Policy](docs/versioning.md) for versioning details and the compatibility matrix.
 
 ## Install for testing
 

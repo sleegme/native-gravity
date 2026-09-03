@@ -1,8 +1,14 @@
 # 상태
 
-릴리스 트랙: `v0.4 alpha`
+- **Native Gravity**: 0.4.0
+- **상태**: alpha
+- **호환성**:
+  - AGY 1.1.21 — validated
+  - AGY 1.1.24 — validated
 
-상태: **v0.4 alpha — AGY 1.1.21 핵심 런타임 검증 통과, alpha 사용 준비 완료**
+버전 체계 및 라이프사이클 정책은 [Versioning Policy](../versioning.md)를 참고하세요.
+
+상태: AGY 1.1.21 및 AGY 1.1.24 핵심 런타임 검증 통과, alpha 사용 준비 완료.
 
 완료:
 
@@ -19,7 +25,7 @@
 - Excavator 일반 sudo는 유지하면서 stdin-password 권한 획득, 우회 privilege path, shell-history credential mining, 전체 시스템 업그레이드를 막는 marker-scoped shell guard 추가
 - `tests/test_excavator_shell_guard.py`에 Excavator guard 회귀 테스트 추가
 
-AGY 1.1.21 검증 완료:
+AGY 1.1.21 및 AGY 1.1.24 검증 완료:
 
 - Bulldozer custom primary delegation
 - Piledriver planning-only 행동

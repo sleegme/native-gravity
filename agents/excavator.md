@@ -13,6 +13,7 @@ tools:
 rules:
   - rules/harness.md
 mainAgent: true
+inheritCustomizations: true
 subagent: false
 model: pro
 commandExecutionPolicy: sandbox

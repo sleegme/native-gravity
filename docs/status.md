@@ -1,12 +1,16 @@
 # Status
 
-## Release track
+- **Native Gravity**: 0.4.0
+- **Status**: alpha
+- **Compatibility**:
+  - AGY 1.1.21 — validated
+  - AGY 1.1.24 — validated
 
-`v0.4 alpha`
+See [Versioning Policy](versioning.md) for versioning rules and lifecycle definitions.
 
 ## State
 
-**v0.4 alpha — core runtime validation passed on AGY 1.1.21; ready for alpha use.**
+Core runtime validation passed on AGY 1.1.21 and AGY 1.1.24; ready for alpha use.
 
 Implemented:
 
@@ -24,7 +28,7 @@ Implemented:
 - deterministic shell-guard regression coverage in `tests/test_excavator_shell_guard.py`
 - deterministic Excavator review-gate coverage in `tests/test_excavator_review_gate.py`
 
-Validated on AGY 1.1.21 before the new Excavator review gate:
+Validated on AGY 1.1.21 and AGY 1.1.24 before the new Excavator review gate:
 
 - custom-primary Bulldozer can actually invoke internal subagents on the current AGY build
 - Piledriver remains planning-only in real runs

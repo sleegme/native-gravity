@@ -1,6 +1,10 @@
 # 사용법
 
-> v0.4 alpha
+> - **Native Gravity**: 0.4.0
+> - **상태**: alpha
+> - **호환성**:
+>   - AGY 1.1.21 — validated
+>   - AGY 1.1.24 — validated
 
 ```bash
 agy plugin uninstall native-gravity
@@ -29,7 +33,7 @@ Puma는 writing, formatting, presentation-only, mechanical text/config 같은 qu
 
 ## Alpha에서 먼저 볼 것
 
-아래 checklist는 AGY 1.1.21에서 통과했습니다. AGY 런타임이 바뀌면 다시 실행합니다.
+아래 checklist는 AGY 1.1.21 및 AGY 1.1.24에서 통과했습니다. AGY 런타임이 바뀌면 다시 실행합니다.
 
 1. 세 primary(Bulldozer/Piledriver/Excavator)가 모두 선택 가능한지
 2. Bulldozer가 internal subagent를 실제 호출하는지

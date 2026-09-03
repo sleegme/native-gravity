@@ -1,6 +1,6 @@
 # 아키텍처
 
-Native Gravity v0.4는 모델을 억지로 같은 Host 행동에 맞추기보다, 각 모델이 자연스럽게 잘하는 역할에 배치하는 방향으로 전환합니다.
+Native Gravity (version 0.4.0)는 모델을 억지로 같은 Host 행동에 맞추기보다, 각 모델이 자연스럽게 잘하는 역할에 배치하는 방향으로 전환합니다.
 
 ## Primary
 
@@ -25,4 +25,4 @@ Bulldozer는 일반 구현을 Bobcat/Puma에 맡깁니다. Piledriver는 구현�
 
 따라서 v0.3.3의 3.1 Pro 전역 mutation guard는 v0.4 역할 맵과 충돌하며 제거됩니다.
 
-과거 custom primary의 subagent 호출 실패 이력이 있으므로 Bulldozer의 실제 delegation 가능 여부는 v0.4 alpha의 첫 런타임 게이트입니다.
+과거 custom primary의 subagent 호출 실패 이력이 있으므로 Bulldozer의 실제 delegation 및 Excavator -> Zen 검수 게이트 가능 여부는 0.4.0 alpha의 핵심 런타임 게이트입니다. 자세한 버전 체계 및 호환성 매트릭스는 [Versioning Policy](../versioning.md)를 참고하세요.

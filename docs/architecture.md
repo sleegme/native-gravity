@@ -1,6 +1,6 @@
 # Architecture
 
-Native Gravity v0.4 is an Antigravity-native role layer. It does not replace Antigravity's runtime, lifecycle, session, workspace, model-resolution, or tool systems.
+Native Gravity (version 0.4.0) is an Antigravity-native role layer. It does not replace Antigravity's runtime, lifecycle, session, workspace, model-resolution, or tool systems.
 
 ## Primary modes
 
@@ -73,4 +73,6 @@ v0.3.3 could deny Gemini 3.1 Pro file mutation because every 3.1 Pro role in tha
 
 ## Compatibility gate
 
-Earlier testing found that a custom primary could fail to invoke subagents while Antigravity Default succeeded. Both Bulldozer's normal specialist delegation and Excavator -> Zen completion review must therefore be validated on the current AGY runtime before v0.4 leaves alpha.
+Earlier testing found that a custom primary could fail to invoke subagents while Antigravity Default succeeded. Both Bulldozer's normal specialist delegation and Excavator -> Zen completion review must therefore be validated on the current AGY runtime before 0.4.0 leaves alpha.
+
+For complete details on the non-SemVer A.B.C version progression, release maturity tiers, and host runtime compatibility matrix, see [Versioning Policy](versioning.md).
