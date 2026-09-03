@@ -20,7 +20,7 @@ User
 These three are peers. Piledriver and Excavator are not children of Bulldozer.
 
 - **Bulldozer** owns general orchestration, routing, integration, verification, and final completion.
-- **Piledriver** owns planning only: requirements, acceptance, task graph, dependencies, risks, and verification strategy. It does not implement project source.
+- **Piledriver** owns planning only: requirements, acceptance, task graph, dependencies, risks, and verification strategy. It may use Jaguar for read-only planning discovery and Zen for final plan-readiness review, but it does not implement project source.
 - **Excavator** owns a bounded difficult problem end-to-end: investigate, reproduce, diagnose, repair, and verify. It is intentionally allowed to implement directly.
 
 ### Internal specialists
@@ -33,6 +33,10 @@ Bulldozer
 ├─ Jaguar
 ├─ Steamroller
 └─ Zen
+
+Piledriver
+├─ Jaguar  — planning discovery only
+└─ Zen     — final plan-readiness review only
 ```
 
 - **Bobcat** — ordinary implementation worker; Flash tier; may consult `strix-halo` when the Host-selected gate requires it.
@@ -40,7 +44,7 @@ Bulldozer
 - **Jaguar** — read-only codebase discovery; Flash tier.
 - **Steamroller** — read-only deep reasoning for architecture, ambiguity, trade-offs, and difficult decisions; Pro tier.
 - **Strix Halo** — read-only Bobcat-local advice/check gate; Pro tier.
-- **Zen** — independent non-mutating final review gate; Pro tier; may run verification commands to gather its own evidence.
+- **Zen** — independent non-mutating final review gate; Pro tier; may run verification commands to gather its own evidence. It reviews delivered work for Bulldozer and plan readiness for Piledriver.
 
 ## Routing principle
 
@@ -59,7 +63,7 @@ Choose by **kind of work**, not by apparent task size alone.
 Bulldozer, Piledriver, and Excavator are independent entry points.
 
 - Do not make Bulldozer spawn Piledriver or Excavator merely because their specialty is relevant.
-- Piledriver returns a plan packet; it does not claim implementation completion.
+- Piledriver returns a plan packet; it does not claim implementation completion. Its only children are Jaguar for bounded read-only planning discovery and Zen for final plan-readiness review.
 - Excavator may edit because direct autonomous repair is the point of the role.
 - Bulldozer remains the normal orchestration mode and delegates project edits to Bobcat or Puma.
 
@@ -83,7 +87,7 @@ Across all roles:
 - keep handoffs compact and acceptance-linked
 - converge or escalate instead of repeating materially similar loops
 
-Bulldozer alone owns global completion in orchestrated mode. Piledriver owns only plan readiness. Excavator owns completion of its explicitly bounded autonomous task.
+Bulldozer alone owns global completion in orchestrated mode. Piledriver owns only plan readiness and requires an observed current Zen `VERDICT: GO` before `PLAN READY`. Excavator owns completion of its explicitly bounded autonomous task.
 
 ## Model-adaptive policy
 
@@ -118,14 +122,14 @@ This is a behavioral backstop for a known role-boundary failure, not a complete 
 
 ## Compatibility validation required
 
-Earlier Native Gravity testing found that an Antigravity custom primary agent could fail to invoke subagents even when the Default agent could. v0.4 therefore treats **Bulldozer custom-primary delegation** as an explicit runtime validation gate, not an assumed capability.
+Earlier Native Gravity testing found that an Antigravity custom primary agent could fail to invoke subagents even when the Default agent could. v0.4 therefore treats **custom-primary delegation paths** as explicit runtime validation gates, not assumed capabilities.
 
 Before calling v0.4 stable, verify:
 
 1. Bulldozer is selectable as a primary agent.
 2. Bulldozer can invoke Bobcat, Puma, Jaguar, Steamroller, and Zen.
 3. Bobcat can invoke strix-halo and no other child.
-4. Piledriver is selectable and remains planning-only.
+4. Piledriver is selectable, remains planning-only, can invoke Jaguar and Zen but no implementation worker, and observes the current Zen verdict before `PLAN READY`.
 5. Excavator is selectable, can edit, and is not blocked by a model-wide mutation guard.
 6. Puma handles quick/writing work without ritual Advisor use.
 7. Zen completion is based on an actually observed verdict.
