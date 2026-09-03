@@ -1,6 +1,6 @@
 # 아키텍처
 
-Native Gravity v0.4는 모델을 억지로 같은 Host 행동에 맞추기보다, 각 모델이 자연스럽게 잘하는 역할에 배치하는 방향으로 전환합니다.
+Native Gravity (version 0.4.0)는 모델을 억지로 같은 Host 행동에 맞추기보다, 각 모델이 자연스럽게 잘하는 역할에 배치하는 방향으로 전환합니다.
 
 ## Primary
 
@@ -27,7 +27,7 @@ Piledriver는 요청 대상의 identity/current state가 불명확할 때 Jaguar
 - **Jaguar** — read-only 탐색. Flash.
 - **Steamroller** — read-only 깊은 판단. Pro.
 - **gravity-advisor** — Bobcat 전용 로컬 검토. 이름 미정.
-- **Zen** — 최종 독립 검수. Pro. Bulldozer에서는 결과물, Piledriver에서는 계획 readiness를 검수합니다.
+- **Zen** — 최종 독립 검수. Pro. Bulldozer 결과물, Piledriver 계획 readiness, Excavator 자율 수리 완료를 독립 검수합니다.
 
 ## 핵심 경계
 
@@ -35,4 +35,4 @@ Bulldozer는 일반 구현을 Bobcat/Puma에 맡깁니다. Piledriver는 구현�
 
 따라서 v0.3.3의 3.1 Pro 전역 mutation guard는 v0.4 역할 맵과 충돌하며 제거됩니다.
 
-과거 custom primary의 subagent 호출 실패 이력이 있으므로 Bulldozer의 실제 delegation과 Piledriver -> Jaguar/Zen 경로는 v0.4 alpha 런타임 검증 대상입니다.
+과거 custom primary의 subagent 호출 실패 이력이 있으므로 Bulldozer 실제 delegation, Piledriver -> Jaguar/Zen 경로, Excavator -> Zen 검수 게이트 가능 여부는 0.4.0 alpha의 핵심 런타임 게이트입니다. 자세한 버전 체계 및 호환성 매트릭스는 [Versioning Policy](../versioning.md)를 참고하세요.

@@ -1,12 +1,16 @@
 # Status
 
-## Release track
+- **Native Gravity**: 0.4.0
+- **Status**: alpha
+- **Compatibility**:
+  - AGY 1.1.21 — validated
+  - AGY 1.1.24 — validated
 
-`v0.4 alpha`
+See [Versioning Policy](versioning.md) for versioning rules and lifecycle definitions.
 
 ## State
 
-**v0.4 alpha — core runtime validation passed on AGY 1.1.21; ready for alpha use.**
+Core runtime validation passed on AGY 1.1.21 and AGY 1.1.24; ready for alpha use.
 
 Implemented:
 
@@ -20,9 +24,13 @@ Implemented:
 - generic routing/docs updated for model-natural role allocation
 - Zen now has verification-only `run_command` plus a marker-scoped `PreToolUse` behavioral guard for common intentional shell mutation paths
 - Excavator now has a marker-scoped shell guard that preserves ordinary sudo while rejecting stdin-password privilege acquisition, alternate local privilege paths, shell-history credential mining, and broad system upgrades
-- deterministic Excavator guard regression coverage in `tests/test_excavator_shell_guard.py`
+- Excavator can invoke Zen only as its independent final completion reviewer
+- a plugin `Stop` hook now blocks normal Excavator completion when Zen review is missing, pending, NO-GO, or stale after a later direct write/marked Excavator shell call
+- verified BLOCKED and abnormal runtime termination remain allowed so the review gate does not manufacture a completion loop
+- deterministic shell-guard regression coverage in `tests/test_excavator_shell_guard.py`
+- deterministic Excavator review-gate coverage in `tests/test_excavator_review_gate.py`
 
-Validated on AGY 1.1.21:
+Validated on AGY 1.1.21 and AGY 1.1.24:
 
 - custom-primary Bulldozer can actually invoke internal subagents on the current AGY build
 - Piledriver remains planning-only in real runs
@@ -30,7 +38,16 @@ Validated on AGY 1.1.21:
 - Puma handles quick/writing work without unnecessary Advisor ceremony
 - Bobcat -> Advisor gate still converges correctly after rename
 - Bobcat attempts no subagent other than gravity-advisor (negative delegation case)
-- Zen verdict is observed before completion claims
+- Bulldozer observes Zen verdicts before completion claims
+
+Validated on AGY 1.1.24 (Excavator completion review gate):
+
+- Excavator can invoke Zen from a custom-primary session and observe the returned verdict
+- a normal Excavator stop without Zen review is forced back into the execution loop
+- `VERDICT: GO` for the current artifact permits completion
+- `VERDICT: NO-GO`, a newer unfinished Zen invocation, or a post-GO direct write/marked Excavator shell call forces correction and a fresh review
+- a verified BLOCKED result can terminate without Zen
+- non-Excavator sessions remain unaffected by the Stop hook
 
 Pending live validation:
 
@@ -51,7 +68,7 @@ Pending live validation:
 
 The planning review change is prompt-level first. No Piledriver Stop hook or custom coordination runtime is added until repeated real runs show that prose-level plan readiness cannot hold the boundary.
 
-The Zen and Excavator guards are behavioral backstops, not complete shell or privilege sandboxes. AGY 1.1.21 still does not expose a native agent-specific read-only shell policy or reliable custom-agent identity in `PreToolUse` payloads.
+The Zen and Excavator shell guards are behavioral backstops, not complete shell or privilege sandboxes. AGY runtimes (1.1.21 / 1.1.24) do not expose reliable custom-agent identity in `PreToolUse` payloads. The current Stop-hook contract likewise does not document an explicit custom-agent-name field, so the Excavator review gate scopes itself from structured transcript identity/system-prompt evidence when available and the existing `NTG_EXCAVATOR=1` shell marker. Live transcript-shape validation on AGY 1.1.24 confirmed the gate accurately scopes Excavator sessions while remaining unobtrusive to other agents.
 
 Naming still open:
 
