@@ -20,7 +20,7 @@ Bulldozer is the normal orchestration mode. It owns routing, integration, eviden
 ```text
 Bulldozer
 ├─ Bobcat
-│  └─ gravity-advisor
+│  └─ Strix Halo
 ├─ Puma
 ├─ Jaguar
 ├─ Steamroller
@@ -37,11 +37,11 @@ Excavator is an autonomous bounded troubleshooter. It investigates, reproduces, 
 
 ## Internal specialists
 
-- **Bobcat** — ordinary implementation; Flash tier; optional/required local Advisor gate selected by Bulldozer.
+- **Bobcat** — ordinary implementation; Flash tier; optional/required local Strix Halo gate selected by Bulldozer.
 - **Puma** — quick/writing worker; Flash tier; small, explicit, low-risk mechanical work; no nested delegation.
 - **Jaguar** — read-only factual discovery; Flash tier.
 - **Steamroller** — read-only architecture/ambiguity/trade-off reasoning; Pro tier.
-- **gravity-advisor** — read-only Bobcat-local ADVISE/CHECK gate; codename TBD.
+- **Strix Halo** — read-only Bobcat-local ADVISE/CHECK gate; Pro tier.
 - **Zen** — independent read-only final review; Pro tier.
 
 ## Routing
