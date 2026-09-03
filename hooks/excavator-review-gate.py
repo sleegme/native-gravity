@@ -286,21 +286,41 @@ def is_provider_system_message(record: Any) -> tuple[bool, str | None, str]:
     if not isinstance(record, dict):
         return False, None, ""
     source = str(record.get("source") or "").strip().upper()
+    if source == "MODEL":
+        return False, None, ""
+    role = str(record.get("role") or "").strip().lower()
+    if role == "assistant":
+        return False, None, ""
+    for node in iter_dicts(record):
+        if str(node.get("role") or "").strip().lower() == "assistant":
+            return False, None, ""
+        if str(node.get("source") or "").strip().upper() == "MODEL":
+            return False, None, ""
+
     rec_type = str(record.get("type") or "").strip().upper()
     content = str(record.get("content") or "")
 
-    if (source == "SYSTEM" and rec_type == "SYSTEM_MESSAGE") or "<SYSTEM_MESSAGE>" in content:
-        m = re.search(
-            r'\[Message\][^\n]*\bsender=(?P<sender>[^\s]+)[^\n]*\bcontent=(?P<payload>[\s\S]*?)(?:</SYSTEM_MESSAGE>|\Z)',
-            content,
-        )
-        if m:
-            sender = m.group("sender").strip("\"'")
-            payload = m.group("payload").strip()
-            return True, sender, payload
-        return True, None, content
+    is_system = (source == "SYSTEM" and rec_type == "SYSTEM_MESSAGE") or role == "system"
+    if not is_system:
+        for node in iter_dicts(record):
+            if str(node.get("role") or "").strip().lower() == "system":
+                is_system = True
+                if not content:
+                    content = text_content(node)
+                break
 
-    return False, None, ""
+    if not is_system:
+        return False, None, ""
+
+    m = re.search(
+        r'\[Message\][^\n]*\bsender=(?P<sender>[^\s]+)[^\n]*\bcontent=(?P<payload>[\s\S]*?)(?:</SYSTEM_MESSAGE>|\Z)',
+        content,
+    )
+    if m:
+        sender = m.group("sender").strip("\"'")
+        payload = m.group("payload").strip()
+        return True, sender, payload
+    return True, None, content
 
 
 def extract_created_subagent(record: Any) -> tuple[str | None, str | None]:
