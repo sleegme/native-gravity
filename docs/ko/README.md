@@ -19,12 +19,12 @@ User
 
 ```text
 Bulldozer
-├─ Bobcat      — 일반 구현 / Flash
-│  └─ Advisor  — 로컬 조언 + CHECK / Pro
-├─ Puma        — quick + writing / Flash
-├─ Jaguar      — 탐색 / Flash
-├─ Steamroller — 깊은 판단 / Pro
-└─ Zen         — 독립 검수 / Pro
+├─ Bobcat       — 일반 구현 / Flash
+│  └─ Strix Halo — 로컬 조언 + CHECK / Pro
+├─ Puma         — quick + writing / Flash
+├─ Jaguar       — 탐색 / Flash
+├─ Steamroller  — 깊은 판단 / Pro
+└─ Zen          — 독립 검수 / Pro
 ```
 
 라우팅 기준:
@@ -37,4 +37,4 @@ Bulldozer
 
 v0.3.3의 Gemini 3.1 Pro 전역 mutation deny 훅은 제거했습니다. v0.4의 Excavator는 Pro-tier 자율 구현 역할이므로 직접 수정 권한이 필요합니다.
 
-AGY 1.1.21 clean install에서 custom primary인 Bulldozer의 내부 위임과 Bulldozer -> Bobcat -> gravity-advisor 중첩 gate를 실제 대화로 검증했습니다. AGY 런타임이 바뀌면 이 compatibility gate를 다시 검증해야 합니다.
+AGY 1.1.21 clean install에서 custom primary인 Bulldozer의 내부 위임과 Bulldozer -> Bobcat -> Strix Halo 중첩 gate를 실제 대화로 검증했습니다. AGY 런타임이 바뀌면 이 compatibility gate를 다시 검증해야 합니다.
