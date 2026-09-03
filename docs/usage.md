@@ -39,6 +39,8 @@ Use when the task is essentially "this is broken; dig until you find the cause a
 
 Use Bobcat for ordinary behavior-bearing implementation. Bulldozer chooses `ADVISOR_GATE: REQUIRED | NONE`.
 
+When REQUIRED, Bobcat consults **Strix Halo** (`strix-halo`) as its read-only local advice/CHECK gate.
+
 Use Puma for clearly small, explicit, low-risk work such as straightforward writing, formatting, presentation-only edits, or mechanical text changes. Puma has no Advisor gate and no nested delegation.
 
 ## Alpha validation
@@ -49,7 +51,7 @@ Before trusting v0.4 for real work, confirm the current AGY runtime can:
 
 1. select all three primary agents;
 2. let Bulldozer invoke Bobcat/Puma/Jaguar/Steamroller/Zen;
-3. let Bobcat invoke gravity-advisor — and observe that Bobcat attempts no other subagent (negative delegation case);
+3. let Bobcat invoke strix-halo — and observe that Bobcat attempts no other subagent (negative delegation case);
 4. let Piledriver stop at plan status instead of editing project source;
 5. let Excavator edit project source;
 6. return actual subagent/Zen results instead of only launch acknowledgements.

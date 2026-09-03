@@ -13,7 +13,7 @@ Implemented:
 - peer primary modes: Bulldozer / Piledriver / Excavator
 - internal renames: Worker -> Bobcat, Explorer -> Jaguar, Deep -> Steamroller, Reviewer -> Zen
 - new Puma quick/writing path
-- Bobcat -> gravity-advisor local gate retained
+- Bobcat -> Strix Halo local gate retained
 - Piledriver now has only two planning children: Jaguar for bounded read-only discovery and Zen for final plan-readiness review
 - Piledriver requires authoritative target grounding before task-graph closure and an observed current Zen `VERDICT: GO` before `PLAN READY`
 - v0.3.3 global Gemini 3.1 Pro mutation hook removed because Excavator must edit
@@ -28,8 +28,8 @@ Validated on AGY 1.1.21:
 - Piledriver remains planning-only in real runs
 - Excavator can edit and verify end-to-end on Pro tier
 - Puma handles quick/writing work without unnecessary Advisor ceremony
-- Bobcat -> Advisor gate still converges correctly after rename
-- Bobcat attempts no subagent other than gravity-advisor (negative delegation case)
+- Bobcat -> Strix Halo gate still converges correctly after rename
+- Bobcat attempts no subagent other than strix-halo (negative delegation case)
 - Zen verdict is observed before completion claims
 
 Pending live validation:
@@ -53,6 +53,6 @@ The planning review change is prompt-level first. No Piledriver Stop hook or cus
 
 The Zen and Excavator guards are behavioral backstops, not complete shell or privilege sandboxes. AGY 1.1.21 still does not expose a native agent-specific read-only shell policy or reliable custom-agent identity in `PreToolUse` payloads.
 
-Naming still open:
+Naming:
 
-- Advisor codename
+- Bobcat advisor codename finalized as **Strix Halo** (`strix-halo`)

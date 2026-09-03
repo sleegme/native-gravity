@@ -28,7 +28,7 @@ These three are peers. Piledriver and Excavator are not children of Bulldozer.
 ```text
 Bulldozer
 ├─ Bobcat
-│  └─ gravity-advisor
+│  └─ Strix Halo
 ├─ Puma
 ├─ Jaguar
 ├─ Steamroller
@@ -39,11 +39,11 @@ Piledriver
 └─ Zen     — final plan-readiness review only
 ```
 
-- **Bobcat** — ordinary implementation worker; Flash tier; may consult `gravity-advisor` when the Host-selected gate requires it.
+- **Bobcat** — ordinary implementation worker; Flash tier; may consult `strix-halo` when the Host-selected gate requires it.
 - **Puma** — quick/writing worker for small, explicit, low-risk mechanical work; Flash tier; no nested delegation.
 - **Jaguar** — read-only codebase discovery; Flash tier.
 - **Steamroller** — read-only deep reasoning for architecture, ambiguity, trade-offs, and difficult decisions; Pro tier.
-- **gravity-advisor** — read-only Bobcat-local advice/check gate; final codename not yet selected.
+- **Strix Halo** — read-only Bobcat-local advice/check gate; Pro tier.
 - **Zen** — independent non-mutating final review gate; Pro tier; may run verification commands to gather its own evidence. It reviews delivered work for Bulldozer and plan readiness for Piledriver.
 
 ## Routing principle
@@ -73,9 +73,9 @@ Bulldozer selects `ADVISOR_GATE: REQUIRED | NONE` for Bobcat.
 
 - `REQUIRED` for substantive code/behavior/API/state/lifecycle/test work or materially uncertain implementation.
 - `NONE` for clearly low-risk mechanical work when Bobcat is still the chosen worker.
-- Puma exists specifically so most quick/writing work does not need to enter the Bobcat -> Advisor loop.
+- Puma exists specifically so most quick/writing work does not need to enter the Bobcat -> Strix Halo loop.
 
-Bobcat may invoke `gravity-advisor` only. Advisor corrects through Bobcat, never instead of Bobcat.
+Bobcat may invoke `strix-halo` only. Strix Halo corrects through Bobcat, never instead of Bobcat.
 
 ## Evidence and completion
 
@@ -128,7 +128,7 @@ Before calling v0.4 stable, verify:
 
 1. Bulldozer is selectable as a primary agent.
 2. Bulldozer can invoke Bobcat, Puma, Jaguar, Steamroller, and Zen.
-3. Bobcat can invoke gravity-advisor and no other child.
+3. Bobcat can invoke strix-halo and no other child.
 4. Piledriver is selectable, remains planning-only, can invoke Jaguar and Zen but no implementation worker, and observes the current Zen verdict before `PLAN READY`.
 5. Excavator is selectable, can edit, and is not blocked by a model-wide mutation guard.
 6. Puma handles quick/writing work without ritual Advisor use.
@@ -144,6 +144,6 @@ Before calling v0.4 stable, verify:
 4. Fit roles to model behavior before adding corrective harness weight.
 5. Use Puma for quick/writing work instead of burdening Bobcat with unnecessary review ceremony.
 6. Keep Jaguar factual and Steamroller decisional.
-7. Keep Advisor read-only and Zen non-mutating.
+7. Keep Strix Halo read-only and Zen non-mutating.
 8. Do not reintroduce a model-wide 3.1 Pro mutation deny while Excavator uses that model family for implementation.
 9. Guard Excavator by effect and privilege-acquisition behavior, not by banning sudo itself.
