@@ -12,11 +12,11 @@ Native Gravity v0.4는 모델을 억지로 같은 Host 행동에 맞추기보다
 
 ## Internal
 
-- **Bobcat** — 일반 구현. Flash. 필요 시 Advisor CHECK.
+- **Bobcat** — 일반 구현. Flash. 필요 시 Strix Halo CHECK.
 - **Puma** — quick/writing. Flash. 작고 명확한 저위험 작업.
 - **Jaguar** — read-only 탐색. Flash.
 - **Steamroller** — read-only 깊은 판단. Pro.
-- **gravity-advisor** — Bobcat 전용 로컬 검토. 이름 미정.
+- **Strix Halo** — Bobcat 전용 read-only 로컬 조언/검토 gate. Pro.
 - **Zen** — 최종 독립 검수. Pro.
 
 ## 핵심 경계
