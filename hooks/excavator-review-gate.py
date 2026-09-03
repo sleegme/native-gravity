@@ -55,6 +55,10 @@ REVIEW_NO_VERDICT = (
     "A Zen review was started but no final VERDICT: GO was observed. Wait for or inspect the "
     "review result before claiming READY."
 )
+REVIEW_CONTRADICTORY = (
+    "Excavator reported contradictory terminal states (both READY and BLOCKED). Reconcile "
+    "completion status before stopping."
+)
 
 
 def respond(decision: str, reason: str | None = None) -> None:
@@ -86,7 +90,9 @@ def iter_tool_calls(value: Any) -> Iterable[dict[str, Any]]:
         nested = node.get("tool_call")
         if isinstance(nested, dict):
             yield nested
-        if isinstance(node.get("name"), str) and isinstance(node.get("args"), dict):
+        if isinstance(node.get("name"), str) and (
+            isinstance(node.get("args"), dict) or isinstance(node.get("args"), str)
+        ):
             yield node
 
 
@@ -133,14 +139,22 @@ def tool_name(call: dict[str, Any]) -> str:
 
 def command_line(call: dict[str, Any]) -> str:
     args = call.get("args")
+    if isinstance(args, str):
+        try:
+            args = json.loads(args)
+        except Exception:
+            return ""
     if not isinstance(args, dict):
         return ""
-    return str(
+    cmd = str(
         args.get("CommandLine")
         or args.get("commandLine")
         or args.get("command")
         or ""
-    )
+    ).strip()
+    if (cmd.startswith('"') and cmd.endswith('"')) or (cmd.startswith("'") and cmd.endswith("'")):
+        cmd = cmd[1:-1].strip()
+    return cmd
 
 
 def has_structured_excavator_identity(records: list[Any]) -> bool:
@@ -179,72 +193,78 @@ def has_excavator_marker(records: list[Any]) -> bool:
     return False
 
 
-def tail_is_blocked(records: list[Any]) -> bool:
-    for record in records[-3:]:
-        text = text_content(record)
-        if (
-            "ROOT_CAUSE" in text
-            and "VERIFICATION_EVIDENCE" in text
-            and re.search(r"\bBLOCKED\b", text)
-            and not re.search(r"\bREADY\b", text)
-        ):
-            return True
-    return False
-
-
 _READY_LINE = re.compile(r"^\s*READY\s*$")
 _STATUS_READY_LINE = re.compile(r"^\s*STATUS\s*[:\-\u2014]\s*READY\s*$")
+_BLOCKED_LINE = re.compile(r"^\s*BLOCKED\s*$")
+_STATUS_BLOCKED_LINE = re.compile(r"^\s*STATUS\s*[:\-\u2014]\s*BLOCKED\s*$")
 
 
-def _latest_assistant_text(record: Any) -> str | None:
-    for node in iter_dicts(record):
-        role = str(node.get("role") or "").strip().lower()
-        if role == "assistant":
-            return text_content(node)
+def extract_assistant_text_from_record(record: Any) -> str | None:
+    if isinstance(record, dict):
+        source = str(record.get("source") or "").strip().upper()
+        rec_type = str(record.get("type") or "").strip().upper()
+        if source == "MODEL" and rec_type in {"PLANNER_RESPONSE", "GENERIC"}:
+            content = record.get("content")
+            if isinstance(content, str) and content.strip():
+                if not content.strip().startswith("Created At:"):
+                    return content
+
+        for node in iter_dicts(record):
+            role = str(node.get("role") or "").strip().lower()
+            if role == "assistant":
+                text = text_content(node.get("content") if "content" in node else node)
+                if text.strip():
+                    return text
     return None
 
 
-def tail_has_ready_attempt(records: list[Any]) -> bool:
-    """Return True only when the most recent assistant content contains an
-    explicit terminal READY declaration matching the output contract.
-
-    Recognised forms:
-    - A standalone line containing exactly ``READY`` (Excavator output contract).
-    - A standalone status line such as ``STATUS: READY`` or ``STATUS — READY``.
-
-    Mentions of READY inside explanatory sentences, negations, progress
-    updates, user-input requests, or older assistant messages are **not**
-    attempts.
-    """
-    for record in reversed(records[-5:]):
-        assistant_text = _latest_assistant_text(record)
-        if assistant_text is None:
-            continue
-        for line in assistant_text.splitlines():
-            if _READY_LINE.match(line) or _STATUS_READY_LINE.match(line):
-                return True
-        # Most recent assistant message found but contained no explicit
-        # READY declaration — this is not a completion attempt.
-        return False
-    return False
+def get_latest_assistant_text(records: list[Any]) -> str | None:
+    for record in reversed(records):
+        text = extract_assistant_text_from_record(record)
+        if text is not None:
+            return text
+    return None
 
 
 def is_zen_invocation(call: dict[str, Any]) -> bool:
     if tool_name(call) != "invoke_subagent":
         return False
     args = call.get("args")
+    if isinstance(args, str):
+        try:
+            args = json.loads(args)
+        except Exception:
+            return False
     if not isinstance(args, dict):
         return False
 
-    for node in iter_dicts(args):
-        for key, value in node.items():
-            normalized = normalize_key(key)
-            if normalized in {"typename", "type_name", "name"}:
-                if str(value).strip().lower() == "zen":
-                    return True
-            if normalized == "role":
-                role = str(value).strip().lower()
-                if role == "zen" or re.search(r"\bzen\b", role):
+    subagents = args.get("Subagents")
+    if subagents is None:
+        subagents = args.get("subagents")
+
+    items: list[Any] = []
+    if isinstance(subagents, str):
+        try:
+            parsed = json.loads(subagents)
+            if isinstance(parsed, list):
+                items = parsed
+            elif isinstance(parsed, dict):
+                items = [parsed]
+        except Exception:
+            items = []
+    elif isinstance(subagents, list):
+        items = subagents
+    elif isinstance(subagents, dict):
+        items = [subagents]
+    else:
+        items = [args]
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        for k, v in item.items():
+            if normalize_key(k) in {"typename", "type_name"}:
+                if str(v).strip().lower() == "zen":
                     return True
     return False
 
@@ -262,8 +282,99 @@ def material_change_candidate_in(record: Any) -> bool:
     return False
 
 
-def verdict_in(record: Any) -> str | None:
-    text = text_content(record)
+def is_provider_system_message(record: Any) -> tuple[bool, str | None, str]:
+    if not isinstance(record, dict):
+        return False, None, ""
+    source = str(record.get("source") or "").strip().upper()
+    rec_type = str(record.get("type") or "").strip().upper()
+    content = str(record.get("content") or "")
+
+    if (source == "SYSTEM" and rec_type == "SYSTEM_MESSAGE") or "<SYSTEM_MESSAGE>" in content:
+        m = re.search(
+            r'\[Message\][^\n]*\bsender=(?P<sender>[^\s]+)[^\n]*\bcontent=(?P<payload>[\s\S]*?)(?:</SYSTEM_MESSAGE>|\Z)',
+            content,
+        )
+        if m:
+            sender = m.group("sender").strip("\"'")
+            payload = m.group("payload").strip()
+            return True, sender, payload
+        return True, None, content
+
+    return False, None, ""
+
+
+def extract_created_subagent(record: Any) -> tuple[str | None, str | None]:
+    if not isinstance(record, dict):
+        return None, None
+    content = str(record.get("content") or "")
+    if "Created the following subagents:" not in content and "conversationId" not in content:
+        return None, None
+
+    conv_id = None
+    log_uri = None
+    m_cid = re.search(r'"conversationId":\s*"([^"]+)"', content)
+    if m_cid:
+        conv_id = m_cid.group(1).strip()
+    m_uri = re.search(r'"logAbsoluteUri":\s*"([^"]+)"', content)
+    if m_uri:
+        log_uri = m_uri.group(1).strip()
+    return conv_id, log_uri
+
+
+def check_child_log_verdict(uri: str) -> str | None:
+    if uri.startswith("file://"):
+        path = Path(uri[7:])
+    else:
+        path = Path(uri)
+    try:
+        if not path.is_file():
+            return None
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        for line in reversed(lines):
+            if not line.strip():
+                continue
+            try:
+                data = json.loads(line)
+            except Exception:
+                continue
+            tc_list = data.get("tool_calls") or []
+            for tc in tc_list:
+                if tc.get("name") == "send_message":
+                    args = tc.get("args") or {}
+                    msg = str(args.get("Message") or "")
+                    v = extract_verdict_from_text(msg)
+                    if v:
+                        return v
+            content = str(data.get("content") or "")
+            v = extract_verdict_from_text(content)
+            if v:
+                return v
+    except Exception:
+        return None
+    return None
+
+
+def is_legacy_tool_record(record: Any) -> bool:
+    if not isinstance(record, dict):
+        return False
+    source = str(record.get("source") or "").strip().upper()
+    if source == "MODEL":
+        return False
+    role = str(record.get("role") or "").strip().lower()
+    if role == "assistant":
+        return False
+    if role == "tool":
+        return True
+    for node in iter_dicts(record):
+        r = str(node.get("role") or "").strip().lower()
+        if r == "assistant":
+            return False
+        if r == "tool":
+            return True
+    return False
+
+
+def extract_verdict_from_text(text: str) -> str | None:
     has_no_go = "VERDICT: NO-GO" in text
     has_go = "VERDICT: GO" in text
     if has_no_go:
@@ -278,6 +389,9 @@ def review_state(records: list[Any]) -> tuple[bool, str | None, int, int]:
     latest_verdict: str | None = None
     verdict_index = -1
     latest_change = -1
+    active_zen_conv_id: str | None = None
+    active_zen_log_uri: str | None = None
+    awaiting_subagent_creation = False
 
     for index, record in enumerate(records):
         if material_change_candidate_in(record):
@@ -288,13 +402,46 @@ def review_state(records: list[Any]) -> tuple[bool, str | None, int, int]:
             zen_started = True
             latest_verdict = None
             verdict_index = -1
+            active_zen_conv_id = None
+            active_zen_log_uri = None
+            awaiting_subagent_creation = True
             continue
 
+        if zen_started and awaiting_subagent_creation:
+            cid, uri = extract_created_subagent(record)
+            if cid:
+                active_zen_conv_id = cid
+                active_zen_log_uri = uri
+                awaiting_subagent_creation = False
+
         if zen_started:
-            verdict = verdict_in(record)
-            if verdict:
-                latest_verdict = verdict
-                verdict_index = index
+            is_sys_msg, sender, payload = is_provider_system_message(record)
+            if is_sys_msg:
+                if active_zen_conv_id is not None:
+                    if sender == active_zen_conv_id:
+                        v = extract_verdict_from_text(payload)
+                        if v:
+                            latest_verdict = v
+                            verdict_index = index
+                else:
+                    v = extract_verdict_from_text(payload)
+                    if v:
+                        latest_verdict = v
+                        verdict_index = index
+                continue
+
+            if is_legacy_tool_record(record):
+                v = extract_verdict_from_text(text_content(record))
+                if v:
+                    latest_verdict = v
+                    verdict_index = index
+                continue
+
+            if active_zen_log_uri and latest_verdict is None:
+                v = check_child_log_verdict(active_zen_log_uri)
+                if v:
+                    latest_verdict = v
+                    verdict_index = index
 
     return zen_started, latest_verdict, verdict_index, latest_change
 
@@ -326,11 +473,29 @@ def main() -> None:
         respond("stop")
         return
 
-    if tail_is_blocked(records):
+    latest_text = get_latest_assistant_text(records)
+    if latest_text is None:
         respond("stop")
         return
 
-    if not tail_has_ready_attempt(records):
+    has_ready = any(
+        _READY_LINE.match(line) or _STATUS_READY_LINE.match(line)
+        for line in latest_text.splitlines()
+    )
+    has_blocked = any(
+        _BLOCKED_LINE.match(line) or _STATUS_BLOCKED_LINE.match(line)
+        for line in latest_text.splitlines()
+    )
+
+    if has_ready and has_blocked:
+        respond("continue", REVIEW_CONTRADICTORY)
+        return
+
+    if has_blocked:
+        respond("stop")
+        return
+
+    if not has_ready:
         respond("stop")
         return
 
