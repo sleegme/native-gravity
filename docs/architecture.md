@@ -29,7 +29,15 @@ Bulldozer
 
 ### Piledriver
 
-Piledriver is plan-first and read-only. It produces an executable planning packet covering goal, acceptance, task graph, dependencies, risks, ownership suggestions, and verification strategy.
+Piledriver is plan-first and non-mutating. It produces an executable planning packet covering goal, acceptance, task graph, dependencies, risks, ownership suggestions, and verification strategy.
+
+```text
+Piledriver
+├─ Jaguar  — bounded read-only discovery for planning evidence
+└─ Zen     — independent final plan-readiness review
+```
+
+Jaguar is used when target identity, current state, or other material planning facts require factual discovery. Piledriver must not substitute a nearby local artifact for the requested target when authoritative identity is unverified. Zen reviews the completed planning packet; an actual current `VERDICT: GO` is required before `PLAN READY`. No implementation worker is available from Piledriver.
 
 ### Excavator
 
@@ -53,7 +61,7 @@ A genuinely verified BLOCKED result may terminate without Zen.
 - **Jaguar** — read-only factual discovery; Flash tier.
 - **Steamroller** — read-only architecture/ambiguity/trade-off reasoning; Pro tier.
 - **gravity-advisor** — read-only Bobcat-local ADVISE/CHECK gate; codename TBD.
-- **Zen** — shared independent read-only final review; Pro tier. It reviews Bulldozer-delivered work and serves as Excavator's completion gate.
+- **Zen** — shared independent non-mutating final review; Pro tier. Reviews delivered work for Bulldozer, plan readiness for Piledriver, and serves as Excavator's completion gate.
 
 ## Routing
 
@@ -73,6 +81,6 @@ v0.3.3 could deny Gemini 3.1 Pro file mutation because every 3.1 Pro role in tha
 
 ## Compatibility gate
 
-Earlier testing found that a custom primary could fail to invoke subagents while Antigravity Default succeeded. Both Bulldozer's normal specialist delegation and Excavator -> Zen completion review must therefore be validated on the current AGY runtime before 0.4.0 leaves alpha.
+Earlier testing found that a custom primary could fail to invoke subagents while Antigravity Default succeeded. Custom-primary delegation must therefore be validated on the current AGY runtime before 0.4.0 leaves alpha, including Bulldozer delegation, Piledriver's Jaguar/Zen planning graph, and Excavator -> Zen completion review gate.
 
 For complete details on the non-SemVer A.B.C version progression, release maturity tiers, and host runtime compatibility matrix, see [Versioning Policy](versioning.md).
