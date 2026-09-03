@@ -22,7 +22,7 @@ The three primary agents are peers. Piledriver and Excavator are not children of
 ```text
 Bulldozer
 ├─ Bobcat      — ordinary implementation / Flash
-│  └─ Advisor  — local advice + CHECK gate / Pro
+│  └─ Strix Halo — local advice + CHECK gate / Pro
 ├─ Puma        — quick + writing / Flash
 ├─ Jaguar      — codebase exploration / Flash
 ├─ Steamroller — deep decisions / Pro
@@ -51,7 +51,7 @@ Native Gravity does not ship a replacement runtime or wrapper CLI. Antigravity o
 
 ## Alpha compatibility gate
 
-An older Native Gravity test found that a custom primary could fail to invoke subagents while the Antigravity Default agent succeeded. On AGY 1.1.21, a clean install now validates Bulldozer's internal delegation and the nested Bulldozer -> Bobcat -> gravity-advisor gate. Revalidate this compatibility gate when the AGY runtime changes.
+An older Native Gravity test found that a custom primary could fail to invoke subagents while the Antigravity Default agent succeeded. On AGY 1.1.21, a clean install now validates Bulldozer's internal delegation and the nested Bulldozer -> Bobcat -> Strix Halo gate. Revalidate this compatibility gate when the AGY runtime changes.
 
 ## Install for testing
 
