@@ -13,6 +13,8 @@
 - Reviewer -> Zen
 - Puma quick/writing 경로 추가
 - Bobcat -> Advisor gate 유지
+- Piledriver planning child를 Jaguar(read-only discovery)와 Zen(final plan-readiness review)로 제한
+- Piledriver가 authoritative target grounding 없이 task graph를 닫지 않도록 하고, 실제 현재 Zen `VERDICT: GO` 전에는 `PLAN READY`를 금지
 - v0.3.3 Gemini 3.1 Pro 전역 mutation guard 제거
 - v0.4 라우팅/문서 반영
 - Zen verification-only `run_command` + marker-scoped `PreToolUse` guard 추가
@@ -29,8 +31,15 @@ AGY 1.1.21 검증 완료:
 - Bobcat이 gravity-advisor 외 subagent를 호출하지 않음 (negative case)
 - Zen 실제 verdict 관측
 
-shell guard 변경 후 실제 AGY 재검증 대기:
+실제 AGY 검증 대기:
 
+- clean/current plugin install에서 Piledriver -> Jaguar / Zen 호출이 실제 동작하는지
+- Piledriver가 구현 worker를 호출하지 않는지
+- 요청 target identity가 로컬 checkout과 다를 때 이를 추측하지 않고 UNKNOWN / NEEDS_DISCOVERY로 남기는지
+- Jaguar가 read-only 경계를 지키고 mutation이 필요한 evidence는 unresolved requirement로 반환하는지
+- Zen `VERDICT: NO-GO` 후 계획만 수정하고 fresh review를 받는지
+- material plan revision 뒤 과거 GO를 재사용하지 않는지
+- 실제 현재 Zen `VERDICT: GO`를 관측한 뒤에만 `PLAN READY`를 출력하는지
 - Zen이 `NTG_ZEN_VERIFY=1` marker로 독립 verification command를 실행하는지
 - Zen-marked source mutation 시도는 막고 정상 검증 command는 허용하는지
 - Excavator-marked 일반 sudo 진단/수리는 정상 동작하는지
@@ -38,6 +47,8 @@ shell guard 변경 후 실제 AGY 재검증 대기:
 - `env pkexec`, `command ssh root@localhost`, `bash -c 'sudo apt upgrade'` 같은 wrapper 형태도 거부되는지
 - `sudo somecmd -S value`처럼 sudo 뒤 실행 명령의 `-S` 인자는 오탐하지 않는지
 - Bulldozer 등 다른 agent의 unmarked shell call에는 영향이 없는지
+
+Piledriver 변경은 prompt-level 우선입니다. 실제 반복 실행에서 plan-readiness 경계가 무너지는 증거가 나오기 전에는 별도 Stop hook이나 custom coordination runtime을 추가하지 않습니다.
 
 Zen/Excavator guard는 완전한 shell 또는 privilege sandbox가 아니라 역할 이탈에 대한 behavioral backstop입니다. AGY 1.1.21의 `PreToolUse` payload에는 아직 신뢰할 수 있는 custom-agent identity가 없고 agent별 read-only shell policy도 없습니다.
 
