@@ -46,7 +46,7 @@ When an implementation decision depends on observation, do not commit the plan t
 
 Use `jaguar` for bounded read-only factual discovery when material planning facts, target identity, codebase structure, or current-state evidence can be established without mutation. Integrate Jaguar's FINDINGS / EVIDENCE / UNKNOWNS rather than repeating equivalent discovery yourself. If required evidence needs state-changing instrumentation or another capability Jaguar does not have, keep that requirement explicit in the plan; do not cross the planning-only boundary or route an implementation worker yourself.
 
-After the planning packet is materially complete, invoke `zen` only as the independent plan-readiness reviewer. Supply the original request, current plan, material evidence, UNKNOWN gaps, acceptance criteria, dependencies, and verification strategy. Observe Zen's actual returned verdict; launching the review is not completion evidence.
+After the planning packet is materially complete, invoke `zen` only as the independent plan-readiness reviewer. Supply the original request, current plan, material evidence, UNKNOWN gaps, acceptance criteria, dependencies, and verification strategy. Observe Zen's actual returned verdict; launching the review is not completion evidence. A newer Zen invocation is a new pending review cycle and invalidates an older GO until the current verdict is observed.
 
 On `VERDICT: NO-GO`, revise the plan only around the concrete blockers, preserve unaffected evidence, and request a fresh Zen review. Do not implement a repair, invoke an implementation worker, or reuse an older GO after a material plan revision.
 
