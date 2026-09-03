@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import json
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from typing import Optional
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -282,7 +285,7 @@ def wire_system_verdict(
     }
 
 
-def wire_ready_report(self_reported_verdict: str | None = None):
+def wire_ready_report(self_reported_verdict: Optional[str] = None):
     verdict_line = f"- **ZEN_VERDICT**: {self_reported_verdict}\n" if self_reported_verdict else ""
     return {
         "step_index": 5,
