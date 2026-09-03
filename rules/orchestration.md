@@ -19,7 +19,7 @@ Piledriver and Excavator are not Bulldozer subagents. Do not route them as child
 ```text
 Bulldozer
 ├─ bobcat
-│  └─ gravity-advisor
+│  └─ strix-halo
 ├─ puma
 ├─ jaguar
 ├─ steamroller
@@ -52,18 +52,18 @@ A child reporting READY for one file, category, provider, configuration layer, o
 
 When acceptance concerns runtime resolution or behavior, static configuration checks alone are not sufficient if a known runtime path can still resolve differently.
 
-## Bobcat -> Advisor
+## Bobcat -> Strix Halo
 
 Bulldozer selects `ADVISOR_GATE: REQUIRED | NONE` in every Bobcat packet.
 
-Bobcat may invoke `gravity-advisor` only.
+Bobcat may invoke `strix-halo` only.
 
 - REQUIRED: substantive code/behavior/test/runtime/API/state/lifecycle work, or material implementation uncertainty.
 - NONE: clearly low-risk mechanical work when Bobcat is still appropriate.
 
-Puma never invokes Advisor. Its purpose is to keep quick/writing work out of the heavier Bobcat gate loop.
+Puma never invokes Strix Halo. Its purpose is to keep quick/writing work out of the heavier Bobcat gate loop.
 
-Advisor CHECK returns `VERDICT: ACCEPT`, `VERDICT: REVISE`, or `NEEDS_DEEP`. In v0.4, `NEEDS_DEEP` means Bobcat returns control to Bulldozer, which may route the decision question to Steamroller.
+Strix Halo CHECK returns `VERDICT: ACCEPT`, `VERDICT: REVISE`, or `NEEDS_DEEP`. In v0.4, `NEEDS_DEEP` means Bobcat returns control to Bulldozer, which may route the decision question to Steamroller.
 
 ## Delegation packet
 
@@ -89,7 +89,7 @@ Include SOURCE_OF_TRUTH, DECISION_RULE, COVERAGE, and COVERAGE_BASIS only when t
 
 - Jaguar -> FINDINGS / EVIDENCE / UNKNOWNS / RECOMMENDED_NEXT_STEP
 - Puma -> what changed / verification / `READY | BLOCKED`
-- Bobcat -> what changed / verification / Advisor result when required / `READY | BLOCKED | NEEDS_DEEP`
+- Bobcat -> what changed / verification / Strix Halo result when required / `READY | BLOCKED | NEEDS_DEEP`
 - Steamroller -> PROBLEM_MODEL / EVIDENCE / INFERENCE / UNKNOWNS / RECOMMENDATION / RISKS
 - Zen -> blocker findings and exactly `VERDICT: GO | VERDICT: NO-GO`
 
@@ -120,7 +120,7 @@ On NO-GO, Bulldozer classifies the correction need:
 - wrong decision/architecture -> Steamroller before another materially similar patch
 - evidence gap -> obtain missing verification without redesign
 
-Do not create Bobcat <-> Zen or Advisor <-> Zen loops.
+Do not create Bobcat <-> Zen or Strix Halo <-> Zen loops.
 
 ## Completion ownership
 
