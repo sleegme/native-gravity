@@ -28,7 +28,7 @@ Implemented:
 - deterministic shell-guard regression coverage in `tests/test_excavator_shell_guard.py`
 - deterministic Excavator review-gate coverage in `tests/test_excavator_review_gate.py`
 
-Validated on AGY 1.1.21 and AGY 1.1.24 before the new Excavator review gate:
+Validated on AGY 1.1.21 and AGY 1.1.24:
 
 - custom-primary Bulldozer can actually invoke internal subagents on the current AGY build
 - Piledriver remains planning-only in real runs
@@ -37,6 +37,15 @@ Validated on AGY 1.1.21 and AGY 1.1.24 before the new Excavator review gate:
 - Bobcat -> Advisor gate still converges correctly after rename
 - Bobcat attempts no subagent other than gravity-advisor (negative delegation case)
 - Bulldozer observes Zen verdicts before completion claims
+
+Validated on AGY 1.1.24 (Excavator completion review gate):
+
+- Excavator can invoke Zen from a custom-primary session and observe the returned verdict
+- a normal Excavator stop without Zen review is forced back into the execution loop
+- `VERDICT: GO` for the current artifact permits completion
+- `VERDICT: NO-GO`, a newer unfinished Zen invocation, or a post-GO direct write/marked Excavator shell call forces correction and a fresh review
+- a verified BLOCKED result can terminate without Zen
+- non-Excavator sessions remain unaffected by the Stop hook
 
 Pending live revalidation after the shell-guard changes:
 
@@ -48,16 +57,7 @@ Pending live revalidation after the shell-guard changes:
 - downstream command arguments such as `sudo somecmd -S value` do not produce a sudo-stdin false positive
 - Bulldozer and other agents' unmarked shell calls are unaffected
 
-Pending live validation for the Excavator completion review gate:
-
-- Excavator can invoke Zen from a custom-primary session and observe the returned verdict
-- a normal Excavator stop without Zen review is forced back into the execution loop
-- `VERDICT: GO` for the current artifact permits completion
-- `VERDICT: NO-GO`, a newer unfinished Zen invocation, or a post-GO direct write/marked Excavator shell call forces correction and a fresh review
-- a verified BLOCKED result can terminate without Zen
-- non-Excavator sessions remain unaffected by the Stop hook
-
-The Zen and Excavator shell guards are behavioral backstops, not complete shell or privilege sandboxes. AGY 1.1.21 does not expose reliable custom-agent identity in `PreToolUse` payloads. The current Stop-hook contract likewise does not document an explicit custom-agent-name field, so the Excavator review gate scopes itself from structured transcript identity/system-prompt evidence when available and the existing `NTG_EXCAVATOR=1` shell marker. Live transcript-shape validation is therefore required before treating the new gate as a complete role-identity boundary.
+The Zen and Excavator shell guards are behavioral backstops, not complete shell or privilege sandboxes. AGY runtimes (1.1.21 / 1.1.24) do not expose reliable custom-agent identity in `PreToolUse` payloads. The current Stop-hook contract likewise does not document an explicit custom-agent-name field, so the Excavator review gate scopes itself from structured transcript identity/system-prompt evidence when available and the existing `NTG_EXCAVATOR=1` shell marker. Live transcript-shape validation on AGY 1.1.24 confirmed the gate accurately scopes Excavator sessions while remaining unobtrusive to other agents.
 
 Naming still open:
 
