@@ -57,9 +57,18 @@ An older Native Gravity test found that a custom primary could fail to invoke su
 
 ## Install
 
-### npm / npx
+### npm
 
 Requires Node.js 18+ and Antigravity CLI (`agy`) on `PATH`.
+
+Install the distribution helper globally, then install Native Gravity into Antigravity:
+
+```bash
+npm install -g native-gravity
+native-gravity
+```
+
+Or run it without a global install:
 
 ```bash
 npx native-gravity
