@@ -1,0 +1,41 @@
+{
+  "name": "native-gravity",
+  "version": "0.4.0-alpha.0",
+  "description": "A thin Antigravity-native orchestration plugin with delegated implementation and independent verification.",
+  "type": "module",
+  "bin": {
+    "native-gravity": "scripts/npm-install.mjs"
+  },
+  "files": [
+    "agents/",
+    "hooks/",
+    "rules/",
+    "plugin.json",
+    "hooks.json",
+    "scripts/npm-install.mjs",
+    "README.md",
+    "docs/ko/README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "antigravity",
+    "gemini",
+    "ai-agents",
+    "multi-agent",
+    "agentic-coding",
+    "orchestration"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sleegme/native-gravity.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sleegme/native-gravity/issues"
+  },
+  "homepage": "https://github.com/sleegme/native-gravity#readme",
+  "publishConfig": {
+    "access": "public"
+  }
+}
