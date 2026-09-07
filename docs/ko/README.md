@@ -41,9 +41,18 @@ AGY 1.1.21 clean install에서 custom primary인 Bulldozer의 내부 위임과 B
 
 ## 설치
 
-### npm / npx
+### npm
 
 Node.js 18+와 `PATH`에서 실행 가능한 Antigravity CLI(`agy`)가 필요합니다.
+
+배포 도우미를 전역 설치한 뒤 Native Gravity를 Antigravity에 설치할 수 있습니다.
+
+```bash
+npm install -g native-gravity
+native-gravity
+```
+
+전역 설치 없이 바로 실행하려면:
 
 ```bash
 npx native-gravity
