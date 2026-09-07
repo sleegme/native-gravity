@@ -49,11 +49,31 @@ That also invalidates the v0.3.3 global Gemini 3.1 Pro mutation deny: Excavator 
 
 Native Gravity does not ship a replacement runtime or wrapper CLI. Antigravity owns primary/subagent execution, lifecycle, sessions, workspaces, model resolution, and tool permissions. Native Gravity supplies role contracts, routing policy, and model-adaptive behavioral guidance.
 
+The npm entrypoint is installation-only: it locates the packaged plugin directory and delegates installation back to `agy plugin install`. It does not intercept or wrap Antigravity runtime execution.
+
 ## Alpha compatibility gate
 
 An older Native Gravity test found that a custom primary could fail to invoke subagents while the Antigravity Default agent succeeded. On AGY 1.1.21, a clean install now validates Bulldozer's internal delegation and the nested Bulldozer -> Bobcat -> Strix Halo gate. Revalidate this compatibility gate when the AGY runtime changes.
 
-## Install for testing
+## Install
+
+### npm / npx
+
+Requires Node.js 18+ and Antigravity CLI (`agy`) on `PATH`.
+
+```bash
+npx native-gravity
+```
+
+For a clean upgrade/reinstall:
+
+```bash
+npx native-gravity reinstall
+```
+
+The npm package is only a distribution helper. It ultimately runs Antigravity's native plugin installer against the packaged Native Gravity directory.
+
+### Git checkout
 
 ```bash
 git clone https://github.com/sleegme/native-gravity.git
