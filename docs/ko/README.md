@@ -38,3 +38,42 @@ Bulldozer
 v0.3.3의 Gemini 3.1 Pro 전역 mutation deny 훅은 제거했습니다. v0.4의 Excavator는 Pro-tier 자율 구현 역할이므로 직접 수정 권한이 필요합니다.
 
 AGY 1.1.21 clean install에서 custom primary인 Bulldozer의 내부 위임과 Bulldozer -> Bobcat -> Strix Halo 중첩 gate를 실제 대화로 검증했습니다. AGY 런타임이 바뀌면 이 compatibility gate를 다시 검증해야 합니다.
+
+## 설치
+
+### npm
+
+Node.js 18+ 및 `PATH`에 Antigravity CLI(`agy`)가 필요합니다.
+
+```bash
+npm install -g native-gravity
+native-gravity
+```
+
+전역 설치 없이 직접 실행:
+
+```bash
+npx native-gravity
+```
+
+업그레이드/재설치:
+
+```bash
+npx native-gravity reinstall
+# 또는
+npx native-gravity update
+```
+
+npm 패키지는 패키징된 디렉터리를 찾아 `agy plugin install`을 호출하는 배포 도우미일 뿐이며 실행 래퍼가 아닙니다.
+
+### Git checkout
+
+```bash
+git clone https://github.com/sleegme/native-gravity.git
+cd native-gravity
+agy plugin uninstall native-gravity
+agy plugin install .
+```
+
+업그레이드 테스트 시에는 이전 v0.3 에이전트/훅 파일이 스테이징에 남지 않도록 클린 재설치를 권장합니다.
+

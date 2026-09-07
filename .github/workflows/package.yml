@@ -1,0 +1,22 @@
+name: package
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  npm-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Check installer syntax
+        run: node --check scripts/npm-install.mjs
+
+      - name: Verify npm package contents
+        run: npm pack --dry-run
