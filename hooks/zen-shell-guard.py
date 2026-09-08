@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""Behavioral backstop for Zen verification-shell calls.
+"""Native Gravity - Zen Shell Guard Hook.
 
-Only commands explicitly marked by Zen are inspected. Other agents are unaffected.
-This is intentionally a narrow role-behavior guard, not a general shell sandbox.
+Backstop guard for Zen verification shell commands marked with NTG_ZEN_VERIFY=1 .
+Permits independent read-only verification commands while denying common intentional
+project and state mutation paths.
 """
-
-# Keep annotations unevaluated so `str | None` stays valid on Python 3.9 hosts.
-from __future__ import annotations
 
 import json
 import re
@@ -14,80 +12,176 @@ import shlex
 import sys
 
 MARKER = "NTG_ZEN_VERIFY=1 "
-DENY_REASON = (
-    "Zen is verification-only. This shell command looks like an intentional "
-    "project mutation. Re-run a non-mutating verification command or report "
-    "the evidence gap; route any repair back through Bulldozer."
-)
 
-MUTATING_PATTERNS = [
-    # `tee` is a direct write path equivalent to output redirection, including `tee -a`.
-    r"(?i)(?:^|[;&|]\s*)(?:sudo\s+)?(?:rm|mv|cp|install|touch|truncate|dd|tee)\b",
-    r"(?i)(?:^|[;&|]\s*)(?:sudo\s+)?sed\b[^;&|]*\s-i(?:\s|$)",
-    r"(?i)(?:^|[;&|]\s*)(?:sudo\s+)?perl\b[^;&|]*\s-(?:p?i|i\w*)\b",
-    # `stash` mutates the working tree and `push` mutates remote repository state.
-    # Leading global options are tolerated so `git -C dir push` cannot trivially bypass.
-    r"(?i)(?:^|[;&|]\s*)git\s+"
-    r"(?:(?:-C|-c|--git-dir|--work-tree|--namespace)(?:=|\s+)\S+\s+)*"
-    r"(?:add|commit|checkout|switch|restore|reset|clean|merge|rebase|cherry-pick|am|apply|stash|push)\b",
-    r"(?i)(?:^|[;&|]\s*)(?:npm|pnpm|yarn|pip3?|uv|cargo|apt(?:-get)?|dnf|yum|pacman)\s+(?:install|add|remove|uninstall|update|upgrade|fmt)\b",
-    r"(?i)(?:^|[;&|]\s*)prettier\b[^;&|]*--write\b",
-    r"(?i)(?:^|[;&|]\s*)gofmt\b[^;&|]*\s-w(?:\s|$)",
-    r"(?i)\b(?:writeFile|writeFileSync|appendFile|appendFileSync|renameSync|rmSync|unlinkSync|copyFileSync)\b",
-    r"(?i)\b(?:write_text|write_bytes)\s*\(",
-    r"(?i)\bopen\s*\([^)]*,\s*['\"][wax+]",
-]
+SHELL_WRAPPERS = {"sudo", "env", "command", "exec", "nohup"}
+
+MUTATING_FS_COMMANDS = {
+    "rm", "mv", "cp", "mkdir", "rmdir", "touch", "chmod", "chown",
+    "truncate", "dd", "ln", "install", "unlink", "patch"
+}
+
+MUTATING_GIT_SUBCOMMANDS = {
+    "add", "commit", "push", "stash", "reset", "restore", "rm", "mv",
+    "merge", "rebase", "cherry-pick", "apply", "clean", "tag", "branch",
+    "revert", "pull"
+}
 
 
-def respond(decision: str, reason: str | None = None) -> None:
-    payload = {"decision": decision}
-    if reason:
-        payload["reason"] = reason
-    print(json.dumps(payload))
+def contains_redirection(cmd_str: str) -> bool:
+    in_quote = None
+    i = 0
+    while i < len(cmd_str):
+        c = cmd_str[i]
+        if in_quote:
+            if c == in_quote:
+                in_quote = None
+        else:
+            if c == "'" or c == '"':
+                in_quote = c
+            elif c == ">":
+                return True
+            elif c in ("1", "2", "&") and i + 1 < len(cmd_str) and cmd_str[i + 1] == ">":
+                return True
+        i += 1
+    return False
+
+
+def is_mutating_git(tokens: list[str]) -> bool:
+    idx = 0
+    while idx < len(tokens):
+        tok = tokens[idx]
+        if tok in {"-C", "-c", "--work-tree", "--git-dir"}:
+            idx += 2
+            continue
+        if tok.startswith("-"):
+            idx += 1
+            continue
+        if tok in MUTATING_GIT_SUBCOMMANDS:
+            return True
+        break
+    return False
+
+
+def is_mutating_command(tokens: list[str]) -> tuple[bool, str]:
+    if not tokens:
+        return False, ""
+
+    while tokens and tokens[0] in SHELL_WRAPPERS:
+        tokens = tokens[1:]
+
+    if not tokens:
+        return False, ""
+
+    cmd = tokens[0]
+    args = tokens[1:]
+
+    if cmd == "tee":
+        return True, "Direct tee write detected"
+
+    if cmd in MUTATING_FS_COMMANDS:
+        return True, f"Filesystem mutation command detected: {cmd}"
+
+    if cmd == "git":
+        if is_mutating_git(args):
+            return True, "Git state mutation detected"
+
+    if cmd == "sed":
+        for a in args:
+            if a == "-i" or (a.startswith("-") and "i" in a and not a.startswith("--")):
+                return True, "In-place sed edit detected"
+
+    if cmd == "npm" and any(a in {"install", "i", "add", "uninstall", "remove", "update"} for a in args):
+        return True, "npm package install/remove detected"
+
+    if cmd == "pip" and any(a in {"install", "uninstall"} for a in args):
+        return True, "pip package install/remove detected"
+
+    if cmd == "prettier" and "--write" in args:
+        return True, "prettier write mode detected"
+
+    if cmd == "gofmt" and "-w" in args:
+        return True, "gofmt write mode detected"
+
+    if cmd in {"python", "python3", "node", "perl", "ruby"}:
+        for a in args:
+            if "open(" in a and any(m in a for m in ["'w'", '"w"', "'a'", '"a"']):
+                return True, "Inline script write detected"
+            if "fs.write" in a:
+                return True, "Inline script write detected"
+
+    return False, ""
+
+
+def evaluate_command(cmd_str: str) -> tuple[str, str]:
+    trimmed = cmd_str.strip()
+    if not trimmed:
+        return "deny", "Empty command rejected"
+
+    if contains_redirection(trimmed):
+        return "deny", "Output redirection detected"
+
+    try:
+        lexer = shlex.shlex(trimmed, posix=True, punctuation_chars="|;&")
+        lexer.whitespace_split = True
+        raw_tokens = list(lexer)
+    except Exception as e:
+        return "deny", f"Command parsing error: {e}"
+
+    if not raw_tokens:
+        return "deny", "No executable tokens found"
+
+    pipeline_segments: list[list[str]] = []
+    curr_segment: list[str] = []
+    for t in raw_tokens:
+        if t in {"|", "||", ";", "&&", "&"}:
+            if curr_segment:
+                pipeline_segments.append(curr_segment)
+                curr_segment = []
+        else:
+            curr_segment.append(t)
+    if curr_segment:
+        pipeline_segments.append(curr_segment)
+
+    for seg in pipeline_segments:
+        if not seg:
+            continue
+
+        mutating, reason = is_mutating_command(seg)
+        if mutating:
+            return "deny", reason
+
+    return "allow", ""
 
 
 def main() -> None:
     try:
-        event = json.load(sys.stdin)
+        raw_input = sys.stdin.read()
+        if not raw_input.strip():
+            print(json.dumps({"decision": "allow"}))
+            return
+        event = json.loads(raw_input)
     except Exception:
-        respond("allow")
+        print(json.dumps({"decision": "allow"}))
         return
 
-    tool_call = event.get("toolCall") or {}
+    tool_call = event.get("toolCall", {})
     if tool_call.get("name") != "run_command":
-        respond("allow")
+        print(json.dumps({"decision": "allow"}))
         return
 
-    args = tool_call.get("args") or {}
-    command = str(args.get("CommandLine") or "")
+    args = tool_call.get("args", {})
+    command_line = args.get("CommandLine", "")
 
-    # Role scoping is explicit because AGY PreToolUse payloads currently expose
-    # modelName/conversationId but no reliable custom-agent name.
-    if not command.startswith(MARKER):
-        respond("allow")
+    if not command_line.startswith(MARKER):
+        print(json.dumps({"decision": "allow"}))
         return
 
-    body = command[len(MARKER):].strip()
-    if not body:
-        respond("deny", "Zen verification command was empty.")
-        return
-
-    try:
-        tokens = shlex.split(body, posix=True)
-    except ValueError:
-        respond("deny", "Zen verification command could not be parsed safely.")
-        return
-
-    # Unquoted output redirection is a common direct-write path.
-    if any(re.match(r"^(?:\d*>>?|\d*&>|&>>?|>\|)", token) for token in tokens):
-        respond("deny", DENY_REASON)
-        return
-
-    if any(re.search(pattern, body) for pattern in MUTATING_PATTERNS):
-        respond("deny", DENY_REASON)
-        return
-
-    respond("allow")
+    stripped_cmd = command_line[len(MARKER):]
+    decision, reason = evaluate_command(stripped_cmd)
+    res = {"decision": decision}
+    if reason:
+        res["reason"] = reason
+    print(json.dumps(res))
 
 
 if __name__ == "__main__":
