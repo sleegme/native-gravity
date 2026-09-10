@@ -310,12 +310,15 @@ completed_milestones: []
 evidence: {}
   # Keyed by milestone ID or global key.
   # Records OBSERVED facts, artifact locations, tool outputs.
+  # Candidate records persist { milestone_id, plan_version, result_ref,
+  # candidate_artifact_ref }; result_ref is assigned by Steamroller (§4.2).
   # Classify entries as OBSERVED | INFERRED | UNKNOWN.
 
 verification: {}
   # Keyed by milestone ID.
   # Records Zen verdict (GO | NO-GO), verdict timestamp/context,
-  # and the plan_version the verdict was issued against.
+  # and the plan_version and result_ref the verdict was issued against.
+  # result_ref must match the persisted candidate record for that milestone.
   # A verdict issued against a prior plan_version is marked STALE.
 
 blockers: []
@@ -348,7 +351,7 @@ All transitions are performed by Steamroller and update `next_action`.
 |---|---|
 | Initialize / adopt initial plan | Record goal, constraints, plan version, milestone graph and decision invariants before delegation; active and completed milestone state starts empty |
 | Delegate / retry | No executor or review is active; select one incomplete milestone whose dependencies are completed, set `current_milestone` before invocation, and issue the current-version packet |
-| Receive candidate | Require matching active milestone and plan version; record candidate evidence and immutable result reference, keep the milestone active while Zen reviews |
+| Receive candidate | Require matching active milestone and plan version; Steamroller assigns and persists `result_ref` with the immutable candidate record in `evidence` before requesting Zen review (§4.2), and keeps the milestone active while Zen reviews |
 | BLOCKED / NEEDS_DEEP / invocation failure | Record evidence, blockers or escalation needs; end the invocation and clear `current_milestone`; do not promote the milestone |
 | Zen NO-GO | Record the matching verdict and repair needs, clear `current_milestone`, leave the milestone incomplete for bounded repair or replan |
 | Zen GO / promote | Require matching active milestone, current plan version and candidate result reference; observe evidence and verdict, then apply §5.3 |
@@ -398,6 +401,8 @@ The Bulldozer-to-Steamroller result packet must include at minimum:
 **NEEDS_DEEP routing:** Bulldozer reports `NEEDS_DEEP` to Steamroller. Steamroller decides whether to invoke Piledriver and what packet to send. Bulldozer does not invoke Piledriver directly.
 
 This is a pre-review candidate packet: `DONE` is Bulldozer's claim that acceptance criteria are met, not verified completion. Zen is mandatory for every P0 milestone; there is no `NOT_REQUIRED` path. Steamroller invokes Zen with this packet and the authoritative milestone contract. Zen returns a separate packet to Steamroller containing `milestone_id`, `plan_version`, `result_ref` (the immutable candidate artifact reference), `verdict` (`GO | NO-GO`), and `verification_evidence`. Steamroller associates that observed verdict with the candidate result; Bulldozer does not author or relay Zen authority. The accepted combined record contains the current Zen verdict.
+
+Steamroller is the sole issuer of `result_ref`: on `Receive candidate`, it assigns a unique reference to the immutable candidate packet and the delivered artifact versions that packet identifies, and persists the binding in ledger `evidence` before invoking Zen. The review request includes that same `result_ref`, which Zen must return unchanged. Steamroller persists it with the verdict in `verification` and rejects a verdict whose milestone, plan version or result reference does not match the candidate under review. Changed candidates require a new reference and review; references must not be rebound to changed contents. The physical ID/hash format and artifact storage layout remain implementation decisions for 44C/44E.
 
 ---
 
