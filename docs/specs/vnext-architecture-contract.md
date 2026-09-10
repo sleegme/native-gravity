@@ -50,11 +50,8 @@ USER
                           └─► STRIX HALO  (Pro — implementation advisor/gate)
 
 [After each milestone]
-  BULLDOZER ──result packet──► ZEN  (Pro — independent verification gate)
-                                    │
-                             GO / NO-GO
-                                    │
-                             STEAMROLLER  (ledger update)
+  BULLDOZER ──candidate packet──► STEAMROLLER ──review request──► ZEN
+  ZEN ──GO / NO-GO──► STEAMROLLER  (ledger update)
 ```
 
 **Key topology rules:**
@@ -101,7 +98,7 @@ This path is out of scope for the minimum P0 spine. Excavator and Instinct are r
 - Maintain the project ledger as the authoritative source of truth (not conversational memory)
 - Hand one bounded milestone at a time to Bulldozer via a structured packet (§4.1)
 - Decide when to invoke Piledriver for planning, replanning, or difficult decisions
-- Consume verified milestone result packets from Bulldozer (§4.2)
+- Consume candidate milestone result packets from Bulldozer and independently delivered Zen verdicts (§4.2)
 - Observe current Zen GO before promoting a milestone to verified
 - Update the ledger after each verified milestone
 - Declare global project completion — this authority belongs exclusively to Steamroller
@@ -288,6 +285,11 @@ constraints: []
   # List of hard constraints that all milestones and plans must satisfy.
   # Examples: provenance rules, prohibited sources, scope limits.
 
+decision_invariants: []
+  # Settled architectural decisions adopted by Steamroller.
+  # Each entry: { id, decision, source_ref, affects_milestones }
+  # Material changes require a new plan_version.
+
 plan_version: ""
   # Monotonically increasing identifier (e.g. "v1", "v2").
   # A material replan increments this value.
@@ -327,16 +329,33 @@ next_action: ""
 
 ### 3.3 Ledger Invariants
 
-- The ledger is updated only by Steamroller after each verified milestone.
+- Only Steamroller may write authoritative ledger state, including initialization and pre-completion transitions.
 - Bulldozer does not write to the ledger — it returns a result packet.
 - `current_milestone` is set to exactly one milestone ID while Bulldozer is active.
 - A `verification` entry is only marked valid when `plan_version` matches the current ledger `plan_version`.
-- A material replan increments `plan_version` and marks all outstanding verification entries STALE.
+- A material replan follows the invalidation and revalidation rules in §5.2.
 - `completed_milestones` must not include a milestone ID until Steamroller has observed a valid (non-stale) Zen GO for it.
 
 ### 3.4 Scope Constraint
 
-Do not expand the ledger schema into a broad workflow platform. The minimum state contract above is the ceiling for P0. Additional fields require an explicit spec gap resolution and a new plan version.
+Do not expand the ledger schema into a broad workflow platform. This is a minimum, not a ceiling: 44C may add narrowly justified fields needed to enforce this contract and resume from fresh contexts. Persistence representation remains an implementation decision; it must not change role authority or completion semantics.
+
+### 3.5 Valid Ledger Transitions
+
+All transitions are performed by Steamroller and update `next_action`.
+
+| Transition | Preconditions and effects |
+|---|---|
+| Initialize / adopt initial plan | Record goal, constraints, plan version, milestone graph and decision invariants before delegation; active and completed milestone state starts empty |
+| Delegate / retry | No executor or review is active; select one incomplete milestone whose dependencies are completed, set `current_milestone` before invocation, and issue the current-version packet |
+| Receive candidate | Require matching active milestone and plan version; record candidate evidence and immutable result reference, keep the milestone active while Zen reviews |
+| BLOCKED / NEEDS_DEEP / invocation failure | Record evidence, blockers or escalation needs; end the invocation and clear `current_milestone`; do not promote the milestone |
+| Zen NO-GO | Record the matching verdict and repair needs, clear `current_milestone`, leave the milestone incomplete for bounded repair or replan |
+| Zen GO / promote | Require matching active milestone, current plan version and candidate result reference; observe evidence and verdict, then apply §5.3 |
+| Material replan | End active execution/review before adopting the new plan; apply §5.2 and reject subsequent old-version packets as transition authority |
+| Resolve blocker | Remove a blocker only on observed resolution evidence; this does not itself complete a milestone |
+
+An empty `current_milestone` means no execution or review is active. Duplicate or mismatched packets do not authorize transitions. Global completion additionally requires §5.4 and an empty `current_milestone`.
 
 ---
 
@@ -356,7 +375,7 @@ The Steamroller-to-Bulldozer packet must include at minimum:
 | `acceptance_criteria` | Objective, testable criteria that constitute milestone completion |
 | `constraints` | Hard constraints inherited from the project ledger |
 | `relevant_evidence` | OBSERVED facts from the ledger relevant to this milestone |
-| `open_decisions` | Architectural decisions Bulldozer must treat as settled (do not revisit) |
+| `decision_invariants` | Relevant settled decisions from ledger `decision_invariants`, by stable ID/reference or exact value; not unresolved questions |
 
 **Preference:** Reference stable milestone IDs and acceptance criteria rather than paraphrasing the governing contract at each handoff. Lossy paraphrase chains silently drop non-goals and constraints.
 
@@ -371,13 +390,14 @@ The Bulldozer-to-Steamroller result packet must include at minimum:
 | `status` | `DONE` (all acceptance criteria met) \| `BLOCKED` (genuine blocker) \| `NEEDS_DEEP` (requires Piledriver) |
 | `changes_made` | Concrete list of changes: files created/modified, state transitions, artifacts produced |
 | `verification_evidence` | OBSERVED evidence for each acceptance criterion |
-| `zen_verdict` | Current Zen GO / NO-GO with context, or `NOT_REQUIRED` if Zen was not required for this milestone |
 | `unresolved_unknowns` | UNKNOWN or INFERRED items that Steamroller must track |
 | `scope_deviations` | Any deviation from the bounded scope — must be explicit, not silently absorbed |
 | `blockers` | Active blockers preventing `DONE`, if status is `BLOCKED` |
 | `escalation_needs` | Specific question or artifact to route to Piledriver if status is `NEEDS_DEEP` |
 
 **NEEDS_DEEP routing:** Bulldozer reports `NEEDS_DEEP` to Steamroller. Steamroller decides whether to invoke Piledriver and what packet to send. Bulldozer does not invoke Piledriver directly.
+
+This is a pre-review candidate packet: `DONE` is Bulldozer's claim that acceptance criteria are met, not verified completion. Zen is mandatory for every P0 milestone; there is no `NOT_REQUIRED` path. Steamroller invokes Zen with this packet and the authoritative milestone contract. Zen returns a separate packet to Steamroller containing `milestone_id`, `plan_version`, `result_ref` (the immutable candidate artifact reference), `verdict` (`GO | NO-GO`), and `verification_evidence`. Steamroller associates that observed verdict with the candidate result; Bulldozer does not author or relay Zen authority. The accepted combined record contains the current Zen verdict.
 
 ---
 
@@ -399,7 +419,9 @@ The following rules are deterministic authority constraints, not prose-only sugg
 
 ### 5.2 Zen Verdict Staleness
 
-A Zen verdict is valid only if the `plan_version` recorded in the verdict matches the current ledger `plan_version`. A material replan (new `plan_version`) immediately marks all outstanding verdicts STALE. Steamroller must not use a stale verdict to promote a milestone to verified.
+A Zen verdict is valid only for its recorded milestone and candidate result reference, with a `plan_version` matching the current ledger version. A material replan increments the version, marks all prior-version verdicts STALE (including those for completed milestones), clears `completed_milestones` and `current_milestone`, and preserves prior evidence and verdicts as history, not current authority.
+
+Every milestone retained in the new plan must pass §5.3 again in dependency order. Bulldozer may submit existing artifacts with fresh evidence against the new acceptance criteria; unchanged implementation need not be rewritten. Zen must issue a new verdict against that current-version candidate. Steamroller must not relabel an old verdict or carry forward completion without revalidation. Milestones removed by the adopted replan remain historical records, not members of the new plan's completion set.
 
 ### 5.3 Milestone Promotion Sequence
 
@@ -407,7 +429,7 @@ A milestone may be promoted to `completed_milestones` only after this sequence i
 
 ```text
 1. Bulldozer reports DONE with result packet
-2. Zen reviews the result (if required for this milestone)
+2. Steamroller requests Zen review of the candidate and governing contract
 3. Zen issues current GO (non-stale, matches current plan_version)
 4. Steamroller observes the GO verdict
 5. Steamroller updates ledger: moves milestone_id to completed_milestones,
@@ -504,7 +526,7 @@ The following statements from the current `AGENTS.md` describe the v0.4 peer-pri
 | "Do not make Bulldozer spawn Piledriver or Excavator merely because their specialty is relevant." | Piledriver is invoked by Steamroller only; Bulldozer reports NEEDS_DEEP to Steamroller |
 | Caution against custom coordination runtimes and persistent state | vNext introduces a narrow exact-model runner and authoritative ledger — these are bounded additions, not a general platform |
 
-`AGENTS.md` must NOT be rewritten in this task. The supersession takes effect when the corresponding implementation slice is validated and merged.
+`AGENTS.md` must NOT be rewritten in 44A. Runtime supersession takes effect only with the validated 44G activation described below.
 
 ### 7.2 Generic Invariants That Survive Migration
 
@@ -527,7 +549,9 @@ The following invariants from the v0.4 baseline and `AGENTS.md` are preserved in
 
 ### 7.3 Migration Preconditions
 
-The v0.4 topology rules in `AGENTS.md` must remain authoritative until slice 44G validation is complete. Intermediate slices operate under the vNext contract for new code, but must not silently violate the v0.4 `AGENTS.md` topology that remains in effect for the runtime. `AGENTS.md` is updated as part of slice 44D/44G, not before.
+44D–44F are stacked, non-activated migration slices: they must not replace the distributed/default v0.4 runtime before 44G. Their isolated vNext validation context uses this contract, not obsolete v0.4 topology rules. The released v0.4 runtime and its `AGENTS.md` remain aligned until activation.
+
+44D prepares the corresponding `AGENTS.md` topology changes in that migration stack. 44G validates the complete stack and activates the vNext runtime and updated `AGENTS.md` together. If validation fails, neither is activated. Generic invariants in §7.2 continue to apply in both contexts.
 
 ---
 
@@ -574,6 +598,30 @@ And do NOT derive from:
 - Abandoned rewrite branches (`feat/clean-rewrite-issue-33`, `feat/clean-rewrite-issue-33-v2`)
 - PR #41 implementation
 - Any OMO/GJC/OMP external source text
+
+`PRESERVE` means preserve behavior, not reuse provenance-uncertain implementation. The following mapping covers all 13 core rewrite targets and both runtime/config preservation surfaces in #32. Each is independently re-authored from the two permitted specifications in the assigned slice; 44G verifies closure for every row before #34.
+
+| Baseline surface | Authoring slice | Closure evidence required in 44G |
+|---|---|---|
+| `agents/steamroller.md` | 44D | Independent authorship, schema and live supervisor authority |
+| `agents/piledriver.md` | 44D | Independent authorship, schema and live planning-only boundary |
+| `agents/bulldozer.md` | 44D | Independent authorship, schema and live milestone boundary |
+| `agents/bobcat.md` | 44E | Independent authorship, schema and live worker/advisor restrictions |
+| `agents/jaguar.md` | 44F | Independent authorship, schema and live read-only retrieval |
+| `agents/puma.md` | 44F | Independent authorship, schema and live bounded mechanical work |
+| `agents/strix-halo.md` | 44F | Independent authorship, schema and live Bobcat-local gate |
+| `agents/zen.md` | 44E; reconnection validation in 44F | Independent authorship, schema and live independent verdict flow |
+| `agents/excavator.md` | 44G | Independent authorship, schema and live separate-primary repair boundary |
+| `rules/harness.md` | 44D | Independent authorship and static review of preserved generic invariants |
+| `rules/orchestration.md` | 44D; integration completed in 44F | Independent authorship and static/live vNext routing and gate evidence |
+| `hooks/excavator-shell-guard.py` | 44G | Independent authorship, baseline effect-level unit tests and live marker enforcement |
+| `hooks/zen-shell-guard.py` | 44E | Independent authorship, baseline mutation-block unit tests and live marker enforcement |
+| `hooks.json` | 44E; Excavator registration completed in 44G | Independent authorship, schema validation and live hook registration evidence |
+| `plugin.json` | 44G | Independent authorship and `agy plugin validate .` |
+
+Excavator's existing separate-primary behavior and guard effects are cleanly re-authored before #34; only its new recovery routing/final role design is deferred post-44G. This does not resolve OQ-3 by inventing a new role.
+
+For every row, closure evidence must identify the delivered artifact, permitted drafting sources and validation result. A removed or replaced path must map to its successor artifact and preserved obligations, or an explicit authorized behavior removal; absence alone is not closure. Any unresolved provenance-uncertain distributed surface blocks #34/MIT. `package.json` and `scripts/npm-install.mjs` remain separate distribution plumbing, not additional uncertain core targets.
 
 ---
 
