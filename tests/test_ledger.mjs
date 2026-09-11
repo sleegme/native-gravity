@@ -72,6 +72,30 @@ function samplePlan() {
   };
 }
 
+function sampleCandidate(overrides = {}) {
+  return {
+    milestone_id: "M1",
+    plan_version: "v1",
+    status: "DONE",
+    changes_made: ["Implemented initial runner spike"],
+    verification_evidence: ["test_runner_spike.mjs passed with 24/24"],
+    unresolved_unknowns: [],
+    scope_deviations: [],
+    candidate_artifact_ref: "scripts/runner.mjs",
+    ...overrides,
+  };
+}
+
+function sampleVerdict(overrides = {}) {
+  return {
+    milestone_id: "M1",
+    plan_version: "v1",
+    verdict: "GO",
+    verification_evidence: ["Verified all test assertions passed"],
+    ...overrides,
+  };
+}
+
 // =============================================================================
 // Section 1: State Schema & Initialization
 // =============================================================================
@@ -157,18 +181,9 @@ runTest("1.3: Initialized ledger rejects subsequent init() calls, preventing re-
 
   // Advance state: complete M1
   ledger.delegate("M1");
-  const { result_ref } = ledger.receiveCandidate({
-    milestone_id: "M1",
-    plan_version: "v1",
-    status: "DONE",
-    changes_made: ["test"],
-  });
-  ledger.recordZenGo({
-    milestone_id: "M1",
-    plan_version: "v1",
-    result_ref: result_ref,
-    verdict: "GO",
-  });
+  const cand = sampleCandidate();
+  const { result_ref } = ledger.receiveCandidate(cand);
+  ledger.recordZenGo(sampleVerdict({ result_ref }));
 
   assert.deepStrictEqual(ledger.completed_milestones, ["M1"]);
 
@@ -251,14 +266,11 @@ runTest("3.1: Candidate reception assigns deterministic result_ref, persists evi
   const ledger = new AuthoritativeLedger(samplePlan());
   ledger.delegate("M1");
 
-  const candidate = {
-    milestone_id: "M1",
-    plan_version: "v1",
-    status: "DONE",
+  const candidate = sampleCandidate({
     changes_made: ["Created scripts/runner.mjs"],
     verification_evidence: ["test_runner_spike.mjs passed with 24/24"],
     candidate_artifact_ref: "scripts/runner.mjs",
-  };
+  });
 
   const expectedRef = generateResultRef(candidate);
   assert.ok(expectedRef.startsWith("ref-sha256-"));
@@ -285,24 +297,18 @@ runTest("3.2: Rebinding prevention throws RefRebindingError on tampered candidat
   const ledger = new AuthoritativeLedger(samplePlan());
   ledger.delegate("M1");
 
-  const candidate1 = {
-    milestone_id: "M1",
-    plan_version: "v1",
-    status: "DONE",
+  const candidate1 = sampleCandidate({
     changes_made: ["Original content"],
     candidate_artifact_ref: "artifact-1",
-  };
+  });
   const { result_ref } = ledger.receiveCandidate(candidate1);
 
   // Attempting to submit different candidate content while claiming the prior result_ref
-  const tamperedCandidate = {
-    milestone_id: "M1",
-    plan_version: "v1",
-    status: "DONE",
+  const tamperedCandidate = sampleCandidate({
     changes_made: ["Tampered / modified content"],
     candidate_artifact_ref: "artifact-1",
     result_ref: result_ref, // explicitly claiming mismatched ref
-  };
+  });
 
   assert.throws(() => ledger.receiveCandidate(tamperedCandidate), RefRebindingError);
 });
@@ -314,22 +320,18 @@ runTest("3.3: Candidate reception rejects mismatched milestone_id or stale plan_
   // Wrong milestone_id
   assert.throws(
     () =>
-      ledger.receiveCandidate({
-        milestone_id: "M2",
-        plan_version: "v1",
-        status: "DONE",
-      }),
+      ledger.receiveCandidate(
+        sampleCandidate({ milestone_id: "M2" })
+      ),
     InvalidTransitionError
   );
 
   // Stale plan_version
   assert.throws(
     () =>
-      ledger.receiveCandidate({
-        milestone_id: "M1",
-        plan_version: "v0",
-        status: "DONE",
-      }),
+      ledger.receiveCandidate(
+        sampleCandidate({ plan_version: "v0" })
+      ),
     InvalidTransitionError
   );
 
@@ -337,11 +339,9 @@ runTest("3.3: Candidate reception rejects mismatched milestone_id or stale plan_
   const idleLedger = new AuthoritativeLedger(samplePlan());
   assert.throws(
     () =>
-      idleLedger.receiveCandidate({
-        milestone_id: "M1",
-        plan_version: "v1",
-        status: "DONE",
-      }),
+      idleLedger.receiveCandidate(
+        sampleCandidate()
+      ),
     InvalidTransitionError
   );
 });
@@ -353,54 +353,45 @@ runTest("3.4: Candidate reception rejects packets with missing or non-DONE statu
   // Missing status
   assert.throws(
     () =>
-      ledger.receiveCandidate({
-        milestone_id: "M1",
-        plan_version: "v1",
-      }),
+      ledger.receiveCandidate(
+        sampleCandidate({ status: undefined })
+      ),
     InvalidTransitionError
   );
 
   // Empty status
   assert.throws(
     () =>
-      ledger.receiveCandidate({
-        milestone_id: "M1",
-        plan_version: "v1",
-        status: "",
-      }),
+      ledger.receiveCandidate(
+        sampleCandidate({ status: "" })
+      ),
     InvalidTransitionError
   );
 
   // BLOCKED status
   assert.throws(
     () =>
-      ledger.receiveCandidate({
-        milestone_id: "M1",
-        plan_version: "v1",
-        status: "BLOCKED",
-      }),
+      ledger.receiveCandidate(
+        sampleCandidate({ status: "BLOCKED" })
+      ),
     InvalidTransitionError
   );
 
   // NEEDS_DEEP status
   assert.throws(
     () =>
-      ledger.receiveCandidate({
-        milestone_id: "M1",
-        plan_version: "v1",
-        status: "NEEDS_DEEP",
-      }),
+      ledger.receiveCandidate(
+        sampleCandidate({ status: "NEEDS_DEEP" })
+      ),
     InvalidTransitionError
   );
 
   // Arbitrary non-DONE status
   assert.throws(
     () =>
-      ledger.receiveCandidate({
-        milestone_id: "M1",
-        plan_version: "v1",
-        status: "IN_PROGRESS",
-      }),
+      ledger.receiveCandidate(
+        sampleCandidate({ status: "IN_PROGRESS" })
+      ),
     InvalidTransitionError
   );
 
@@ -411,29 +402,74 @@ runTest("3.4: Candidate reception rejects packets with missing or non-DONE statu
   // Zen GO promotion is impossible without active candidate
   assert.throws(
     () =>
-      ledger.recordZenGo({
-        milestone_id: "M1",
-        plan_version: "v1",
-        result_ref: "ref-sha256-nonexistent",
-        verdict: "GO",
-      }),
+      ledger.recordZenGo(
+        sampleVerdict({
+          result_ref: "ref-sha256-nonexistent",
+        })
+      ),
     InvalidTransitionError
   );
 
   // Milestone is still active and can receive a valid DONE candidate
-  const { result_ref } = ledger.receiveCandidate({
-    milestone_id: "M1",
-    plan_version: "v1",
-    status: "DONE",
-  });
-  const verdict = ledger.recordZenGo({
-    milestone_id: "M1",
-    plan_version: "v1",
-    result_ref: result_ref,
-    verdict: "GO",
-  });
+  const cand = sampleCandidate();
+  const { result_ref } = ledger.receiveCandidate(cand);
+  const verdict = ledger.recordZenGo(sampleVerdict({ result_ref }));
   assert.strictEqual(verdict.verdict, "GO");
   assert.deepStrictEqual(ledger.completed_milestones, ["M1"]);
+});
+
+runTest("3.5: Candidate reception strictly enforces all required fields fail-closed", () => {
+  const ledger = new AuthoritativeLedger(samplePlan());
+  ledger.delegate("M1");
+
+  // 1. Missing or invalid milestone_id
+  assert.throws(() => ledger.receiveCandidate(sampleCandidate({ milestone_id: undefined })), InvalidTransitionError);
+  assert.throws(() => ledger.receiveCandidate(sampleCandidate({ milestone_id: "" })), InvalidTransitionError);
+  assert.throws(() => ledger.receiveCandidate(sampleCandidate({ milestone_id: "   " })), InvalidTransitionError);
+  assert.throws(() => ledger.receiveCandidate(sampleCandidate({ milestone_id: 123 })), InvalidTransitionError);
+
+  // 2. Missing or invalid plan_version
+  assert.throws(() => ledger.receiveCandidate(sampleCandidate({ plan_version: undefined })), InvalidTransitionError);
+  assert.throws(() => ledger.receiveCandidate(sampleCandidate({ plan_version: null })), InvalidTransitionError);
+  assert.throws(() => ledger.receiveCandidate(sampleCandidate({ plan_version: "" })), InvalidTransitionError);
+
+  // 3. Missing or invalid changes_made
+  assert.throws(() => ledger.receiveCandidate(sampleCandidate({ changes_made: undefined })), InvalidTransitionError);
+  assert.throws(() => ledger.receiveCandidate(sampleCandidate({ changes_made: null })), InvalidTransitionError);
+  assert.throws(() => ledger.receiveCandidate(sampleCandidate({ changes_made: 123 })), InvalidTransitionError);
+  assert.throws(() => ledger.receiveCandidate(sampleCandidate({ changes_made: { file: "test" } })), InvalidTransitionError);
+
+  // 4. Missing or empty verification_evidence (cannot enter DONE review with empty evidence)
+  assert.throws(() => ledger.receiveCandidate(sampleCandidate({ verification_evidence: undefined })), InvalidTransitionError);
+  assert.throws(() => ledger.receiveCandidate(sampleCandidate({ verification_evidence: null })), InvalidTransitionError);
+  assert.throws(() => ledger.receiveCandidate(sampleCandidate({ verification_evidence: "" })), InvalidTransitionError);
+  assert.throws(() => ledger.receiveCandidate(sampleCandidate({ verification_evidence: "   " })), InvalidTransitionError);
+  assert.throws(() => ledger.receiveCandidate(sampleCandidate({ verification_evidence: [] })), InvalidTransitionError);
+  assert.throws(() => ledger.receiveCandidate(sampleCandidate({ verification_evidence: [""] })), InvalidTransitionError);
+  assert.throws(() => ledger.receiveCandidate(sampleCandidate({ verification_evidence: ["   ", "\t\n"] })), InvalidTransitionError);
+  assert.throws(() => ledger.receiveCandidate(sampleCandidate({ verification_evidence: [null] })), InvalidTransitionError);
+
+  // 5. Missing or invalid unresolved_unknowns
+  assert.throws(() => ledger.receiveCandidate(sampleCandidate({ unresolved_unknowns: undefined })), InvalidTransitionError);
+  assert.throws(() => ledger.receiveCandidate(sampleCandidate({ unresolved_unknowns: null })), InvalidTransitionError);
+  assert.throws(() => ledger.receiveCandidate(sampleCandidate({ unresolved_unknowns: 123 })), InvalidTransitionError);
+
+  // 6. Missing or invalid scope_deviations
+  assert.throws(() => ledger.receiveCandidate(sampleCandidate({ scope_deviations: undefined })), InvalidTransitionError);
+  assert.throws(() => ledger.receiveCandidate(sampleCandidate({ scope_deviations: null })), InvalidTransitionError);
+  assert.throws(() => ledger.receiveCandidate(sampleCandidate({ scope_deviations: 123 })), InvalidTransitionError);
+
+  // Valid submissions with string or array variants succeed
+  const validStringCandidate = sampleCandidate({
+    changes_made: "Single string change",
+    verification_evidence: "Single string evidence",
+    unresolved_unknowns: "None observed",
+    scope_deviations: "None",
+  });
+  const res = ledger.receiveCandidate(validStringCandidate);
+  assert.ok(res.result_ref.startsWith("ref-sha256-"));
+  assert.deepStrictEqual(res.candidate_record.changes_made, ["Single string change"]);
+  assert.deepStrictEqual(res.candidate_record.verification_evidence, ["Single string evidence"]);
 });
 
 // =============================================================================
@@ -444,20 +480,19 @@ runTest("4.1: Zen GO verifies and promotes milestone, clears current_milestone, 
   const ledger = new AuthoritativeLedger(samplePlan());
   ledger.delegate("M1");
 
-  const { result_ref } = ledger.receiveCandidate({
-    milestone_id: "M1",
-    plan_version: "v1",
-    status: "DONE",
-    changes_made: ["files created"],
-  });
+  const { result_ref } = ledger.receiveCandidate(
+    sampleCandidate({ changes_made: ["files created"], verification_evidence: ["Verified all tests pass"] })
+  );
 
-  const verdictRecord = ledger.recordZenGo({
-    milestone_id: "M1",
-    plan_version: "v1",
-    result_ref: result_ref,
-    verdict: "GO",
-    verification_evidence: ["Verified all tests pass"],
-  });
+  const verdictRecord = ledger.recordZenGo(
+    sampleVerdict({
+      milestone_id: "M1",
+      plan_version: "v1",
+      result_ref: result_ref,
+      verdict: "GO",
+      verification_evidence: ["Verified all tests pass"],
+    })
+  );
 
   assert.strictEqual(verdictRecord.verdict, "GO");
   assert.strictEqual(verdictRecord.is_stale, false);
@@ -477,18 +512,16 @@ runTest("4.2: Zen NO-GO records verdict, clears current_milestone, leaves milest
   const ledger = new AuthoritativeLedger(samplePlan());
   ledger.delegate("M1");
 
-  const { result_ref } = ledger.receiveCandidate({
-    milestone_id: "M1",
-    plan_version: "v1",
-    status: "DONE",
-    changes_made: ["flawed implementation"],
-  });
+  const { result_ref } = ledger.receiveCandidate(
+    sampleCandidate({ changes_made: ["flawed implementation"], verification_evidence: ["tests ran and failed"] })
+  );
 
   const verdict = ledger.recordZenNoGo({
     milestone_id: "M1",
     plan_version: "v1",
     result_ref: result_ref,
     verdict: "NO-GO",
+    verification_evidence: ["Observed test failure in runner"],
     repair_needs: "Fix concurrency defect",
   });
 
@@ -511,20 +544,19 @@ runTest("4.3: Zen verdict rejects mismatched result_ref (MismatchedResultRefErro
   const ledger = new AuthoritativeLedger(samplePlan());
   ledger.delegate("M1");
 
-  ledger.receiveCandidate({
-    milestone_id: "M1",
-    plan_version: "v1",
-    status: "DONE",
-  });
+  ledger.receiveCandidate(sampleCandidate());
 
   assert.throws(
     () =>
-      ledger.recordZenGo({
-        milestone_id: "M1",
-        plan_version: "v1",
-        result_ref: "ref-sha256-wrong-ref-123456",
-        verdict: "GO",
-      }),
+      ledger.recordZenGo(
+        sampleVerdict({
+          milestone_id: "M1",
+          plan_version: "v1",
+          result_ref: "ref-sha256-wrong-ref-123456",
+          verdict: "GO",
+          verification_evidence: ["Verified"],
+        })
+      ),
     MismatchedResultRefError
   );
 
@@ -535,6 +567,7 @@ runTest("4.3: Zen verdict rejects mismatched result_ref (MismatchedResultRefErro
         plan_version: "v1",
         result_ref: "ref-sha256-wrong-ref-123456",
         verdict: "NO-GO",
+        verification_evidence: ["Failed verification"],
       }),
     MismatchedResultRefError
   );
@@ -544,22 +577,100 @@ runTest("4.4: Zen verdict rejects stale plan_version (StaleVerdictError)", () =>
   const ledger = new AuthoritativeLedger(samplePlan());
   ledger.delegate("M1");
 
-  const { result_ref } = ledger.receiveCandidate({
-    milestone_id: "M1",
-    plan_version: "v1",
-    status: "DONE",
-  });
+  const { result_ref } = ledger.receiveCandidate(sampleCandidate());
 
   assert.throws(
     () =>
-      ledger.recordZenGo({
-        milestone_id: "M1",
-        plan_version: "v0", // stale version
-        result_ref: result_ref,
-        verdict: "GO",
-      }),
+      ledger.recordZenGo(
+        sampleVerdict({
+          milestone_id: "M1",
+          plan_version: "v0", // stale version
+          result_ref: result_ref,
+          verdict: "GO",
+          verification_evidence: ["Verified"],
+        })
+      ),
     StaleVerdictError
   );
+});
+
+runTest("4.5: Zen verdict fail-open removal - recordZenGo and recordZenNoGo strictly require explicit verdict 'GO' and 'NO-GO'", () => {
+  const ledger = new AuthoritativeLedger(samplePlan());
+  ledger.delegate("M1");
+  const { result_ref } = ledger.receiveCandidate(sampleCandidate());
+
+  const baseGoPacket = {
+    milestone_id: "M1",
+    plan_version: "v1",
+    result_ref: result_ref,
+    verification_evidence: ["Zen review completed"],
+  };
+
+  // Missing verdict property does NOT default to GO
+  assert.throws(() => ledger.recordZenGo({ ...baseGoPacket }), InvalidTransitionError);
+  assert.throws(() => ledger.recordZenGo({ ...baseGoPacket, verdict: undefined }), InvalidTransitionError);
+  assert.throws(() => ledger.recordZenGo({ ...baseGoPacket, verdict: null }), InvalidTransitionError);
+  assert.throws(() => ledger.recordZenGo({ ...baseGoPacket, verdict: "" }), InvalidTransitionError);
+  assert.throws(() => ledger.recordZenGo({ ...baseGoPacket, verdict: "NO-GO" }), InvalidTransitionError);
+  assert.throws(() => ledger.recordZenGo({ ...baseGoPacket, verdict: "PASS" }), InvalidTransitionError);
+  assert.throws(() => ledger.recordZenGo({ ...baseGoPacket, verdict: "APPROVED" }), InvalidTransitionError);
+
+  // Missing verdict property does NOT default to NO-GO
+  assert.throws(() => ledger.recordZenNoGo({ ...baseGoPacket }), InvalidTransitionError);
+  assert.throws(() => ledger.recordZenNoGo({ ...baseGoPacket, verdict: undefined }), InvalidTransitionError);
+  assert.throws(() => ledger.recordZenNoGo({ ...baseGoPacket, verdict: null }), InvalidTransitionError);
+  assert.throws(() => ledger.recordZenNoGo({ ...baseGoPacket, verdict: "" }), InvalidTransitionError);
+  assert.throws(() => ledger.recordZenNoGo({ ...baseGoPacket, verdict: "GO" }), InvalidTransitionError);
+  assert.throws(() => ledger.recordZenNoGo({ ...baseGoPacket, verdict: "REJECT" }), InvalidTransitionError);
+
+  // Milestone promotion was impossible
+  assert.strictEqual(ledger.completed_milestones.includes("M1"), false);
+  assert.strictEqual(ledger.current_milestone, "M1");
+});
+
+runTest("4.6: Zen verdict packet fail-closed required fields validation (milestone_id, plan_version, result_ref, non-empty verification_evidence)", () => {
+  const ledger = new AuthoritativeLedger(samplePlan());
+  ledger.delegate("M1");
+  const { result_ref } = ledger.receiveCandidate(sampleCandidate());
+
+  // Missing / empty milestone_id
+  assert.throws(() => ledger.recordZenGo(sampleVerdict({ result_ref, milestone_id: undefined })), InvalidTransitionError);
+  assert.throws(() => ledger.recordZenGo(sampleVerdict({ result_ref, milestone_id: "" })), InvalidTransitionError);
+  assert.throws(() => ledger.recordZenNoGo(sampleVerdict({ result_ref, verdict: "NO-GO", milestone_id: undefined })), InvalidTransitionError);
+
+  // Missing / empty plan_version
+  assert.throws(() => ledger.recordZenGo(sampleVerdict({ result_ref, plan_version: undefined })), InvalidTransitionError);
+  assert.throws(() => ledger.recordZenGo(sampleVerdict({ result_ref, plan_version: null })), InvalidTransitionError);
+  assert.throws(() => ledger.recordZenGo(sampleVerdict({ result_ref, plan_version: "" })), InvalidTransitionError);
+
+  // Missing / empty result_ref
+  assert.throws(() => ledger.recordZenGo(sampleVerdict({ result_ref: undefined })), InvalidTransitionError);
+  assert.throws(() => ledger.recordZenGo(sampleVerdict({ result_ref: "" })), InvalidTransitionError);
+  assert.throws(() => ledger.recordZenNoGo(sampleVerdict({ result_ref: undefined, verdict: "NO-GO" })), InvalidTransitionError);
+
+  // Missing / empty verification_evidence in recordZenGo
+  assert.throws(() => ledger.recordZenGo(sampleVerdict({ result_ref, verification_evidence: undefined })), InvalidTransitionError);
+  assert.throws(() => ledger.recordZenGo(sampleVerdict({ result_ref, verification_evidence: null })), InvalidTransitionError);
+  assert.throws(() => ledger.recordZenGo(sampleVerdict({ result_ref, verification_evidence: "" })), InvalidTransitionError);
+  assert.throws(() => ledger.recordZenGo(sampleVerdict({ result_ref, verification_evidence: "   " })), InvalidTransitionError);
+  assert.throws(() => ledger.recordZenGo(sampleVerdict({ result_ref, verification_evidence: [] })), InvalidTransitionError);
+  assert.throws(() => ledger.recordZenGo(sampleVerdict({ result_ref, verification_evidence: [""] })), InvalidTransitionError);
+  assert.throws(() => ledger.recordZenGo(sampleVerdict({ result_ref, verification_evidence: ["   ", "\t"] })), InvalidTransitionError);
+
+  // Missing / empty verification_evidence in recordZenNoGo
+  assert.throws(() => ledger.recordZenNoGo(sampleVerdict({ result_ref, verdict: "NO-GO", verification_evidence: undefined })), InvalidTransitionError);
+  assert.throws(() => ledger.recordZenNoGo(sampleVerdict({ result_ref, verdict: "NO-GO", verification_evidence: [] })), InvalidTransitionError);
+  assert.throws(() => ledger.recordZenNoGo(sampleVerdict({ result_ref, verdict: "NO-GO", verification_evidence: "   " })), InvalidTransitionError);
+
+  // Crucial invariant: milestone promotion is impossible when any required field is missing
+  assert.strictEqual(ledger.completed_milestones.includes("M1"), false);
+  assert.strictEqual(ledger.current_milestone, "M1");
+
+  // With all required fields supplied, GO promotes milestone
+  const validGo = ledger.recordZenGo(sampleVerdict({ result_ref }));
+  assert.strictEqual(validGo.verdict, "GO");
+  assert.deepStrictEqual(ledger.completed_milestones, ["M1"]);
+  assert.strictEqual(ledger.current_milestone, null);
 });
 
 // =============================================================================
@@ -628,17 +739,8 @@ runTest("6.1: Material replan monotonically increments plan_version, marks verdi
 
   // Complete M1 under v1
   ledger.delegate("M1");
-  const { result_ref } = ledger.receiveCandidate({
-    milestone_id: "M1",
-    plan_version: "v1",
-    status: "DONE",
-  });
-  ledger.recordZenGo({
-    milestone_id: "M1",
-    plan_version: "v1",
-    result_ref: result_ref,
-    verdict: "GO",
-  });
+  const { result_ref } = ledger.receiveCandidate(sampleCandidate());
+  ledger.recordZenGo(sampleVerdict({ result_ref }));
 
   assert.deepStrictEqual(ledger.completed_milestones, ["M1"]);
   assert.strictEqual(ledger.verification.M1.is_stale, false);
@@ -692,17 +794,8 @@ runTest("6.1: Material replan monotonically increments plan_version, marks verdi
 
   // Retest M1 under v2
   ledger.delegate("M1");
-  const v2Cand = ledger.receiveCandidate({
-    milestone_id: "M1",
-    plan_version: "v2",
-    status: "DONE",
-  });
-  ledger.recordZenGo({
-    milestone_id: "M1",
-    plan_version: "v2",
-    result_ref: v2Cand.result_ref,
-    verdict: "GO",
-  });
+  const v2Cand = ledger.receiveCandidate(sampleCandidate({ plan_version: "v2" }));
+  ledger.recordZenGo(sampleVerdict({ plan_version: "v2", result_ref: v2Cand.result_ref }));
 
   assert.deepStrictEqual(ledger.completed_milestones, ["M1"]);
   assert.strictEqual(ledger.verification.M1.is_stale, false);
@@ -742,11 +835,7 @@ runTest("6.3: Material replan rejects active execution and non-monotonic / backw
   );
 
   // Still blocked when candidate is received (under review)
-  ledger.receiveCandidate({
-    milestone_id: "M1",
-    plan_version: "v1",
-    status: "DONE",
-  });
+  ledger.receiveCandidate(sampleCandidate());
   assert.throws(
     () =>
       ledger.materialReplan({
@@ -756,12 +845,15 @@ runTest("6.3: Material replan rejects active execution and non-monotonic / backw
   );
 
   // Transition to inactive (e.g. via Zen NO-GO)
-  ledger.recordZenNoGo({
-    milestone_id: "M1",
-    plan_version: "v1",
-    result_ref: ledger._active_candidates.M1.result_ref,
-    verdict: "NO-GO",
-  });
+  ledger.recordZenNoGo(
+    sampleVerdict({
+      milestone_id: "M1",
+      plan_version: "v1",
+      result_ref: ledger._active_candidates.M1.result_ref,
+      verdict: "NO-GO",
+      verification_evidence: ["NO-GO evidence"],
+    })
+  );
   assert.strictEqual(ledger.current_milestone, null);
 
   const replanPayload = {
@@ -821,6 +913,61 @@ runTest("6.3: Material replan rejects active execution and non-monotonic / backw
   assert.strictEqual(ledger.plan_version, "v10");
 });
 
+runTest("6.4: Material replan strictly rejects incompatible version formats, prefix changes, and type changes (fail-closed)", () => {
+  const ledger = new AuthoritativeLedger(samplePlan());
+  const baseReplan = {
+    goal: "Goal",
+    milestones: [{ id: "M1", title: "M1" }],
+  };
+
+  // When ledger plan_version is string 'v9':
+  ledger.plan_version = "v9";
+
+  // v9 -> x1 (prefix change)
+  assert.throws(() => ledger.materialReplan({ ...baseReplan, plan_version: "x1" }), InvalidTransitionError);
+
+  // v9 -> 1 (type change: string to number)
+  assert.throws(() => ledger.materialReplan({ ...baseReplan, plan_version: 1 }), InvalidTransitionError);
+
+  // v9 -> "1" (prefix change: 'v' to '')
+  assert.throws(() => ledger.materialReplan({ ...baseReplan, plan_version: "1" }), InvalidTransitionError);
+
+  // v9 -> "foo" (incomparable format)
+  assert.throws(() => ledger.materialReplan({ ...baseReplan, plan_version: "foo" }), InvalidTransitionError);
+
+  // v9 -> "v8" (backward version)
+  assert.throws(() => ledger.materialReplan({ ...baseReplan, plan_version: "v8" }), InvalidTransitionError);
+
+  // v9 -> "v9" (same version)
+  assert.throws(() => ledger.materialReplan({ ...baseReplan, plan_version: "v9" }), InvalidTransitionError);
+
+  // Valid monotonic increase v9 -> v10 succeeds
+  ledger.materialReplan({ ...baseReplan, plan_version: "v10" });
+  assert.strictEqual(ledger.plan_version, "v10");
+
+  // When ledger plan_version is integer 1:
+  ledger.plan_version = 1;
+
+  // 1 -> "v2" (type change: number to string)
+  assert.throws(() => ledger.materialReplan({ ...baseReplan, plan_version: "v2" }), InvalidTransitionError);
+
+  // 1 -> "foo" (type change / invalid format)
+  assert.throws(() => ledger.materialReplan({ ...baseReplan, plan_version: "foo" }), InvalidTransitionError);
+
+  // 1 -> "2" (type change: number to string)
+  assert.throws(() => ledger.materialReplan({ ...baseReplan, plan_version: "2" }), InvalidTransitionError);
+
+  // 1 -> 1 (same integer)
+  assert.throws(() => ledger.materialReplan({ ...baseReplan, plan_version: 1 }), InvalidTransitionError);
+
+  // 1 -> 0 (backward integer)
+  assert.throws(() => ledger.materialReplan({ ...baseReplan, plan_version: 0 }), InvalidTransitionError);
+
+  // Valid monotonic increase 1 -> 2 succeeds
+  ledger.materialReplan({ ...baseReplan, plan_version: 2 });
+  assert.strictEqual(ledger.plan_version, 2);
+});
+
 // =============================================================================
 // Section 7: Global Completion Enforcements
 // =============================================================================
@@ -833,8 +980,8 @@ runTest("7.1: Global completion strictly enforces all acceptance criteria", () =
 
   // 2. Complete M1
   ledger.delegate("M1");
-  const cand1 = ledger.receiveCandidate({ milestone_id: "M1", plan_version: "v1", status: "DONE" });
-  ledger.recordZenGo({ milestone_id: "M1", plan_version: "v1", result_ref: cand1.result_ref, verdict: "GO" });
+  const cand1 = ledger.receiveCandidate(sampleCandidate({ milestone_id: "M1" }));
+  ledger.recordZenGo(sampleVerdict({ milestone_id: "M1", result_ref: cand1.result_ref }));
 
   // Cannot complete with M2 still incomplete
   assert.throws(() => ledger.declareGlobalCompletion(), InvariantViolationError);
@@ -844,8 +991,8 @@ runTest("7.1: Global completion strictly enforces all acceptance criteria", () =
   // Cannot complete while milestone is active
   assert.throws(() => ledger.declareGlobalCompletion(), InvariantViolationError);
 
-  const cand2 = ledger.receiveCandidate({ milestone_id: "M2", plan_version: "v1", status: "DONE" });
-  ledger.recordZenGo({ milestone_id: "M2", plan_version: "v1", result_ref: cand2.result_ref, verdict: "GO" });
+  const cand2 = ledger.receiveCandidate(sampleCandidate({ milestone_id: "M2" }));
+  ledger.recordZenGo(sampleVerdict({ milestone_id: "M2", result_ref: cand2.result_ref }));
 
   // 4. Inject an active blocker: cannot complete with active blocker
   ledger.blockers.push({ id: "B-TEST", description: "Unresolved blocker" });
@@ -872,18 +1019,19 @@ runTest("8.1: Atomic persistence and fresh-context resume without conversational
 
     // Complete M1 in original session
     originalLedger.delegate("M1");
-    const cand1 = originalLedger.receiveCandidate({ milestone_id: "M1", plan_version: "v1", status: "DONE" });
-    originalLedger.recordZenGo({ milestone_id: "M1", plan_version: "v1", result_ref: cand1.result_ref, verdict: "GO" });
+    const cand1 = originalLedger.receiveCandidate(sampleCandidate({ milestone_id: "M1" }));
+    originalLedger.recordZenGo(sampleVerdict({ milestone_id: "M1", result_ref: cand1.result_ref }));
 
     // Delegate M2 and receive candidate, then simulate context break / restart
     originalLedger.delegate("M2");
-    const cand2 = originalLedger.receiveCandidate({
-      milestone_id: "M2",
-      plan_version: "v1",
-      status: "DONE",
-      candidate_artifact_ref: "scripts/ledger.mjs",
-      changes_made: ["Implemented AuthoritativeLedger"],
-    });
+    const cand2 = originalLedger.receiveCandidate(
+      sampleCandidate({
+        milestone_id: "M2",
+        candidate_artifact_ref: "scripts/ledger.mjs",
+        changes_made: ["Implemented AuthoritativeLedger"],
+        verification_evidence: ["test_ledger.mjs passed"],
+      })
+    );
 
     // Save state atomically
     originalLedger.save(testFile);
@@ -901,13 +1049,13 @@ runTest("8.1: Atomic persistence and fresh-context resume without conversational
     assert.strictEqual(resumedLedger.evidence.M2.active_candidate.result_ref, cand2.result_ref);
 
     // Resumed instance accepts Zen GO for M2
-    resumedLedger.recordZenGo({
-      milestone_id: "M2",
-      plan_version: "v1",
-      result_ref: cand2.result_ref,
-      verdict: "GO",
-      verification_evidence: ["test_ledger.mjs passed"],
-    });
+    resumedLedger.recordZenGo(
+      sampleVerdict({
+        milestone_id: "M2",
+        result_ref: cand2.result_ref,
+        verification_evidence: ["test_ledger.mjs passed"],
+      })
+    );
 
     assert.deepStrictEqual(resumedLedger.completed_milestones, ["M1", "M2"]);
     assert.strictEqual(resumedLedger.current_milestone, null);
@@ -965,6 +1113,8 @@ runTest("8.3: Resume invariant validation rejects completed milestones with old 
       candidate_artifact_ref: "scripts/runner.mjs",
       changes_made: ["Initial runner spike"],
       verification_evidence: ["Tests pass"],
+      unresolved_unknowns: [],
+      scope_deviations: [],
     };
     const ref = generateResultRef(candidatePacket);
     const candRecord = {
@@ -1074,6 +1224,206 @@ runTest("8.3: Resume invariant validation rejects completed milestones with old 
   };
   assert.throws(
     () => AuthoritativeLedger.fromJSON(candRefMismatchState),
+    InvariantViolationError
+  );
+});
+
+runTest("8.4: fromJSON() and load() result_ref integrity recomputation rejects tampered candidate payload with unchanged result_ref", () => {
+  function makeValidState() {
+    const candidatePacket = {
+      milestone_id: "M1",
+      plan_version: "v1",
+      status: "DONE",
+      candidate_artifact_ref: "scripts/runner.mjs",
+      changes_made: ["Initial runner spike"],
+      verification_evidence: ["Tests pass"],
+      unresolved_unknowns: [],
+      scope_deviations: [],
+    };
+    const ref = generateResultRef(candidatePacket);
+    const candRecord = {
+      milestone_id: "M1",
+      plan_version: "v1",
+      result_ref: ref,
+      candidate_artifact_ref: "scripts/runner.mjs",
+      status: "DONE",
+      changes_made: ["Initial runner spike"],
+      verification_evidence: ["Tests pass"],
+      unresolved_unknowns: [],
+      scope_deviations: [],
+      timestamp: new Date().toISOString(),
+      payload: { ...candidatePacket, result_ref: ref },
+    };
+    const verRecord = {
+      milestone_id: "M1",
+      plan_version: "v1",
+      result_ref: ref,
+      verdict: "GO",
+      verification_evidence: ["Tests pass"],
+      is_stale: false,
+      timestamp: new Date().toISOString(),
+      details: { verdict: "GO" },
+    };
+    return {
+      goal: "Valid Project",
+      constraints: [],
+      plan_version: "v1",
+      milestones: [{ id: "M1", title: "M1", acceptance_criteria: ["Done"], dependencies: [] }],
+      current_milestone: null,
+      completed_milestones: ["M1"],
+      evidence: {
+        M1: { active_candidate: candRecord, candidates: [candRecord] },
+        [ref]: candRecord,
+      },
+      verification: { M1: verRecord },
+      blockers: [],
+      decision_invariants: [],
+      next_action: "Ready",
+    };
+  }
+
+  // Baseline: valid state passes fromJSON
+  assert.ok(AuthoritativeLedger.fromJSON(makeValidState()));
+
+  // 1. Tamper payload.changes_made while keeping stored result_ref unchanged
+  const tamperedPayloadState = makeValidState();
+  const ref = tamperedPayloadState.verification.M1.result_ref;
+  tamperedPayloadState.evidence[ref].payload.changes_made = ["Unauthorized backdoored code"];
+  assert.throws(
+    () => AuthoritativeLedger.fromJSON(tamperedPayloadState),
+    InvariantViolationError
+  );
+
+  // Test via load() from file
+  const testFile = join(tmpdir(), `tampered-payload-${Date.now()}.json`);
+  try {
+    writeFileSync(testFile, JSON.stringify(tamperedPayloadState), "utf-8");
+    assert.throws(() => AuthoritativeLedger.load(testFile), InvariantViolationError);
+  } finally {
+    try { if (existsSync(testFile)) unlinkSync(testFile); } catch {}
+  }
+
+  // 2. Tamper candidate record changes_made while leaving payload alone
+  const tamperedCandRecordState = makeValidState();
+  tamperedCandRecordState.evidence[ref].changes_made = ["Diverged from payload"];
+  assert.throws(
+    () => AuthoritativeLedger.fromJSON(tamperedCandRecordState),
+    InvariantViolationError
+  );
+
+  // 3. Tamper payload.verification_evidence while keeping result_ref unchanged
+  const tamperedEvState = makeValidState();
+  tamperedEvState.evidence[ref].payload.verification_evidence = ["Fabricated test evidence"];
+  assert.throws(
+    () => AuthoritativeLedger.fromJSON(tamperedEvState),
+    InvariantViolationError
+  );
+});
+
+runTest("8.5: fromJSON() and load() result_ref integrity recomputation rejects tampered artifact binding with unchanged result_ref", () => {
+  function makeValidStateWithArtifact() {
+    const candidatePacket = {
+      milestone_id: "M1",
+      plan_version: "v1",
+      status: "DONE",
+      candidate_artifact_ref: "scripts/legit_artifact.mjs",
+      changes_made: ["Legitimate implementation"],
+      verification_evidence: ["Passes all tests"],
+      unresolved_unknowns: [],
+      scope_deviations: [],
+    };
+    const ref = generateResultRef(candidatePacket);
+    const candRecord = {
+      milestone_id: "M1",
+      plan_version: "v1",
+      result_ref: ref,
+      candidate_artifact_ref: "scripts/legit_artifact.mjs",
+      status: "DONE",
+      changes_made: ["Legitimate implementation"],
+      verification_evidence: ["Passes all tests"],
+      unresolved_unknowns: [],
+      scope_deviations: [],
+      timestamp: new Date().toISOString(),
+      payload: { ...candidatePacket, result_ref: ref },
+    };
+    const verRecord = {
+      milestone_id: "M1",
+      plan_version: "v1",
+      result_ref: ref,
+      verdict: "GO",
+      verification_evidence: ["Passes all tests"],
+      is_stale: false,
+      timestamp: new Date().toISOString(),
+      details: { verdict: "GO" },
+    };
+    return {
+      goal: "Valid Project",
+      constraints: [],
+      plan_version: "v1",
+      milestones: [{ id: "M1", title: "M1", acceptance_criteria: ["Done"], dependencies: [] }],
+      current_milestone: null,
+      completed_milestones: ["M1"],
+      evidence: {
+        M1: { active_candidate: candRecord, candidates: [candRecord] },
+        [ref]: candRecord,
+      },
+      verification: { M1: verRecord },
+      blockers: [],
+      decision_invariants: [],
+      next_action: "Ready",
+    };
+  }
+
+  // Baseline: valid state passes fromJSON
+  assert.ok(AuthoritativeLedger.fromJSON(makeValidStateWithArtifact()));
+
+  // 1. Tamper candidate record artifact_ref only (mismatch with payload)
+  const tamperedRecordArtifactState = makeValidStateWithArtifact();
+  const ref = tamperedRecordArtifactState.verification.M1.result_ref;
+  tamperedRecordArtifactState.evidence[ref].candidate_artifact_ref = "scripts/malicious_artifact.mjs";
+  assert.throws(
+    () => AuthoritativeLedger.fromJSON(tamperedRecordArtifactState),
+    InvariantViolationError
+  );
+
+  // 2. Tamper BOTH record and payload artifact_ref while keeping result_ref unchanged
+  const tamperedBothArtifactState = makeValidStateWithArtifact();
+  tamperedBothArtifactState.evidence[ref].candidate_artifact_ref = "scripts/malicious_artifact.mjs";
+  tamperedBothArtifactState.evidence[ref].payload.candidate_artifact_ref = "scripts/malicious_artifact.mjs";
+  assert.throws(
+    () => AuthoritativeLedger.fromJSON(tamperedBothArtifactState),
+    InvariantViolationError
+  );
+
+  // Test via load()
+  const testFile = join(tmpdir(), `tampered-artifact-${Date.now()}.json`);
+  try {
+    writeFileSync(testFile, JSON.stringify(tamperedBothArtifactState), "utf-8");
+    assert.throws(() => AuthoritativeLedger.load(testFile), InvariantViolationError);
+  } finally {
+    try { if (existsSync(testFile)) unlinkSync(testFile); } catch {}
+  }
+
+  // 3. Tampering active candidate's artifact binding or payload also throws
+  const activeCandState = makeValidStateWithArtifact();
+  activeCandState.completed_milestones = [];
+  activeCandState.verification = {};
+  activeCandState.current_milestone = "M1";
+  activeCandState._active_candidates = { M1: activeCandState.evidence[ref] };
+
+  // Valid active candidate loads cleanly
+  assert.ok(AuthoritativeLedger.fromJSON(activeCandState));
+
+  // Tamper active candidate's payload
+  activeCandState._active_candidates.M1 = {
+    ...activeCandState._active_candidates.M1,
+    payload: {
+      ...activeCandState._active_candidates.M1.payload,
+      changes_made: ["Tampered active candidate payload"],
+    },
+  };
+  assert.throws(
+    () => AuthoritativeLedger.fromJSON(activeCandState),
     InvariantViolationError
   );
 });

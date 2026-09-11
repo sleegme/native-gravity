@@ -14,21 +14,19 @@ export class InvalidTransitionError extends Error {
   }
 }
 
-export class StaleVerdictError extends Error {
+export class StaleVerdictError extends InvalidTransitionError {
   constructor(message, details = {}) {
-    super(message);
+    super(message, details);
     this.name = "StaleVerdictError";
     this.code = "STALE_VERDICT";
-    Object.assign(this, details);
   }
 }
 
-export class MismatchedResultRefError extends Error {
+export class MismatchedResultRefError extends InvalidTransitionError {
   constructor(message, details = {}) {
-    super(message);
+    super(message, details);
     this.name = "MismatchedResultRefError";
     this.code = "MISMATCHED_RESULT_REF";
-    Object.assign(this, details);
   }
 }
 
@@ -93,6 +91,113 @@ export function generateResultRef(candidatePacket) {
   const canonical = canonicalJson(clone) + "::" + String(artifactRef);
   const hash = createHash("sha256").update(canonical, "utf-8").digest("hex");
   return `ref-sha256-${hash}`;
+}
+
+/**
+ * Checks if a verification_evidence value is missing or empty.
+ * Empty includes: undefined, null, empty string, whitespace-only string,
+ * empty array, or array where all elements are empty/whitespace.
+ *
+ * @param {*} evidence
+ * @returns {boolean}
+ */
+export function isEvidenceEmpty(evidence) {
+  if (evidence === undefined || evidence === null) {
+    return true;
+  }
+  if (typeof evidence === "string") {
+    return !evidence.trim();
+  }
+  if (Array.isArray(evidence)) {
+    if (evidence.length === 0) {
+      return true;
+    }
+    return evidence.every((item) => {
+      if (item === undefined || item === null) return true;
+      if (typeof item === "string") return !item.trim();
+      return false;
+    });
+  }
+  return true;
+}
+
+/**
+ * Recomputes result_ref from candidate payload and artifact binding, verifying integrity.
+ * Throws InvariantViolationError if tampered or mismatched.
+ *
+ * @param {object} candidate
+ * @param {string} [expectedRef]
+ * @returns {string} Recomputed result_ref
+ */
+export function verifyCandidateIntegrity(candidate, expectedRef = null) {
+  if (!candidate || typeof candidate !== "object") {
+    throw new InvariantViolationError("Candidate record must be an object");
+  }
+  const storedRef = candidate.result_ref || candidate.resultRef;
+  if (!storedRef || typeof storedRef !== "string" || !storedRef.trim()) {
+    throw new InvariantViolationError("Candidate record missing valid result_ref");
+  }
+  if (expectedRef && storedRef !== expectedRef) {
+    throw new InvariantViolationError(
+      `Candidate result_ref '${storedRef}' does not match expected result_ref '${expectedRef}'`
+    );
+  }
+
+  // Determine payload for hash recomputation
+  const payload =
+    candidate.payload && typeof candidate.payload === "object"
+      ? { ...candidate.payload }
+      : { ...candidate };
+
+  const recordArtifactRef = candidate.candidate_artifact_ref ?? candidate.artifact_ref;
+  const payloadArtifactRef = payload.candidate_artifact_ref ?? payload.artifact_ref;
+
+  if (
+    recordArtifactRef !== undefined &&
+    payloadArtifactRef !== undefined &&
+    recordArtifactRef !== payloadArtifactRef
+  ) {
+    throw new InvariantViolationError(
+      `Candidate artifact binding mismatch: record '${recordArtifactRef}' vs payload '${payloadArtifactRef}'`
+    );
+  }
+
+  const effectiveArtifactRef = recordArtifactRef ?? payloadArtifactRef ?? "";
+  if (effectiveArtifactRef) {
+    payload.candidate_artifact_ref = effectiveArtifactRef;
+  } else {
+    delete payload.candidate_artifact_ref;
+    delete payload.artifact_ref;
+  }
+
+  if (candidate.payload && candidate.changes_made && payload.changes_made) {
+    const normCandChanges = Array.isArray(candidate.changes_made)
+      ? candidate.changes_made
+      : [candidate.changes_made];
+    const normPayloadChanges = Array.isArray(payload.changes_made)
+      ? payload.changes_made
+      : [payload.changes_made];
+    if (canonicalJson(normCandChanges) !== canonicalJson(normPayloadChanges)) {
+      throw new InvariantViolationError(
+        "Candidate record changes_made does not match payload changes_made (tampering detected)"
+      );
+    }
+  }
+
+  const recomputedRef = generateResultRef(payload);
+  if (recomputedRef !== storedRef) {
+    throw new InvariantViolationError(
+      `Candidate result_ref integrity check failed: stored '${storedRef}', recomputed '${recomputedRef}' (tampered candidate payload or artifact binding)`
+    );
+  }
+
+  if (expectedRef && recomputedRef !== expectedRef) {
+    throw new InvariantViolationError(
+      `Candidate result_ref integrity check failed: expected '${expectedRef}', recomputed '${recomputedRef}'`
+    );
+  }
+
+  return recomputedRef;
 }
 
 /**
@@ -410,23 +515,28 @@ export class AuthoritativeLedger {
    * @returns {{ result_ref: string, candidate_record: object }}
    */
   receiveCandidate(candidatePacket) {
-    if (!candidatePacket || typeof candidatePacket !== "object") {
+    if (!candidatePacket || typeof candidatePacket !== "object" || Array.isArray(candidatePacket)) {
       throw new InvalidTransitionError("Candidate packet must be an object");
     }
-
-    const milestoneId = candidatePacket.milestone_id || candidatePacket.milestoneId;
-    const planVersion = candidatePacket.plan_version || candidatePacket.planVersion;
 
     if (this.current_milestone === null) {
       throw new InvalidTransitionError("No active milestone to receive candidate for");
     }
 
+    const milestoneId = candidatePacket.milestone_id ?? candidatePacket.milestoneId;
+    if (typeof milestoneId !== "string" || !milestoneId.trim()) {
+      throw new InvalidTransitionError("Candidate milestone_id must be a non-empty string");
+    }
     if (milestoneId !== this.current_milestone) {
       throw new InvalidTransitionError(
         `Candidate milestone_id '${milestoneId}' does not match active milestone '${this.current_milestone}'`
       );
     }
 
+    const planVersion = candidatePacket.plan_version ?? candidatePacket.planVersion;
+    if (planVersion === undefined || planVersion === null || planVersion === "") {
+      throw new InvalidTransitionError("Candidate plan_version must be present");
+    }
     if (planVersion !== this.plan_version) {
       throw new InvalidTransitionError(
         `Candidate plan_version '${planVersion}' does not match current plan_version '${this.plan_version}'`
@@ -436,6 +546,49 @@ export class AuthoritativeLedger {
     if (candidatePacket.status !== "DONE") {
       throw new InvalidTransitionError(
         `Candidate packet status must be 'DONE' to enter candidate review path, got '${candidatePacket.status}'`
+      );
+    }
+
+    // changes_made: must be provided (defined, non-null, Array or string)
+    const changesMade = candidatePacket.changes_made;
+    if (
+      changesMade === undefined ||
+      changesMade === null ||
+      (!Array.isArray(changesMade) && typeof changesMade !== "string")
+    ) {
+      throw new InvalidTransitionError(
+        "Candidate changes_made must be provided as an Array or string"
+      );
+    }
+
+    // verification_evidence: must be provided and CANNOT be empty
+    if (isEvidenceEmpty(candidatePacket.verification_evidence)) {
+      throw new InvalidTransitionError(
+        "Candidate verification_evidence must be provided and cannot be empty"
+      );
+    }
+
+    // unresolved_unknowns: must be provided (defined, non-null, Array or string; [] is allowed)
+    const unknowns = candidatePacket.unresolved_unknowns;
+    if (
+      unknowns === undefined ||
+      unknowns === null ||
+      (!Array.isArray(unknowns) && typeof unknowns !== "string")
+    ) {
+      throw new InvalidTransitionError(
+        "Candidate unresolved_unknowns must be provided as an Array or string"
+      );
+    }
+
+    // scope_deviations: must be provided (defined, non-null, Array or string; [] is allowed)
+    const deviations = candidatePacket.scope_deviations;
+    if (
+      deviations === undefined ||
+      deviations === null ||
+      (!Array.isArray(deviations) && typeof deviations !== "string")
+    ) {
+      throw new InvalidTransitionError(
+        "Candidate scope_deviations must be provided as an Array or string"
       );
     }
 
@@ -469,16 +622,16 @@ export class AuthoritativeLedger {
       status: "DONE",
       changes_made: Array.isArray(candidatePacket.changes_made)
         ? [...candidatePacket.changes_made]
-        : [],
+        : [candidatePacket.changes_made],
       verification_evidence: Array.isArray(candidatePacket.verification_evidence)
         ? [...candidatePacket.verification_evidence]
-        : [],
+        : [candidatePacket.verification_evidence],
       unresolved_unknowns: Array.isArray(candidatePacket.unresolved_unknowns)
         ? [...candidatePacket.unresolved_unknowns]
-        : [],
+        : [candidatePacket.unresolved_unknowns],
       scope_deviations: Array.isArray(candidatePacket.scope_deviations)
         ? [...candidatePacket.scope_deviations]
-        : [],
+        : [candidatePacket.scope_deviations],
       timestamp: new Date().toISOString(),
       payload: Object.freeze({ ...candidatePacket, result_ref: computedRef }),
     });
@@ -614,24 +767,28 @@ export class AuthoritativeLedger {
    * @returns {object} Verification record
    */
   recordZenNoGo(verdictPacket) {
-    if (!verdictPacket || typeof verdictPacket !== "object") {
+    if (!verdictPacket || typeof verdictPacket !== "object" || Array.isArray(verdictPacket)) {
       throw new InvalidTransitionError("Verdict packet must be an object");
     }
-
-    const milestoneId = verdictPacket.milestone_id || verdictPacket.milestoneId;
-    const planVersion = verdictPacket.plan_version || verdictPacket.planVersion;
-    const resultRef = verdictPacket.result_ref || verdictPacket.resultRef;
 
     if (this.current_milestone === null) {
       throw new InvalidTransitionError("No active milestone for Zen verdict");
     }
 
+    const milestoneId = verdictPacket.milestone_id ?? verdictPacket.milestoneId;
+    if (typeof milestoneId !== "string" || !milestoneId.trim()) {
+      throw new InvalidTransitionError("Zen verdict milestone_id must be a non-empty string");
+    }
     if (milestoneId !== this.current_milestone) {
       throw new InvalidTransitionError(
         `Zen verdict milestone_id '${milestoneId}' does not match active milestone '${this.current_milestone}'`
       );
     }
 
+    const planVersion = verdictPacket.plan_version ?? verdictPacket.planVersion;
+    if (planVersion === undefined || planVersion === null || planVersion === "") {
+      throw new InvalidTransitionError("Zen verdict plan_version must be present");
+    }
     if (planVersion !== this.plan_version) {
       throw new StaleVerdictError(
         `Zen verdict plan_version '${planVersion}' does not match current ledger plan_version '${this.plan_version}'`
@@ -645,15 +802,26 @@ export class AuthoritativeLedger {
       );
     }
 
+    const resultRef = verdictPacket.result_ref ?? verdictPacket.resultRef;
+    if (typeof resultRef !== "string" || !resultRef.trim()) {
+      throw new InvalidTransitionError("Zen verdict result_ref must be a non-empty string");
+    }
     if (resultRef !== activeCandidate.result_ref) {
       throw new MismatchedResultRefError(
         `Zen verdict result_ref '${resultRef}' does not match active candidate result_ref '${activeCandidate.result_ref}'`
       );
     }
 
-    const verdict = verdictPacket.verdict || "NO-GO";
-    if (verdict !== "NO-GO") {
-      throw new InvalidTransitionError(`recordZenNoGo called with non-NO-GO verdict '${verdict}'`);
+    if (verdictPacket.verdict !== "NO-GO") {
+      throw new InvalidTransitionError(
+        `recordZenNoGo requires explicit verdict 'NO-GO', got '${verdictPacket.verdict}'`
+      );
+    }
+
+    if (isEvidenceEmpty(verdictPacket.verification_evidence)) {
+      throw new InvalidTransitionError(
+        "Zen verdict verification_evidence must be provided and cannot be empty"
+      );
     }
 
     const verificationRecord = Object.freeze({
@@ -663,9 +831,7 @@ export class AuthoritativeLedger {
       verdict: "NO-GO",
       verification_evidence: Array.isArray(verdictPacket.verification_evidence)
         ? [...verdictPacket.verification_evidence]
-        : verdictPacket.verification_evidence
-        ? [verdictPacket.verification_evidence]
-        : [],
+        : [verdictPacket.verification_evidence],
       repair_needs: verdictPacket.repair_needs || verdictPacket.reason || null,
       is_stale: false,
       timestamp: new Date().toISOString(),
@@ -694,24 +860,28 @@ export class AuthoritativeLedger {
    * @returns {object} Verification record
    */
   recordZenGo(verdictPacket) {
-    if (!verdictPacket || typeof verdictPacket !== "object") {
+    if (!verdictPacket || typeof verdictPacket !== "object" || Array.isArray(verdictPacket)) {
       throw new InvalidTransitionError("Verdict packet must be an object");
     }
-
-    const milestoneId = verdictPacket.milestone_id || verdictPacket.milestoneId;
-    const planVersion = verdictPacket.plan_version || verdictPacket.planVersion;
-    const resultRef = verdictPacket.result_ref || verdictPacket.resultRef;
 
     if (this.current_milestone === null) {
       throw new InvalidTransitionError("No active milestone for Zen verdict");
     }
 
+    const milestoneId = verdictPacket.milestone_id ?? verdictPacket.milestoneId;
+    if (typeof milestoneId !== "string" || !milestoneId.trim()) {
+      throw new InvalidTransitionError("Zen verdict milestone_id must be a non-empty string");
+    }
     if (milestoneId !== this.current_milestone) {
       throw new InvalidTransitionError(
         `Zen verdict milestone_id '${milestoneId}' does not match active milestone '${this.current_milestone}'`
       );
     }
 
+    const planVersion = verdictPacket.plan_version ?? verdictPacket.planVersion;
+    if (planVersion === undefined || planVersion === null || planVersion === "") {
+      throw new InvalidTransitionError("Zen verdict plan_version must be present");
+    }
     if (planVersion !== this.plan_version) {
       throw new StaleVerdictError(
         `Zen verdict plan_version '${planVersion}' does not match current ledger plan_version '${this.plan_version}'`
@@ -725,15 +895,26 @@ export class AuthoritativeLedger {
       );
     }
 
+    const resultRef = verdictPacket.result_ref ?? verdictPacket.resultRef;
+    if (typeof resultRef !== "string" || !resultRef.trim()) {
+      throw new InvalidTransitionError("Zen verdict result_ref must be a non-empty string");
+    }
     if (resultRef !== activeCandidate.result_ref) {
       throw new MismatchedResultRefError(
         `Zen verdict result_ref '${resultRef}' does not match active candidate result_ref '${activeCandidate.result_ref}'`
       );
     }
 
-    const verdict = verdictPacket.verdict || "GO";
-    if (verdict !== "GO") {
-      throw new InvalidTransitionError(`recordZenGo called with non-GO verdict '${verdict}'`);
+    if (verdictPacket.verdict !== "GO") {
+      throw new InvalidTransitionError(
+        `recordZenGo requires explicit verdict 'GO', got '${verdictPacket.verdict}'`
+      );
+    }
+
+    if (isEvidenceEmpty(verdictPacket.verification_evidence)) {
+      throw new InvalidTransitionError(
+        "Zen verdict verification_evidence must be provided and cannot be empty"
+      );
     }
 
     const verificationRecord = Object.freeze({
@@ -743,9 +924,7 @@ export class AuthoritativeLedger {
       verdict: "GO",
       verification_evidence: Array.isArray(verdictPacket.verification_evidence)
         ? [...verdictPacket.verification_evidence]
-        : verdictPacket.verification_evidence
-        ? [verdictPacket.verification_evidence]
-        : [],
+        : [verdictPacket.verification_evidence],
       is_stale: false,
       timestamp: new Date().toISOString(),
       details: Object.freeze({ ...verdictPacket }),
@@ -803,29 +982,53 @@ export class AuthoritativeLedger {
       milestones: newPlanData.milestones,
     });
 
-    // Monotonically increment plan_version
+    // Monotonically increment plan_version fail-closed
     const oldVersion = this.plan_version;
     let nextVersion;
     if (newPlanData.plan_version !== undefined) {
-      if (newPlanData.plan_version === oldVersion) {
+      const explicitVer = newPlanData.plan_version;
+      if (typeof explicitVer !== typeof oldVersion) {
         throw new InvalidTransitionError(
-          `Material replan plan_version must strictly increment current plan_version '${oldVersion}'`
+          `Material replan plan_version type '${typeof explicitVer}' does not match current plan_version type '${typeof oldVersion}'`
         );
       }
-      const oldParsed = parseVersion(oldVersion);
-      const newParsed = parseVersion(newPlanData.plan_version);
-      if (
-        oldParsed &&
-        newParsed &&
-        oldParsed.prefix.toLowerCase() === newParsed.prefix.toLowerCase()
-      ) {
-        if (newParsed.num <= oldParsed.num) {
+
+      if (typeof oldVersion === "number") {
+        if (!Number.isFinite(explicitVer) || !Number.isInteger(explicitVer)) {
           throw new InvalidTransitionError(
-            `Material replan plan_version '${newPlanData.plan_version}' must strictly increment current plan_version '${oldVersion}'`
+            `Material replan plan_version '${explicitVer}' must be an integer`
           );
         }
+        if (explicitVer <= oldVersion) {
+          throw new InvalidTransitionError(
+            `Material replan plan_version '${explicitVer}' must strictly increment current plan_version '${oldVersion}'`
+          );
+        }
+        nextVersion = explicitVer;
+      } else if (typeof oldVersion === "string") {
+        const oldParsed = parseVersion(oldVersion);
+        const newParsed = parseVersion(explicitVer);
+        if (!oldParsed || !newParsed) {
+          throw new InvalidTransitionError(
+            `Material replan plan_version '${explicitVer}' is not a valid or comparable version format`
+          );
+        }
+        if (oldParsed.prefix !== newParsed.prefix) {
+          throw new InvalidTransitionError(
+            `Material replan plan_version '${explicitVer}' prefix '${newParsed.prefix}' does not match current prefix '${oldParsed.prefix}'`
+          );
+        }
+        if (newParsed.num <= oldParsed.num) {
+          throw new InvalidTransitionError(
+            `Material replan plan_version '${explicitVer}' must strictly increment current plan_version '${oldVersion}'`
+          );
+        }
+        nextVersion = explicitVer;
+      } else {
+        throw new InvalidTransitionError(
+          `Current plan_version '${oldVersion}' has unsupported type '${typeof oldVersion}'`
+        );
       }
-      nextVersion = newPlanData.plan_version;
     } else {
       nextVersion = incrementPlanVersion(oldVersion);
     }
@@ -1194,6 +1397,30 @@ export class AuthoritativeLedger {
         throw new InvariantViolationError(
           `Ledger state invalid: candidate result_ref '${candResultRef}' does not match verification result_ref '${ver.result_ref}'`
         );
+      }
+
+      // Recompute and verify candidate result_ref integrity fail-closed
+      verifyCandidateIntegrity(candidate, ver.result_ref);
+    }
+
+    // Also recompute and verify integrity of any active candidate
+    if (data.current_milestone !== null) {
+      const activeCandidates = [];
+      if (data._active_candidates && data._active_candidates[data.current_milestone]) {
+        activeCandidates.push(data._active_candidates[data.current_milestone]);
+      }
+      if (
+        data.evidence &&
+        data.evidence[data.current_milestone] &&
+        data.evidence[data.current_milestone].active_candidate
+      ) {
+        const evActive = data.evidence[data.current_milestone].active_candidate;
+        if (!activeCandidates.includes(evActive)) {
+          activeCandidates.push(evActive);
+        }
+      }
+      for (const activeCand of activeCandidates) {
+        verifyCandidateIntegrity(activeCand);
       }
     }
 
