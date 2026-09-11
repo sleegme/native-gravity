@@ -1,71 +1,414 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-export const ROLE_MODEL_TABLE = Object.freeze({
-  piledriver: "gemini-3.1-pro-high",
-  bulldozer: "gemini-3.8-flash-high",
-  steamroller: "gemini-3.8-flash-high",
+/**
+ * Role policy table mapping agent roles to target model families and reasoning effort requirements.
+ * Used for runtime resolution against the installed AGY surface (`agy models`).
+ */
+export const ROLE_POLICY_TABLE = Object.freeze({
+  piledriver: Object.freeze({
+    role: "piledriver",
+    family: "Gemini 3.1 Pro",
+    effort: "High",
+  }),
+  bulldozer: Object.freeze({
+    role: "bulldozer",
+    family: "Gemini 3.8 Flash",
+    effort: "High",
+  }),
+  steamroller: Object.freeze({
+    role: "steamroller",
+    family: "Gemini 3.8 Flash",
+    effort: "High",
+  }),
 });
 
+/**
+ * @deprecated Hard-coded slug lookup table is removed as the primary lookup.
+ * Model slugs are resolved at runtime against installed AGY surface via ROLE_POLICY_TABLE.
+ */
+export const ROLE_MODEL_TABLE = Object.freeze({});
+
 export class UnresolvedModelSlugError extends Error {
-  constructor(role, message) {
+  constructor(role, message, details = {}) {
     super(message || `Unresolved model slug for role: ${role}`);
     this.name = "UnresolvedModelSlugError";
     this.ok = false;
     this.error = "UNRESOLVED_MODEL_SLUG";
     this.role = role;
+    if (details && typeof details === "object") {
+      Object.assign(this, details);
+    }
+  }
+}
+
+export class InvalidHandoffPacketError extends Error {
+  constructor(message, details = {}) {
+    super(message || "Invalid handoff packet");
+    this.name = "InvalidHandoffPacketError";
+    this.ok = false;
+    this.error = "INVALID_HANDOFF_PACKET";
+    if (details && typeof details === "object") {
+      Object.assign(this, details);
+    }
   }
 }
 
 /**
- * Resolves a role name to its exact AGY model slug.
- * Case-insensitive. Throws structured Error if role cannot be resolved.
- * No silent fallback.
+ * Parses raw stdout from `agy models` into an array of model entries.
  *
- * @param {string} role
- * @returns {string} Model slug
+ * @param {string} stdout
+ * @returns {Array<{ slug: string, description: string }>}
  */
-export function resolveSlug(role) {
-  const normalized = typeof role === "string" ? role.trim().toLowerCase() : "";
-  const slug = ROLE_MODEL_TABLE[normalized];
-  if (!slug) {
-    throw new UnresolvedModelSlugError(role, `Unresolved model slug for role: ${role}`);
+export function parseInstalledModels(stdout) {
+  if (typeof stdout !== "string") {
+    return [];
   }
-  return slug;
-}
-
-function getDefaultAgyPath() {
-  if (existsSync("/home/sleeg/.local/bin/agy")) {
-    return "/home/sleeg/.local/bin/agy";
+  const lines = stdout.split(/\r?\n/);
+  const models = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (/^fetching\b/i.test(trimmed)) continue;
+    // Slugs contain no whitespace. First non-whitespace sequence is the slug; the remainder is the description.
+    const match = trimmed.match(/^(\S+)(?:\s+(.*))?$/);
+    if (match) {
+      models.push({
+        slug: match[1],
+        description: (match[2] || "").trim(),
+      });
+    }
   }
-  return "agy";
+  return models;
 }
 
 /**
- * Invokes an agent role with an exact model and reasoning effort.
+ * Discovers installed models by querying `agy models` at runtime.
  *
- * @param {string} role - Role name (e.g. 'piledriver', 'bulldozer', 'steamroller')
- * @param {string} prompt - Prompt string
- * @param {object} [opts] - Invocation options
- * @param {number} [opts.timeout=90000] - Process timeout in milliseconds
- * @param {string} [opts.outputFormat="json"] - Output format ("json" | "text")
- * @param {string} [opts.agyPath] - Path to agy binary
+ * @param {object} [opts]
+ * @param {string} [opts.agyPath] - Path to agy executable (defaults to AGY_PATH env or "agy")
+ * @param {number} [opts.timeout=15000] - Discovery timeout in ms
  * @param {object} [opts.env] - Additional environment variables
  * @param {string} [opts.cwd] - Working directory
+ * @returns {Array<{ slug: string, description: string }>}
+ */
+export function listInstalledModels(opts = {}) {
+  const agyPath = opts.agyPath || process.env.AGY_PATH || "agy";
+  const timeout = typeof opts.timeout === "number" ? opts.timeout : 15000;
+
+  const result = spawnSync(agyPath, ["models"], {
+    timeout,
+    env: { ...process.env, ...(opts.env || {}) },
+    cwd: opts.cwd || process.cwd(),
+    encoding: "utf-8",
+    maxBuffer: 5 * 1024 * 1024,
+  });
+
+  if (result.error) {
+    throw new Error(`Failed to list installed models: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    throw new Error(
+      `Failed to list installed models (exit code ${result.status}): ${result.stderr || ""}`
+    );
+  }
+
+  return parseInstalledModels(result.stdout || "");
+}
+
+/**
+ * Evaluates whether a candidate model entry satisfies a role policy specification.
+ *
+ * @param {object} policy - Role policy from ROLE_POLICY_TABLE
+ * @param {string|{ slug: string, description?: string }} model
+ * @returns {boolean}
+ */
+export function matchesPolicy(policy, model) {
+  if (!policy || !model) return false;
+
+  const slug = (typeof model === "string" ? model : model.slug || "").trim().toLowerCase();
+  const desc = (typeof model === "object" && model && model.description ? model.description : "").trim().toLowerCase();
+
+  const familySlug = policy.family.toLowerCase().replace(/[^a-z0-9.]+/g, "-");
+  const familyText = policy.family.toLowerCase();
+  const effort = policy.effort.toLowerCase();
+
+  const familyMatch = slug.includes(familySlug) || (desc.length > 0 && desc.includes(familyText));
+  if (!familyMatch) return false;
+
+  const effortMatch =
+    slug.endsWith(`-${effort}`) ||
+    slug.includes(`-${effort}-`) ||
+    (desc.length > 0 &&
+      (desc.includes(`(${effort})`) || desc.includes(` ${effort} `) || desc.endsWith(` ${effort}`)));
+
+  return effortMatch;
+}
+
+/**
+ * Resolves a role name to its exact AGY model slug against the installed AGY surface.
+ * Case-insensitive. Throws structured UnresolvedModelSlugError if 0 matches, ambiguous matches,
+ * or unknown role. No silent fallback.
+ *
+ * @param {string} role - Role name (e.g. 'piledriver', 'bulldozer', 'steamroller')
+ * @param {object} [opts] - Resolution options
+ * @param {Array<string|object>} [opts.installedModels] - Optional pre-fetched/cached model surface for deterministic testing
+ * @param {string} [opts.agyPath] - Path to agy executable
+ * @returns {string} Exact model slug
+ */
+export function resolveSlug(role, opts = {}) {
+  const normalized = typeof role === "string" ? role.trim().toLowerCase() : "";
+  const policy = ROLE_POLICY_TABLE[normalized];
+  if (!policy) {
+    throw new UnresolvedModelSlugError(
+      role,
+      `Unknown role: "${role}". No role policy defined.`
+    );
+  }
+
+  let installed = opts.installedModels;
+  if (!installed) {
+    try {
+      installed = listInstalledModels(opts);
+    } catch (err) {
+      throw new UnresolvedModelSlugError(
+        role,
+        `Failed to discover installed models for role "${role}": ${err.message}`,
+        { cause: err }
+      );
+    }
+  }
+
+  if (!Array.isArray(installed)) {
+    installed = [installed];
+  }
+
+  const matches = installed.filter((m) => matchesPolicy(policy, m));
+  if (matches.length === 0) {
+    throw new UnresolvedModelSlugError(
+      role,
+      `No installed model found matching policy for role "${role}" (family: "${policy.family}", effort: "${policy.effort}").`,
+      { reason: "NOT_FOUND" }
+    );
+  }
+
+  if (matches.length > 1) {
+    const candidateSlugs = matches.map((m) => (typeof m === "string" ? m : m.slug));
+    throw new UnresolvedModelSlugError(
+      role,
+      `Ambiguous model slug resolution for role "${role}": multiple matching models found: ${candidateSlugs.join(", ")}`,
+      { reason: "AMBIGUOUS", matches: candidateSlugs }
+    );
+  }
+
+  const resolved = matches[0];
+  return typeof resolved === "string" ? resolved : resolved.slug;
+}
+
+/**
+ * Composes a deterministic bounded prompt from a structured handoff packet.
+ * Enforces packet contract and strictly forbids raw conversational state.
+ *
+ * @param {string} role - Role name
+ * @param {object} packet - Structured handoff packet
+ * @returns {string} Deterministically formatted bounded prompt
+ */
+export function composeBoundedPrompt(role, packet) {
+  if (!packet || typeof packet !== "object" || Array.isArray(packet)) {
+    throw new InvalidHandoffPacketError("Handoff packet must be a non-null object");
+  }
+
+  const FORBIDDEN_KEYS = ["messages", "conversation", "history", "transcript"];
+  for (const forbidden of FORBIDDEN_KEYS) {
+    if (forbidden in packet && packet[forbidden] !== undefined) {
+      throw new InvalidHandoffPacketError(
+        `Forbidden conversational state field in handoff packet: "${forbidden}". Raw conversational state is prohibited.`
+      );
+    }
+  }
+
+  const roleName = typeof role === "string" ? role.trim() : String(role || "");
+  const task =
+    typeof packet.task === "string"
+      ? packet.task.trim()
+      : typeof packet.objective === "string"
+      ? packet.objective.trim()
+      : "";
+  if (!task) {
+    throw new InvalidHandoffPacketError(
+      "Handoff packet requires a non-empty 'task' or 'objective' string"
+    );
+  }
+
+  const sections = [];
+
+  if (roleName) {
+    sections.push(`## Role\n${roleName}`);
+  }
+
+  sections.push(`## Task\n${task}`);
+
+  const contextFiles = packet.contextFiles ?? packet.context_files;
+  if (contextFiles) {
+    if (Array.isArray(contextFiles) && contextFiles.length > 0) {
+      sections.push(`## Context Files\n${contextFiles.map((f) => `- ${f}`).join("\n")}`);
+    } else if (typeof contextFiles === "string" && contextFiles.trim()) {
+      sections.push(`## Context Files\n${contextFiles.trim()}`);
+    }
+  }
+
+  const evidence = packet.evidence;
+  if (evidence) {
+    if (Array.isArray(evidence) && evidence.length > 0) {
+      sections.push(`## Evidence\n${evidence.map((e) => `- ${e}`).join("\n")}`);
+    } else if (typeof evidence === "string" && evidence.trim()) {
+      sections.push(`## Evidence\n${evidence.trim()}`);
+    } else if (typeof evidence === "object" && Object.keys(evidence).length > 0) {
+      sections.push(`## Evidence\n${JSON.stringify(evidence, null, 2)}`);
+    }
+  }
+
+  const constraints = packet.constraints;
+  if (constraints) {
+    if (Array.isArray(constraints) && constraints.length > 0) {
+      sections.push(`## Constraints\n${constraints.map((c) => `- ${c}`).join("\n")}`);
+    } else if (typeof constraints === "string" && constraints.trim()) {
+      sections.push(`## Constraints\n${constraints.trim()}`);
+    }
+  }
+
+  const expectedOutput = packet.expectedOutput ?? packet.expected_output;
+  if (expectedOutput) {
+    if (Array.isArray(expectedOutput) && expectedOutput.length > 0) {
+      sections.push(`## Expected Output\n${expectedOutput.map((o) => `- ${o}`).join("\n")}`);
+    } else if (typeof expectedOutput === "string" && expectedOutput.trim()) {
+      sections.push(`## Expected Output\n${expectedOutput.trim()}`);
+    }
+  }
+
+  return sections.join("\n\n");
+}
+
+/**
+ * Validates and parses the JSON response envelope from an AGY execution.
+ * Only SUCCESS with valid string response succeeds. Any other status, unparseable JSON,
+ * or malformed envelope returns structured INVALID_OUTPUT or MODEL_ERROR failure.
+ *
+ * @param {string} stdout - Raw stdout from agy
+ * @param {object} [meta] - Context metadata (role, slug)
  * @returns {object} Structured result
  */
-export function invoke(role, prompt, opts = {}) {
+export function parseResponseEnvelope(stdout, meta = {}) {
+  const role = meta.role;
+  const slug = meta.slug;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout.trim());
+  } catch (parseErr) {
+    return {
+      ok: false,
+      error: "INVALID_OUTPUT",
+      ...(role ? { role } : {}),
+      ...(slug ? { slug } : {}),
+      message: `Failed to parse JSON response: ${parseErr.message}`,
+      raw: stdout,
+    };
+  }
+
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {
+      ok: false,
+      error: "INVALID_OUTPUT",
+      ...(role ? { role } : {}),
+      ...(slug ? { slug } : {}),
+      message: "JSON response is not a valid object envelope",
+      raw: parsed,
+    };
+  }
+
+  if (parsed.status === "ERROR") {
+    return {
+      ok: false,
+      error: "MODEL_ERROR",
+      ...(role ? { role } : {}),
+      ...(slug ? { slug } : {}),
+      details: parsed,
+    };
+  }
+
+  if (parsed.status === "SUCCESS") {
+    if (typeof parsed.response !== "string") {
+      return {
+        ok: false,
+        error: "INVALID_OUTPUT",
+        ...(role ? { role } : {}),
+        ...(slug ? { slug } : {}),
+        message: "Missing or invalid 'response' field in SUCCESS envelope",
+        details: parsed,
+      };
+    }
+
+    return {
+      ok: true,
+      ...(role ? { role } : {}),
+      ...(slug ? { slug } : {}),
+      response: parsed.response,
+      duration: parsed.duration_seconds,
+      usage: parsed.usage,
+      raw: parsed,
+    };
+  }
+
+  return {
+    ok: false,
+    error: "INVALID_OUTPUT",
+    ...(role ? { role } : {}),
+    ...(slug ? { slug } : {}),
+    message: `Unexpected response status: "${parsed.status}"`,
+    details: parsed,
+  };
+}
+
+/**
+ * Low-level transport helper that executes the `agy` process directly with raw prompt,
+ * handling timeout, recursion protection, and envelope parsing.
+ *
+ * Supports both signatures:
+ * - invokeTransport({ slug, prompt, ...opts })
+ * - invokeTransport(slug, prompt, opts)
+ *
+ * @param {string|object} slugOrOpts
+ * @param {string} [maybePrompt]
+ * @param {object} [maybeOpts]
+ * @returns {object} Structured result
+ */
+export function invokeTransport(slugOrOpts, maybePrompt, maybeOpts) {
+  let slug;
+  let prompt;
+  let opts;
+
+  if (typeof slugOrOpts === "object" && slugOrOpts !== null) {
+    opts = slugOrOpts;
+    slug = opts.slug;
+    prompt = opts.prompt;
+  } else {
+    slug = slugOrOpts;
+    prompt = maybePrompt;
+    opts = maybeOpts || {};
+  }
+
+  const role = opts.role;
   const timeout = typeof opts.timeout === "number" ? opts.timeout : 90000;
   const outputFormat = opts.outputFormat || "json";
-  const agyPath = opts.agyPath || process.env.AGY_PATH || getDefaultAgyPath();
+  const agyPath = opts.agyPath || process.env.AGY_PATH || "agy";
 
   // Recursion protection
-  const normalizedRole = typeof role === "string" ? role.trim().toLowerCase() : String(role);
   const chainRaw = process.env.NTG_RUNNER_CHAIN;
-  if (chainRaw) {
+  if (role && chainRaw) {
+    const normalizedRole = typeof role === "string" ? role.trim().toLowerCase() : String(role);
     const parts = chainRaw.split(":").map((s) => s.trim().toLowerCase()).filter(Boolean);
     if (parts.includes(normalizedRole)) {
       return {
@@ -77,24 +420,11 @@ export function invoke(role, prompt, opts = {}) {
     }
   }
 
-  // Slug resolution
-  let slug;
-  try {
-    slug = resolveSlug(role);
-  } catch (err) {
-    return {
-      ok: false,
-      error: err.error || "UNRESOLVED_MODEL_SLUG",
-      role,
-      message: err.message,
-    };
-  }
-
-  const nextChain = chainRaw ? `${chainRaw}:${role}` : role;
+  const nextChain = role ? (chainRaw ? `${chainRaw}:${role}` : role) : chainRaw;
   const childEnv = {
     ...process.env,
     ...(opts.env || {}),
-    NTG_RUNNER_CHAIN: nextChain,
+    ...(nextChain ? { NTG_RUNNER_CHAIN: nextChain } : {}),
   };
 
   const args = [
@@ -119,7 +449,7 @@ export function invoke(role, prompt, opts = {}) {
     return {
       ok: false,
       error: "SPAWN_ERROR",
-      role,
+      ...(role ? { role } : {}),
       slug,
       message: err.message,
     };
@@ -130,15 +460,15 @@ export function invoke(role, prompt, opts = {}) {
       return {
         ok: false,
         error: "TIMEOUT",
-        role,
+        ...(role ? { role } : {}),
         slug,
-        timeout: opts.timeout ?? timeout,
+        timeout,
       };
     }
     return {
       ok: false,
       error: "SPAWN_ERROR",
-      role,
+      ...(role ? { role } : {}),
       slug,
       message: result.error.message,
     };
@@ -148,7 +478,7 @@ export function invoke(role, prompt, opts = {}) {
     return {
       ok: false,
       error: "EXECUTION_FAILED",
-      role,
+      ...(role ? { role } : {}),
       slug,
       exitCode: result.status,
       stderr: (result.stderr || "").toString(),
@@ -158,57 +488,76 @@ export function invoke(role, prompt, opts = {}) {
   const stdout = (result.stdout || "").toString();
 
   if (outputFormat === "json") {
-    let parsed;
-    try {
-      parsed = JSON.parse(stdout.trim());
-    } catch (parseErr) {
-      return {
-        ok: false,
-        error: "EXECUTION_FAILED",
-        role,
-        slug,
-        exitCode: result.status,
-        stderr: `Failed to parse JSON response: ${parseErr.message}\nRaw stdout: ${stdout}`,
-      };
-    }
-
-    if (parsed.status === "ERROR") {
-      return {
-        ok: false,
-        error: "MODEL_ERROR",
-        role,
-        slug,
-        details: parsed,
-      };
-    }
-
-    if (parsed.status === "SUCCESS") {
-      return {
-        ok: true,
-        role,
-        slug,
-        response: parsed.response,
-        duration: parsed.duration_seconds,
-        usage: parsed.usage,
-        raw: parsed,
-      };
-    }
-
-    return {
-      ok: true,
-      role,
-      slug,
-      response: parsed.response ?? stdout,
-      raw: parsed,
-    };
+    return parseResponseEnvelope(stdout, { role, slug });
   }
 
   return {
     ok: true,
-    role,
+    ...(role ? { role } : {}),
     slug,
     response: stdout,
   };
+}
+
+/**
+ * Contract-level runner that validates and resolves slug via role policy,
+ * validates the handoff packet, composes a deterministic bounded prompt,
+ * and executes via invokeTransport.
+ *
+ * @param {string} role - Target role (e.g. 'piledriver', 'bulldozer', 'steamroller')
+ * @param {object} packet - Structured handoff packet ({ task, ... })
+ * @param {object} [opts] - Invocation options
+ * @returns {object} Structured result
+ */
+export function invoke(role, packet, opts = {}) {
+  // Recursion protection early check
+  const normalizedRole = typeof role === "string" ? role.trim().toLowerCase() : String(role);
+  const chainRaw = process.env.NTG_RUNNER_CHAIN;
+  if (chainRaw) {
+    const parts = chainRaw.split(":").map((s) => s.trim().toLowerCase()).filter(Boolean);
+    if (parts.includes(normalizedRole)) {
+      return {
+        ok: false,
+        error: "RECURSION_DETECTED",
+        role,
+        chain: chainRaw,
+      };
+    }
+  }
+
+  // Slug resolution
+  let slug;
+  try {
+    slug = resolveSlug(role, opts);
+  } catch (err) {
+    return {
+      ok: false,
+      error: err.error || "UNRESOLVED_MODEL_SLUG",
+      role,
+      message: err.message,
+      ...(err.matches ? { matches: err.matches } : {}),
+    };
+  }
+
+  // Packet validation & bounded prompt composition
+  let prompt;
+  try {
+    prompt = composeBoundedPrompt(role, packet);
+  } catch (err) {
+    return {
+      ok: false,
+      error: err.error || "INVALID_HANDOFF_PACKET",
+      role,
+      message: err.message,
+    };
+  }
+
+  return invokeTransport({
+    ...opts,
+    slug,
+    prompt,
+    role,
+  });
 }
 
 // CLI execution support
@@ -220,7 +569,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   }
 
   const prompt = promptParts.join(" ");
-  const res = invoke(role, prompt);
+  const res = invoke(role, { task: prompt });
   if (res.ok) {
     if (typeof res.response === "string") {
       process.stdout.write(res.response);
