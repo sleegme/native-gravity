@@ -49,7 +49,7 @@ agy --model <slug> --output-format json --print <prompt>
 `invokeTransport` accepts either `{ slug, prompt, ...opts }` or `(slug, prompt, opts)` and handles:
 - Child process spawning and execution timeout (`timeout` option, default 90s).
 - Recursion check and propagation (`NTG_RUNNER_CHAIN`).
-- Strict JSON response envelope validation.
+- Strict JSON response envelope validation by default (`outputFormat: "json"`), while maintaining raw text format support (`outputFormat: "text"`) when text mode is explicitly required.
 
 ### 3.2 Response Envelope Validation (`parseResponseEnvelope`)
 
@@ -83,11 +83,12 @@ The runner strictly enforces response envelope integrity:
   Returns `{ ok: false, error: "INVALID_OUTPUT", role, slug, message, details: parsed }`. Must NEVER succeed.
 
 ### 3.3 Contract-Level Runner (`invoke`)
-The contract runner `invoke(role, packet, opts)` enforces the agent boundary:
-1. Validates the role and resolves the slug via `resolveSlug(role, opts)`.
-2. Validates the handoff packet and constructs the bounded prompt via `composeBoundedPrompt(role, packet)`.
-3. Executes invocation via `invokeTransport`.
-4. Returns standardized structured result packets.
+The contract runner `invoke(role, packet, opts)` enforces the agent boundary and output format discipline:
+1. Enforces JSON output format: Non-JSON output formats (e.g. `outputFormat: "text"`) are rejected with structured failure `{ ok: false, error: "INVALID_OUTPUT_FORMAT" }`. Envelope validation cannot be bypassed at the contract level; callers requiring raw text format must use `invokeTransport()` directly.
+2. Validates the role and resolves the slug via `resolveSlug(role, opts)`.
+3. Validates the handoff packet and constructs the bounded prompt via `composeBoundedPrompt(role, packet)`.
+4. Executes invocation via `invokeTransport` forcing `outputFormat: "json"`.
+5. Returns standardized structured result packets.
 
 ## 4. Bounded Prompt Construction & Packet Boundary
 
@@ -120,6 +121,7 @@ Exits with code `0` on success and prints the response, or exits with code `1` a
 
 - `UNRESOLVED_MODEL_SLUG`: Role unknown, 0 matching models on installed surface, or ambiguous multiple matches.
 - `INVALID_HANDOFF_PACKET`: Malformed handoff packet or prohibited conversational state (`messages`, `conversation`, `history`, `transcript`).
+- `INVALID_OUTPUT_FORMAT`: Non-JSON output format passed to `invoke()`; envelope validation cannot be bypassed.
 - `INVALID_OUTPUT`: Unparseable JSON, non-object JSON envelope, missing response field, or unexpected status.
 - `RECURSION_DETECTED`: Role re-entered in call chain via `NTG_RUNNER_CHAIN`.
 - `TIMEOUT`: Execution exceeded timeout.
@@ -146,6 +148,7 @@ Exits with code `0` on success and prints the response, or exits with code `1` a
 [PASS] 2.5: Unexpected or unknown status returns INVALID_OUTPUT (never success)
 [PASS] 2.6: status === 'SUCCESS' with valid string response succeeds
 [PASS] 2.7: invokeTransport enforces response envelope validation on process execution
+[PASS] 2.8: Output format discipline: invoke() rejects non-JSON / cannot bypass envelope validation, while invokeTransport retains text support
 [PASS] 3.1: Deterministic prompt construction with minimal packet
 [PASS] 3.2: Deterministic prompt construction with complete structured packet
 [PASS] 3.3: Task alias 'objective' is accepted when 'task' is omitted
@@ -157,7 +160,7 @@ Exits with code `0` on success and prints the response, or exits with code `1` a
 [PASS] 5.1: Live Piledriver bounded invocation (gemini-3.1-pro-high)
 [PASS] 5.2: Live Bulldozer bounded invocation (gemini-3.8-flash-high)
 =========================================================
-Summary: 23 passed, 0 failed (Total: 23)
+Summary: 24 passed, 0 failed (Total: 24)
 ```
 
 ### 7.2 Live Invocation Receipts

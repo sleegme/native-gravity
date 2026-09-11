@@ -510,6 +510,17 @@ export function invokeTransport(slugOrOpts, maybePrompt, maybeOpts) {
  * @returns {object} Structured result
  */
 export function invoke(role, packet, opts = {}) {
+  const options = opts || {};
+  if (options.outputFormat && options.outputFormat !== "json") {
+    return {
+      ok: false,
+      error: "INVALID_OUTPUT_FORMAT",
+      role,
+      message:
+        "invoke() requires JSON output format; envelope validation cannot be bypassed. Use invokeTransport() if text format is needed.",
+    };
+  }
+
   // Recursion protection early check
   const normalizedRole = typeof role === "string" ? role.trim().toLowerCase() : String(role);
   const chainRaw = process.env.NTG_RUNNER_CHAIN;
@@ -528,7 +539,7 @@ export function invoke(role, packet, opts = {}) {
   // Slug resolution
   let slug;
   try {
-    slug = resolveSlug(role, opts);
+    slug = resolveSlug(role, options);
   } catch (err) {
     return {
       ok: false,
@@ -553,10 +564,11 @@ export function invoke(role, packet, opts = {}) {
   }
 
   return invokeTransport({
-    ...opts,
+    ...options,
     slug,
     prompt,
     role,
+    outputFormat: "json",
   });
 }
 

@@ -312,6 +312,64 @@ process.exit(Number(process.env.MOCK_EXIT_CODE || 0));
   }
 });
 
+runTest("2.8: Output format discipline: invoke() rejects non-JSON / cannot bypass envelope validation, while invokeTransport retains text support", () => {
+  // 1. invoke() explicitly rejects outputFormat: "text" with INVALID_OUTPUT_FORMAT
+  const textRes = invoke("piledriver", { task: "Test" }, { outputFormat: "text" });
+  assert.strictEqual(textRes.ok, false);
+  assert.strictEqual(textRes.error, "INVALID_OUTPUT_FORMAT");
+  assert.strictEqual(textRes.role, "piledriver");
+  assert.ok(textRes.message.includes("invoke() requires JSON output format; envelope validation cannot be bypassed"));
+
+  // 2. invoke() also rejects other non-JSON formats
+  const rawRes = invoke("bulldozer", { task: "Test" }, { outputFormat: "raw" });
+  assert.strictEqual(rawRes.ok, false);
+  assert.strictEqual(rawRes.error, "INVALID_OUTPUT_FORMAT");
+
+  // 3. invoke() cannot bypass envelope validation via mock execution returning plain text
+  const mockScript = join(tmpdir(), `mock-agy-format-${Date.now()}-${Math.random().toString(36).slice(2)}.mjs`);
+  writeFileSync(
+    mockScript,
+    `#!/usr/bin/env node
+console.log(process.env.MOCK_STDOUT || "raw unparsed plain text");
+process.exit(0);
+`
+  );
+  chmodSync(mockScript, 0o755);
+
+  try {
+    // When invoke() is used, envelope validation is enforced (outputFormat forced to "json")
+    // If output is plain text, it fails with INVALID_OUTPUT
+    const invokeEnvelopeCheck = invoke(
+      "piledriver",
+      { task: "Test" },
+      {
+        agyPath: mockScript,
+        installedModels: [{ slug: "gemini-3.1-pro-high", description: "Gemini 3.1 Pro (High)" }],
+        env: { MOCK_STDOUT: "plain text output instead of JSON envelope" },
+      }
+    );
+    assert.strictEqual(invokeEnvelopeCheck.ok, false);
+    assert.strictEqual(invokeEnvelopeCheck.error, "INVALID_OUTPUT");
+    assert.ok(invokeEnvelopeCheck.message.includes("Failed to parse JSON response"));
+
+    // 4. In contrast, invokeTransport directly supports outputFormat: "text" when needed
+    const transportTextRes = invokeTransport({
+      slug: "gemini-3.1-pro-high",
+      prompt: "test",
+      outputFormat: "text",
+      agyPath: mockScript,
+      env: { MOCK_STDOUT: "plain text output" },
+    });
+    assert.strictEqual(transportTextRes.ok, true);
+    assert.strictEqual(transportTextRes.slug, "gemini-3.1-pro-high");
+    assert.strictEqual(transportTextRes.response.trim(), "plain text output");
+  } finally {
+    try {
+      unlinkSync(mockScript);
+    } catch {}
+  }
+});
+
 // =============================================================================
 // Section 3: Bounded Prompt Construction & Packet Boundary (Blocker 3)
 // =============================================================================
