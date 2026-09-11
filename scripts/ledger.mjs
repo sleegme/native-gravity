@@ -116,6 +116,25 @@ export function incrementPlanVersion(current) {
 }
 
 /**
+ * Parses a plan version string or number into a prefix and integer number.
+ * Supports formats like 'v1', 'v2', 'v9', 'v10', or numbers 1, 2.
+ *
+ * @param {string|number} v
+ * @returns {{ prefix: string, num: number }|null}
+ */
+export function parseVersion(v) {
+  if (typeof v === "number" && Number.isFinite(v)) {
+    return { prefix: "", num: v };
+  }
+  const str = String(v ?? "").trim();
+  const match = str.match(/^([a-zA-Z]*)(\d+)$/);
+  if (match) {
+    return { prefix: match[1], num: parseInt(match[2], 10) };
+  }
+  return null;
+}
+
+/**
  * Validates a plan specification: structure, milestone list, uniqueness, dependencies, and acyclicity.
  *
  * @param {object} plan
@@ -213,6 +232,7 @@ export class AuthoritativeLedger {
     this.decision_invariants = [];
 
     // Internal tracking structures
+    this._initialized = false;
     this._active_candidates = {};
     this._known_candidates_by_ref = {};
     this._verification_history = [];
@@ -230,6 +250,11 @@ export class AuthoritativeLedger {
    * @returns {AuthoritativeLedger}
    */
   init(initialPlan) {
+    if (this._initialized) {
+      throw new InvalidTransitionError(
+        "Ledger is already initialized. Re-initialization is prohibited; use materialReplan to adopt plan revisions."
+      );
+    }
     validatePlan(initialPlan);
 
     this.goal = String(initialPlan.goal || "").trim();
@@ -279,6 +304,8 @@ export class AuthoritativeLedger {
     this.next_action = firstMilestone
       ? `Ready to delegate initial milestone: ${firstMilestone.id}`
       : "Ready to delegate milestone";
+
+    this._initialized = true;
 
     return this;
   }
@@ -406,6 +433,12 @@ export class AuthoritativeLedger {
       );
     }
 
+    if (candidatePacket.status !== "DONE") {
+      throw new InvalidTransitionError(
+        `Candidate packet status must be 'DONE' to enter candidate review path, got '${candidatePacket.status}'`
+      );
+    }
+
     const computedRef = generateResultRef(candidatePacket);
 
     // If caller explicitly supplied a result_ref, it must match the computed deterministic hash
@@ -433,7 +466,7 @@ export class AuthoritativeLedger {
       result_ref: computedRef,
       candidate_artifact_ref:
         candidatePacket.candidate_artifact_ref || candidatePacket.artifact_ref || null,
-      status: candidatePacket.status || "DONE",
+      status: "DONE",
       changes_made: Array.isArray(candidatePacket.changes_made)
         ? [...candidatePacket.changes_made]
         : [],
@@ -751,6 +784,12 @@ export class AuthoritativeLedger {
    * @returns {AuthoritativeLedger}
    */
   materialReplan(newPlanData) {
+    if (this.current_milestone !== null) {
+      throw new InvalidTransitionError(
+        `Cannot adopt material replan while milestone '${this.current_milestone}' is actively executing or under review`
+      );
+    }
+
     if (!newPlanData || typeof newPlanData !== "object") {
       throw new InvariantViolationError("newPlanData must be a non-null object");
     }
@@ -772,6 +811,19 @@ export class AuthoritativeLedger {
         throw new InvalidTransitionError(
           `Material replan plan_version must strictly increment current plan_version '${oldVersion}'`
         );
+      }
+      const oldParsed = parseVersion(oldVersion);
+      const newParsed = parseVersion(newPlanData.plan_version);
+      if (
+        oldParsed &&
+        newParsed &&
+        oldParsed.prefix.toLowerCase() === newParsed.prefix.toLowerCase()
+      ) {
+        if (newParsed.num <= oldParsed.num) {
+          throw new InvalidTransitionError(
+            `Material replan plan_version '${newPlanData.plan_version}' must strictly increment current plan_version '${oldVersion}'`
+          );
+        }
       }
       nextVersion = newPlanData.plan_version;
     } else {
@@ -983,6 +1035,7 @@ export class AuthoritativeLedger {
       blockers: this.blockers,
       next_action: this.next_action,
       decision_invariants: this.decision_invariants,
+      _initialized: this._initialized,
       _active_candidates: this._active_candidates,
       _known_candidates_by_ref: this._known_candidates_by_ref,
       _verification_history: this._verification_history,
@@ -1092,9 +1145,60 @@ export class AuthoritativeLedger {
           `Ledger state invalid: completed milestone '${completedId}' has stale verification`
         );
       }
+      if (ver.plan_version !== data.plan_version) {
+        throw new InvariantViolationError(
+          `Ledger state invalid: completed milestone '${completedId}' verification plan_version '${ver.plan_version}' does not match ledger plan_version '${data.plan_version}'`
+        );
+      }
+      if (!ver.result_ref || typeof ver.result_ref !== "string" || !ver.result_ref.trim()) {
+        throw new InvariantViolationError(
+          `Ledger state invalid: completed milestone '${completedId}' verification lacks valid result_ref`
+        );
+      }
+
+      let candidate = null;
+      if (data.evidence && typeof data.evidence === "object") {
+        if (data.evidence[ver.result_ref]) {
+          candidate = data.evidence[ver.result_ref];
+        } else if (
+          data.evidence[completedId] &&
+          Array.isArray(data.evidence[completedId].candidates)
+        ) {
+          candidate = data.evidence[completedId].candidates.find(
+            (c) => c && (c.result_ref === ver.result_ref || c.resultRef === ver.result_ref)
+          );
+        }
+      }
+
+      if (!candidate) {
+        throw new InvariantViolationError(
+          `Ledger state invalid: completed milestone '${completedId}' verification references dangling result_ref '${ver.result_ref}' not found in evidence`
+        );
+      }
+
+      const candMilestoneId = candidate.milestone_id || candidate.milestoneId;
+      const candPlanVersion = candidate.plan_version || candidate.planVersion;
+      const candResultRef = candidate.result_ref || candidate.resultRef;
+
+      if (candMilestoneId !== completedId) {
+        throw new InvariantViolationError(
+          `Ledger state invalid: candidate milestone_id '${candMilestoneId}' does not match completed milestone '${completedId}'`
+        );
+      }
+      if (candPlanVersion !== data.plan_version) {
+        throw new InvariantViolationError(
+          `Ledger state invalid: candidate plan_version '${candPlanVersion}' does not match ledger plan_version '${data.plan_version}'`
+        );
+      }
+      if (candResultRef !== ver.result_ref) {
+        throw new InvariantViolationError(
+          `Ledger state invalid: candidate result_ref '${candResultRef}' does not match verification result_ref '${ver.result_ref}'`
+        );
+      }
     }
 
     const ledger = new AuthoritativeLedger();
+    ledger._initialized = true;
     ledger.goal = data.goal;
     ledger.constraints = [...data.constraints];
     ledger.plan_version = data.plan_version;
