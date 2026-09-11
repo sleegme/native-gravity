@@ -14,6 +14,8 @@ import {
   generateResultRef,
   incrementPlanVersion,
   parseVersion,
+  validateCandidateSemantics,
+  validateZenGoSemantics,
 } from "../scripts/ledger.mjs";
 
 console.log("=== Native Gravity 44C Authoritative Project Ledger Tests ===");
@@ -1729,6 +1731,371 @@ runTest("8.7: Persistence save -> load roundtrip across all artifact_ref alias f
     savedContent.evidence[refA].candidate_artifact_ref = "scripts/tampered_artifact.mjs";
     writeFileSync(tmpFile, JSON.stringify(savedContent, null, 2), "utf-8");
     assert.throws(() => AuthoritativeLedger.load(tmpFile), InvariantViolationError);
+  } finally {
+    try { if (existsSync(tmpFile)) unlinkSync(tmpFile); } catch {}
+  }
+});
+
+runTest("8.8: fromJSON() and load() reject persisted candidate with non-DONE status (e.g. BLOCKED) even when record, payload, and recomputed result_ref all match", () => {
+  function makeConsistentBlockedState(status = "BLOCKED") {
+    const candidatePacket = {
+      milestone_id: "M1",
+      plan_version: "v1",
+      status,
+      candidate_artifact_ref: "scripts/runner.mjs",
+      changes_made: ["Blocked task changes"],
+      verification_evidence: ["Blocked reason documented"],
+      unresolved_unknowns: [],
+      scope_deviations: [],
+    };
+    const ref = generateResultRef(candidatePacket);
+    const candRecord = {
+      ...candidatePacket,
+      result_ref: ref,
+      timestamp: new Date().toISOString(),
+      payload: { ...candidatePacket, result_ref: ref },
+    };
+    const verRecord = {
+      milestone_id: "M1",
+      plan_version: "v1",
+      result_ref: ref,
+      verdict: "GO",
+      verification_evidence: ["Tests passed"],
+      is_stale: false,
+      timestamp: new Date().toISOString(),
+      details: { verdict: "GO" },
+    };
+    return {
+      goal: "Test Project",
+      constraints: [],
+      plan_version: "v1",
+      milestones: [{ id: "M1", title: "M1", acceptance_criteria: ["Done"], dependencies: [] }],
+      current_milestone: null,
+      completed_milestones: ["M1"],
+      evidence: {
+        M1: { active_candidate: candRecord, candidates: [candRecord] },
+        [ref]: candRecord,
+      },
+      verification: { M1: verRecord },
+      blockers: [],
+      decision_invariants: [],
+      next_action: "Ready",
+    };
+  }
+
+  // Completed milestone candidate with status="BLOCKED" (matching record, payload, and hash)
+  const blockedState = makeConsistentBlockedState("BLOCKED");
+  assert.throws(() => AuthoritativeLedger.fromJSON(blockedState), InvariantViolationError);
+
+  const tmpFile = join(tmpdir(), `test-blocked-${Date.now()}.json`);
+  try {
+    writeFileSync(tmpFile, JSON.stringify(blockedState), "utf-8");
+    assert.throws(() => AuthoritativeLedger.load(tmpFile), InvariantViolationError);
+  } finally {
+    try { if (existsSync(tmpFile)) unlinkSync(tmpFile); } catch {}
+  }
+
+  // Active candidate with status="BLOCKED" (matching record, payload, and hash)
+  const activeBlocked = makeConsistentBlockedState("BLOCKED");
+  const ref = activeBlocked.verification.M1.result_ref;
+  activeBlocked.completed_milestones = [];
+  activeBlocked.verification = {};
+  activeBlocked.current_milestone = "M1";
+  activeBlocked._active_candidates = { M1: activeBlocked.evidence[ref] };
+
+  assert.throws(() => AuthoritativeLedger.fromJSON(activeBlocked), InvariantViolationError);
+
+  // Status="IN_PROGRESS" and status="FAILED" also rejected
+  assert.throws(() => AuthoritativeLedger.fromJSON(makeConsistentBlockedState("IN_PROGRESS")), InvariantViolationError);
+  assert.throws(() => AuthoritativeLedger.fromJSON(makeConsistentBlockedState("FAILED")), InvariantViolationError);
+});
+
+runTest("8.9: fromJSON() and load() reject persisted candidate with empty verification_evidence even when record, payload, and recomputed result_ref all match", () => {
+  function makeConsistentEvidenceState(evidenceValue) {
+    const candidatePacket = {
+      milestone_id: "M1",
+      plan_version: "v1",
+      status: "DONE",
+      candidate_artifact_ref: "scripts/runner.mjs",
+      changes_made: ["Changes done"],
+      verification_evidence: evidenceValue,
+      unresolved_unknowns: [],
+      scope_deviations: [],
+    };
+    const ref = generateResultRef(candidatePacket);
+    const candRecord = {
+      ...candidatePacket,
+      result_ref: ref,
+      timestamp: new Date().toISOString(),
+      payload: { ...candidatePacket, result_ref: ref },
+    };
+    const verRecord = {
+      milestone_id: "M1",
+      plan_version: "v1",
+      result_ref: ref,
+      verdict: "GO",
+      verification_evidence: ["Tests passed"],
+      is_stale: false,
+      timestamp: new Date().toISOString(),
+      details: { verdict: "GO" },
+    };
+    return {
+      goal: "Test Project",
+      constraints: [],
+      plan_version: "v1",
+      milestones: [{ id: "M1", title: "M1", acceptance_criteria: ["Done"], dependencies: [] }],
+      current_milestone: null,
+      completed_milestones: ["M1"],
+      evidence: {
+        M1: { active_candidate: candRecord, candidates: [candRecord] },
+        [ref]: candRecord,
+      },
+      verification: { M1: verRecord },
+      blockers: [],
+      decision_invariants: [],
+      next_action: "Ready",
+    };
+  }
+
+  // 1. Empty array []
+  const emptyArrState = makeConsistentEvidenceState([]);
+  assert.throws(() => AuthoritativeLedger.fromJSON(emptyArrState), InvariantViolationError);
+
+  const tmpFile = join(tmpdir(), `test-empty-ev-${Date.now()}.json`);
+  try {
+    writeFileSync(tmpFile, JSON.stringify(emptyArrState), "utf-8");
+    assert.throws(() => AuthoritativeLedger.load(tmpFile), InvariantViolationError);
+  } finally {
+    try { if (existsSync(tmpFile)) unlinkSync(tmpFile); } catch {}
+  }
+
+  // 2. Empty string ""
+  assert.throws(() => AuthoritativeLedger.fromJSON(makeConsistentEvidenceState("")), InvariantViolationError);
+
+  // 3. Whitespace string "   "
+  assert.throws(() => AuthoritativeLedger.fromJSON(makeConsistentEvidenceState("   \t\n")), InvariantViolationError);
+
+  // 4. Array of empty strings [""]
+  assert.throws(() => AuthoritativeLedger.fromJSON(makeConsistentEvidenceState([""])), InvariantViolationError);
+
+  // 5. Array of whitespace strings ["  ", "\t"]
+  assert.throws(() => AuthoritativeLedger.fromJSON(makeConsistentEvidenceState(["  ", "\t"])), InvariantViolationError);
+
+  // 6. Array with null [null]
+  assert.throws(() => AuthoritativeLedger.fromJSON(makeConsistentEvidenceState([null])), InvariantViolationError);
+});
+
+runTest("8.10: fromJSON() and load() reject persisted candidate with missing required field (changes_made, unresolved_unknowns, scope_deviations) even when recomputed hash matches", () => {
+  function makePacketWithFields(omitField, invalidValue = undefined) {
+    const candidatePacket = {
+      milestone_id: "M1",
+      plan_version: "v1",
+      status: "DONE",
+      candidate_artifact_ref: "scripts/runner.mjs",
+      changes_made: ["Valid change"],
+      verification_evidence: ["Valid evidence"],
+      unresolved_unknowns: [],
+      scope_deviations: [],
+    };
+    if (invalidValue !== undefined) {
+      candidatePacket[omitField] = invalidValue;
+    } else {
+      delete candidatePacket[omitField];
+    }
+    const ref = generateResultRef(candidatePacket);
+    const candRecord = {
+      ...candidatePacket,
+      result_ref: ref,
+      timestamp: new Date().toISOString(),
+      payload: { ...candidatePacket, result_ref: ref },
+    };
+    const verRecord = {
+      milestone_id: "M1",
+      plan_version: "v1",
+      result_ref: ref,
+      verdict: "GO",
+      verification_evidence: ["Tests passed"],
+      is_stale: false,
+      timestamp: new Date().toISOString(),
+      details: { verdict: "GO" },
+    };
+    return {
+      goal: "Test Project",
+      constraints: [],
+      plan_version: "v1",
+      milestones: [{ id: "M1", title: "M1", acceptance_criteria: ["Done"], dependencies: [] }],
+      current_milestone: null,
+      completed_milestones: ["M1"],
+      evidence: {
+        M1: { active_candidate: candRecord, candidates: [candRecord] },
+        [ref]: candRecord,
+      },
+      verification: { M1: verRecord },
+      blockers: [],
+      decision_invariants: [],
+      next_action: "Ready",
+    };
+  }
+
+  const tmpFile = join(tmpdir(), `test-missing-fields-${Date.now()}.json`);
+  try {
+    // 1. Missing changes_made
+    const missingChanges = makePacketWithFields("changes_made");
+    assert.throws(() => AuthoritativeLedger.fromJSON(missingChanges), InvariantViolationError);
+    writeFileSync(tmpFile, JSON.stringify(missingChanges), "utf-8");
+    assert.throws(() => AuthoritativeLedger.load(tmpFile), InvariantViolationError);
+
+    // 2. Invalid type changes_made (number)
+    const invalidChanges = makePacketWithFields("changes_made", 12345);
+    assert.throws(() => AuthoritativeLedger.fromJSON(invalidChanges), InvariantViolationError);
+
+    // 3. Missing unresolved_unknowns
+    const missingUnknowns = makePacketWithFields("unresolved_unknowns");
+    assert.throws(() => AuthoritativeLedger.fromJSON(missingUnknowns), InvariantViolationError);
+    writeFileSync(tmpFile, JSON.stringify(missingUnknowns), "utf-8");
+    assert.throws(() => AuthoritativeLedger.load(tmpFile), InvariantViolationError);
+
+    // 4. Invalid type unresolved_unknowns (boolean)
+    const invalidUnknowns = makePacketWithFields("unresolved_unknowns", true);
+    assert.throws(() => AuthoritativeLedger.fromJSON(invalidUnknowns), InvariantViolationError);
+
+    // 5. Missing scope_deviations
+    const missingDeviations = makePacketWithFields("scope_deviations");
+    assert.throws(() => AuthoritativeLedger.fromJSON(missingDeviations), InvariantViolationError);
+    writeFileSync(tmpFile, JSON.stringify(missingDeviations), "utf-8");
+    assert.throws(() => AuthoritativeLedger.load(tmpFile), InvariantViolationError);
+
+    // 6. Invalid type scope_deviations (object)
+    const invalidDeviations = makePacketWithFields("scope_deviations", { dev: "none" });
+    assert.throws(() => AuthoritativeLedger.fromJSON(invalidDeviations), InvariantViolationError);
+  } finally {
+    try { if (existsSync(tmpFile)) unlinkSync(tmpFile); } catch {}
+  }
+});
+
+runTest("8.11: fromJSON() and load() reject completed milestone with Zen GO verification having empty, missing, or whitespace verification_evidence", () => {
+  function makeCompletedWithZenEv(evidenceValue) {
+    const candidatePacket = {
+      milestone_id: "M1",
+      plan_version: "v1",
+      status: "DONE",
+      candidate_artifact_ref: "scripts/runner.mjs",
+      changes_made: ["Valid change"],
+      verification_evidence: ["Valid evidence"],
+      unresolved_unknowns: [],
+      scope_deviations: [],
+    };
+    const ref = generateResultRef(candidatePacket);
+    const candRecord = {
+      ...candidatePacket,
+      result_ref: ref,
+      timestamp: new Date().toISOString(),
+      payload: { ...candidatePacket, result_ref: ref },
+    };
+    const verRecord = {
+      milestone_id: "M1",
+      plan_version: "v1",
+      result_ref: ref,
+      verdict: "GO",
+      verification_evidence: evidenceValue,
+      is_stale: false,
+      timestamp: new Date().toISOString(),
+      details: { verdict: "GO" },
+    };
+    return {
+      goal: "Test Project",
+      constraints: [],
+      plan_version: "v1",
+      milestones: [{ id: "M1", title: "M1", acceptance_criteria: ["Done"], dependencies: [] }],
+      current_milestone: null,
+      completed_milestones: ["M1"],
+      evidence: {
+        M1: { active_candidate: candRecord, candidates: [candRecord] },
+        [ref]: candRecord,
+      },
+      verification: { M1: verRecord },
+      blockers: [],
+      decision_invariants: [],
+      next_action: "Ready",
+    };
+  }
+
+  const tmpFile = join(tmpdir(), `test-zen-ev-${Date.now()}.json`);
+  try {
+    // 1. Empty array []
+    const emptyArrState = makeCompletedWithZenEv([]);
+    assert.throws(() => AuthoritativeLedger.fromJSON(emptyArrState), InvariantViolationError);
+    writeFileSync(tmpFile, JSON.stringify(emptyArrState), "utf-8");
+    assert.throws(() => AuthoritativeLedger.load(tmpFile), InvariantViolationError);
+
+    // 2. Empty string ""
+    assert.throws(() => AuthoritativeLedger.fromJSON(makeCompletedWithZenEv("")), InvariantViolationError);
+
+    // 3. Whitespace string "   "
+    assert.throws(() => AuthoritativeLedger.fromJSON(makeCompletedWithZenEv("   ")), InvariantViolationError);
+
+    // 4. Missing / undefined
+    assert.throws(() => AuthoritativeLedger.fromJSON(makeCompletedWithZenEv(undefined)), InvariantViolationError);
+
+    // 5. Null
+    assert.throws(() => AuthoritativeLedger.fromJSON(makeCompletedWithZenEv(null)), InvariantViolationError);
+
+    // 6. Array of whitespace / null ["  ", null]
+    assert.throws(() => AuthoritativeLedger.fromJSON(makeCompletedWithZenEv(["  ", null])), InvariantViolationError);
+  } finally {
+    try { if (existsSync(tmpFile)) unlinkSync(tmpFile); } catch {}
+  }
+});
+
+runTest("8.12: Persistence save -> load roundtrip happy path continues to succeed with full candidate and Zen GO semantic verification", () => {
+  const tmpFile = join(tmpdir(), `test-happy-roundtrip-${Date.now()}.json`);
+  try {
+    const plan = samplePlan();
+    const ledger = new AuthoritativeLedger(plan);
+
+    // Complete M1
+    ledger.delegate("M1");
+    const cand1 = ledger.receiveCandidate(sampleCandidate({ milestone_id: "M1" }));
+    ledger.recordZenGo(sampleVerdict({ milestone_id: "M1", result_ref: cand1.result_ref }));
+
+    // Delegate M2 and receive candidate
+    ledger.delegate("M2");
+    const cand2 = ledger.receiveCandidate(
+      sampleCandidate({
+        milestone_id: "M2",
+        candidate_artifact_ref: "scripts/ledger.mjs",
+        changes_made: ["Added semantic validation helpers"],
+        verification_evidence: ["test_ledger.mjs passed"],
+      })
+    );
+
+    // Save and reload
+    ledger.save(tmpFile);
+    assert.ok(existsSync(tmpFile));
+
+    const resumed = AuthoritativeLedger.load(tmpFile);
+    assert.strictEqual(resumed.plan_version, "v1");
+    assert.deepStrictEqual(resumed.completed_milestones, ["M1"]);
+    assert.strictEqual(resumed.current_milestone, "M2");
+    assert.strictEqual(resumed.evidence.M2.active_candidate.result_ref, cand2.result_ref);
+
+    // Complete M2 on resumed instance
+    resumed.recordZenGo(
+      sampleVerdict({
+        milestone_id: "M2",
+        result_ref: cand2.result_ref,
+        verification_evidence: ["Final verification passed"],
+      })
+    );
+
+    assert.deepStrictEqual(resumed.completed_milestones, ["M1", "M2"]);
+    const completion = resumed.declareGlobalCompletion();
+    assert.strictEqual(completion.completed, true);
+
+    // Save again and reload completed ledger
+    resumed.save(tmpFile);
+    const fullyCompleted = AuthoritativeLedger.load(tmpFile);
+    assert.deepStrictEqual(fullyCompleted.completed_milestones, ["M1", "M2"]);
   } finally {
     try { if (existsSync(tmpFile)) unlinkSync(tmpFile); } catch {}
   }

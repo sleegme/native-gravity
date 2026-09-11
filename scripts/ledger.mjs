@@ -177,6 +177,201 @@ export function isEvidenceEmpty(evidence) {
 }
 
 /**
+ * Validates candidate semantic invariants shared between live ingress (receiveCandidate)
+ * and persistence / resume verification (verifyCandidateIntegrity / fromJSON).
+ *
+ * @param {object} packet
+ * @param {object} [opts]
+ * @param {string} [opts.expectedMilestone]
+ * @param {string|number} [opts.expectedPlanVersion]
+ * @param {string} [opts.milestoneLabel="expected"]
+ * @param {string} [opts.planVersionLabel="expected"]
+ * @param {Function} [opts.errorClass=InvariantViolationError]
+ * @returns {boolean}
+ */
+export function validateCandidateSemantics(packet, opts = {}) {
+  const ErrorClass = opts.errorClass || InvariantViolationError;
+
+  if (!packet || typeof packet !== "object" || Array.isArray(packet)) {
+    throw new ErrorClass("Candidate packet must be an object");
+  }
+
+  const milestoneId = packet.milestone_id ?? packet.milestoneId;
+  if (typeof milestoneId !== "string" || !milestoneId.trim()) {
+    throw new ErrorClass("Candidate milestone_id must be a non-empty string");
+  }
+  if (
+    opts.expectedMilestone !== undefined &&
+    opts.expectedMilestone !== null &&
+    milestoneId !== opts.expectedMilestone
+  ) {
+    const label = opts.milestoneLabel || "expected";
+    throw new ErrorClass(
+      `Candidate milestone_id '${milestoneId}' does not match ${label} milestone '${opts.expectedMilestone}'`
+    );
+  }
+
+  const planVersion = packet.plan_version ?? packet.planVersion;
+  if (planVersion === undefined || planVersion === null || planVersion === "") {
+    throw new ErrorClass("Candidate plan_version must be present");
+  }
+  if (
+    opts.expectedPlanVersion !== undefined &&
+    opts.expectedPlanVersion !== null &&
+    planVersion !== opts.expectedPlanVersion
+  ) {
+    const label = opts.planVersionLabel || "expected";
+    throw new ErrorClass(
+      `Candidate plan_version '${planVersion}' does not match ${label} plan_version '${opts.expectedPlanVersion}'`
+    );
+  }
+
+  if (packet.status !== "DONE") {
+    throw new ErrorClass(
+      `Candidate packet status must be 'DONE' to enter candidate review path, got '${packet.status}'`
+    );
+  }
+
+  // changes_made: must be provided (defined, non-null, Array or string)
+  const changesMade = packet.changes_made;
+  if (
+    changesMade === undefined ||
+    changesMade === null ||
+    (!Array.isArray(changesMade) && typeof changesMade !== "string")
+  ) {
+    throw new ErrorClass(
+      "Candidate changes_made must be provided as an Array or string"
+    );
+  }
+
+  // verification_evidence: must be provided and CANNOT be empty
+  if (isEvidenceEmpty(packet.verification_evidence)) {
+    throw new ErrorClass(
+      "Candidate verification_evidence must be provided and cannot be empty"
+    );
+  }
+
+  // unresolved_unknowns: must be provided (defined, non-null, Array or string; [] is allowed)
+  const unknowns = packet.unresolved_unknowns;
+  if (
+    unknowns === undefined ||
+    unknowns === null ||
+    (!Array.isArray(unknowns) && typeof unknowns !== "string")
+  ) {
+    throw new ErrorClass(
+      "Candidate unresolved_unknowns must be provided as an Array or string"
+    );
+  }
+
+  // scope_deviations: must be provided (defined, non-null, Array or string; [] is allowed)
+  const deviations = packet.scope_deviations;
+  if (
+    deviations === undefined ||
+    deviations === null ||
+    (!Array.isArray(deviations) && typeof deviations !== "string")
+  ) {
+    throw new ErrorClass(
+      "Candidate scope_deviations must be provided as an Array or string"
+    );
+  }
+
+  // Check alias conflict fail-closed
+  const hasCandArtifact = packet.candidate_artifact_ref !== undefined;
+  const hasAliasArtifact = packet.artifact_ref !== undefined;
+  if (
+    hasCandArtifact &&
+    hasAliasArtifact &&
+    packet.candidate_artifact_ref !== packet.artifact_ref
+  ) {
+    throw new ErrorClass(
+      `Conflicting candidate artifact references: candidate_artifact_ref '${packet.candidate_artifact_ref}' vs artifact_ref '${packet.artifact_ref}'`
+    );
+  }
+
+  return true;
+}
+
+/**
+ * Validates completed milestone Zen GO verification record semantic invariants.
+ * Shared between live verification (recordZenGo) and persistence / resume (fromJSON).
+ *
+ * @param {object} verRecord
+ * @param {object} [opts]
+ * @param {string} [opts.expectedMilestone]
+ * @param {string|number} [opts.expectedPlanVersion]
+ * @param {string} [opts.expectedResultRef]
+ * @param {Function} [opts.errorClass=InvariantViolationError]
+ * @returns {boolean}
+ */
+export function validateZenGoSemantics(verRecord, opts = {}) {
+  const ErrorClass = opts.errorClass || InvariantViolationError;
+
+  if (!verRecord || typeof verRecord !== "object" || Array.isArray(verRecord)) {
+    throw new ErrorClass("Zen GO verification record must be an object");
+  }
+
+  if (verRecord.verdict !== "GO") {
+    throw new ErrorClass(
+      `Zen GO verification record verdict must be 'GO', got '${verRecord.verdict}'`
+    );
+  }
+
+  if (verRecord.is_stale) {
+    throw new ErrorClass("Zen GO verification record cannot be stale");
+  }
+
+  const milestoneId = verRecord.milestone_id ?? verRecord.milestoneId;
+  if (typeof milestoneId !== "string" || !milestoneId.trim()) {
+    throw new ErrorClass("Zen GO verification milestone_id must be a non-empty string");
+  }
+  if (
+    opts.expectedMilestone !== undefined &&
+    opts.expectedMilestone !== null &&
+    milestoneId !== opts.expectedMilestone
+  ) {
+    throw new ErrorClass(
+      `Zen GO verification milestone_id '${milestoneId}' does not match expected milestone '${opts.expectedMilestone}'`
+    );
+  }
+
+  const planVersion = verRecord.plan_version ?? verRecord.planVersion;
+  if (planVersion === undefined || planVersion === null || planVersion === "") {
+    throw new ErrorClass("Zen GO verification plan_version must be present");
+  }
+  if (
+    opts.expectedPlanVersion !== undefined &&
+    opts.expectedPlanVersion !== null &&
+    planVersion !== opts.expectedPlanVersion
+  ) {
+    throw new ErrorClass(
+      `Zen GO verification plan_version '${planVersion}' does not match expected plan_version '${opts.expectedPlanVersion}'`
+    );
+  }
+
+  const resultRef = verRecord.result_ref ?? verRecord.resultRef;
+  if (!resultRef || typeof resultRef !== "string" || !resultRef.trim()) {
+    throw new ErrorClass("Zen GO verification result_ref must be a non-empty string");
+  }
+  if (
+    opts.expectedResultRef !== undefined &&
+    opts.expectedResultRef !== null &&
+    resultRef !== opts.expectedResultRef
+  ) {
+    throw new ErrorClass(
+      `Zen GO verification result_ref '${resultRef}' does not match expected candidate result_ref '${opts.expectedResultRef}'`
+    );
+  }
+
+  if (isEvidenceEmpty(verRecord.verification_evidence)) {
+    throw new ErrorClass(
+      "Zen GO verification verification_evidence must be provided and cannot be empty"
+    );
+  }
+
+  return true;
+}
+
+/**
  * Recomputes result_ref from candidate payload and artifact binding, verifying integrity.
  * Strictly verifies that candidate record and payload match across status, changes_made,
  * verification_evidence, unresolved_unknowns, scope_deviations, milestone_id, plan_version,
@@ -185,9 +380,10 @@ export function isEvidenceEmpty(evidence) {
  *
  * @param {object} candidate
  * @param {string} [expectedRef]
+ * @param {object} [opts]
  * @returns {string} Recomputed result_ref
  */
-export function verifyCandidateIntegrity(candidate, expectedRef = null) {
+export function verifyCandidateIntegrity(candidate, expectedRef = null, opts = {}) {
   if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
     throw new InvariantViolationError("Candidate record must be an object");
   }
@@ -207,6 +403,20 @@ export function verifyCandidateIntegrity(candidate, expectedRef = null) {
   }
 
   const payload = candidate.payload;
+
+  // Validate candidate record semantics fail-closed
+  validateCandidateSemantics(candidate, {
+    expectedMilestone: opts.expectedMilestone,
+    expectedPlanVersion: opts.expectedPlanVersion,
+    errorClass: InvariantViolationError,
+  });
+
+  // Validate candidate payload semantics fail-closed
+  validateCandidateSemantics(payload, {
+    expectedMilestone: opts.expectedMilestone,
+    expectedPlanVersion: opts.expectedPlanVersion,
+    errorClass: InvariantViolationError,
+  });
 
   // 1. Status strictly match
   if (!candidate.status || typeof candidate.status !== "string") {
@@ -691,87 +901,16 @@ export class AuthoritativeLedger {
       throw new InvalidTransitionError("No active milestone to receive candidate for");
     }
 
-    const milestoneId = candidatePacket.milestone_id ?? candidatePacket.milestoneId;
-    if (typeof milestoneId !== "string" || !milestoneId.trim()) {
-      throw new InvalidTransitionError("Candidate milestone_id must be a non-empty string");
-    }
-    if (milestoneId !== this.current_milestone) {
-      throw new InvalidTransitionError(
-        `Candidate milestone_id '${milestoneId}' does not match active milestone '${this.current_milestone}'`
-      );
-    }
+    validateCandidateSemantics(candidatePacket, {
+      expectedMilestone: this.current_milestone,
+      expectedPlanVersion: this.plan_version,
+      milestoneLabel: "active",
+      planVersionLabel: "current",
+      errorClass: InvalidTransitionError,
+    });
 
-    const planVersion = candidatePacket.plan_version ?? candidatePacket.planVersion;
-    if (planVersion === undefined || planVersion === null || planVersion === "") {
-      throw new InvalidTransitionError("Candidate plan_version must be present");
-    }
-    if (planVersion !== this.plan_version) {
-      throw new InvalidTransitionError(
-        `Candidate plan_version '${planVersion}' does not match current plan_version '${this.plan_version}'`
-      );
-    }
-
-    if (candidatePacket.status !== "DONE") {
-      throw new InvalidTransitionError(
-        `Candidate packet status must be 'DONE' to enter candidate review path, got '${candidatePacket.status}'`
-      );
-    }
-
-    // changes_made: must be provided (defined, non-null, Array or string)
-    const changesMade = candidatePacket.changes_made;
-    if (
-      changesMade === undefined ||
-      changesMade === null ||
-      (!Array.isArray(changesMade) && typeof changesMade !== "string")
-    ) {
-      throw new InvalidTransitionError(
-        "Candidate changes_made must be provided as an Array or string"
-      );
-    }
-
-    // verification_evidence: must be provided and CANNOT be empty
-    if (isEvidenceEmpty(candidatePacket.verification_evidence)) {
-      throw new InvalidTransitionError(
-        "Candidate verification_evidence must be provided and cannot be empty"
-      );
-    }
-
-    // unresolved_unknowns: must be provided (defined, non-null, Array or string; [] is allowed)
-    const unknowns = candidatePacket.unresolved_unknowns;
-    if (
-      unknowns === undefined ||
-      unknowns === null ||
-      (!Array.isArray(unknowns) && typeof unknowns !== "string")
-    ) {
-      throw new InvalidTransitionError(
-        "Candidate unresolved_unknowns must be provided as an Array or string"
-      );
-    }
-
-    // scope_deviations: must be provided (defined, non-null, Array or string; [] is allowed)
-    const deviations = candidatePacket.scope_deviations;
-    if (
-      deviations === undefined ||
-      deviations === null ||
-      (!Array.isArray(deviations) && typeof deviations !== "string")
-    ) {
-      throw new InvalidTransitionError(
-        "Candidate scope_deviations must be provided as an Array or string"
-      );
-    }
-
-    // Check alias conflict fail-closed
     const hasCandArtifact = candidatePacket.candidate_artifact_ref !== undefined;
     const hasAliasArtifact = candidatePacket.artifact_ref !== undefined;
-    if (
-      hasCandArtifact &&
-      hasAliasArtifact &&
-      candidatePacket.candidate_artifact_ref !== candidatePacket.artifact_ref
-    ) {
-      throw new InvalidTransitionError(
-        `Conflicting candidate artifact references: candidate_artifact_ref '${candidatePacket.candidate_artifact_ref}' vs artifact_ref '${candidatePacket.artifact_ref}'`
-      );
-    }
 
     // Deep clone input packet to completely decouple from caller references
     const clonedPacket = deepClone(candidatePacket);
@@ -1533,49 +1672,37 @@ export class AuthoritativeLedger {
         );
       }
       const ver = data.verification[completedId];
-      if (!ver) {
+      if (!ver || typeof ver !== "object" || Array.isArray(ver)) {
         throw new InvariantViolationError(
           `Ledger state invalid: completed milestone '${completedId}' lacks verification entry`
         );
       }
-      if (ver.verdict !== "GO") {
-        throw new InvariantViolationError(
-          `Ledger state invalid: completed milestone '${completedId}' verification verdict is '${ver.verdict}'`
-        );
-      }
-      if (ver.is_stale) {
-        throw new InvariantViolationError(
-          `Ledger state invalid: completed milestone '${completedId}' has stale verification`
-        );
-      }
-      if (ver.plan_version !== data.plan_version) {
-        throw new InvariantViolationError(
-          `Ledger state invalid: completed milestone '${completedId}' verification plan_version '${ver.plan_version}' does not match ledger plan_version '${data.plan_version}'`
-        );
-      }
-      if (!ver.result_ref || typeof ver.result_ref !== "string" || !ver.result_ref.trim()) {
-        throw new InvariantViolationError(
-          `Ledger state invalid: completed milestone '${completedId}' verification lacks valid result_ref`
-        );
-      }
+
+      validateZenGoSemantics(ver, {
+        expectedMilestone: completedId,
+        expectedPlanVersion: data.plan_version,
+        errorClass: InvariantViolationError,
+      });
+
+      const verResultRef = ver.result_ref ?? ver.resultRef;
 
       let candidate = null;
       if (data.evidence && typeof data.evidence === "object") {
-        if (data.evidence[ver.result_ref]) {
-          candidate = data.evidence[ver.result_ref];
+        if (data.evidence[verResultRef]) {
+          candidate = data.evidence[verResultRef];
         } else if (
           data.evidence[completedId] &&
           Array.isArray(data.evidence[completedId].candidates)
         ) {
           candidate = data.evidence[completedId].candidates.find(
-            (c) => c && (c.result_ref === ver.result_ref || c.resultRef === ver.result_ref)
+            (c) => c && (c.result_ref === verResultRef || c.resultRef === verResultRef)
           );
         }
       }
 
       if (!candidate) {
         throw new InvariantViolationError(
-          `Ledger state invalid: completed milestone '${completedId}' verification references dangling result_ref '${ver.result_ref}' not found in evidence`
+          `Ledger state invalid: completed milestone '${completedId}' verification references dangling result_ref '${verResultRef}' not found in evidence`
         );
       }
 
@@ -1593,15 +1720,49 @@ export class AuthoritativeLedger {
           `Ledger state invalid: candidate plan_version '${candPlanVersion}' does not match ledger plan_version '${data.plan_version}'`
         );
       }
-      if (candResultRef !== ver.result_ref) {
+      if (candResultRef !== verResultRef) {
         throw new InvariantViolationError(
-          `Ledger state invalid: candidate result_ref '${candResultRef}' does not match verification result_ref '${ver.result_ref}'`
+          `Ledger state invalid: candidate result_ref '${candResultRef}' does not match verification result_ref '${verResultRef}'`
         );
       }
 
       // Recompute and verify candidate result_ref integrity fail-closed
-      verifyCandidateIntegrity(candidate, ver.result_ref);
+      verifyCandidateIntegrity(candidate, verResultRef, {
+        expectedMilestone: completedId,
+        expectedPlanVersion: data.plan_version,
+      });
       deepFreeze(candidate);
+
+      if (
+        data.evidence &&
+        data.evidence[completedId] &&
+        Array.isArray(data.evidence[completedId].candidates)
+      ) {
+        for (const c of data.evidence[completedId].candidates) {
+          if (c && (c.result_ref === verResultRef || c.resultRef === verResultRef)) {
+            verifyCandidateIntegrity(c, verResultRef, {
+              expectedMilestone: completedId,
+              expectedPlanVersion: data.plan_version,
+            });
+            deepFreeze(c);
+          }
+        }
+      }
+
+      if (
+        data.evidence &&
+        data.evidence[completedId] &&
+        data.evidence[completedId].active_candidate
+      ) {
+        const evActive = data.evidence[completedId].active_candidate;
+        if (evActive && (evActive.result_ref === verResultRef || evActive.resultRef === verResultRef)) {
+          verifyCandidateIntegrity(evActive, verResultRef, {
+            expectedMilestone: completedId,
+            expectedPlanVersion: data.plan_version,
+          });
+          deepFreeze(evActive);
+        }
+      }
     }
 
     // Also recompute and verify integrity of any active candidate
@@ -1621,7 +1782,10 @@ export class AuthoritativeLedger {
         }
       }
       for (const activeCand of activeCandidates) {
-        verifyCandidateIntegrity(activeCand);
+        verifyCandidateIntegrity(activeCand, null, {
+          expectedMilestone: data.current_milestone,
+          expectedPlanVersion: data.plan_version,
+        });
         deepFreeze(activeCand);
       }
     }
