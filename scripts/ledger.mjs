@@ -58,6 +58,40 @@ export class BlockerNotFoundError extends Error {
 }
 
 /**
+ * Recursively freezes an object and its nested properties.
+ *
+ * @param {*} obj
+ * @returns {*}
+ */
+export function deepFreeze(obj) {
+  if (obj === null || typeof obj !== "object") {
+    return obj;
+  }
+  Object.freeze(obj);
+  for (const key of Object.getOwnPropertyNames(obj)) {
+    const val = obj[key];
+    if (val !== null && typeof val === "object" && !Object.isFrozen(val)) {
+      deepFreeze(val);
+    }
+  }
+  return obj;
+}
+
+/**
+ * Creates a deep clone of a plain object or array.
+ * Uses structuredClone if available, falling back to JSON roundtrip.
+ *
+ * @param {*} obj
+ * @returns {*}
+ */
+export function deepClone(obj) {
+  if (typeof structuredClone === "function") {
+    return structuredClone(obj);
+  }
+  return JSON.parse(JSON.stringify(obj));
+}
+
+/**
  * Deterministic JSON stringifier that sorts object keys recursively.
  *
  * @param {*} obj
@@ -76,18 +110,39 @@ export function canonicalJson(obj) {
 
 /**
  * Generates a unique, deterministic result_ref (SHA-256) from candidate payload and artifact ref.
+ * Normalizes candidate_artifact_ref and artifact_ref aliases to candidate_artifact_ref prior to hashing.
+ * Fails closed if both aliases are present with different values.
  *
  * @param {object} candidatePacket
  * @returns {string}
  */
 export function generateResultRef(candidatePacket) {
-  if (!candidatePacket || typeof candidatePacket !== "object") {
+  if (!candidatePacket || typeof candidatePacket !== "object" || Array.isArray(candidatePacket)) {
     throw new InvariantViolationError("Candidate packet must be an object to generate result_ref");
   }
+
+  const hasCand = candidatePacket.candidate_artifact_ref !== undefined;
+  const hasArt = candidatePacket.artifact_ref !== undefined;
+
+  if (hasCand && hasArt && candidatePacket.candidate_artifact_ref !== candidatePacket.artifact_ref) {
+    throw new InvariantViolationError(
+      `Conflicting candidate artifact references: candidate_artifact_ref '${candidatePacket.candidate_artifact_ref}' vs artifact_ref '${candidatePacket.artifact_ref}'`
+    );
+  }
+
   const clone = { ...candidatePacket };
   delete clone.result_ref;
   delete clone.resultRef;
-  const artifactRef = clone.candidate_artifact_ref || clone.artifact_ref || "";
+  delete clone.artifact_ref;
+
+  const effectiveRef = hasCand ? candidatePacket.candidate_artifact_ref : candidatePacket.artifact_ref;
+  if (effectiveRef !== undefined) {
+    clone.candidate_artifact_ref = effectiveRef;
+  } else {
+    delete clone.candidate_artifact_ref;
+  }
+
+  const artifactRef = effectiveRef ?? "";
   const canonical = canonicalJson(clone) + "::" + String(artifactRef);
   const hash = createHash("sha256").update(canonical, "utf-8").digest("hex");
   return `ref-sha256-${hash}`;
@@ -123,6 +178,9 @@ export function isEvidenceEmpty(evidence) {
 
 /**
  * Recomputes result_ref from candidate payload and artifact binding, verifying integrity.
+ * Strictly verifies that candidate record and payload match across status, changes_made,
+ * verification_evidence, unresolved_unknowns, scope_deviations, milestone_id, plan_version,
+ * and artifact binding.
  * Throws InvariantViolationError if tampered or mismatched.
  *
  * @param {object} candidate
@@ -130,7 +188,7 @@ export function isEvidenceEmpty(evidence) {
  * @returns {string} Recomputed result_ref
  */
 export function verifyCandidateIntegrity(candidate, expectedRef = null) {
-  if (!candidate || typeof candidate !== "object") {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
     throw new InvariantViolationError("Candidate record must be an object");
   }
   const storedRef = candidate.result_ref || candidate.resultRef;
@@ -143,47 +201,157 @@ export function verifyCandidateIntegrity(candidate, expectedRef = null) {
     );
   }
 
-  // Determine payload for hash recomputation
-  const payload =
-    candidate.payload && typeof candidate.payload === "object"
-      ? { ...candidate.payload }
-      : { ...candidate };
+  // Validate payload existence
+  if (!candidate.payload || typeof candidate.payload !== "object" || Array.isArray(candidate.payload)) {
+    throw new InvariantViolationError("Candidate record missing valid payload object");
+  }
+
+  const payload = candidate.payload;
+
+  // 1. Status strictly match
+  if (!candidate.status || typeof candidate.status !== "string") {
+    throw new InvariantViolationError("Candidate record status must be a non-empty string");
+  }
+  if (candidate.status !== payload.status) {
+    throw new InvariantViolationError(
+      `Candidate record status '${candidate.status}' does not match payload status '${payload.status}' (tampering detected)`
+    );
+  }
+
+  // 2. Milestone ID strictly match
+  const candMilestone = candidate.milestone_id ?? candidate.milestoneId;
+  const payloadMilestone = payload.milestone_id ?? payload.milestoneId;
+  if (!candMilestone || typeof candMilestone !== "string") {
+    throw new InvariantViolationError("Candidate record missing milestone_id");
+  }
+  if (candMilestone !== payloadMilestone) {
+    throw new InvariantViolationError(
+      `Candidate record milestone_id '${candMilestone}' does not match payload milestone_id '${payloadMilestone}' (tampering detected)`
+    );
+  }
+
+  // 3. Plan version strictly match
+  const candVersion = candidate.plan_version ?? candidate.planVersion;
+  const payloadVersion = payload.plan_version ?? payload.planVersion;
+  if (candVersion === undefined || candVersion === null) {
+    throw new InvariantViolationError("Candidate record missing plan_version");
+  }
+  if (candVersion !== payloadVersion) {
+    throw new InvariantViolationError(
+      `Candidate record plan_version '${candVersion}' does not match payload plan_version '${payloadVersion}' (tampering detected)`
+    );
+  }
+
+  // 4. changes_made strictly match
+  if (candidate.changes_made === undefined || candidate.changes_made === null) {
+    throw new InvariantViolationError("Candidate record missing changes_made");
+  }
+  if (payload.changes_made === undefined || payload.changes_made === null) {
+    throw new InvariantViolationError("Candidate payload missing changes_made");
+  }
+  const normCandChanges = Array.isArray(candidate.changes_made)
+    ? candidate.changes_made
+    : [candidate.changes_made];
+  const normPayloadChanges = Array.isArray(payload.changes_made)
+    ? payload.changes_made
+    : [payload.changes_made];
+  if (canonicalJson(normCandChanges) !== canonicalJson(normPayloadChanges)) {
+    throw new InvariantViolationError(
+      "Candidate record changes_made does not match payload changes_made (tampering detected)"
+    );
+  }
+
+  // 5. verification_evidence strictly match
+  if (candidate.verification_evidence === undefined || candidate.verification_evidence === null) {
+    throw new InvariantViolationError("Candidate record missing verification_evidence");
+  }
+  if (payload.verification_evidence === undefined || payload.verification_evidence === null) {
+    throw new InvariantViolationError("Candidate payload missing verification_evidence");
+  }
+  const normCandEv = Array.isArray(candidate.verification_evidence)
+    ? candidate.verification_evidence
+    : [candidate.verification_evidence];
+  const normPayloadEv = Array.isArray(payload.verification_evidence)
+    ? payload.verification_evidence
+    : [payload.verification_evidence];
+  if (canonicalJson(normCandEv) !== canonicalJson(normPayloadEv)) {
+    throw new InvariantViolationError(
+      "Candidate record verification_evidence does not match payload verification_evidence (tampering detected)"
+    );
+  }
+
+  // 6. unresolved_unknowns strictly match
+  if (candidate.unresolved_unknowns === undefined || candidate.unresolved_unknowns === null) {
+    throw new InvariantViolationError("Candidate record missing unresolved_unknowns");
+  }
+  if (payload.unresolved_unknowns === undefined || payload.unresolved_unknowns === null) {
+    throw new InvariantViolationError("Candidate payload missing unresolved_unknowns");
+  }
+  const normCandUnknowns = Array.isArray(candidate.unresolved_unknowns)
+    ? candidate.unresolved_unknowns
+    : [candidate.unresolved_unknowns];
+  const normPayloadUnknowns = Array.isArray(payload.unresolved_unknowns)
+    ? payload.unresolved_unknowns
+    : [payload.unresolved_unknowns];
+  if (canonicalJson(normCandUnknowns) !== canonicalJson(normPayloadUnknowns)) {
+    throw new InvariantViolationError(
+      "Candidate record unresolved_unknowns does not match payload unresolved_unknowns (tampering detected)"
+    );
+  }
+
+  // 7. scope_deviations strictly match
+  if (candidate.scope_deviations === undefined || candidate.scope_deviations === null) {
+    throw new InvariantViolationError("Candidate record missing scope_deviations");
+  }
+  if (payload.scope_deviations === undefined || payload.scope_deviations === null) {
+    throw new InvariantViolationError("Candidate payload missing scope_deviations");
+  }
+  const normCandDeviations = Array.isArray(candidate.scope_deviations)
+    ? candidate.scope_deviations
+    : [candidate.scope_deviations];
+  const normPayloadDeviations = Array.isArray(payload.scope_deviations)
+    ? payload.scope_deviations
+    : [payload.scope_deviations];
+  if (canonicalJson(normCandDeviations) !== canonicalJson(normPayloadDeviations)) {
+    throw new InvariantViolationError(
+      "Candidate record scope_deviations does not match payload scope_deviations (tampering detected)"
+    );
+  }
+
+  // 8. Artifact binding strictly match and alias conflict check
+  if (
+    candidate.candidate_artifact_ref !== undefined &&
+    candidate.artifact_ref !== undefined &&
+    candidate.candidate_artifact_ref !== candidate.artifact_ref
+  ) {
+    throw new InvariantViolationError(
+      `Candidate record conflicting artifact references: '${candidate.candidate_artifact_ref}' vs '${candidate.artifact_ref}'`
+    );
+  }
+
+  if (
+    payload.candidate_artifact_ref !== undefined &&
+    payload.artifact_ref !== undefined &&
+    payload.candidate_artifact_ref !== payload.artifact_ref
+  ) {
+    throw new InvariantViolationError(
+      `Candidate payload conflicting artifact references: '${payload.candidate_artifact_ref}' vs '${payload.artifact_ref}'`
+    );
+  }
 
   const recordArtifactRef = candidate.candidate_artifact_ref ?? candidate.artifact_ref;
   const payloadArtifactRef = payload.candidate_artifact_ref ?? payload.artifact_ref;
 
-  if (
-    recordArtifactRef !== undefined &&
-    payloadArtifactRef !== undefined &&
-    recordArtifactRef !== payloadArtifactRef
-  ) {
+  const normRecordRef = recordArtifactRef !== undefined ? recordArtifactRef : null;
+  const normPayloadRef = payloadArtifactRef !== undefined ? payloadArtifactRef : null;
+
+  if (normRecordRef !== normPayloadRef) {
     throw new InvariantViolationError(
-      `Candidate artifact binding mismatch: record '${recordArtifactRef}' vs payload '${payloadArtifactRef}'`
+      `Candidate artifact binding mismatch: record '${recordArtifactRef}' vs payload '${payloadArtifactRef}' (tampering detected)`
     );
   }
 
-  const effectiveArtifactRef = recordArtifactRef ?? payloadArtifactRef ?? "";
-  if (effectiveArtifactRef) {
-    payload.candidate_artifact_ref = effectiveArtifactRef;
-  } else {
-    delete payload.candidate_artifact_ref;
-    delete payload.artifact_ref;
-  }
-
-  if (candidate.payload && candidate.changes_made && payload.changes_made) {
-    const normCandChanges = Array.isArray(candidate.changes_made)
-      ? candidate.changes_made
-      : [candidate.changes_made];
-    const normPayloadChanges = Array.isArray(payload.changes_made)
-      ? payload.changes_made
-      : [payload.changes_made];
-    if (canonicalJson(normCandChanges) !== canonicalJson(normPayloadChanges)) {
-      throw new InvariantViolationError(
-        "Candidate record changes_made does not match payload changes_made (tampering detected)"
-      );
-    }
-  }
-
+  // Recompute result_ref using generateResultRef on payload
   const recomputedRef = generateResultRef(payload);
   if (recomputedRef !== storedRef) {
     throw new InvariantViolationError(
@@ -592,7 +760,34 @@ export class AuthoritativeLedger {
       );
     }
 
-    const computedRef = generateResultRef(candidatePacket);
+    // Check alias conflict fail-closed
+    const hasCandArtifact = candidatePacket.candidate_artifact_ref !== undefined;
+    const hasAliasArtifact = candidatePacket.artifact_ref !== undefined;
+    if (
+      hasCandArtifact &&
+      hasAliasArtifact &&
+      candidatePacket.candidate_artifact_ref !== candidatePacket.artifact_ref
+    ) {
+      throw new InvalidTransitionError(
+        `Conflicting candidate artifact references: candidate_artifact_ref '${candidatePacket.candidate_artifact_ref}' vs artifact_ref '${candidatePacket.artifact_ref}'`
+      );
+    }
+
+    // Deep clone input packet to completely decouple from caller references
+    const clonedPacket = deepClone(candidatePacket);
+
+    // Normalize artifact reference on clonedPacket
+    const effectiveArtifactRef = hasCandArtifact
+      ? clonedPacket.candidate_artifact_ref
+      : clonedPacket.artifact_ref;
+    delete clonedPacket.artifact_ref;
+    if (effectiveArtifactRef !== undefined) {
+      clonedPacket.candidate_artifact_ref = effectiveArtifactRef;
+    } else {
+      delete clonedPacket.candidate_artifact_ref;
+    }
+
+    const computedRef = generateResultRef(clonedPacket);
 
     // If caller explicitly supplied a result_ref, it must match the computed deterministic hash
     const suppliedRef = candidatePacket.result_ref || candidatePacket.resultRef;
@@ -602,8 +797,12 @@ export class AuthoritativeLedger {
       );
     }
 
+    // Set canonical result_ref on clonedPacket
+    delete clonedPacket.resultRef;
+    clonedPacket.result_ref = computedRef;
+
     // Check against existing known candidates by ref
-    const canonicalPayload = canonicalJson(candidatePacket);
+    const canonicalPayload = canonicalJson(clonedPacket);
     if (this._known_candidates_by_ref[computedRef]) {
       const existing = this._known_candidates_by_ref[computedRef];
       if (existing.canonicalPayload !== canonicalPayload) {
@@ -613,27 +812,28 @@ export class AuthoritativeLedger {
       }
     }
 
-    const candidateRecord = Object.freeze({
+    const payload = deepFreeze(deepClone(clonedPacket));
+
+    const candidateRecord = deepFreeze({
       milestone_id: this.current_milestone,
       plan_version: this.plan_version,
       result_ref: computedRef,
-      candidate_artifact_ref:
-        candidatePacket.candidate_artifact_ref || candidatePacket.artifact_ref || null,
+      candidate_artifact_ref: effectiveArtifactRef !== undefined ? effectiveArtifactRef : null,
       status: "DONE",
-      changes_made: Array.isArray(candidatePacket.changes_made)
-        ? [...candidatePacket.changes_made]
-        : [candidatePacket.changes_made],
-      verification_evidence: Array.isArray(candidatePacket.verification_evidence)
-        ? [...candidatePacket.verification_evidence]
-        : [candidatePacket.verification_evidence],
-      unresolved_unknowns: Array.isArray(candidatePacket.unresolved_unknowns)
-        ? [...candidatePacket.unresolved_unknowns]
-        : [candidatePacket.unresolved_unknowns],
-      scope_deviations: Array.isArray(candidatePacket.scope_deviations)
-        ? [...candidatePacket.scope_deviations]
-        : [candidatePacket.scope_deviations],
+      changes_made: Array.isArray(clonedPacket.changes_made)
+        ? deepClone(clonedPacket.changes_made)
+        : [clonedPacket.changes_made],
+      verification_evidence: Array.isArray(clonedPacket.verification_evidence)
+        ? deepClone(clonedPacket.verification_evidence)
+        : [clonedPacket.verification_evidence],
+      unresolved_unknowns: Array.isArray(clonedPacket.unresolved_unknowns)
+        ? deepClone(clonedPacket.unresolved_unknowns)
+        : [clonedPacket.unresolved_unknowns],
+      scope_deviations: Array.isArray(clonedPacket.scope_deviations)
+        ? deepClone(clonedPacket.scope_deviations)
+        : [clonedPacket.scope_deviations],
       timestamp: new Date().toISOString(),
-      payload: Object.freeze({ ...candidatePacket, result_ref: computedRef }),
+      payload,
     });
 
     // Record immutable candidate in evidence
@@ -1401,6 +1601,7 @@ export class AuthoritativeLedger {
 
       // Recompute and verify candidate result_ref integrity fail-closed
       verifyCandidateIntegrity(candidate, ver.result_ref);
+      deepFreeze(candidate);
     }
 
     // Also recompute and verify integrity of any active candidate
@@ -1421,6 +1622,7 @@ export class AuthoritativeLedger {
       }
       for (const activeCand of activeCandidates) {
         verifyCandidateIntegrity(activeCand);
+        deepFreeze(activeCand);
       }
     }
 

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
@@ -470,6 +470,112 @@ runTest("3.5: Candidate reception strictly enforces all required fields fail-clo
   assert.ok(res.result_ref.startsWith("ref-sha256-"));
   assert.deepStrictEqual(res.candidate_record.changes_made, ["Single string change"]);
   assert.deepStrictEqual(res.candidate_record.verification_evidence, ["Single string evidence"]);
+});
+
+runTest("3.6: Candidate artifact reference normalization, alias consistency, and deterministic hash parity", () => {
+  const ledger = new AuthoritativeLedger(samplePlan());
+  ledger.delegate("M1");
+
+  const base = {
+    milestone_id: "M1",
+    plan_version: "v1",
+    status: "DONE",
+    changes_made: ["Refactored artifact handling"],
+    verification_evidence: ["Tests passed 100%"],
+    unresolved_unknowns: [],
+    scope_deviations: [],
+  };
+
+  // 1. candidate_artifact_ref only
+  const candOnly = { ...base, candidate_artifact_ref: "scripts/runner.mjs" };
+  const refFromCandOnly = generateResultRef(candOnly);
+
+  // 2. artifact_ref only
+  const aliasOnly = { ...base, artifact_ref: "scripts/runner.mjs" };
+  const refFromAliasOnly = generateResultRef(aliasOnly);
+
+  // 3. Both aliases present with identical value
+  const bothIdentical = {
+    ...base,
+    candidate_artifact_ref: "scripts/runner.mjs",
+    artifact_ref: "scripts/runner.mjs",
+  };
+  const refFromBoth = generateResultRef(bothIdentical);
+
+  // Deterministic hash must be 100% identical across all three inputs
+  assert.strictEqual(refFromCandOnly, refFromAliasOnly);
+  assert.strictEqual(refFromBoth, refFromCandOnly);
+
+  // 4. Both aliases present with differing values -> fail-closed
+  const conflicting = {
+    ...base,
+    candidate_artifact_ref: "scripts/runner.mjs",
+    artifact_ref: "scripts/other.mjs",
+  };
+  assert.throws(() => generateResultRef(conflicting), InvariantViolationError);
+  assert.throws(() => ledger.receiveCandidate(conflicting), InvalidTransitionError);
+
+  // 5. Normalization in receiveCandidate: stores canonical candidate_artifact_ref and removes artifact_ref
+  const { result_ref, candidate_record } = ledger.receiveCandidate(aliasOnly);
+  assert.strictEqual(result_ref, refFromAliasOnly);
+  assert.strictEqual(candidate_record.candidate_artifact_ref, "scripts/runner.mjs");
+  assert.strictEqual(candidate_record.artifact_ref, undefined);
+  assert.strictEqual(candidate_record.payload.candidate_artifact_ref, "scripts/runner.mjs");
+  assert.strictEqual(candidate_record.payload.artifact_ref, undefined);
+});
+
+runTest("3.7: Candidate immutable snapshot enforcement: deep clone and recursive deep freeze prevent mutations", () => {
+  const ledger = new AuthoritativeLedger(samplePlan());
+  ledger.delegate("M1");
+
+  const externalPacket = {
+    milestone_id: "M1",
+    plan_version: "v1",
+    status: "DONE",
+    changes_made: ["Initial change"],
+    verification_evidence: ["Initial evidence"],
+    unresolved_unknowns: ["Initial unknown"],
+    scope_deviations: ["Initial deviation"],
+    candidate_artifact_ref: "scripts/runner.mjs",
+  };
+
+  const { result_ref, candidate_record } = ledger.receiveCandidate(externalPacket);
+
+  // 1. Mutate external packet nested arrays and fields
+  externalPacket.changes_made.push("Mutated change");
+  externalPacket.verification_evidence[0] = "Mutated evidence";
+  externalPacket.verification_evidence.push("Second evidence");
+  externalPacket.unresolved_unknowns.push("Mutated unknown");
+  externalPacket.scope_deviations.push("Mutated deviation");
+  externalPacket.status = "MUTATED";
+  externalPacket.candidate_artifact_ref = "scripts/mutated.mjs";
+
+  // Internal candidate record remains completely intact
+  assert.deepStrictEqual(candidate_record.changes_made, ["Initial change"]);
+  assert.deepStrictEqual(candidate_record.verification_evidence, ["Initial evidence"]);
+  assert.deepStrictEqual(candidate_record.unresolved_unknowns, ["Initial unknown"]);
+  assert.deepStrictEqual(candidate_record.scope_deviations, ["Initial deviation"]);
+  assert.strictEqual(candidate_record.status, "DONE");
+  assert.strictEqual(candidate_record.candidate_artifact_ref, "scripts/runner.mjs");
+
+  // Internal candidate payload remains completely intact
+  assert.deepStrictEqual(candidate_record.payload.changes_made, ["Initial change"]);
+  assert.deepStrictEqual(candidate_record.payload.verification_evidence, ["Initial evidence"]);
+  assert.deepStrictEqual(candidate_record.payload.unresolved_unknowns, ["Initial unknown"]);
+  assert.deepStrictEqual(candidate_record.payload.scope_deviations, ["Initial deviation"]);
+  assert.strictEqual(candidate_record.payload.status, "DONE");
+  assert.strictEqual(candidate_record.payload.candidate_artifact_ref, "scripts/runner.mjs");
+
+  // Also verify evidence in ledger tracking
+  assert.deepStrictEqual(ledger.evidence.M1.active_candidate.changes_made, ["Initial change"]);
+  assert.deepStrictEqual(ledger.evidence[result_ref].payload.changes_made, ["Initial change"]);
+
+  // 2. In-memory recursive deep freeze prevents mutation on record and payload
+  assert.throws(() => { candidate_record.changes_made.push("Direct mutate"); }, TypeError);
+  assert.throws(() => { candidate_record.verification_evidence[0] = "Direct mutate"; }, TypeError);
+  assert.throws(() => { candidate_record.payload.changes_made.push("Direct mutate"); }, TypeError);
+  assert.throws(() => { candidate_record.status = "FAIL"; }, TypeError);
+  assert.throws(() => { candidate_record.payload.status = "FAIL"; }, TypeError);
 });
 
 // =============================================================================
@@ -1426,6 +1532,206 @@ runTest("8.5: fromJSON() and load() result_ref integrity recomputation rejects t
     () => AuthoritativeLedger.fromJSON(activeCandState),
     InvariantViolationError
   );
+});
+
+runTest("8.6: fromJSON() and load() reject candidate record divergence from payload (verification_evidence, unresolved_unknowns, scope_deviations, status, milestone_id, plan_version)", () => {
+  function makeValidSavedState() {
+    const candidatePacket = {
+      milestone_id: "M1",
+      plan_version: "v1",
+      status: "DONE",
+      candidate_artifact_ref: "scripts/runner.mjs",
+      changes_made: ["Baseline changes"],
+      verification_evidence: ["Baseline verification"],
+      unresolved_unknowns: ["Baseline unknown"],
+      scope_deviations: ["Baseline deviation"],
+    };
+    const ref = generateResultRef(candidatePacket);
+    const candRecord = {
+      milestone_id: "M1",
+      plan_version: "v1",
+      result_ref: ref,
+      candidate_artifact_ref: "scripts/runner.mjs",
+      status: "DONE",
+      changes_made: ["Baseline changes"],
+      verification_evidence: ["Baseline verification"],
+      unresolved_unknowns: ["Baseline unknown"],
+      scope_deviations: ["Baseline deviation"],
+      timestamp: new Date().toISOString(),
+      payload: { ...candidatePacket, result_ref: ref },
+    };
+    const verRecord = {
+      milestone_id: "M1",
+      plan_version: "v1",
+      result_ref: ref,
+      verdict: "GO",
+      verification_evidence: ["Baseline verification"],
+      is_stale: false,
+      timestamp: new Date().toISOString(),
+      details: { verdict: "GO" },
+    };
+    return {
+      goal: "Test Project",
+      constraints: [],
+      plan_version: "v1",
+      milestones: [{ id: "M1", title: "M1", acceptance_criteria: ["Done"], dependencies: [] }],
+      current_milestone: null,
+      completed_milestones: ["M1"],
+      evidence: {
+        M1: { active_candidate: candRecord, candidates: [candRecord] },
+        [ref]: candRecord,
+      },
+      verification: { M1: verRecord },
+      blockers: [],
+      decision_invariants: [],
+      next_action: "Ready",
+    };
+  }
+
+  // Baseline: valid state passes fromJSON
+  assert.ok(AuthoritativeLedger.fromJSON(makeValidSavedState()));
+
+  // 8.6.b: Persisted top-level verification_evidence tampered (diverged from payload) -> load rejects with InvariantViolationError
+  const tamperedEvState = makeValidSavedState();
+  const ref = tamperedEvState.verification.M1.result_ref;
+  tamperedEvState.evidence[ref].verification_evidence = ["Diverged / tampered verification evidence"];
+  const fileB = join(tmpdir(), `tamper-ev-${Date.now()}.json`);
+  try {
+    writeFileSync(fileB, JSON.stringify(tamperedEvState), "utf-8");
+    assert.throws(() => AuthoritativeLedger.load(fileB), InvariantViolationError);
+  } finally {
+    try { if (existsSync(fileB)) unlinkSync(fileB); } catch {}
+  }
+
+  // 8.6.c: Persisted top-level unresolved_unknowns tampered -> load rejects with InvariantViolationError
+  const tamperedUnknownsState = makeValidSavedState();
+  tamperedUnknownsState.evidence[ref].unresolved_unknowns = ["Diverged / fabricated unknowns"];
+  const fileC = join(tmpdir(), `tamper-unk-${Date.now()}.json`);
+  try {
+    writeFileSync(fileC, JSON.stringify(tamperedUnknownsState), "utf-8");
+    assert.throws(() => AuthoritativeLedger.load(fileC), InvariantViolationError);
+  } finally {
+    try { if (existsSync(fileC)) unlinkSync(fileC); } catch {}
+  }
+
+  // 8.6.d: Persisted top-level scope_deviations tampered -> load rejects with InvariantViolationError
+  const tamperedDeviationsState = makeValidSavedState();
+  tamperedDeviationsState.evidence[ref].scope_deviations = ["Diverged / fabricated deviations"];
+  const fileD = join(tmpdir(), `tamper-dev-${Date.now()}.json`);
+  try {
+    writeFileSync(fileD, JSON.stringify(tamperedDeviationsState), "utf-8");
+    assert.throws(() => AuthoritativeLedger.load(fileD), InvariantViolationError);
+  } finally {
+    try { if (existsSync(fileD)) unlinkSync(fileD); } catch {}
+  }
+
+  // 8.6.e: Persisted top-level status tampered -> load rejects with InvariantViolationError
+  const tamperedStatusState = makeValidSavedState();
+  tamperedStatusState.evidence[ref].status = "IN_PROGRESS";
+  const fileE = join(tmpdir(), `tamper-status-${Date.now()}.json`);
+  try {
+    writeFileSync(fileE, JSON.stringify(tamperedStatusState), "utf-8");
+    assert.throws(() => AuthoritativeLedger.load(fileE), InvariantViolationError);
+  } finally {
+    try { if (existsSync(fileE)) unlinkSync(fileE); } catch {}
+  }
+
+  // 8.6.f1: Persisted top-level milestone_id tampered -> load rejects with InvariantViolationError
+  const tamperedMilestoneState = makeValidSavedState();
+  tamperedMilestoneState.evidence[ref].payload.milestone_id = "M2"; // diverge payload from record
+  const fileF1 = join(tmpdir(), `tamper-milestone-${Date.now()}.json`);
+  try {
+    writeFileSync(fileF1, JSON.stringify(tamperedMilestoneState), "utf-8");
+    assert.throws(() => AuthoritativeLedger.load(fileF1), InvariantViolationError);
+  } finally {
+    try { if (existsSync(fileF1)) unlinkSync(fileF1); } catch {}
+  }
+
+  // 8.6.f2: Persisted top-level plan_version tampered -> load rejects with InvariantViolationError
+  const tamperedPlanVerState = makeValidSavedState();
+  tamperedPlanVerState.evidence[ref].payload.plan_version = "v2"; // diverge payload from record
+  const fileF2 = join(tmpdir(), `tamper-planver-${Date.now()}.json`);
+  try {
+    writeFileSync(fileF2, JSON.stringify(tamperedPlanVerState), "utf-8");
+    assert.throws(() => AuthoritativeLedger.load(fileF2), InvariantViolationError);
+  } finally {
+    try { if (existsSync(fileF2)) unlinkSync(fileF2); } catch {}
+  }
+});
+
+runTest("8.7: Persistence save -> load roundtrip across all artifact_ref alias forms and rejection of tampered artifact binding", () => {
+  const tmpFile = join(tmpdir(), `test-ledger-aliases-${Date.now()}.json`);
+
+  try {
+    // 8.7.a: artifact_ref only input -> save/load succeeds
+    const ledgerA = new AuthoritativeLedger(samplePlan());
+    ledgerA.delegate("M1");
+    const candA = sampleCandidate({
+      candidate_artifact_ref: undefined,
+      artifact_ref: "scripts/runner.mjs",
+    });
+    const { result_ref: refA } = ledgerA.receiveCandidate(candA);
+    ledgerA.recordZenGo(sampleVerdict({ result_ref: refA }));
+    ledgerA.save(tmpFile);
+    const loadedA = AuthoritativeLedger.load(tmpFile);
+    assert.deepStrictEqual(loadedA.completed_milestones, ["M1"]);
+    assert.strictEqual(loadedA.evidence[refA].candidate_artifact_ref, "scripts/runner.mjs");
+
+    // 8.7.b: candidate_artifact_ref only input -> save/load succeeds
+    const ledgerB = new AuthoritativeLedger(samplePlan());
+    ledgerB.delegate("M1");
+    const candB = sampleCandidate({
+      candidate_artifact_ref: "scripts/runner.mjs",
+      artifact_ref: undefined,
+    });
+    const { result_ref: refB } = ledgerB.receiveCandidate(candB);
+    ledgerB.recordZenGo(sampleVerdict({ result_ref: refB }));
+    ledgerB.save(tmpFile);
+    const loadedB = AuthoritativeLedger.load(tmpFile);
+    assert.deepStrictEqual(loadedB.completed_milestones, ["M1"]);
+    assert.strictEqual(loadedB.evidence[refB].candidate_artifact_ref, "scripts/runner.mjs");
+
+    // 8.7.c: Both aliases present with identical value -> save/load succeeds
+    const ledgerC = new AuthoritativeLedger(samplePlan());
+    ledgerC.delegate("M1");
+    const candC = sampleCandidate({
+      candidate_artifact_ref: "scripts/runner.mjs",
+      artifact_ref: "scripts/runner.mjs",
+    });
+    const { result_ref: refC } = ledgerC.receiveCandidate(candC);
+    ledgerC.recordZenGo(sampleVerdict({ result_ref: refC }));
+    ledgerC.save(tmpFile);
+    const loadedC = AuthoritativeLedger.load(tmpFile);
+    assert.deepStrictEqual(loadedC.completed_milestones, ["M1"]);
+    assert.strictEqual(loadedC.evidence[refC].candidate_artifact_ref, "scripts/runner.mjs");
+
+    // Hashes must be 100% identical
+    assert.strictEqual(refA, refB);
+    assert.strictEqual(refB, refC);
+
+    // 8.7.d: Both aliases present with different values -> rejects fail-closed
+    const ledgerD = new AuthoritativeLedger(samplePlan());
+    ledgerD.delegate("M1");
+    const candD = sampleCandidate({
+      candidate_artifact_ref: "scripts/runner.mjs",
+      artifact_ref: "scripts/conflicting.mjs",
+    });
+    assert.throws(
+      () => ledgerD.receiveCandidate(candD),
+      (err) => err instanceof InvalidTransitionError || err instanceof InvariantViolationError
+    );
+
+    // 8.7.e: Tampered artifact binding after saving -> rejects fail-closed
+    // Save valid state first
+    ledgerA.save(tmpFile);
+    const savedContent = JSON.parse(readFileSync(tmpFile, "utf-8"));
+    // Tamper record artifact binding in file
+    savedContent.evidence[refA].candidate_artifact_ref = "scripts/tampered_artifact.mjs";
+    writeFileSync(tmpFile, JSON.stringify(savedContent, null, 2), "utf-8");
+    assert.throws(() => AuthoritativeLedger.load(tmpFile), InvariantViolationError);
+  } finally {
+    try { if (existsSync(tmpFile)) unlinkSync(tmpFile); } catch {}
+  }
 });
 
 console.log("=========================================================");
