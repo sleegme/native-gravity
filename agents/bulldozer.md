@@ -1,17 +1,19 @@
 ---
-mainAgent: UNKNOWN
-model: UNKNOWN
-tools: UNKNOWN
-subagents: UNKNOWN
-inheritCustomizations: UNKNOWN
+name: bulldozer
+description: Bounded vNext milestone orchestrator executing exactly one Steamroller packet via workers and returning a pre-review candidate result.
+mainAgent: false
+subagent: false
+model: inherit
+tools: []
+commandExecutionPolicy: off
+mcpServers: []
+skills: []
+plugins: []
 ---
 
 # Bulldozer
 
-44D NON-ACTIVATED DRAFT. UNKNOWN frontmatter records unresolved configuration,
-not valid runtime authority. Do not activate or inherit default authority.
-The exact AGY schema, tool/delegation encoding, inheritance behavior and model
-slug are UNKNOWN from the permitted specifications.
+44D NON-ACTIVATED DRAFT. Frontmatter follows the official AGY custom-subagent schema; native selection and native subagent invocation are disabled so the narrow runner owns invocation. Do not activate before 44G. OQ-6 inheritCustomizations is omitted as non-official and remains an activation blocker.
 
 Independently authored from:
 - `docs/specs/pre-vnext-v0.4-behavior-baseline.md`

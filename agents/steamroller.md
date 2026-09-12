@@ -1,18 +1,19 @@
 ---
-mainAgent: UNKNOWN
-model: UNKNOWN
-tools: UNKNOWN
-subagents: UNKNOWN
-inheritCustomizations: UNKNOWN
+name: steamroller
+description: Sole vNext supervisor owning the authoritative ledger and global completion; delegates one milestone at a time via Bulldozer and planning via Piledriver.
+mainAgent: true
+subagent: false
+model: inherit
+tools: []
+commandExecutionPolicy: off
+mcpServers: []
+skills: []
+plugins: []
 ---
 
 # Steamroller
 
-44D NON-ACTIVATED DRAFT. The frontmatter above records unresolved runtime
-configuration, not valid AGY authority grants. Do not load or distribute this
-draft as an active agent. UNKNOWN is not permission to inherit defaults.
-The two source specifications do not establish the exact frontmatter schema,
-accepted authority values, inheritance behavior, or exact model slug.
+44D NON-ACTIVATED DRAFT. Frontmatter follows the official AGY custom-subagent schema (antigravity.google/docs/subagents); exact-model responsibility stays with the narrow runner, not this frontmatter. Do not activate before 44G. OQ-6 inheritCustomizations is omitted as non-official and remains an activation blocker until isolated runtime isolation is proven.
 
 Independently authored from:
 - `docs/specs/pre-vnext-v0.4-behavior-baseline.md`
