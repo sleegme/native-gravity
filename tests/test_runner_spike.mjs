@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
-import { writeFileSync, chmodSync, unlinkSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { writeFileSync, readFileSync, chmodSync, unlinkSync, mkdtempSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import process from "node:process";
 import {
   ROLE_POLICY_TABLE,
@@ -376,7 +378,8 @@ process.exit(0);
 
 runTest("3.1: Deterministic prompt construction with minimal packet", () => {
   const prompt = composeBoundedPrompt("piledriver", { task: "Implement feature X" });
-  assert.strictEqual(prompt, `## Role\npiledriver\n\n## Task\nImplement feature X`);
+  const body = readFileSync(new URL("../agents/piledriver.md", import.meta.url), "utf8").trim();
+  assert.strictEqual(prompt, `## Role\npiledriver\n\n## Role Body\n${body}\n\n## Task\nImplement feature X`);
 });
 
 runTest("3.2: Deterministic prompt construction with complete structured packet", () => {
@@ -391,6 +394,7 @@ runTest("3.2: Deterministic prompt construction with complete structured packet"
 
   const expectedPrompt = [
     "## Role\nbulldozer",
+    `## Role Body\n${readFileSync(new URL("../agents/bulldozer.md", import.meta.url), "utf8").trim()}`,
     "## Task\nRefactor database migrations",
     "## Context Files\n- db/schema.sql\n- db/migrate.js",
     "## Evidence\n- Migration 004 failed on test DB\n- Disk usage at 80%",
@@ -403,7 +407,8 @@ runTest("3.2: Deterministic prompt construction with complete structured packet"
 
 runTest("3.3: Task alias 'objective' is accepted when 'task' is omitted", () => {
   const prompt = composeBoundedPrompt("steamroller", { objective: "Analyze trade-offs" });
-  assert.strictEqual(prompt, `## Role\nsteamroller\n\n## Task\nAnalyze trade-offs`);
+  const body = readFileSync(new URL("../agents/steamroller.md", import.meta.url), "utf8").trim();
+  assert.strictEqual(prompt, `## Role\nsteamroller\n\n## Role Body\n${body}\n\n## Task\nAnalyze trade-offs`);
 });
 
 runTest("3.4: Rejection of invalid handoff packets (throws InvalidHandoffPacketError)", () => {
@@ -543,6 +548,224 @@ if (skipLive) {
     assert.ok(res.usage && typeof res.usage.total_tokens === "number", "Expected usage statistics");
   });
 }
+
+// =============================================================================
+// Section 6: Explicit Role Body Loading (CROSS_SLICE_BLOCKER_44B)
+// =============================================================================
+
+function withRoleBodies(fn) {
+  const root = mkdtempSync(join(tmpdir(), "ntg-role-bodies-"));
+  const roleBodyDir = join(root, "roles");
+  const cwd = join(root, "neutral");
+  const capture = join(root, "transport-called");
+  const agyPath = join(root, "agy.mjs");
+  const installedModels = ["gemini-3.1-pro-high", "gemini-3.8-flash-high"];
+  try {
+    mkdirSync(roleBodyDir);
+    mkdirSync(cwd);
+    for (const role of ["steamroller", "piledriver", "bulldozer"]) {
+      writeFileSync(join(roleBodyDir, `${role}.md`), `BODY_MARKER_${role}\n`);
+    }
+    // Exercise the real process boundary: echo the actual --print argument.
+    writeFileSync(agyPath, `#!/usr/bin/env node
+import { writeFileSync } from "node:fs";
+if (process.argv[2] === "models") {
+  console.log(${JSON.stringify(installedModels.join("\n"))});
+} else {
+  writeFileSync(process.env.NTG_TEST_CAPTURE, "called");
+  const value = flag => process.argv[process.argv.indexOf(flag) + 1];
+  console.log(JSON.stringify({ status: "SUCCESS", response: JSON.stringify({
+    prompt: value("--print"), slug: value("--model"), format: value("--output-format"),
+    chain: process.env.NTG_RUNNER_CHAIN, cwd: process.cwd()
+  }) }));
+}
+`);
+    chmodSync(agyPath, 0o755);
+    fn({ roleBodyDir, cwd, capture, agyPath, installedModels, env: { NTG_TEST_CAPTURE: capture } });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+runTest("6.1: All three role bodies reach transport deterministically with handoff sections", () => {
+  withRoleBodies(opts => {
+    const packet = {
+      task: "TASK_MARKER",
+      contextFiles: ["CONTEXT_MARKER"],
+      evidence: ["EVIDENCE_MARKER"],
+      constraints: ["CONSTRAINT_MARKER"],
+      expectedOutput: "OUTPUT_MARKER",
+    };
+    for (const role of ["steamroller", "piledriver", "bulldozer"]) {
+      const prompt = composeBoundedPrompt(role, packet, opts);
+      assert.strictEqual(composeBoundedPrompt(role, packet, opts), prompt);
+      const sections = prompt.split("\n\n");
+      assert.deepStrictEqual(sections, [
+        `## Role\n${role}`, `## Role Body\nBODY_MARKER_${role}`,
+        "## Task\nTASK_MARKER", "## Context Files\n- CONTEXT_MARKER",
+        "## Evidence\n- EVIDENCE_MARKER", "## Constraints\n- CONSTRAINT_MARKER",
+        "## Expected Output\nOUTPUT_MARKER",
+      ]);
+      const res = invoke(role, packet, opts);
+      assert.strictEqual(res.ok, true, JSON.stringify(res));
+      const received = JSON.parse(res.response);
+      assert.strictEqual(received.prompt, prompt);
+      assert.strictEqual(received.slug, resolveSlug(role, opts));
+      assert.strictEqual(received.format, "json");
+      assert.strictEqual(received.chain, role);
+      assert.strictEqual(received.cwd, opts.cwd);
+    }
+    const mixedCase = invoke(" PileDriver ", packet, opts);
+    assert.strictEqual(mixedCase.ok, true, JSON.stringify(mixedCase));
+    assert.ok(JSON.parse(mixedCase.response).prompt.includes("BODY_MARKER_piledriver"));
+  });
+});
+
+runTest("6.2: Missing role body fails closed before transport without default fallback", () => {
+  withRoleBodies(opts => {
+    unlinkSync(join(opts.roleBodyDir, "piledriver.md"));
+    const res = invoke("piledriver", { task: "TASK_MARKER" }, opts);
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.error, "ROLE_BODY_MISSING");
+    assert.strictEqual(res.role, "piledriver");
+    assert.strictEqual(existsSync(opts.capture), false);
+  });
+});
+
+runTest("6.3: Empty, whitespace, malformed UTF-8 and binary bodies fail closed", () => {
+  withRoleBodies(opts => {
+    for (const body of ["", " \t\r\n", Buffer.from([0xc3, 0x28]), "BODY_MARKER\u0000"]) {
+      writeFileSync(join(opts.roleBodyDir, "piledriver.md"), body);
+      const res = invoke("piledriver", { task: "TASK_MARKER" }, opts);
+      assert.strictEqual(res.ok, false);
+      assert.strictEqual(res.error, "ROLE_BODY_INVALID");
+      assert.strictEqual(res.role, "piledriver");
+      assert.strictEqual(existsSync(opts.capture), false);
+    }
+  });
+});
+
+runTest("6.4: Unreadable role path and invalid directory options fail closed", () => {
+  withRoleBodies(opts => {
+    const path = join(opts.roleBodyDir, "piledriver.md");
+    unlinkSync(path);
+    mkdirSync(path); // A directory cannot be read as a body, even when run as root.
+    for (const roleBodyDir of [opts.roleBodyDir, "", 42]) {
+      const res = invoke("piledriver", { task: "TASK_MARKER" }, { ...opts, roleBodyDir });
+      assert.strictEqual(res.ok, false);
+      assert.strictEqual(res.error, "ROLE_BODY_INVALID");
+      assert.strictEqual(existsSync(opts.capture), false);
+    }
+  });
+});
+
+runTest("6.5: Native specialists, inherited object keys and path traversal are not runner roles", () => {
+  withRoleBodies(opts => {
+    for (const role of ["jaguar", "puma", "bobcat", "strix-halo", "zen", "excavator", "instinct", "constructor", "__proto__", "../piledriver"]) {
+      writeFileSync(join(opts.roleBodyDir, `${role.replaceAll("/", "_")}.md`), "DISALLOWED_MARKER");
+      assert.throws(() => composeBoundedPrompt(role, { task: "TASK_MARKER" }, opts), UnresolvedModelSlugError);
+      const res = invoke(role, { task: "TASK_MARKER" }, opts);
+      assert.strictEqual(res.ok, false);
+      assert.strictEqual(res.error, "UNRESOLVED_MODEL_SLUG");
+      assert.strictEqual(existsSync(opts.capture), false);
+    }
+  });
+});
+
+runTest("6.6: Neutral process cwd needs no customization for explicit or module-relative bodies", () => {
+  withRoleBodies(opts => {
+    const originalCwd = process.cwd();
+    const originalDir = process.env.NTG_ROLE_BODY_DIR;
+    try {
+      delete process.env.NTG_ROLE_BODY_DIR;
+      process.chdir(opts.cwd);
+      assert.strictEqual(existsSync("AGENTS.md"), false);
+      assert.strictEqual(existsSync("agents"), false);
+      for (const role of ["steamroller", "piledriver", "bulldozer"]) {
+        const packet = { task: "TASK_MARKER" };
+        const explicit = invoke(role, packet, opts);
+        assert.strictEqual(explicit.ok, true, JSON.stringify(explicit));
+        assert.ok(JSON.parse(explicit.response).prompt.includes(`BODY_MARKER_${role}`));
+        const shipped = readFileSync(new URL(`../agents/${role}.md`, import.meta.url), "utf8").trim();
+        const defaultPrompt = composeBoundedPrompt(role, packet);
+        assert.ok(defaultPrompt.includes(`## Role Body\n${shipped}\n\n## Task\nTASK_MARKER`));
+        const runnerDir = dirname(fileURLToPath(new URL("../scripts/runner.mjs", import.meta.url)));
+        const relativePrompt = composeBoundedPrompt(role, packet, {
+          roleBodyDir: relative(runnerDir, opts.roleBodyDir),
+        });
+        assert.strictEqual(relativePrompt, JSON.parse(explicit.response).prompt);
+      }
+    } finally {
+      process.chdir(originalCwd);
+      if (originalDir === undefined) delete process.env.NTG_ROLE_BODY_DIR;
+      else process.env.NTG_ROLE_BODY_DIR = originalDir;
+    }
+  });
+});
+
+runTest("6.7: Directory precedence is explicit option, invocation env, process env, default", () => {
+  withRoleBodies(opts => {
+    const originalDir = process.env.NTG_ROLE_BODY_DIR;
+    const packet = { task: "TASK_MARKER" };
+    try {
+      process.env.NTG_ROLE_BODY_DIR = join(opts.cwd, "missing");
+      const explicit = invoke("piledriver", packet, opts);
+      assert.strictEqual(explicit.ok, true, JSON.stringify(explicit));
+      const { roleBodyDir, ...envOpts } = opts;
+      const invocationEnv = invoke("piledriver", packet, {
+        ...envOpts, env: { ...opts.env, NTG_ROLE_BODY_DIR: roleBodyDir },
+      });
+      assert.strictEqual(invocationEnv.ok, true, JSON.stringify(invocationEnv));
+      assert.strictEqual(invocationEnv.response, explicit.response);
+      process.env.NTG_ROLE_BODY_DIR = roleBodyDir;
+      const processEnv = invoke("piledriver", packet, envOpts);
+      assert.strictEqual(processEnv.ok, true, JSON.stringify(processEnv));
+      assert.strictEqual(processEnv.response, explicit.response);
+      const invalidEnv = invoke("piledriver", packet, {
+        ...envOpts, env: { ...opts.env, NTG_ROLE_BODY_DIR: "" },
+      });
+      assert.strictEqual(invalidEnv.error, "ROLE_BODY_INVALID");
+    } finally {
+      if (originalDir === undefined) delete process.env.NTG_ROLE_BODY_DIR;
+      else process.env.NTG_ROLE_BODY_DIR = originalDir;
+    }
+  });
+});
+
+runTest("6.8: Role bodies do not bypass any forbidden conversation field", () => {
+  withRoleBodies(opts => {
+    for (const field of ["messages", "conversation", "history", "transcript"]) {
+      const res = invoke("piledriver", { task: "TASK_MARKER", [field]: ["RAW_HISTORY_MARKER"] }, opts);
+      assert.strictEqual(res.ok, false);
+      assert.strictEqual(res.error, "INVALID_HANDOFF_PACKET");
+      assert.strictEqual(existsSync(opts.capture), false);
+    }
+  });
+});
+
+runTest("6.9: CLI injects env-selected role body from neutral cwd and reports missing body", () => {
+  withRoleBodies(opts => {
+    const runnerPath = fileURLToPath(new URL("../scripts/runner.mjs", import.meta.url));
+    const cliOpts = {
+      cwd: opts.cwd, encoding: "utf8", timeout: 10000,
+      env: { ...process.env, ...opts.env, AGY_PATH: opts.agyPath, NTG_ROLE_BODY_DIR: opts.roleBodyDir },
+    };
+    const success = spawnSync(process.execPath, [runnerPath, "piledriver", "CLI_TASK_MARKER"], cliOpts);
+    assert.ifError(success.error);
+    assert.strictEqual(success.status, 0, success.stderr);
+    const received = JSON.parse(success.stdout);
+    assert.ok(received.prompt.includes("BODY_MARKER_piledriver"));
+    assert.ok(received.prompt.includes("## Task\nCLI_TASK_MARKER"));
+    assert.strictEqual(received.slug, "gemini-3.1-pro-high");
+    unlinkSync(opts.capture);
+    unlinkSync(join(opts.roleBodyDir, "piledriver.md"));
+    const failure = spawnSync(process.execPath, [runnerPath, "piledriver", "CLI_TASK_MARKER"], cliOpts);
+    assert.ifError(failure.error);
+    assert.strictEqual(failure.status, 1);
+    assert.strictEqual(JSON.parse(failure.stderr).error, "ROLE_BODY_MISSING");
+    assert.strictEqual(existsSync(opts.capture), false);
+  });
+});
 
 console.log("=========================================================");
 console.log(`Summary: ${passed} passed, ${failed} failed (Total: ${passed + failed})`);
