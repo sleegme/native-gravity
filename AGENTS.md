@@ -1,5 +1,15 @@
 # AGENTS.md
 
+## Migration-stack scope (44D; not activated)
+
+This branch prepares vNext only. The v0.4 sections below continue to describe
+the released/default runtime; they do not govern an explicitly isolated vNext
+validation context. In that context, use the vNext topology section below and
+`docs/specs/vnext-architecture-contract.md`, especially sections 2-5 and 7.3.
+Do not combine the two topologies or infer that this branch activates vNext.
+44G must validate and activate the runtime and its topology documentation
+together. If validation fails, neither is activated. Keep this PR Draft.
+
 ## Project intent
 
 Native Gravity is a thin Antigravity-native orchestration plugin. Prefer Antigravity's native agent lifecycle, model tiers, workspaces, rules, and delegation primitives over custom runtime machinery.
@@ -147,3 +157,62 @@ Before calling v0.4 stable, verify:
 7. Keep Strix Halo read-only and Zen non-mutating.
 8. Do not reintroduce a model-wide 3.1 Pro mutation deny while Excavator uses that model family for implementation.
 9. Guard Excavator by effect and privilege-acquisition behavior, not by banning sudo itself.
+
+## vNext topology preparation (isolated migration context only)
+
+Prepared from `docs/specs/pre-vnext-v0.4-behavior-baseline.md` and
+`docs/specs/vnext-architecture-contract.md`; legacy topology above is retained
+for released-runtime context, not used as the authority for this preparation.
+
+```text
+User
+  Steamroller
+    Piledriver (planning, architecture, deep decisions when needed)
+    Bulldozer (exactly one bounded milestone)
+      Jaguar / Puma / Bobcat
+                       Strix Halo (Bobcat-local gate)
+    Zen (independent candidate verification)
+    Steamroller ledger transition
+```
+
+- Steamroller is the sole supervisor, authoritative ledger writer and global
+  completion authority. It does not implement project source or directly
+  orchestrate workers. Ledger state, not conversation, is authoritative.
+- Piledriver is advisory planning/architecture/deep decision only: no
+  implementation, worker orchestration, project-state ownership or completion
+  claims. Steamroller alone decides whether to adopt its proposal.
+- Bulldozer receives one current-version milestone packet, delegates within
+  that boundary and returns its result. It neither directly edits project
+  source nor writes the authoritative ledger or claims project completion.
+- NEEDS_DEEP goes through Bulldozer to Steamroller for possible Piledriver
+  invocation. Bulldozer does not directly invoke Piledriver or Zen.
+- Zen reviews independently for Steamroller, never as Bulldozer's child.
+  Every P0 milestone requires current GO; there is no optional-review path.
+  Steamroller first persists an immutable candidate/result_ref binding, then
+  observes Zen's matching milestone, plan_version and result_ref before
+  promoting the milestone and updating next_action.
+- Worker READY and Strix ACCEPT are local signals, not milestone completion.
+  Bulldozer DONE is a pre-review candidate, not verified or global completion.
+- Material replanning ends active execution/review, increments plan_version,
+  marks old verdicts STALE and clears active/completed milestone state.
+  Retained milestones need fresh current-version review in dependency order;
+  history remains evidence, never current completion authority.
+- Global completion requires all current milestones verified, no blockers,
+  no active execution/review and Steamroller's direct observation of evidence.
+
+The minimum spine is connected in 44E. Jaguar, Puma and Strix Halo reconnect
+in 44F without broader authority. Excavator remains a separate selectable
+primary outside P0; recovery reconnection is post-44G. Instinct is future work.
+This preparation does not implement those slices or grant missing capabilities.
+
+Preserve native-first, shallow delegation, routing by work kind, model-adaptive
+roles, OBSERVED/INFERRED/UNKNOWN, actual-result verification, compact handoffs,
+coverage closure, effect classification and anti-bypass discipline. Keep
+NTG_ZEN_VERIFY=1 and NTG_EXCAVATOR=1 guard behavior until validated replacements
+are specified. The narrow runner owns exact model resolution and effort;
+frontmatter must not guess exact model slugs.
+
+Before activation, resolve and verify frontmatter authority and OQ-6
+inheritCustomizations behavior. `agy plugin validate` or agent discovery alone
+cannot prove these runtime boundaries. Unresolved authority blocks activation;
+do not treat UNKNOWN, omitted fields or defaults as grants.
