@@ -1,7 +1,13 @@
 import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { TextDecoder } from "node:util";
+
+// Explicitly bounded to the three runner roles; native specialists stay native.
+const ROLE_BODY_ROLES = Object.freeze(["steamroller", "piledriver", "bulldozer"]);
+const RUNNER_DIR = dirname(fileURLToPath(import.meta.url));
 
 /**
  * Role policy table mapping agent roles to target model families and reasoning effort requirements.
@@ -53,6 +59,49 @@ export class InvalidHandoffPacketError extends Error {
     if (details && typeof details === "object") {
       Object.assign(this, details);
     }
+  }
+}
+
+export class RoleBodyError extends Error {
+  constructor(role, error, message) {
+    super(message);
+    this.name = "RoleBodyError";
+    this.ok = false;
+    this.error = error;
+    this.role = role;
+  }
+}
+
+/**
+ * Loads the role file as Markdown content, without interpreting AGY frontmatter.
+ * Directory precedence: roleBodyDir, opts.env.NTG_ROLE_BODY_DIR, process env,
+ * then ../agents relative to this module. Relative overrides also use RUNNER_DIR,
+ * never the invocation cwd. Missing/invalid files never fall back to defaults.
+ */
+function loadRoleBody(role, opts) {
+  const normalized = typeof role === "string" ? role.trim().toLowerCase() : "";
+  if (!ROLE_BODY_ROLES.includes(normalized)) {
+    throw new UnresolvedModelSlugError(role, `Unknown runner role: "${role}".`);
+  }
+
+  try {
+    const directory = opts.roleBodyDir ?? opts.env?.NTG_ROLE_BODY_DIR ??
+      process.env.NTG_ROLE_BODY_DIR ?? "../agents";
+    if (typeof directory !== "string" || !directory.trim()) {
+      throw new Error("Role body directory must be a non-empty path string");
+    }
+    const path = resolve(RUNNER_DIR, directory, `${normalized}.md`);
+    const body = new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(path));
+    if (!body.trim() || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(body)) {
+      throw new Error("Role body must contain non-empty UTF-8 Markdown without non-text control characters");
+    }
+    return body.trim();
+  } catch (err) {
+    throw new RoleBodyError(
+      role,
+      err.code === "ENOENT" ? "ROLE_BODY_MISSING" : "ROLE_BODY_INVALID",
+      `Cannot load role body for "${normalized}": ${err.message}`
+    );
   }
 }
 
@@ -161,7 +210,7 @@ export function matchesPolicy(policy, model) {
 export function resolveSlug(role, opts = {}) {
   const normalized = typeof role === "string" ? role.trim().toLowerCase() : "";
   const policy = ROLE_POLICY_TABLE[normalized];
-  if (!policy) {
+  if (!ROLE_BODY_ROLES.includes(normalized)) {
     throw new UnresolvedModelSlugError(
       role,
       `Unknown role: "${role}". No role policy defined.`
@@ -208,14 +257,15 @@ export function resolveSlug(role, opts = {}) {
 }
 
 /**
- * Composes a deterministic bounded prompt from a structured handoff packet.
+ * Composes a deterministic bounded prompt from the role body and handoff packet.
  * Enforces packet contract and strictly forbids raw conversational state.
  *
  * @param {string} role - Role name
  * @param {object} packet - Structured handoff packet
+ * @param {object} [opts] - roleBodyDir / env options (see loadRoleBody)
  * @returns {string} Deterministically formatted bounded prompt
  */
-export function composeBoundedPrompt(role, packet) {
+export function composeBoundedPrompt(role, packet, opts = {}) {
   if (!packet || typeof packet !== "object" || Array.isArray(packet)) {
     throw new InvalidHandoffPacketError("Handoff packet must be a non-null object");
   }
@@ -248,6 +298,7 @@ export function composeBoundedPrompt(role, packet) {
     sections.push(`## Role\n${roleName}`);
   }
 
+  sections.push(`## Role Body\n${loadRoleBody(role, opts)}`);
   sections.push(`## Task\n${task}`);
 
   const contextFiles = packet.contextFiles ?? packet.context_files;
@@ -501,12 +552,12 @@ export function invokeTransport(slugOrOpts, maybePrompt, maybeOpts) {
 
 /**
  * Contract-level runner that validates and resolves slug via role policy,
- * validates the handoff packet, composes a deterministic bounded prompt,
+ * validates the handoff packet, loads the role body, composes a bounded prompt,
  * and executes via invokeTransport.
  *
  * @param {string} role - Target role (e.g. 'piledriver', 'bulldozer', 'steamroller')
  * @param {object} packet - Structured handoff packet ({ task, ... })
- * @param {object} [opts] - Invocation options
+ * @param {object} [opts] - Invocation options, including roleBodyDir / env overrides
  * @returns {object} Structured result
  */
 export function invoke(role, packet, opts = {}) {
@@ -553,7 +604,7 @@ export function invoke(role, packet, opts = {}) {
   // Packet validation & bounded prompt composition
   let prompt;
   try {
-    prompt = composeBoundedPrompt(role, packet);
+    prompt = composeBoundedPrompt(role, packet, options);
   } catch (err) {
     return {
       ok: false,
