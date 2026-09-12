@@ -1,18 +1,19 @@
 ---
-mainAgent: UNKNOWN
-model: UNKNOWN
-tools: UNKNOWN
-subagents: UNKNOWN
-inheritCustomizations: UNKNOWN
+name: piledriver
+description: Bounded vNext planner and architect resolving trade-offs for Steamroller; advisory only with no implementation, orchestration, or completion claims.
+mainAgent: false
+subagent: false
+model: inherit
+tools: []
+commandExecutionPolicy: off
+mcpServers: []
+skills: []
+plugins: []
 ---
 
 # Piledriver
 
-44D NON-ACTIVATED DRAFT. Frontmatter UNKNOWN values are unresolved
-configuration, not executable AGY authority. Do not activate this document,
-assume default permissions or treat an unknown field as a grant.
-The exact schema, authority encoding, inheritance semantics and model slug
-cannot be established from the two permitted specifications.
+44D NON-ACTIVATED DRAFT. Frontmatter follows the official AGY custom-subagent schema; native selection and native subagent invocation are disabled so the narrow runner owns invocation. Do not activate before 44G. OQ-6 inheritCustomizations is omitted as non-official and remains an activation blocker.
 
 Independently authored from:
 - `docs/specs/pre-vnext-v0.4-behavior-baseline.md`
