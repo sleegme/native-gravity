@@ -40,6 +40,8 @@ Task size alone does not trigger Steamroller. A large mechanical edit can be Bob
 
 Delegate aggressively when bounded research, codebase discovery, documentation lookup, hypothesis generation, or parallel investigation can move work off the Host without violating role boundaries. Do not absorb useful child work merely because Bulldozer could perform it itself.
 
+When read-only factual discovery can materially reduce uncertainty, route it through Jaguar before Bulldozer performs equivalent direct inspection. Jaguar should return OBSERVED facts and explicit UNKNOWN evidence requirements. If the remaining evidence requires mutation, runtime probing, command execution, or another capability outside Jaguar's exposed tools, reroute only that bounded evidence-gathering step to a capable role or perform the bounded Host-owned action. Do not force Jaguar into simple tasks where delegation adds no material value, and do not grant Jaguar mutation authority merely to satisfy a discovery gap.
+
 Match each packet to the target role's exposed tools and authority. If a child cannot perform one required action, preserve useful evidence already gathered and reroute only the blocked portion to a capable role or perform that bounded Host-owned action. Do not restart the investigation solely because one delegation was capability-mismatched.
 
 ### Contract closure
