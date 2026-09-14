@@ -1,0 +1,15 @@
+$ cd /home/sleeg/work/ntg-vnext/native-gravity-44f
+$ git push --force-with-lease origin feat/issue-44f-specialists
+To https://github.com/sleegme/native-gravity.git
+ + e3171b9...9795dec feat/issue-44f-specialists -> feat/issue-44f-specialists (forced update)
+[exit 0]
+$ gh pr view 50 --json headRefOid
+{"headRefOid":"e3171b94a14793b5a55f056119f0240f364e81d2"}
+$ git rev-parse HEAD
+9795decaf7c12c7b683c8281fe04bc21aad8111c
+$ test "$(gh pr view 50 --json headRefOid --jq .headRefOid)" = "$(git rev-parse HEAD)"
+[exit 0: PR #50 headRefOid equals new HEAD]
+$ gh pr view 50 --json state,baseRefName,headRefName,headRefOid,url
+{"baseRefName":"main","headRefName":"feat/issue-44f-specialists","headRefOid":"9795decaf7c12c7b683c8281fe04bc21aad8111c","state":"OPEN","url":"https://github.com/sleegme/native-gravity/pull/50"}
+$ gh pr view 50 --json headRefOid
+{"headRefOid":"9795decaf7c12c7b683c8281fe04bc21aad8111c"}

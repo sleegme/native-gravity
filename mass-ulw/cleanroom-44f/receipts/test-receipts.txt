@@ -1,0 +1,26 @@
+$ /home/sleeg/.local/bin/agy plugin validate .
+  [32m[ok][0m    .
+          - skills      : skipped (not found)
+          [32m✔[0m agents      : 9 processed
+          - commands    : skipped (not found)
+          - mcpServers  : skipped (not found)
+          [32m✔[0m hooks       : 2 processed
+[exit 0]
+$ git diff --check
+[exit 0]
+$ sha256sum --check /home/sleeg/work/ntg-vnext/.omo/evidence/ulw/01a0949f-7dc8-7494-b4b1-f137cebd5e3a/G001-root-work-ntg-vnext-parent-dir-is-no/a1/cleanroom-44f/receipts/authored-sha256.txt
+agents/jaguar.md: OK
+agents/puma.md: OK
+agents/strix-halo.md: OK
+[exit 0]
+Frontmatter compatibility check against verified-clean e3171b9:
+PASS agents/jaguar.md: all capability/model/config fields unchanged; shipped bytes match cleanroom
+PASS agents/puma.md: all capability/model/config fields unchanged; shipped bytes match cleanroom
+PASS agents/strix-halo.md: all capability/model/config fields unchanged; shipped bytes match cleanroom
+Source sha256 a5b1f4cb81127563e29fb0aad22fe0a6c3e35f8bf814264c4c503b9ac9cf8614  docs/specs/pre-vnext-v0.4-behavior-baseline.md
+Source sha256 3b713b06159e658410a6fd169ced724896aa87299f10d1b1587574a6032d9c6c  docs/specs/vnext-architecture-contract.md
+[exit 0]
+LSP diagnostics attempted on each of agents/jaguar.md, agents/puma.md, agents/strix-halo.md:
+No LSP server configured for extension: .md (all three). Markdown LSP verification unavailable.
+Build: package.json defines no scripts/build target; plugin schema validation is the applicable artifact check.
+No prompt-prose snapshot tests added. Live model delegation/behavior was not exercised in this provenance-only rerun; it remains a 44G gate.

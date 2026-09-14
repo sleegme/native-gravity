@@ -1,0 +1,12 @@
+$ cd /home/sleeg/work/ntg-vnext/native-gravity-44e
+$ git push --force-with-lease origin feat/issue-44e-minimal-spine
+To https://github.com/sleegme/native-gravity.git
+ + d7e35e4...3d7681c feat/issue-44e-minimal-spine -> feat/issue-44e-minimal-spine (forced update)
+[exit 0]
+$ git rev-parse HEAD
+3d7681ce61a3d23e076a97d717c0c0c5e4337e6b
+$ gh pr view 51 --json headRefOid
+{"headRefOid":"3d7681ce61a3d23e076a97d717c0c0c5e4337e6b"}
+$ python3 -c 'import json, subprocess, sys; observed = json.load(open(sys.argv[1]))["headRefOid"]; head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(); assert observed == head; print("PR #51 headRefOid == HEAD:", head)' /home/sleeg/work/ntg-vnext/.omo/evidence/ulw/01a0949f-7dc8-7494-b4b1-f137cebd5e3a/G001-root-work-ntg-vnext-parent-dir-is-no/a1/cleanroom-44e/receipts/pr-head.json
+PR #51 headRefOid == HEAD: 3d7681ce61a3d23e076a97d717c0c0c5e4337e6b
+[exit 0]

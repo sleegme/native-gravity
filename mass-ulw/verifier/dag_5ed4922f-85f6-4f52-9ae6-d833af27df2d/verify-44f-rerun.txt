@@ -1,0 +1,21 @@
+1. PASS - Cleanroom contains all three authored files, `receipts/`, and `REPORT.md`. SHA-256 manifest, cleanroom, and branch match for all files: `"30bd...240e0 agents/jaguar.md"`, `"137b...d7320 agents/puma.md"`, `"adaa...dec3 agents/strix-halo.md"`.
+
+2. PASS - `push-receipt.txt` captures `"git push --force-with-lease origin feat/issue-44f-specialists"` and push output: `"+ e3171b9...9795dec ... (forced update)"`.
+
+3. PASS - `git log origin/main..HEAD` contains only `"9795dec feat(44F): reauthor specialists with durable provenance (#44F-a)"`. Both prohibited ancestry checks exited `1`.
+
+4. PASS - `git diff origin/main...HEAD --name-only` lists exactly:
+   `"agents/jaguar.md"`, `"agents/puma.md"`, `"agents/strix-halo.md"`.
+
+5. PASS - Semantics are explicit:
+   - Jaguar: `"Every operation is READ_ONLY"` and `"Your role is factual retrieval for Bulldozer"`.
+   - Puma: `"No delegation is allowed"`.
+   - Strix: `"Accept review invocations from Bobcat only"` and `"All inspection is READ_ONLY"`.
+   - Completion: `"Strix ACCEPT != milestone completion"`.
+   - Escalation: `"Strix Halo -> Bobcat -> Bulldozer -> Steamroller -> optional Piledriver"`.
+
+6. PASS - `agy plugin validate .` exited `0`; output reports `"agents : 9 processed"` and `"hooks : 2 processed"`.
+
+7. PASS - PR #50 reports `"state":"OPEN"` and `"headRefOid":"9795decaf7c12c7b683c8281fe04bc21aad8111c"`, matching local `HEAD`.
+
+VERDICT: GO

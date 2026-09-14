@@ -1,0 +1,11 @@
+LSP diagnostics requested in parallel on every scoped file before build/package validation.
+
+agents/bobcat.md: No LSP server configured for extension: .md
+agents/zen.md: No LSP server configured for extension: .md
+hooks.json: LSP server 'biome' is NOT INSTALLED. Command not found: biome
+hooks/zen-shell-guard.py: LSP server 'basedpyright' is NOT INSTALLED. Command not found: basedpyright-langserver
+scripts/spine.mjs: LSP server 'typescript' is NOT INSTALLED. Command not found: typescript-language-server
+tests/test_spine.mjs: LSP server 'typescript' is NOT INSTALLED. Command not found: typescript-language-server
+tests/test_zen_shell_guard.py: LSP server 'basedpyright' is NOT INSTALLED. Command not found: basedpyright-langserver
+
+LSP validation is unavailable, not a reported clean diagnostic result. No dependency or configuration installation was made outside the authorized write scope. Executed fallback checks are captured in build-receipts.txt (Node syntax, Python AST syntax, JSON parse) and plugin-validate.txt (official AGY agents/hooks validation). All required behavioral tests are captured in test-receipts.txt.

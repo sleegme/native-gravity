@@ -1,0 +1,9 @@
+$ printf '%s\n' '{"toolCall":{"name":"run_command","args":{"CommandLine":"NTG_ZEN_VERIFY=1 git status --short"}}}' | python3 hooks/zen-shell-guard.py
+{"decision": "allow", "reason": "Marked read-only verification command"}
+[exit 0]
+$ printf '%s\n' '{"toolCall":{"name":"run_command","args":{"CommandLine":"NTG_ZEN_VERIFY=1 rm artifact"}}}' | python3 hooks/zen-shell-guard.py
+{"decision": "deny", "reason": "Zen permits only read-only verification commands"}
+[exit 0]
+$ python3 -c import\ json\,\ pathlib\,\ sys\;\ root\ =\ pathlib.Path\(sys.argv\[1\]\)\;\ assert\ json.loads\(\(root\ /\ \"live-allow.json\"\).read_text\(\)\)\[\"decision\"\]\ ==\ \"allow\"\;\ assert\ json.loads\(\(root\ /\ \"live-deny.json\"\).read_text\(\)\)\[\"decision\"\]\ ==\ \"deny\"\;\ print\(\"Live\ synthetic\ hook\ decisions:\ PASS\"\) /home/sleeg/work/ntg-vnext/.omo/evidence/ulw/01a0949f-7dc8-7494-b4b1-f137cebd5e3a/G001-root-work-ntg-vnext-parent-dir-is-no/a1/cleanroom-44e/receipts
+Live synthetic hook decisions: PASS
+[exit 0]

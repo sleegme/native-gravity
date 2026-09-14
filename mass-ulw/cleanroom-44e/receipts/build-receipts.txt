@@ -1,0 +1,48 @@
+No build script is declared in package.json. Run syntax checks and the CI package dry-run.
+$ node --check scripts/spine.mjs
+[exit 0]
+$ node --check tests/test_spine.mjs
+[exit 0]
+$ python3 -c import\ ast\,\ pathlib\;\ paths\ =\ \[\"hooks/zen-shell-guard.py\"\,\ \"tests/test_zen_shell_guard.py\"\]\;\ \[ast.parse\(pathlib.Path\(p\).read_text\(\)\,\ filename=p\)\ for\ p\ in\ paths\]\;\ print\(\"Python\ AST\ syntax\ checks:\ PASS\"\)
+Python AST syntax checks: PASS
+[exit 0]
+$ python3 -c import\ json\,\ pathlib\;\ json.loads\(pathlib.Path\(\"hooks.json\"\).read_text\(\)\)\;\ print\(\"hooks.json\ parse:\ PASS\"\)
+hooks.json parse: PASS
+[exit 0]
+$ node --check scripts/npm-install.mjs
+[exit 0]
+$ npm pack --dry-run
+npm notice
+npm notice 📦  native-gravity@0.4.3
+npm notice Tarball Contents
+npm notice 3.4kB README.md
+npm notice 3.1kB agents/bobcat.md
+npm notice 2.5kB agents/bulldozer.md
+npm notice 5.7kB agents/excavator.md
+npm notice 2.1kB agents/jaguar.md
+npm notice 4.0kB agents/piledriver.md
+npm notice 1.3kB agents/puma.md
+npm notice 1.2kB agents/steamroller.md
+npm notice 1.4kB agents/strix-halo.md
+npm notice 3.2kB agents/zen.md
+npm notice 2.3kB docs/ko/README.md
+npm notice 586B hooks.json
+npm notice 7.7kB hooks/excavator-shell-guard.py
+npm notice 5.0kB hooks/zen-shell-guard.py
+npm notice 904B package.json
+npm notice 261B plugin.json
+npm notice 13.0kB rules/harness.md
+npm notice 7.6kB rules/orchestration.md
+npm notice 3.1kB scripts/npm-install.mjs
+npm notice Tarball Details
+npm notice name: native-gravity
+npm notice version: 0.4.3
+npm notice filename: native-gravity-0.4.3.tgz
+npm notice package size: 23.8 kB
+npm notice unpacked size: 68.4 kB
+npm notice shasum: 1c0d36294e9de7b813e9364ca72ed140d319b8c5
+npm notice integrity: sha512-T5uEeamTQ4yN3[...]pdfjgQv1sah/Q==
+npm notice total files: 19
+npm notice
+native-gravity-0.4.3.tgz
+[exit 0]

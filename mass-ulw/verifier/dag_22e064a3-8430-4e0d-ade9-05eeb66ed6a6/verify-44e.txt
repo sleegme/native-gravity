@@ -1,0 +1,22 @@
+1. PASS - Cleanroom has all seven authored files, byte-identical to branch copies (matching SHA-256s). Branch HEAD `d7e35e4` is directly parented by `origin/main` `95b64ad`; `origin/main..HEAD` contains only `d7e35e4`. Neither `e29ec49` nor `2eb9860` is reachable.
+
+2. PASS - Diff scope is exactly:
+   `agents/bobcat.md`, `agents/zen.md`, `hooks/zen-shell-guard.py`, `hooks.json`, `scripts/spine.mjs`, `tests/test_spine.mjs`, `tests/test_zen_shell_guard.py`.
+
+3. PASS - Semantic blockers are enforced:
+   - Candidate status: `if (candidate.status !== 'DONE') { throw new Error('Only explicit Bulldozer DONE may enter Zen review'); }`; tests cover `READY`, `undefined`, `null`, empty, `ACCEPT`, `GO`, and `done`.
+   - No Bobcat bypass: “The only subagent you may invoke is Strix Halo. Do not ... invoke Zen yourself.” Also: “Neither you nor Bulldozer may supply Zen authority.”
+   - Zen identity frontmatter includes `name: zen`, descriptive identity, read-only tools, `mainAgent: false`, `subagent: true`, and `model: pro`.
+   - Zen is independent/non-mutating: “Independently inspect the actual artifact” and “Do not implement, repair, format, install, commit, change project state, delegate...”
+
+4. PASS - Live probes returned `{"decision":"allow","reason":"Marked read-only verification command"}` for marked `git status --short`, and `{"decision":"deny","reason":"Zen permits only read-only verification commands"}` for marked `rm`. Both hook executions exited 0. `agy plugin validate .` exited 0 and reported `hooks : 2 processed`; `hooks.json` registers `python3 ./hooks/zen-shell-guard.py` for `PreToolUse`.
+
+5. PASS - All required tests exited 0:
+   - `node tests/test_spine.mjs`: 27 passed.
+   - `python3 tests/test_zen_shell_guard.py`: 7 passed.
+   - `node tests/test_runner_spike.mjs`: 24 passed.
+   - `node tests/test_ledger.mjs`: 37 passed.
+
+6. PASS - PR #51 is `OPEN`; `headRefOid` is `d7e35e4b2396916ed3a3832c2680a71bb178b030`, equal to local `HEAD`.
+
+VERDICT: GO

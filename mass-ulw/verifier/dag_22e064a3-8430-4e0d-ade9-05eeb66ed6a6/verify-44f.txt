@@ -1,0 +1,21 @@
+1. PASS - Provenance: cleanroom contains all three authored files, each byte-identical to branch versions. `HEAD` parent and merge-base are `origin/main` `95b64ad...`; `origin/main..HEAD` contains only `e3171b9`. Forbidden commits `9b97f0d` and `4658402` are not reachable.
+
+2. PASS - Exact diff file set:
+   ```
+   agents/jaguar.md
+   agents/puma.md
+   agents/strix-halo.md
+   ```
+
+3. PASS - Enforcing semantics:
+   - Jaguar: “Every operation must be READ_ONLY.” / “You are Bulldozer's factual retrieval specialist.”
+   - Puma: “small, explicit, low-risk writing, formatting, and mechanical text/configuration edits” / “No delegation: never invoke, define, spawn, or recruit subagents or external agents.”
+   - Strix Halo: “Accept review invocations from Bobcat only.” / “All inspection must be READ_ONLY.”
+   - Completion: “Worker READY != milestone completion; Strix ACCEPT != milestone completion.”
+   - Escalation: “`Strix Halo -> Bobcat -> Bulldozer -> Steamroller -> optional Piledriver`”
+
+4. PASS - `agy plugin validate .` exited 0; output reports `[ok] .` and `agents: 9 processed`.
+
+5. PASS - PR #50 is `OPEN`; `headRefOid` is `e3171b94a14793b5a55f056119f0240f364e81d2`, matching local `HEAD`.
+
+VERDICT: GO

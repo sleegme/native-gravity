@@ -1,0 +1,17 @@
+1. PASS - Explicit allowlist: `"steamroller", "piledriver", "bulldozer"`; prompt injects `"## Role Body\n${loadRoleBody(role, opts)}"` before handoff sections.
+
+2. PASS - Fail-closed structured errors: `ROLE_BODY_MISSING`, `ROLE_BODY_INVALID`, and `UNRESOLVED_MODEL_SLUG`; tests 6.2-6.5 passed.
+
+3. PASS - Body path is `resolve(RUNNER_DIR, directory, ...)`, with default `"../agents"`; no AGENTS/customization discovery.
+
+4. PASS - `"messages", "conversation", "history", "transcript"` remain rejected; tests 3.5 and 6.8 passed.
+
+5. PASS - Diff preserves model resolution, timeout handling, `NTG_RUNNER_CHAIN`, and response-envelope paths; only role-body integration changed.
+
+6. PASS - Test tails:
+   - `test_runner_spike.mjs`: `"Summary: 33 passed, 0 failed"`; exit 0.
+   - `test_ledger.mjs`: `"Summary: 37 passed, 0 failed"`; exit 0.
+
+7. PASS - Open PR #54 head is `121c793b635ebb3783a2a7741f8701792a7034f6`, matching local HEAD.
+
+VERDICT: GO

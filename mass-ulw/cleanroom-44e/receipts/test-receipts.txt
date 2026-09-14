@@ -1,0 +1,125 @@
+cwd: /home/sleeg/work/ntg-vnext/native-gravity-44e
+TMPDIR: /home/sleeg/work/ntg-vnext/.omo/evidence/ulw/01a0949f-7dc8-7494-b4b1-f137cebd5e3a/G001-root-work-ntg-vnext-parent-dir-is-no/a1/cleanroom-44e/receipts/runtime
+PYTHONDONTWRITEBYTECODE: 1
+$ node --version
+v26.7.0
+[exit 0]
+$ python3 --version
+Python 3.14.7
+[exit 0]
+$ bash -c node\ tests/test_spine.mjs\ \&\&\ python3\ tests/test_zen_shell_guard.py\ \&\&\ node\ tests/test_runner_spike.mjs\ \&\&\ node\ tests/test_ledger.mjs
+✔ planning stays advisory; native work and independent GO survive fresh resume (15.756363ms)
+✔ candidate status READY is not explicit DONE (2.665129ms)
+✔ candidate status undefined is not explicit DONE (2.672804ms)
+✔ candidate status null is not explicit DONE (2.028188ms)
+✔ candidate status  is not explicit DONE (2.288706ms)
+✔ candidate status ACCEPT is not explicit DONE (1.60705ms)
+✔ candidate status GO is not explicit DONE (1.790517ms)
+✔ candidate status done is not explicit DONE (2.183474ms)
+✔ construction cannot omit the independent Zen adapter (1.247167ms)
+✔ candidate cannot supply supervisor or reviewer authority: verdict (2.015169ms)
+✔ candidate cannot supply supervisor or reviewer authority: zen_verdict (2.12677ms)
+✔ candidate cannot supply supervisor or reviewer authority: result_ref (2.374026ms)
+✔ invalid independent review cannot promote: {"verdict":"NOT_REQUIRED"} (3.510664ms)
+✔ invalid independent review cannot promote: {} (3.718577ms)
+✔ invalid independent review cannot promote: {"plan_version":"v0"} (2.870648ms)
+✔ invalid independent review cannot promote: {"milestone_id":"two"} (2.48703ms)
+✔ invalid independent review cannot promote: {"result_ref":"forged-ref"} (2.126477ms)
+✔ invalid independent review cannot promote: {"verification_evidence":[]} (2.834431ms)
+✔ invalid independent review cannot promote: {"verification_evidence":[{"classification":"INFERRED"}]} (3.064545ms)
+✔ NO-GO preserves incompletion; a repaired artifact gets a distinct reviewed reference (4.452019ms)
+✔ BLOCKED returns evidence without promotion or automatic planner invocation (2.1386ms)
+✔ NEEDS_DEEP returns evidence without promotion or automatic planner invocation (1.603744ms)
+✔ pending review forbids concurrent work, replan, completion, and resumed retry (3.349367ms)
+✔ material replan invalidates old GO and requires fresh dependency-ordered review (7.372634ms)
+✔ review invocation failure is persisted and rethrown (3.0035ms)
+✔ interrupted durable invocation requires observed recovery before retry (3.214421ms)
+✔ candidate must bind current identity and immutable artifact versions (3.919869ms)
+ℹ tests 27
+ℹ suites 0
+ℹ pass 27
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 98.158938
+test_agent_identity_and_non_mutating_capabilities (__main__.ZenShellGuardTests.test_agent_identity_and_non_mutating_capabilities) ... ok
+test_hook_registration_uses_real_guard (__main__.ZenShellGuardTests.test_hook_registration_uses_real_guard) ... ok
+test_malformed_input_fails_closed (__main__.ZenShellGuardTests.test_malformed_input_fails_closed) ... ok
+test_marked_mutations_and_bypasses_denied (__main__.ZenShellGuardTests.test_marked_mutations_and_bypasses_denied) ... ok
+test_marked_read_only_commands (__main__.ZenShellGuardTests.test_marked_read_only_commands) ... ok
+test_marker_cannot_be_hidden_in_wrapper_or_disabled (__main__.ZenShellGuardTests.test_marker_cannot_be_hidden_in_wrapper_or_disabled) ... ok
+test_unmarked_commands_belong_to_other_roles (__main__.ZenShellGuardTests.test_unmarked_commands_belong_to_other_roles) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 2.421s
+
+OK
+=== Native Gravity 44B Exact-Model Runner Spike Tests ===
+[PASS] 1.1: Unknown role throws UnresolvedModelSlugError (no silent fallback)
+[PASS] 1.2: Absent surface error (0 matches) throws UnresolvedModelSlugError without silent fallback
+[PASS] 1.3: Ambiguous surface error (multiple matches) throws UnresolvedModelSlugError with candidate details
+[PASS] 1.4: Deterministic resolution against cached installed models for all roles
+[PASS] 1.5: parseInstalledModels correctly parses agy models stdout table
+[PASS] 1.6: Live installed surface resolution against system agy models
+[PASS] 2.1: Unparseable JSON response returns INVALID_OUTPUT failure
+[PASS] 2.2: Non-object JSON response returns INVALID_OUTPUT failure
+[PASS] 2.3: status === 'ERROR' returns MODEL_ERROR failure
+[PASS] 2.4: status === 'SUCCESS' with missing or invalid response returns INVALID_OUTPUT
+[PASS] 2.5: Unexpected or unknown status returns INVALID_OUTPUT (never success)
+[PASS] 2.6: status === 'SUCCESS' with valid string response succeeds
+[PASS] 2.7: invokeTransport enforces response envelope validation on process execution
+[PASS] 2.8: Output format discipline: invoke() rejects non-JSON / cannot bypass envelope validation, while invokeTransport retains text support
+[PASS] 3.1: Deterministic prompt construction with minimal packet
+[PASS] 3.2: Deterministic prompt construction with complete structured packet
+[PASS] 3.3: Task alias 'objective' is accepted when 'task' is omitted
+[PASS] 3.4: Rejection of invalid handoff packets (throws InvalidHandoffPacketError)
+[PASS] 3.5: Strict prohibition of raw conversational state in handoff packet
+[PASS] 3.6: Contract-level invoke returns structured error for invalid packet
+[PASS] 4.1: Single-role chain detection blocks invocation (RECURSION_DETECTED)
+[PASS] 4.2: Multi-role chain detection blocks re-entrant role (RECURSION_DETECTED)
+[PASS] 5.1: Live Piledriver bounded invocation (gemini-3.1-pro-high)
+[PASS] 5.2: Live Bulldozer bounded invocation (gemini-3.8-flash-high)
+=========================================================
+Summary: 24 passed, 0 failed (Total: 24)
+=== Native Gravity 44C Authoritative Project Ledger Tests ===
+[PASS] 1.1: Authoritative state schema strictly maintains all required fields upon initialization
+[PASS] 1.2: Plan validation rejects invalid plan configurations
+[PASS] 1.3: Initialized ledger rejects subsequent init() calls, preventing re-init from wiping state
+[PASS] 2.1: Delegation generates compliant Steamroller -> Bulldozer handoff packet
+[PASS] 2.2: Delegation rejects invalid transitions (double delegation, unmet dependencies, unknown milestone)
+[PASS] 3.1: Candidate reception assigns deterministic result_ref, persists evidence, and keeps milestone active
+[PASS] 3.2: Rebinding prevention throws RefRebindingError on tampered candidate content
+[PASS] 3.3: Candidate reception rejects mismatched milestone_id or stale plan_version
+[PASS] 3.4: Candidate reception rejects packets with missing or non-DONE status, preventing Zen GO promotion
+[PASS] 3.5: Candidate reception strictly enforces all required fields fail-closed
+[PASS] 3.6: Candidate artifact reference normalization, alias consistency, and deterministic hash parity
+[PASS] 3.7: Candidate immutable snapshot enforcement: deep clone and recursive deep freeze prevent mutations
+[PASS] 4.1: Zen GO verifies and promotes milestone, clears current_milestone, and updates next_action
+[PASS] 4.2: Zen NO-GO records verdict, clears current_milestone, leaves milestone incomplete
+[PASS] 4.3: Zen verdict rejects mismatched result_ref (MismatchedResultRefError)
+[PASS] 4.4: Zen verdict rejects stale plan_version (StaleVerdictError)
+[PASS] 4.5: Zen verdict fail-open removal - recordZenGo and recordZenNoGo strictly require explicit verdict 'GO' and 'NO-GO'
+[PASS] 4.6: Zen verdict packet fail-closed required fields validation (milestone_id, plan_version, result_ref, non-empty verification_evidence)
+[PASS] 5.1: Failure / blocker reporting clears active milestone, records blocker, does NOT promote milestone
+[PASS] 5.2: Blocker resolution requires observed evidence and never promotes milestone
+[PASS] 6.1: Material replan monotonically increments plan_version, marks verdicts stale, clears completed milestones
+[PASS] 6.2: Version increment and parsing helper supports both 'vN' and integer version formats
+[PASS] 6.3: Material replan rejects active execution and non-monotonic / backward plan_version transitions
+[PASS] 6.4: Material replan strictly rejects incompatible version formats, prefix changes, and type changes (fail-closed)
+[PASS] 7.1: Global completion strictly enforces all acceptance criteria
+[PASS] 8.1: Atomic persistence and fresh-context resume without conversational memory
+[PASS] 8.2: Corrupted or invariant-violating persisted file fails to load with InvariantViolationError
+[PASS] 8.3: Resume invariant validation rejects completed milestones with old plan_version, dangling result_ref, or candidate mismatches
+[PASS] 8.4: fromJSON() and load() result_ref integrity recomputation rejects tampered candidate payload with unchanged result_ref
+[PASS] 8.5: fromJSON() and load() result_ref integrity recomputation rejects tampered artifact binding with unchanged result_ref
+[PASS] 8.6: fromJSON() and load() reject candidate record divergence from payload (verification_evidence, unresolved_unknowns, scope_deviations, status, milestone_id, plan_version)
+[PASS] 8.7: Persistence save -> load roundtrip across all artifact_ref alias forms and rejection of tampered artifact binding
+[PASS] 8.8: fromJSON() and load() reject persisted candidate with non-DONE status (e.g. BLOCKED) even when record, payload, and recomputed result_ref all match
+[PASS] 8.9: fromJSON() and load() reject persisted candidate with empty verification_evidence even when record, payload, and recomputed result_ref all match
+[PASS] 8.10: fromJSON() and load() reject persisted candidate with missing required field (changes_made, unresolved_unknowns, scope_deviations) even when recomputed hash matches
+[PASS] 8.11: fromJSON() and load() reject completed milestone with Zen GO verification having empty, missing, or whitespace verification_evidence
+[PASS] 8.12: Persistence save -> load roundtrip happy path continues to succeed with full candidate and Zen GO semantic verification
+=========================================================
+Summary: 37 passed, 0 failed (Total: 37)
+[exit 0]

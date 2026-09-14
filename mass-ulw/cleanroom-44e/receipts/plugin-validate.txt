@@ -1,0 +1,8 @@
+$ agy plugin validate .
+  [32m[ok][0m    .
+          - skills      : skipped (not found)
+          [32m✔[0m agents      : 9 processed
+          - commands    : skipped (not found)
+          - mcpServers  : skipped (not found)
+          [32m✔[0m hooks       : 2 processed
+[exit 0]

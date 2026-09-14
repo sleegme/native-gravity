@@ -1,0 +1,27 @@
+Permitted semantic reference: d7e35e4b2396916ed3a3832c2680a71bb178b030
+
+Specification digests:
+a5b1f4cb81127563e29fb0aad22fe0a6c3e35f8bf814264c4c503b9ac9cf8614  docs/specs/pre-vnext-v0.4-behavior-baseline.md
+3b713b06159e658410a6fd169ced724896aa87299f10d1b1587574a6032d9c6c  docs/specs/vnext-architecture-contract.md
+
+Worktree metadata:
+/home/sleeg/work/native-gravity/.git/worktrees/native-gravity-44e
+/home/sleeg/work/native-gravity/.git
+
+Changed paths in reference commit:
+agents/bobcat.md
+agents/zen.md
+hooks.json
+hooks/zen-shell-guard.py
+scripts/spine.mjs
+tests/test_spine.mjs
+tests/test_zen_shell_guard.py
+
+Authoring comparison (not a functional change requirement):
+agents/bobcat.md: re-authored
+agents/zen.md: re-authored
+hooks/zen-shell-guard.py: re-authored
+hooks.json: byte-identical registration
+scripts/spine.mjs: re-authored
+tests/test_spine.mjs: re-authored
+tests/test_zen_shell_guard.py: re-authored

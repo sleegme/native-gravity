@@ -1,0 +1,15 @@
+I read this as resuming the read-only integration audit - I’ll stop when the per-check report and final verdict are delivered.1. PASS - Runner contains `ROLE_BODY_ROLES = Object.freeze(["steamroller", "piledriver", "bulldozer"])` and `loadRoleBody`. All three worktree body SHA-256 values exactly equal `0497195:<file>`.
+
+2. PASS - Independent compose/invoke proof reported for every role: `"explicit-steamroller=PASS body_and_handoff_and_invoke"` (also piledriver and bulldozer). Prompts contained full body text plus Task, Context Files, Evidence, Constraints, and Expected Output handoff sections.
+
+3. PASS - From a fresh mktemp cwd without `AGENTS.md`: `"neutral-steamroller=PASS body_injected"` (also piledriver and bulldozer).
+
+4. PASS - Missing file fails closed: `{"ok":false,"error":"ROLE_BODY_MISSING","role":"piledriver",...}`.
+
+5. PASS - `node tests/test_runner_spike.mjs` exited 0: `"Summary: 33 passed, 0 failed"`.
+
+6. PASS - `gh pr view 53 --repo sleegme/native-gravity` reports `"state":"OPEN"`, `"isDraft":true`, and head `049719574c6189d9dc820b5481797009d3a5582e`. It lists only the two expected 44D commits; no separate cleanup commit was pushed.
+
+7. PASS - `integration-evidence/REPORT.md` records `OQ-6: **NOT_APPLICABLE_TO_RUNNER_ROLES**` with reason: ``loadRoleBody` reads an explicit file ... [and] neither role frontmatter nor `inheritCustomizations` is parsed by the runner.`
+
+VERDICT: GO
