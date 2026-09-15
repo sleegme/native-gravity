@@ -1,255 +1,196 @@
 #!/usr/bin/env python3
-"""Role-scoped behavioral backstop for Excavator shell calls.
+"""Marker-scoped AGY guard, independently authored from NTG's effect contract.
 
-Excavator may use sudo and mutate when the bounded repair needs it. This hook is
-not a privilege sandbox; it blocks reproduced role drift: acquiring privilege
-after authorization is unavailable and broad system upgrades used as diagnosis.
+This denies known privilege drift, credential mining and broad upgrades, not
+ordinary repair mutations. It is not a sandbox for arbitrary executable files.
 """
-
-# Keep annotations unevaluated so `str | None` stays valid on Python 3.9 hosts.
-from __future__ import annotations
-
 import json
+import os
 import re
 import shlex
 import sys
 
 MARKER = "NTG_EXCAVATOR=1 "
-PRIVILEGE = "privilege"
-FULL_UPGRADE = "full-upgrade"
-
-REASONS = {
-    PRIVILEGE: (
-        "Excavator may use sudo for task-relevant work, but it must not turn missing "
-        "authorization into a credential-discovery or privilege-acquisition task. "
-        "Continue with available diagnostics, ask the user to provide authorization, "
-        "or report the privileged step as BLOCKED."
-    ),
-    FULL_UPGRADE: (
-        "Excavator must not use a full-system upgrade as an exploratory troubleshooting "
-        "step. Preserve the user's constraints and make the smallest evidence-backed "
-        "change needed for the bounded problem."
-    ),
-}
-
-CONTROL = {";", "&&", "||", "|", "&"}
-WRAPPERS = {"command", "nohup"}
-SHELLS = {"sh", "bash", "dash", "zsh", "fish"}
-HISTORY_READERS = {"cat", "tail", "head", "grep", "rg", "sed", "awk"}
-SUDO_VALUE_OPTIONS = {
-    "-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt",
-    "-C", "--close-from", "-T", "--command-timeout", "-R", "--chroot",
-    "-D", "--chdir",
-}
-PASSWORD_GUESS_LOOP = re.compile(
-    r"(?is)\bfor\b[^;]*\bin\b[^;]*;\s*do\b[^;]*(?:sudo\b[^;]*-S|\bsu\b)"
-)
+GUIDANCE = "; continue available diagnostics, ask the user for authorization, or report BLOCKED"
+SHELLS = {"sh", "bash", "dash", "zsh", "ksh", "fish"}
 
 
-def basename(token: str) -> str:
-    return token.rsplit("/", 1)[-1]
-
-
-def respond(decision: str, reason: str | None = None) -> None:
-    payload = {"decision": decision}
-    if reason:
-        payload["reason"] = reason
-    print(json.dumps(payload))
-
-
-def shell_commands(body: str) -> list[list[str]]:
-    lexer = shlex.shlex(body, posix=True, punctuation_chars=";&|")
+def inspect_script(script, depth=0):
+    if depth > 16:
+        return "Shell nesting exceeds inspection limit"
+    lexer = shlex.shlex(script.replace("\n", ";"), posix=True,
+                        punctuation_chars=";&|()<>")
     lexer.whitespace_split = True
-    lexer.commenters = ""
-    commands, current = [], []
-    for token in lexer:
-        if token in CONTROL:
+    lexer.commenters = "#"
+    words = list(lexer)
+    # Expansions can synthesize executable names; fail closed rather than
+    # guessing their runtime value. Literal quoted diagnostic text stays usable.
+    if any("`" in word or "$" in word for word in words):
+        return "Dynamic shell expansion cannot be inspected reliably"
+    segments = []
+    current = []
+    piped = False
+    for word in words:
+        if word and all(char in ";&|()<>" for char in word):
             if current:
-                commands.append(current)
+                segments.append((current, piped or "<" in word))
                 current = []
+            piped = "|" in word or "<" in word
         else:
-            current.append(token)
+            current.append(word)
     if current:
-        commands.append(current)
-    return commands
+        segments.append((current, piped))
+    for command, stdin_supplied in segments:
+        reason = inspect_simple(command, stdin_supplied, depth)
+        if reason:
+            return reason
+    return None
 
 
-def strip_assignments(tokens: list[str]) -> list[str]:
-    while tokens and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[0]):
-        tokens = tokens[1:]
-    return tokens
-
-
-def unwrap(tokens: list[str]) -> list[str]:
-    tokens = strip_assignments(tokens)
-    while tokens:
-        executable = basename(tokens[0])
-        if executable in WRAPPERS:
-            tokens = strip_assignments(tokens[1:])
+def inspect_simple(words, stdin_supplied, depth):
+    words = list(words)
+    while words:
+        name = os.path.basename(words[0])
+        if re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", words[0]):
+            words.pop(0)
             continue
-        if executable != "env":
-            return tokens
-
-        index = 1
-        while index < len(tokens):
-            token = tokens[index]
-            if token == "--":
-                index += 1
-                break
-            if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", token):
-                index += 1
-                continue
-            if token in {"-i", "--ignore-environment", "-0", "--null"}:
-                index += 1
-                continue
-            if token in {"-u", "--unset", "-C", "--chdir"}:
-                index += 2
-                continue
-            if (
-                token.startswith("--unset=")
-                or token.startswith("--chdir=")
-                or (token.startswith("-u") and token != "-u")
-                or (token.startswith("-C") and token != "-C")
-            ):
-                index += 1
-                continue
-            if token.startswith("-"):
-                return tokens
-            break
-        tokens = strip_assignments(tokens[index:])
-    return tokens
-
-
-def sudo_target(tokens: list[str]) -> tuple[bool, list[str]]:
-    """Return whether sudo reads a password from stdin, plus its target command."""
-    index = 1
-    stdin_password = False
-    while index < len(tokens):
-        token = tokens[index]
-        if token == "--":
-            return stdin_password, tokens[index + 1:]
-        if token in {"-S", "--stdin"}:
-            stdin_password = True
-            index += 1
+        if name in {"nohup", "nice", "timeout", "xargs"}:
+            words.pop(0)
+            value_options = {
+                "nohup": set(),
+                "nice": {"-n", "--adjustment"},
+                "timeout": {"-k", "--kill-after", "-s", "--signal"},
+                "xargs": {"-a", "--arg-file", "-d", "--delimiter", "-E",
+                          "-I", "-L", "--max-lines", "-n", "--max-args",
+                          "-P", "--max-procs", "-s", "--max-chars",
+                          "--process-slot-var"},
+            }[name]
+            flags = {
+                "nohup": {"--help", "--version"},
+                "nice": {"--help", "--version"},
+                "timeout": {"--preserve-status", "--foreground", "-v",
+                            "--verbose", "--help", "--version"},
+                "xargs": {"-0", "--null", "-r", "--no-run-if-empty", "-t",
+                          "--verbose", "-p", "--interactive", "-x", "--exit",
+                          "--help", "--version"},
+            }[name]
+            while words and words[0].startswith("-"):
+                option = words.pop(0)
+                if option == "--":
+                    break
+                if option in value_options:
+                    if not words:
+                        return "Missing wrapper option value"
+                    words.pop(0)
+                elif option in flags:
+                    continue
+                elif any(option.startswith(opt + "=") if opt.startswith("--")
+                         else option.startswith(opt) and len(option) > len(opt)
+                         for opt in value_options):
+                    continue
+                elif name == "nice" and re.fullmatch(r"-\d+", option):
+                    continue
+                else:
+                    return "Wrapper option cannot be inspected reliably"
+            if name == "timeout":
+                if not words or not re.fullmatch(r"\d+(?:\.\d+)?[smhd]?", words.pop(0)):
+                    return "Missing or malformed timeout duration"
+            if not words and name in {"nohup", "timeout"}:
+                return "Missing wrapped command"
             continue
-        if token.startswith("--"):
-            if token in SUDO_VALUE_OPTIONS and "=" not in token:
-                index += 2
-            else:
-                index += 1
-            continue
-        if token.startswith("-") and token != "-":
-            if "S" in token[1:]:
-                stdin_password = True
-            index += 2 if token in SUDO_VALUE_OPTIONS else 1
+        if name in {"command", "builtin", "exec", "env", "sudo"}:
+            words.pop(0)
+            if name == "sudo" and stdin_supplied:
+                return "Piped or redirected sudo input is privilege acquisition"
+            while words and words[0].startswith("-") and words[0] != "-":
+                option = words.pop(0)
+                if name == "sudo":
+                    if option == "--stdin" or (not option.startswith("--") and "S" in option):
+                        return "Non-interactive sudo password injection is forbidden"
+                    if option in {"-u", "-g", "-h", "-p", "-C", "-T", "-R", "-D", "--user", "--group", "--host", "--prompt", "--chroot", "--chdir", "--close-from", "--command-timeout", "--login-class", "--role", "--type", "--other-user"} and words:
+                        words.pop(0)
+                elif name == "env" and option in {"-u", "--unset", "-C", "--chdir"} and words:
+                    words.pop(0)
+                elif name == "env" and option in {"-S", "--split-string"}:
+                    return inspect_script(" ".join(words), depth + 1)
+                if option == "--":
+                    break
             continue
         break
-    return stdin_password, tokens[index:]
-
-
-def is_full_upgrade(executable: str, args: list[str]) -> bool:
-    name = basename(executable).lower()
-    lowered = [arg.lower() for arg in args]
-
-    if name in {"pacman", "yay", "paru"}:
-        short_flags = "".join(
-            arg[1:] for arg in lowered
-            if arg.startswith("-") and not arg.startswith("--")
-        )
-        return ("s" in short_flags and "u" in short_flags) or "--sysupgrade" in lowered
-
-    actions = {
-        "apt": {"upgrade", "full-upgrade", "dist-upgrade"},
-        "apt-get": {"upgrade", "full-upgrade", "dist-upgrade"},
-        "dnf": {"upgrade", "update", "system-upgrade"},
-        "yum": {"upgrade", "update"},
-        "zypper": {"dup", "dist-upgrade", "update", "up"},
-    }
-    return name in actions and any(arg in actions[name] for arg in lowered)
-
-
-def classify_command(tokens: list[str], depth: int = 0) -> str | None:
-    if depth > 2:
+    if not words:
         return None
-
-    tokens = unwrap(tokens)
-    if not tokens:
-        return None
-
-    executable = basename(tokens[0])
-    args = tokens[1:]
-
-    if executable == "sudo":
-        stdin_password, target = sudo_target(tokens)
-        if stdin_password:
-            return PRIVILEGE
-        return classify_command(target, depth + 1)
-
-    if executable in {"su", "pkexec"}:
-        return PRIVILEGE
-
-    if executable == "ssh" and any(
-        re.fullmatch(r"root@(?:localhost|127\.0\.0\.1|\[?::1\]?)", arg, re.IGNORECASE)
-        for arg in args
-    ):
-        return PRIVILEGE
-
-    if executable in HISTORY_READERS and any(
-        history in arg for arg in args for history in (".bash_history", ".zsh_history")
-    ):
-        return PRIVILEGE
-
-    if is_full_upgrade(executable, args):
-        return FULL_UPGRADE
-
-    if executable in SHELLS:
+    name, args = os.path.basename(words[0]), words[1:]
+    if name in {"su", "pkexec", "doas"}:
+        return "Alternate privilege acquisition is forbidden"
+    if name in SHELLS:
         for index, arg in enumerate(args):
-            if arg == "-c" and index + 1 < len(args):
-                return classify_shell(args[index + 1], depth + 1)
-
+            if arg.startswith("-") and not arg.startswith("--") and "c" in arg:
+                if index + 1 >= len(args):
+                    return "Missing shell command body"
+                return inspect_script(args[index + 1], depth + 1)
+    if name == "eval":
+        return inspect_script(" ".join(args), depth + 1)
+    if name == "ssh":
+        root = any(arg.startswith("root@") for arg in args)
+        root = root or any(arg == "-lroot" or arg == "User=root" for arg in args)
+        root = root or any(args[i:i + 2] == ["-l", "root"] for i in range(len(args)))
+        local = any(arg.removeprefix("root@").strip("[]").lower() in
+                    {"localhost", "localhost.localdomain", "127.0.0.1", "::1", "0.0.0.0"}
+                    for arg in args)
+        if root and local:
+            return "Loopback root SSH is privilege acquisition"
+    if name in {"cat", "grep", "rg", "head", "tail", "less", "more", "awk", "sed", "strings", "cp"}:
+        if any(re.search(r"(?:^|/)(?:\.[^/]*history|[^/]*history[^/]*)$", arg, re.I) for arg in args):
+            return "Reading interactive shell history risks credential mining"
+    # Redirect-based history reads: `cat < ~/.bash_history` puts the history
+    # file as the segment's command name after the '<' separator.
+    if stdin_supplied and re.search(r"(?:^|/)(?:\.[^/]*history|[^/]*history[^/]*)$", name, re.I):
+        return "Reading interactive shell history risks credential mining"
+    if name in {"history", "fc"}:
+        return "Interactive shell history is not an authorized credential source"
+    if name == "zypper" and "up" in args:
+        return "Exploratory full-system upgrades are forbidden"
+    if name in {"apt", "apt-get", "yum", "dnf", "dnf5", "zypper"}:
+        if any(arg in {"upgrade", "full-upgrade", "dist-upgrade", "system-upgrade", "update", "dup"} for arg in args):
+            # apt update refreshes metadata, not the installed system.
+            if not (name in {"apt", "apt-get"} and "update" in args and not any(
+                    arg in {"upgrade", "full-upgrade", "dist-upgrade"} for arg in args)):
+                return "Exploratory full-system upgrades are forbidden"
+    if name in {"pacman", "yay", "paru"}:
+        if any(arg == "--sysupgrade" or (arg.startswith("-") and not arg.startswith("--") and "u" in arg) for arg in args):
+            return "Exploratory full-system upgrades are forbidden"
     return None
 
 
-def classify_shell(body: str, depth: int = 0) -> str | None:
-    if PASSWORD_GUESS_LOOP.search(body):
-        return PRIVILEGE
+def evaluate(payload):
+    if not isinstance(payload, dict) or not isinstance(payload.get("toolCall"), dict):
+        raise ValueError("Expected AGY toolCall object")
+    call = payload["toolCall"]
+    if not isinstance(call.get("name"), str):
+        raise ValueError("Expected tool name")
+    if call["name"] != "run_command":
+        return {"decision": "allow", "reason": "Not a shell tool"}
+    args = call.get("args")
+    if not isinstance(args, dict) or not isinstance(args.get("CommandLine"), str):
+        raise ValueError("Expected toolCall.args.CommandLine string")
+    command = args["CommandLine"]
+    if not command.startswith(MARKER):
+        return {"decision": "allow", "reason": "Outside the Excavator-marked boundary"}
+    script = command[len(MARKER):]
+    if not script.strip():
+        raise ValueError("Empty marked shell command")
+    reason = inspect_script(script)
+    if reason:
+        return {"decision": "deny", "reason": reason + GUIDANCE}
+    return {"decision": "allow", "reason": "No prohibited Excavator effect detected"}
+
+
+def main():
     try:
-        commands = shell_commands(body)
-    except ValueError:
-        return None
-    for command in commands:
-        result = classify_command(command, depth)
-        if result:
-            return result
-    return None
-
-
-def main() -> None:
-    try:
-        event = json.load(sys.stdin)
-    except Exception:
-        respond("allow")
-        return
-
-    tool_call = event.get("toolCall") or {}
-    args = tool_call.get("args") or {}
-    command = str(args.get("CommandLine") or "")
-
-    if tool_call.get("name") != "run_command" or not command.startswith(MARKER):
-        respond("allow")
-        return
-
-    body = command[len(MARKER):].strip()
-    if not body:
-        respond("deny", "Excavator shell command was empty.")
-        return
-
-    violation = classify_shell(body)
-    if violation:
-        respond("deny", REASONS[violation])
-        return
-
-    respond("allow")
+        result = evaluate(json.load(sys.stdin))
+    except (ValueError, TypeError, RecursionError) as error:
+        result = {"decision": "deny", "reason": "Malformed hook input: " + str(error) + GUIDANCE}
+    print(json.dumps(result))
 
 
 if __name__ == "__main__":

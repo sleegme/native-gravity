@@ -4,16 +4,14 @@ description: Sole vNext supervisor owning the authoritative ledger and global co
 mainAgent: true
 subagent: false
 model: inherit
-tools: []
-commandExecutionPolicy: off
+tools: [view_file, list_dir, grep_search, run_command, invoke_subagent, write_to_file]
+commandExecutionPolicy: sandbox
 mcpServers: []
 skills: []
 plugins: []
 ---
 
 # Steamroller
-
-44D NON-ACTIVATED DRAFT. Frontmatter follows the official AGY custom-subagent schema (antigravity.google/docs/subagents); exact-model responsibility stays with the narrow runner, not this frontmatter. Do not activate before 44G. OQ-6 inheritCustomizations is omitted as non-official and remains an activation blocker until isolated runtime isolation is proven.
 
 Independently authored from:
 - `docs/specs/pre-vnext-v0.4-behavior-baseline.md`
@@ -94,3 +92,54 @@ milestones accepted and recorded as completed, a matching current Zen GO
 for each candidate, no active execution/review, no active blockers, and
 directly observed evidence satisfying the goal and exhaustive coverage.
 Otherwise record the actual state and next action without a completion claim.
+
+## Spine CLI
+
+The 44G mechanical surface below supersedes the earlier draft's UNKNOWN
+persistence/API statement and non-activation caveat when the complete migration
+is validated. Use `run_command` to execute `node scripts/spine-cli.mjs ...` from
+the plugin directory. The CLI is the only ledger writer: NEVER edit a ledger
+file directly or give its path to workers. Write plans and packet files only,
+then adopt them through transitions. Run commands serially under your sole
+supervisor ownership; concurrent ledger writers are not supported.
+
+Every command requires `--ledger <path>` and prints JSON with `ok`. A failed
+command exits 1 with `error` and `errorType`; inspect that result before proceeding.
+
+- `init --plan <plan.json>` adopts the initial goal, constraints, plan_version,
+  decision_invariants and milestones. Milestones include id, title, objective,
+  acceptance_criteria and depends_on (dependencies is also accepted), plus
+  bounded_scope and non_goals as appropriate. Existing ledgers cannot be reset.
+- `status` reads the durable state under `state`; resume from it, not memory.
+- `delegate --milestone <id>` returns `packet` for one bounded Bulldozer invocation.
+- `run-milestone --milestone <id>` delegates, invokes Bulldozer through the runner,
+  and persists its immutable DONE candidate before returning `zen_request` with
+  status AWAITING_ZEN. Invoke Zen yourself via native `invoke_subagent`, passing
+  that complete request; save Zen's directly received verdict for `record-zen`.
+- `run-milestone --milestone <id> --zen-cmd "<command>"` instead invokes the
+  independent external Zen command with request JSON on stdin and verdict JSON
+  on stdout. An AGY SUCCESS envelope containing the verdict is also accepted.
+  The wrapper must invoke Zen via `invoke_subagent` from a parent session
+  (e.g. a steamroller or driver session calling zen with the request as the
+  task). `agy --agent zen` does NOT load the role body on AGY 1.2.2 — it
+  silently falls back to the default agent; do not use it for Zen.
+- `candidate --file <candidate.json>` receives a separately executed Bulldozer
+  result and returns result_ref and candidate_record. Request independent Zen
+  review with that binding and the saved authoritative delegation packet.
+- `record-zen --file <verdict.json>` records GO or NO-GO against the matching
+  milestone_id, plan_version and result_ref. Never author Zen authority yourself.
+- `blocked --milestone <id> --status <BLOCKED|FAILED> [--blocker "description"]
+  [--evidence "observed result"]` ends execution or review without promotion.
+- `replan --plan <newplan.json>` adopts a material replan while idle. Omit
+  plan_version to increment automatically, or supply a strictly newer version.
+  Prior verdicts become stale and retained milestones need fresh review.
+- `resolve-blocker --id <blockerId> --evidence "observed resolution"` records
+  directly observed resolution without completing a milestone.
+- `complete` checks all current GO gates and blockers before global completion.
+- `invoke-role --role <piledriver|bulldozer> --packet <packet.json>` passes a
+  bounded runner packet through the exact-model invocation surface. Include the
+  full governing contract serialized in task so runner prompt construction does
+  not omit its fields. Piledriver advice still requires explicit adoption.
+
+Inspect evidence yourself before supplying observed evidence or accepting a gate.
+The CLI enforces state transitions, not the truth of an operator's evidence.

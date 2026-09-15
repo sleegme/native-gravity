@@ -80,6 +80,54 @@ class ExcavatorShellGuardTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(decision(MARKER + command), "deny")
 
+    def test_gate_counterexamples_are_marker_scoped(self) -> None:
+        commands = [
+            "nohup su",
+            "sudo sh -c 'echo x | su'",
+            "sudo zypper up",
+            "sudo bash -c 'apt upgrade'",
+        ]
+        for command in commands:
+            with self.subTest(command=command):
+                self.assertEqual(decision(MARKER + command), "deny")
+                self.assertEqual(decision(command), "allow")
+
+    def test_wrappers_preserve_effect_inspection(self) -> None:
+        wrappers = [
+            "nohup", "nohup --", "env", "env -u HOME",
+            "nice", "nice -n 5", "nice --adjustment=5", "nice -10",
+            "timeout 5", "timeout -s TERM -k 1 5",
+            "xargs", "xargs -r -n 1", "xargs -I {}", "xargs --max-args=1",
+            "env FOO=bar nohup nice -n 5 timeout 2 xargs -r",
+        ]
+        for wrapper in wrappers:
+            for command in ["su", "sudo zypper dist-upgrade", "sudo zypper dup",
+                            "sudo bash -c 'apt upgrade'", "sh -c 'echo x | su'"]:
+                with self.subTest(wrapper=wrapper, command=command):
+                    self.assertEqual(decision(MARKER + wrapper + " " + command), "deny")
+            for command in ["sudo journalctl -n 10", "sudo apt install foo"]:
+                with self.subTest(wrapper=wrapper, command=command):
+                    self.assertEqual(decision(MARKER + wrapper + " " + command), "allow")
+
+    def test_nested_shell_diagnostics_remain_allowed(self) -> None:
+        for command in ["sudo sh -c 'echo x | cat'",
+                        "sudo bash -c 'apt update'",
+                        "sudo bash -c \"sh -c 'apt install foo'\""]:
+            with self.subTest(command=command):
+                self.assertEqual(decision(MARKER + command), "allow")
+
+    def test_malformed_input_fails_closed(self) -> None:
+        for raw in ["{", "null", "{}", json.dumps({"toolCall": {
+                "name": "run_command", "args": {"CommandLine": 1}}})]:
+            with self.subTest(raw=raw):
+                result = subprocess.run([sys.executable, str(GUARD)], input=raw,
+                                        text=True, capture_output=True, check=True)
+                self.assertEqual(json.loads(result.stdout)["decision"], "deny")
+        for command in ["", "sh -c", "bash -c 'unterminated", "nohup",
+                        "timeout", "timeout -s", "nice -n", "xargs -n"]:
+            with self.subTest(command=command):
+                self.assertEqual(decision(MARKER + command), "deny")
+
     def test_unmarked_commands_are_unaffected(self) -> None:
         self.assertEqual(decision("sudo apt upgrade"), "allow")
         self.assertEqual(decision("sudo su -"), "allow")
