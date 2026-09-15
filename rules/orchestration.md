@@ -1,9 +1,6 @@
 # vNext orchestration contract
 
-44D NON-ACTIVATED DRAFT. Applies only to the isolated migration context;
-44G must validate and activate runtime and topology documentation together.
-No AGENTS, plugin, hook, script or test change is authorized by this slice.
-Independently authored from
+Authored for the vNext runtime (activated in 44G) from
 `docs/specs/pre-vnext-v0.4-behavior-baseline.md` and
 `docs/specs/vnext-architecture-contract.md`.
 Generic contract/evidence/effect rules live in `rules/harness.md`.
@@ -182,5 +179,5 @@ encoding (including mainAgent, tools and subagents), inheritCustomizations
 semantics, exact model slugs, Zen's optional exact-model choice, ledger
 storage/enforcement interfaces, final Excavator authority/model placement and
 Sonnet's invocation path. Frontmatter UNKNOWN is not a runtime default or a
-grant. Do not activate these drafts or claim schema/live validation until the
-relevant unknowns are resolved by their authorized later work.
+grant. Frontmatter UNKNOWN is not a runtime default or a grant; unresolved
+unknowns are resolved by their authorized later work.

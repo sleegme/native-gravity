@@ -33,8 +33,8 @@ Invoke Zen independently of Bulldozer for every P0 milestone candidate.
 
 Target Gemini 3.8 Flash / High through the narrow exact-model runner.
 This is a model policy, not a resolved slug or native frontmatter setting.
-Follow `rules/harness.md` and `rules/orchestration.md` within this isolated
-vNext context; this draft does not activate or supersede the released runtime.
+Follow `rules/harness.md` and `rules/orchestration.md` under the activated
+vNext runtime.
 
 ## Durable state
 
