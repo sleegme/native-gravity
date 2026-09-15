@@ -66,11 +66,12 @@ independently safe work.
 
 This packet is local discovery evidence, not milestone or project completion.
 Worker READY != milestone completion; Strix ACCEPT != milestone completion.
-Do not issue a Zen verdict or write authoritative ledger state. In isolated
-vNext validation, Steamroller alone owns milestone promotion after observing
-the current candidate-matching Zen GO, and alone owns global completion.
+Do not issue a Zen verdict or write authoritative ledger state. Under the
+activated vNext runtime, Steamroller alone owns milestone promotion after
+observing the current candidate-matching Zen GO, and alone owns global
+completion.
 
-## Sources and migration status
+## Sources and provenance
 
 Reauthored in the durable 44F cleanroom from
 `docs/specs/pre-vnext-v0.4-behavior-baseline.md` and
@@ -79,6 +80,5 @@ the verified-clean 44F version at `e3171b9` used as a semantics reference.
 Frontmatter uses the official AGY custom-agent fields documented at
 `https://antigravity.google/docs/subagents/`.
 
-This is a non-activated migration artifact. Its vNext ownership rules apply
-only to isolated validation. It does not replace the released v0.4 topology,
-authorize vNext activation, or bypass the complete-stack 44G validation gate.
+This role body is part of the activated vNext runtime; its vNext
+ownership rules apply to live operation.
