@@ -26,5 +26,23 @@
         ]
       }
     ]
+  },
+  "native-gravity-excavator-review-gate": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python3 \"$HOME/.gemini/config/plugins/native-gravity/hooks/excavator-review-gate.py\"",
+        "timeout": 10
+      }
+    ]
+  },
+  "native-gravity-primary-review-gate": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python3 \"$HOME/.gemini/config/plugins/native-gravity/hooks/primary-review-gate.py\"",
+        "timeout": 10
+      }
+    ]
   }
 }
