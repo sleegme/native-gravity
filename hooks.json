@@ -1,26 +1,26 @@
 {
-  "native-gravity-zen-shell-guard": {
+  "zen-verification-boundary": {
     "PreToolUse": [
       {
-        "matcher": "run_command",
+        "matcher": "^run_command$",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$HOME/.gemini/config/plugins/native-gravity/hooks/zen-shell-guard.py\"",
+            "command": "python3 ./hooks/zen-shell-guard.py",
             "timeout": 10
           }
         ]
       }
     ]
   },
-  "native-gravity-excavator-shell-guard": {
+  "excavator-migration-boundary": {
     "PreToolUse": [
       {
-        "matcher": "run_command",
+        "matcher": "^run_command$",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$HOME/.gemini/config/plugins/native-gravity/hooks/excavator-shell-guard.py\"",
+            "command": "python3 ./hooks/excavator-shell-guard.py",
             "timeout": 10
           }
         ]
