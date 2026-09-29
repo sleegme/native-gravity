@@ -10,7 +10,7 @@ Branch under test: `origin/vnext/44g-activation` (PR #55 head `0c7aea0`).
 | `agy plugin validate .` | PASS | `agents: 9 processed`, `hooks: 2 processed`, no errors |
 | Plugin unit tests (node) | PASS 40/40 | `node --test tests/*.mjs` on branch checkout |
 | Python hook tests | PASS 15/15 | `python -m unittest discover -s tests` |
-| Role frontmatter declarations | PASS (static only) | `steamroller.md`, `excavator.md`, `bulldozer.md`, `piledriver.md` carry `mainAgent: true`; `bobcat.md`, `jaguar.md`, `puma.md`, `strix-halo.md`, `zen.md` carry `subagent: true`. This is frontmatter existence, not live discovery — live routing calls could not be exercised (see gaps below) |
+| Role frontmatter declarations | PASS (static only) | `bulldozer.md`, `excavator.md`, `piledriver.md` carry `mainAgent: true`; `bobcat.md`, `jaguar.md`, `puma.md`, `steamroller.md`, `strix-halo.md`, `zen.md` carry `subagent: true` — 3 main agents and 6 subagents. This is frontmatter existence, not live discovery — live routing calls could not be exercised (see gaps below) |
 | Hook registration | PASS | `hooks.json` declares two `PreToolUse` entries on `^run_command$` |
 
 ## Host tool-surface mismatch (blocking for live path validation)
@@ -22,17 +22,16 @@ The live `agy` 1.2.12 `--print` surface answers confirmed presence for
 `replace_file_content` and absence for `list_dir`, `find_by_name`,
 `grep_search`, `multi_replace_file_content`.
 
-Affected declarations (all four absent names):
+Affected declarations, per absent tool:
 
-- `agents/excavator.md`: `list_dir`, `find_by_name`, `grep_search`, `multi_replace_file_content`
-- `agents/bobcat.md`: `list_dir`, `find_by_name`, `grep_search`, `multi_replace_file_content`
-- `agents/bulldozer.md`: `list_dir`, `find_by_name`, `grep_search`
-- `agents/piledriver.md`: `list_dir`, `find_by_name`, `grep_search`
-- `agents/steamroller.md`: `list_dir`, `find_by_name`, `grep_search`
-- `agents/jaguar.md`: `grep_search`
-- `agents/puma.md`: `grep_search`
-- `agents/strix-halo.md`: `grep_search`
-- `agents/zen.md`: `grep_search`
+- `list_dir` — `agents/bobcat.md`, `agents/bulldozer.md`, `agents/excavator.md`, `agents/piledriver.md`, `agents/steamroller.md`, `agents/zen.md`
+- `find_by_name` — `agents/bobcat.md`, `agents/bulldozer.md`, `agents/excavator.md`, `agents/piledriver.md`, `agents/steamroller.md`, `agents/zen.md`
+- `grep_search` — `agents/bobcat.md`, `agents/bulldozer.md`, `agents/excavator.md`, `agents/jaguar.md`, `agents/piledriver.md`, `agents/puma.md`, `agents/steamroller.md`, `agents/strix-halo.md`, `agents/zen.md`
+- `multi_replace_file_content` — `agents/bobcat.md` only (Bobcat is the only role that declares it)
+
+Additional static oddity: `agents/excavator.md` and `agents/piledriver.md` each
+list the literal path `rules/harness.md` inside their `tools:` block — a file
+path, not a tool name; under a strict schema this would fail validation.
 
 Consequence: even where `agy plugin validate` accepts the plugin, an activated
 Excavator/Steamroller role cannot execute `list_dir`/`find_by_name`/`grep_search`
