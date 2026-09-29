@@ -10,8 +10,7 @@ Branch under test: `origin/vnext/44g-activation` (PR #55 head `0c7aea0`).
 | `agy plugin validate .` | PASS | `agents: 9 processed`, `hooks: 2 processed`, no errors |
 | Plugin unit tests (node) | PASS 40/40 | `node --test tests/*.mjs` on branch checkout |
 | Python hook tests | PASS 15/15 | `python -m unittest discover -s tests` |
-| Main-agent discovery | PASS | `steamroller.md`, `excavator.md` carry `mainAgent: true` |
-| Subagent declarations | PASS | 7 subagent role files carry `subagent: true` and name keys |
+| Role frontmatter declarations | PASS (static only) | `steamroller.md`, `excavator.md`, `bulldozer.md`, `piledriver.md` carry `mainAgent: true`; `bobcat.md`, `jaguar.md`, `puma.md`, `strix-halo.md`, `zen.md` carry `subagent: true`. This is frontmatter existence, not live discovery — live routing calls could not be exercised (see gaps below) |
 | Hook registration | PASS | `hooks.json` declares two `PreToolUse` entries on `^run_command$` |
 
 ## Host tool-surface mismatch (blocking for live path validation)
@@ -23,11 +22,17 @@ The live `agy` 1.2.12 `--print` surface answers confirmed presence for
 `replace_file_content` and absence for `list_dir`, `find_by_name`,
 `grep_search`, `multi_replace_file_content`.
 
-Affected declarations:
+Affected declarations (all four absent names):
 
 - `agents/excavator.md`: `list_dir`, `find_by_name`, `grep_search`, `multi_replace_file_content`
-- `agents/steamroller.md`: `list_dir`, `grep_search`
-- `agents/jaguar.md`, `agents/puma.md`, `agents/strix-halo.md`, `agents/zen.md`: `grep_search` (some also `view_file`, which exists)
+- `agents/bobcat.md`: `list_dir`, `find_by_name`, `grep_search`, `multi_replace_file_content`
+- `agents/bulldozer.md`: `list_dir`, `find_by_name`, `grep_search`
+- `agents/piledriver.md`: `list_dir`, `find_by_name`, `grep_search`
+- `agents/steamroller.md`: `list_dir`, `find_by_name`, `grep_search`
+- `agents/jaguar.md`: `grep_search`
+- `agents/puma.md`: `grep_search`
+- `agents/strix-halo.md`: `grep_search`
+- `agents/zen.md`: `grep_search`
 
 Consequence: even where `agy plugin validate` accepts the plugin, an activated
 Excavator/Steamroller role cannot execute `list_dir`/`find_by_name`/`grep_search`
