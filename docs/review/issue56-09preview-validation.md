@@ -29,10 +29,11 @@ Affected declarations, per absent tool:
 - `grep_search` — `agents/bobcat.md`, `agents/bulldozer.md`, `agents/excavator.md`, `agents/jaguar.md`, `agents/piledriver.md`, `agents/puma.md`, `agents/steamroller.md`, `agents/strix-halo.md`, `agents/zen.md`
 - `multi_replace_file_content` — `agents/bobcat.md` only (Bobcat is the only role that declares it)
 
-Additional observation: all nine role files place `rules/harness.md` under a
-separate `rules:` key (not `tools:`), so rule attachment is structural rather
-than tool-scoped; hook-side enforcement of `run_command` remains the only
-runtime boundary for prohibited shell patterns.
+Additional observation: `agents/excavator.md` and `agents/piledriver.md` are
+the only role files carrying a `rules:` key (both list `rules/harness.md`);
+the other seven attach rules through a different mechanism or none at all.
+Hook-side enforcement of `run_command` remains the only runtime boundary for
+prohibited shell patterns.
 
 Consequence: even where `agy plugin validate` accepts the plugin, an activated
 Excavator/Steamroller role cannot execute `list_dir`/`find_by_name`/`grep_search`
