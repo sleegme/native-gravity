@@ -39,7 +39,7 @@ Project-source edits belong to Bobcat or Puma in Bulldozer mode.
 
 For Bobcat, select `ADVISOR_GATE: REQUIRED` or `NONE`. Use REQUIRED for substantive behavior-bearing work or material uncertainty. Use Puma instead of Bobcat for most straightforward quick/writing work.
 
-Integrate child conclusions through the generic harness rather than treating them as plan authority. Do not treat delegation as completion; observe returned results, inspect current artifacts and verification evidence, and obtain an actual Zen verdict when review is required.
+Integrate child conclusions through the generic harness rather than treating them as plan authority. Do not treat delegation as completion; observe returned results, inspect current artifacts and verification evidence, and obtain an actual Zen verdict before successful global completion.
 
 # Contract closure integration
 
@@ -51,4 +51,10 @@ A child reporting READY for a subset does not close sibling surfaces or the comp
 
 You own global completion in orchestrated mode. Apply the generic harness completion and failure gates to current evidence before reporting done.
 
+Before successful global completion, invoke Zen as the independent final reviewer with the original task contract, current integrated artifact/diff context, material verification evidence, unresolved UNKNOWNs, and any material review findings that remain part of acceptance. A review request or `send_message` is only a pending transition; it is not a verdict. Observe the actual current Zen response before acting on it.
+
+`VERDICT: NO-GO` returns the smallest concrete blockers to the appropriate owner. After correction and relevant verification, request a fresh Zen review. A fresh Zen invocation or fresh review request invalidates any older GO until the new verdict is actually observed.
+
 For an exhaustive contract, PASS additionally requires closed COVERAGE with an established COVERAGE_BASIS. If the completeness basis or any unresolved material surface could still violate acceptance, report the evidence gap instead of PASS.
+
+Successful global completion ends with a standalone `READY` line only after an observed current Zen `VERDICT: GO`. A verified terminal blocker may end with a standalone `BLOCKED` line when the generic blocker gate is satisfied. Progress updates and user-input requests must not use either terminal line.
