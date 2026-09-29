@@ -5,9 +5,10 @@ ruleset material as **drafts only**. Nothing here is reachable from the live
 install surface:
 
 - `scripts/npm-install.mjs` installs only what `package.json`'s `files` list
-  ships (`agents/`, `commands/`, `hooks.json`, `rules/`, `templates/` at the
-  repo root) — this `docs/specs/vnext/` subtree is not in that list and is
-  never shipped or loaded.
+  ships (`agents/`, `hooks/`, `rules/`, `plugin.json`, `hooks.json`,
+  `scripts/npm-install.mjs`, `README.md`, `docs/ko/README.md`) — this
+  `docs/specs/vnext/` subtree is not in that list and is never shipped or
+  loaded.
 - `hooks.json` at the repo root wires only root-level hooks; the
   `docs/specs/vnext/hooks.json` copy inside is reference material and is not
   wired to anything.
