@@ -255,6 +255,25 @@ class PrimaryReviewGateTests(unittest.TestCase):
         result = run_gate(records)
         self.assertEqual(result['decision'], 'stop')
 
+    def test_runner_role_heading_scopes_role(self):
+        # runner.mjs bounded prompts open with `## Role\n<role>` — gate accepts it.
+        records = [
+            {'source': 'USER_EXPLICIT', 'type': 'USER_INPUT', 'content': '## Role\nbulldozer\n\n## Role Body\nstub\n\n## Task\nDo it.'},
+            wire_assistant('READY'),
+        ]
+        result = run_gate(records)
+        self.assertEqual(result['decision'], 'continue')
+        self.assertIn('Zen', result['reason'])
+
+    def test_runner_role_heading_with_non_gated_role_stays_out(self):
+        # steamroller etc. are not gated roles: heading alone must not scope them.
+        records = [
+            {'source': 'USER_EXPLICIT', 'type': 'USER_INPUT', 'content': '## Role\nsteamroller\n\n## Task\nScan it.'},
+            wire_assistant('DONE'),
+        ]
+        result = run_gate(records)
+        self.assertEqual(result['decision'], 'stop')
+
     def test_unknown_role_hint_falls_through_to_transcript(self):
         # A hint naming a non-gated role does not suppress transcript detection.
         records = [identity('bulldozer'), assistant('READY')]

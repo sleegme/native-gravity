@@ -170,8 +170,9 @@ def detect_primary_role(records: list[Any], role_hint: Optional[str] = None) -> 
     1. `roleHint` on the Stop event (hooks.json / harness supplied).
     2. Identity keys anywhere in the transcript (1.1.x behavior).
     3. Role signature text in the transcript (1.1.x or model echo).
-    4. First `USER_INPUT` prompt containing an NTG role marker line such as
-       `NTG_ROLE: bulldozer` — the documented fallback wrapper for 1.2.x.
+    4. First `USER_INPUT` prompt containing an NTG role marker — either the
+       documented `NTG_ROLE: <role>` wrapper line or the `## Role\n<role>`
+       heading emitted by scripts/runner.mjs bounded prompts.
     """
     hinted = _normalize_role_hint(role_hint)
     if hinted is not None:
@@ -198,7 +199,14 @@ def detect_primary_role(records: list[Any], role_hint: Optional[str] = None) -> 
         if source != "USER_EXPLICIT" or rec_type != "USER_INPUT":
             continue
         content = str(record.get("content") or "")
+        # Explicit wrapper marker for ad-hoc agy callers.
         marker = re.search(r"NTG_ROLE\s*[:=]\s*([a-zA-Z_-]+)", content)
+        hinted = _normalize_role_hint(marker.group(1) if marker else None)
+        if hinted is not None:
+            return hinted
+        # scripts/runner.mjs bounded prompts always open with a `## Role` section;
+        # on 1.2.x that heading is the only in-band role provenance available.
+        marker = re.search(r"^\s*#+\s*Role\s*\n\s*([a-zA-Z_-]+)", content)
         hinted = _normalize_role_hint(marker.group(1) if marker else None)
         if hinted is not None:
             return hinted
