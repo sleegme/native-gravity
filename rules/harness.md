@@ -172,6 +172,10 @@ A useful handoff normally contains:
 
 Downstream roles should receive the task contract and current artifact/evidence needed for their job, not persuasive self-assessment from previous roles unless that assessment itself is relevant evidence.
 
+Role semantics live in child agent definitions. Delegation packets carry only task-local deltas and must not restate role identity, generic authority boundaries, child policies, terminal protocols, shell markers, or generic philosophy.
+
+Capability preflight is parent-side: before delegation, compare task requirements against the selected child's exposed tools and authority. Unmet requirements stay UNKNOWN/dependency; reroute only to a capable permitted role; do not ask the child to validate obviously mismatched packets or to act beyond its authority.
+
 ## Completion authority
 
 Delegation and local readiness are not global completion.

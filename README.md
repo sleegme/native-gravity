@@ -9,6 +9,7 @@ Native Gravity is a small orchestration plugin for Google Antigravity. It keeps 
 > - **Compatibility**:
 >   - AGY 1.1.21 — validated
 >   - AGY 1.1.24 — validated
+>   - AGY 1.2.12 — validated w/ regression ([#64](https://github.com/sleegme/native-gravity/issues/64))
 
 ## Primary modes
 

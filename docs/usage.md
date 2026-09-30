@@ -5,6 +5,7 @@
 > - **Compatibility**:
 >   - AGY 1.1.21 — validated
 >   - AGY 1.1.24 — validated
+>   - AGY 1.2.12 — validated w/ regression ([#64](https://github.com/sleegme/native-gravity/issues/64))
 
 Install or reinstall the plugin from the checked-out repository:
 
