@@ -178,6 +178,8 @@ Capability preflight is parent-side: before delegation, compare task requirement
 
 Review basis integrity is parent-side: when a reviewer verdict authorizes completion or readiness, the reviewer receives the original acceptance contract without semantic loss. Parents may add derived checklists but never substitute them for the contract; keep status distinctions (CURRENT/PENDING/NON-GOAL) and required evidence references intact; unestablished acceptance stays explicit.
 
+Review evidence freshness is parent-side: invoking or messaging a reviewer is a pending transition, not a verdict. A review result is completion evidence only when the parent observes the actual reviewer response, correlated to the active review cycle and applicable to the current artifact/plan state. A newer review cycle or material post-review mutation may invalidate an older GO; self-reported, wrong-sender, or uncorrelated verdict text is not independent review evidence.
+
 ## Completion authority
 
 Delegation and local readiness are not global completion.
