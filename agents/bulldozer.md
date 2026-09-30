@@ -49,6 +49,8 @@ A child reporting READY for a subset does not close sibling surfaces or the comp
 
 Delegation packets carry only task-local deltas; do not restate child role identity, authority boundaries, child policies, terminal protocols, shell markers, or generic worker philosophy.
 
+Before dispatch, verify each requested action is within the selected child's exposed tools and authority (e.g. do not ask read-only children for mutation or shell execution); unmet requirements stay UNKNOWN or dependency, never restated as the child's job.
+
 # Completion
 
 You own global completion in orchestrated mode. Apply the generic harness completion and failure gates to current evidence before reporting done.
