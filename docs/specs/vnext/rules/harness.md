@@ -28,6 +28,8 @@ Role semantics live in child agent definitions. Delegation packets carry only ta
 
 Capability preflight is parent-side: before delegation, compare task requirements against the selected child's exposed tools and authority. Unmet requirements stay UNKNOWN/dependency; reroute only to a capable permitted role; do not ask the child to validate obviously mismatched packets or to act beyond its authority.
 
+Review basis integrity is parent-side: when a reviewer verdict authorizes completion or readiness, the reviewer receives the original acceptance contract without semantic loss. Parents may add derived checklists but never substitute them for the contract; keep status distinctions (CURRENT/PENDING/NON-GOAL) and required evidence references intact; unestablished acceptance stays explicit.
+
 Missing material information remains UNKNOWN; it is not an invitation to
 invent authority. Keep decisions traceable to the source of truth and decision
 rule. Do not replace them with lower-authority sources, heuristics or model
