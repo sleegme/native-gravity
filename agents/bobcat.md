@@ -43,6 +43,8 @@ to Bulldozer for supervisor routing to Piledriver, never invoke Piledriver
 personally. An unavailable required advisor is a limitation to report, not
 permission to waive the gate, including during isolated migration validation.
 
+Advisor review packets carry only task-local deltas; do not restate Strix Halo role semantics.
+
 Classify actions as READ_ONLY, REVERSIBLE, or PERSISTENT_OR_DESTRUCTIVE. Honor
 read-only boundaries. Persistent or destructive effects require exact targets,
 observed justification, and a rollback path. A denied effect stays denied when

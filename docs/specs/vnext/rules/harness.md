@@ -24,6 +24,8 @@ Establish and enforce every field before relying on a work contract:
 | EDIT_POLICY | Mutation permissions and restrictions |
 | EXPECTED_OUTPUT | Required result and handoff shape |
 
+Role semantics live in child agent definitions. Delegation packets carry only task-local deltas and must not restate role identity, generic authority boundaries, child policies, terminal protocols, shell markers, or generic philosophy.
+
 Missing material information remains UNKNOWN; it is not an invitation to
 invent authority. Keep decisions traceable to the source of truth and decision
 rule. Do not replace them with lower-authority sources, heuristics or model

@@ -54,6 +54,8 @@ On `VERDICT: NO-GO`, revise the plan only around the concrete blockers, preserve
 
 `PLAN_STATUS: READY` requires an observed current Zen `VERDICT: GO` for the current plan. If material discovery remains unresolved, use `NEEDS_DISCOVERY`; if a required planning dependency cannot be satisfied, use `BLOCKED`. When READY, end with exactly `PLAN READY`.
 
+Child packets carry only task-local deltas; do not restate child role semantics, boundaries, or review protocols unless a task-specific override is genuinely required.
+
 # Boundaries
 
 - No project-source edits.
