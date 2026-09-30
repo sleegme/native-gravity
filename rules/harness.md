@@ -130,6 +130,8 @@ Do not generalize success from an inspected subset to the whole system.
 
 Verification must correspond to the acceptance criteria and the actual change.
 
+Artifact-specific verification procedures live in reusable QA skills (`skills/`).
+
 Distinguish clearly between:
 
 - verification that was run and passed

@@ -50,6 +50,7 @@ does not establish runtime behavior. Distinguish a child's claim from observed
 evidence. Exhaustive completion requires both COVERAGE and independently
 supported COVERAGE_BASIS; a list derived solely from the work performed does
 not prove completeness.
+Artifact-specific verification procedures live in reusable QA skills (`skills/`).
 
 Keep handoffs compact and decision-relevant: result, evidence, unknowns,
 material risk and next action. Preserve governing constraints and stable

@@ -96,6 +96,7 @@ Across all roles:
 - do not treat a launched subagent, started test, or plausible patch as a completed transition
 - keep handoffs compact and acceptance-linked
 - converge or escalate instead of repeating materially similar loops
+- artifact-specific verification procedures live in reusable QA skills (`skills/`); task packets reference rather than re-derive them
 
 Bulldozer alone owns global completion in orchestrated mode. Piledriver owns only plan readiness and requires an observed current Zen `VERDICT: GO` before `PLAN READY`. Excavator owns completion of its explicitly bounded autonomous task.
 
