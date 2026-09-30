@@ -31,7 +31,7 @@
     "Stop": [
       {
         "type": "command",
-        "command": "python3 \"$HOME/.gemini/config/plugins/native-gravity/hooks/excavator-review-gate.py\"",
+        "command": "python3 ./hooks/excavator-review-gate.py",
         "timeout": 10
       }
     ]
@@ -40,7 +40,7 @@
     "Stop": [
       {
         "type": "command",
-        "command": "python3 \"$HOME/.gemini/config/plugins/native-gravity/hooks/primary-review-gate.py\"",
+        "command": "python3 ./hooks/primary-review-gate.py",
         "timeout": 10
       }
     ]

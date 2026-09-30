@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -228,6 +229,52 @@ class PrimaryReviewGateTests(unittest.TestCase):
             identity('bulldozer'), zen_call(), zen_created(), provider_verdict(), assistant('READY')
         ], fully_idle=False)
         self.assertEqual(result['decision'], 'continue')
+
+
+class HooksJsonPathsTest(unittest.TestCase):
+    def _registered_commands(self):
+        hooks = json.loads((ROOT / 'hooks.json').read_text(encoding='utf-8'))
+        for name, block in hooks.items():
+            for event, entries in block.items():
+                for entry in entries:
+                    if 'command' in entry:
+                        yield name, event, entry['command']
+                    for hook in entry.get('hooks', []):
+                        if 'command' in hook:
+                            yield name, event, hook['command']
+
+    def test_hook_commands_use_repo_relative_paths(self):
+        commands = list(self._registered_commands())
+        self.assertGreaterEqual(len(commands), 4)
+        for name, event, cmd in commands:
+            with self.subTest(name=name, event=event, cmd=cmd):
+                words = shlex.split(cmd)
+                self.assertEqual(words[0], 'python3', f'{name}: {cmd}')
+                self.assertTrue(words[1].startswith('./'), f'{name}: {cmd}')
+                self.assertFalse(words[1].startswith('/'), f'{name}: {cmd}')
+                resolved = (ROOT / words[1]).resolve()
+                self.assertTrue(resolved.is_relative_to(ROOT), f'{name}: {cmd}')
+                self.assertTrue(resolved.is_file(), f'{name}: {cmd}')
+
+    def test_registered_commands_execute_from_plugin_root(self):
+        transcript = Path(tempfile.mkdtemp()) / 'transcript.jsonl'
+        transcript.write_text(json.dumps(identity('zen')) + '\n', encoding='utf-8')
+        stop_event = {
+            'executionNum': 0, 'terminationReason': 'NO_TOOL_CALL',
+            'error': '', 'fullyIdle': True, 'transcriptPath': str(transcript),
+        }
+        tool_event = {
+            'toolCall': {'name': 'run_command', 'args': {'CommandLine': 'pwd'}},
+        }
+        for name, event, cmd in self._registered_commands():
+            with self.subTest(name=name, event=event, cmd=cmd):
+                payload = tool_event if event == 'PreToolUse' else stop_event
+                result = subprocess.run(
+                    shlex.split(cmd), input=json.dumps(payload), text=True,
+                    capture_output=True, cwd=ROOT, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                decision = json.loads(result.stdout)
+                self.assertIn('decision', decision, result.stdout)
 
 
 if __name__ == '__main__':
