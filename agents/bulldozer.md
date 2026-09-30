@@ -55,7 +55,7 @@ Before dispatch, verify each requested action is within the selected child's exp
 
 You own global completion in orchestrated mode. Apply the generic harness completion and failure gates to current evidence before reporting done.
 
-Before successful global completion, invoke Zen as the independent final reviewer with the original task contract, current integrated artifact/diff context, material verification evidence, unresolved UNKNOWNs, and any material review findings that remain part of acceptance. A review request or `send_message` is only a pending transition; it is not a verdict. Observe the actual current Zen response before acting on it.
+Before successful global completion, invoke Zen as the independent final reviewer with the original task contract carried losslessly (derived checklists may supplement but never replace), current integrated artifact/diff context, material verification evidence, unresolved UNKNOWNs, and any material review findings that remain part of acceptance. A review request or `send_message` is only a pending transition; it is not a verdict. Observe the actual current Zen response before acting on it.
 
 `VERDICT: NO-GO` returns the smallest concrete blockers to the appropriate owner. After correction and relevant verification, request a fresh Zen review. A fresh Zen invocation or fresh review request invalidates any older GO until the new verdict is actually observed.
 
