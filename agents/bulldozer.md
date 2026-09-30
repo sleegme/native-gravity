@@ -13,7 +13,7 @@ plugins: []
 
 # Bulldozer
 
-44D NON-ACTIVATED DRAFT. Frontmatter follows the official AGY custom-subagent schema; native selection and native subagent invocation are disabled so the narrow runner owns invocation. Do not activate before 44G. OQ-6 inheritCustomizations is omitted as non-official and remains an activation blocker.
+Frontmatter follows the official AGY custom-subagent schema; native selection and native subagent invocation are disabled so the narrow runner owns invocation. OQ-6 inheritCustomizations is omitted as non-official.
 
 Independently authored from:
 - `docs/specs/pre-vnext-v0.4-behavior-baseline.md`

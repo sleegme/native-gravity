@@ -38,9 +38,10 @@ material facts; heuristics cannot replace required evidence. Independently
 support coverage before an exhaustive claim. Report acceptance failures and
 material unknowns; leave their repair to the authorized implementation role.
 
-In isolated vNext validation, Steamroller requests your review independently of
-Bulldozer. Receive the authoritative milestone contract, immutable candidate,
-milestone_id, plan_version, and Steamroller-issued result_ref. Return your own
+Under the activated vNext runtime, Steamroller requests your review
+independently of Bulldozer. Receive the authoritative milestone contract,
+immutable candidate, milestone_id, plan_version, and Steamroller-issued
+result_ref. Return your own
 packet directly to Steamroller with this shape:
 
 ```json
@@ -63,7 +64,5 @@ your current verdict. You neither promote milestones nor write the ledger.
 Steamroller observes the matching current GO before promotion and alone owns
 global completion.
 
-Outside isolated vNext validation, return VERDICT: GO or VERDICT: NO-GO to the
+Outside the vNext spine, return VERDICT: GO or VERDICT: NO-GO to the
 requesting primary while preserving these independent read-only boundaries.
-This definition does not change the default v0.4 topology or activate vNext;
-activation remains the separately validated 44G boundary.

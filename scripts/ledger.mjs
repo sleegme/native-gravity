@@ -1393,6 +1393,14 @@ export class AuthoritativeLedger {
     this.completed_milestones = [];
     this.current_milestone = null;
     this._active_candidates = {};
+    // Clear per-milestone active_candidate pointers left in evidence so a
+    // stale-version candidate cannot break fromJSON reload after replan.
+    for (const key of Object.keys(this.evidence)) {
+      const ev = this.evidence[key];
+      if (ev && typeof ev === "object" && ev.active_candidate) {
+        delete ev.active_candidate;
+      }
+    }
 
     // Update milestone graph and invariants
     this.milestones = newPlanData.milestones.map((m) => ({

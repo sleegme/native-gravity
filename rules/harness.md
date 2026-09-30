@@ -1,10 +1,8 @@
 # Harness invariants
 
-44D NON-ACTIVATED DRAFT for the isolated vNext migration context.
-Independently authored only from
+Authored for the vNext runtime (activated in 44G) only from
 `docs/specs/pre-vnext-v0.4-behavior-baseline.md` and
 `docs/specs/vnext-architecture-contract.md`.
-This document neither activates vNext nor changes runtime registrations.
 
 ## Governing work contract
 
