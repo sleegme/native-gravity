@@ -58,7 +58,7 @@ Pending live revalidation after the shell-guard changes:
 - Zen `VERDICT: NO-GO` causes plan-only revision and a fresh review
 - a materially revised plan cannot reuse an older Zen GO
 - `PLAN READY` is emitted only after the actual current Zen `VERDICT: GO` is observed
-- Zen can run independent verification commands with the required `NTG_ZEN_VERIFY=1` marker
+- Zen can run independent verification commands with the required `NTG_ZEN_VERIFY=1` marker — exercised live on 1.2.12 ([issue 59](review/issue59-12x-validation.md))
 - Zen-marked common direct-mutation shell attempts are denied while ordinary verification commands still run
 - Excavator-marked ordinary sudo diagnostics and bounded repairs still run
 - Excavator-marked `sudo -S`, `sudo su`, `pkexec`, local root SSH, shell-history credential mining, and full-system upgrade paths are denied
