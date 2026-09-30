@@ -51,7 +51,7 @@ Validated on AGY 1.1.24 (Excavator completion review gate):
 - non-Excavator sessions remain unaffected by the Stop hook
 
 Pending live revalidation after the shell-guard changes:
-- Piledriver can invoke Jaguar and Zen from a clean/current plugin install
+- Piledriver can invoke Jaguar and Zen from a clean/current plugin install — exercised live on 1.2.12 ([issue 59](review/issue59-12x-validation.md))
 - Piledriver does not invoke implementation workers
 - a target-identity mismatch remains UNKNOWN / NEEDS_DISCOVERY instead of being promoted from the local checkout
 - Jaguar discovery remains read-only and returns unresolved evidence requirements rather than crossing into mutation
