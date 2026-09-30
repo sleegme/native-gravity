@@ -5,6 +5,7 @@
 - **Compatibility**:
   - AGY 1.1.21 — validated
   - AGY 1.1.24 — validated
+  - AGY 1.2.12 — validated w/ regression (see [issue 59 report](review/issue59-12x-validation.md)); Stop hooks inert in headless print mode and `--agent` role body absent from transcripts — tracked as [#64](https://github.com/sleegme/native-gravity/issues/64)
 
 See [Versioning Policy](versioning.md) for versioning rules and lifecycle definitions.
 
