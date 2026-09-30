@@ -230,5 +230,17 @@ class PrimaryReviewGateTests(unittest.TestCase):
         self.assertEqual(result['decision'], 'continue')
 
 
+class HooksJsonPathsTest(unittest.TestCase):
+    def test_hook_commands_use_repo_relative_paths(self):
+        hooks = json.loads((ROOT / 'hooks.json').read_text(encoding='utf-8'))
+        for name, block in hooks.items():
+            for event in block.values():
+                for entry in event:
+                    for hook in entry.get('hooks', []):
+                        cmd = hook.get('command', '')
+                        self.assertNotIn('$HOME', cmd, f'{name}: {cmd}')
+                        self.assertNotIn('/.', cmd, f'{name}: {cmd}')
+
+
 if __name__ == '__main__':
     unittest.main()
