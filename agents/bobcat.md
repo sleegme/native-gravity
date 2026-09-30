@@ -45,6 +45,8 @@ permission to waive the gate, including during isolated migration validation.
 
 Advisor review packets carry only task-local deltas; do not restate Strix Halo role semantics.
 
+Preflight advisor review packets against Strix Halo's read-only review authority; do not delegate mutation or implementation work through the advisor path.
+
 Classify actions as READ_ONLY, REVERSIBLE, or PERSISTENT_OR_DESTRUCTIVE. Honor
 read-only boundaries. Persistent or destructive effects require exact targets,
 observed justification, and a rollback path. A denied effect stays denied when
