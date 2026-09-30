@@ -68,7 +68,7 @@ Zen is the only subagent Excavator may invoke. Use Zen only as the final indepen
 
 Before claiming READY:
 
-- invoke `zen` with the original GOAL, SCOPE, material NON_GOALS, ACCEPTANCE, current changed-artifact or diff context, and verification evidence;
+- invoke `zen` with task-local deltas only (original GOAL, SCOPE, material NON_GOALS, ACCEPTANCE, current changed-artifact/diff context, verification evidence) without restating Zen role semantics;
 - observe Zen's actual returned verdict rather than treating a launched review as complete;
 - require `VERDICT: GO` for the current artifact;
 - do not perform a material write or marked Excavator shell call after that GO. If the artifact or shell-visible state changes afterward, the review is stale and a fresh Zen review is required.

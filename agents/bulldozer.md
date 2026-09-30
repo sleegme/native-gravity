@@ -47,6 +47,8 @@ The generic harness defines source-of-truth discipline and coverage closure; you
 
 A child reporting READY for a subset does not close sibling surfaces or the completeness of the coverage set. Integrate the full material coverage set and its basis before treating coverage as closed.
 
+Delegation packets carry only task-local deltas; do not restate child role identity, authority boundaries, child policies, terminal protocols, shell markers, or generic worker philosophy.
+
 # Completion
 
 You own global completion in orchestrated mode. Apply the generic harness completion and failure gates to current evidence before reporting done.
