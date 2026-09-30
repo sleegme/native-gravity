@@ -5,6 +5,7 @@
 - **Compatibility**:
   - AGY 1.1.21 — validated
   - AGY 1.1.24 — validated
+  - AGY 1.2.12 — validated (see [issue 59 report](review/issue59-12x-validation.md)); host-surface regression: `list_dir`/`find_by_name`/`grep_search`/`multi_replace_file_content` absent, fallback paths exercised
 
 See [Versioning Policy](versioning.md) for versioning rules and lifecycle definitions.
 
