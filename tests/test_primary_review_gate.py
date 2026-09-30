@@ -15,7 +15,7 @@ ZEN_ID = '9fc98728-eb32-45d5-a643-2809d0e0d5f4'
 OTHER_ID = '11111111-2222-3333-4444-555555555555'
 
 
-def run_gate(records, *, fully_idle=True, termination_reason='NO_TOOL_CALL', error=''):
+def run_gate(records, *, fully_idle=True, termination_reason='NO_TOOL_CALL', error='', extra_event=None):
     with tempfile.TemporaryDirectory() as tmp:
         transcript = Path(tmp) / 'transcript.jsonl'
         transcript.write_text(''.join(json.dumps(r) + '\n' for r in records), encoding='utf-8')
@@ -26,6 +26,8 @@ def run_gate(records, *, fully_idle=True, termination_reason='NO_TOOL_CALL', err
             'fullyIdle': fully_idle,
             'transcriptPath': str(transcript),
         }
+        if extra_event:
+            event.update(extra_event)
         result = subprocess.run(
             [sys.executable, str(GATE)],
             input=json.dumps(event), text=True, capture_output=True, check=True,
@@ -219,6 +221,49 @@ class PrimaryReviewGateTests(unittest.TestCase):
             assistant('PLAN READY'),
         ])
         self.assertEqual(result['decision'], 'continue')
+
+    def test_role_hint_event_field_scopes_role(self):
+        # 1.2.x fallback: role body absent, hook receives roleHint on the event.
+        result = run_gate([assistant('READY')], extra_event={'roleHint': 'bulldozer'})
+        self.assertEqual(result['decision'], 'continue')
+        self.assertIn('Zen', result['reason'])
+
+    def test_agent_name_event_field_scopes_role(self):
+        # 1.1.x-style agentName on the event payload.
+        result = run_gate([assistant('PLAN READY')], extra_event={'agentName': 'piledriver'})
+        self.assertEqual(result['decision'], 'continue')
+        self.assertIn('Zen', result['reason'])
+
+    def test_ntg_role_marker_in_first_user_input_scopes_role(self):
+        # 1.2.x documented wrapper: NTG_ROLE marker in the first USER_INPUT.
+        records = [
+            {'source': 'USER_EXPLICIT', 'type': 'USER_INPUT', 'content': 'NTG_ROLE: bulldozer\nDo the thing.'},
+            wire_assistant('READY'),
+        ]
+        result = run_gate(records)
+        self.assertEqual(result['decision'], 'continue')
+        self.assertIn('Zen', result['reason'])
+
+    def test_ntg_role_marker_in_later_user_input_does_not_scope(self):
+        # Only the FIRST user input carries provenance; later ones are untrusted text.
+        records = [
+            {'source': 'USER_EXPLICIT', 'type': 'USER_INPUT', 'content': 'Do the thing.'},
+            wire_assistant('progress'),
+            {'source': 'USER_EXPLICIT', 'type': 'USER_INPUT', 'content': 'NTG_ROLE: bulldozer'},
+            wire_assistant('READY'),
+        ]
+        result = run_gate(records)
+        self.assertEqual(result['decision'], 'stop')
+
+    def test_unknown_role_hint_falls_through_to_transcript(self):
+        # A hint naming a non-gated role does not suppress transcript detection.
+        records = [identity('bulldozer'), assistant('READY')]
+        result = run_gate(records, extra_event={'roleHint': 'zen'})
+        self.assertEqual(result['decision'], 'continue')
+
+    def test_no_role_anywhere_still_stops(self):
+        result = run_gate([wire_assistant('READY')])
+        self.assertEqual(result['decision'], 'stop')
 
     def test_abnormal_termination_fails_open(self):
         result = run_gate([identity('bulldozer'), assistant('READY')], termination_reason='error', error='boom')
