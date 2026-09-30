@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Stop-hook completion gate for Bulldozer and Piledriver Zen review cycles."""
+"""Stop-hook completion gate for Bulldozer and Piledriver Zen review cycles.
+
+AGY 1.2.x note (issue #64): the host does not fire Stop events for `agy -p`
+headless print sessions, and `--agent` no longer injects the role body into
+the transcript. Role attribution therefore accepts `roleHint`/`agentName` on
+the event payload first, then falls back to an `NTG_ROLE: <role>` marker in
+the first user prompt (documented wrapper convention for 1.2.x callers).
+"""
 
 from __future__ import annotations
 
@@ -148,7 +155,28 @@ def parse_args(call: dict[str, Any]) -> dict[str, Any]:
     return args if isinstance(args, dict) else {}
 
 
-def detect_primary_role(records: list[Any]) -> Optional[str]:
+def _normalize_role_hint(value: Any) -> Optional[str]:
+    candidate = str(value or "").strip().lower()
+    return candidate if candidate in ROLE_SIGNATURES else None
+
+
+def detect_primary_role(records: list[Any], role_hint: Optional[str] = None) -> Optional[str]:
+    """Resolve the primary role for this Stop event.
+
+    AGY 1.2.x no longer injects the `--agent` role body into transcripts, and
+    print-mode sessions never receive a Stop event, so role attribution needs
+    explicit provenance instead of signature text alone:
+
+    1. `roleHint` on the Stop event (hooks.json / harness supplied).
+    2. Identity keys anywhere in the transcript (1.1.x behavior).
+    3. Role signature text in the transcript (1.1.x or model echo).
+    4. First `USER_INPUT` prompt containing an NTG role marker line such as
+       `NTG_ROLE: bulldozer` — the documented fallback wrapper for 1.2.x.
+    """
+    hinted = _normalize_role_hint(role_hint)
+    if hinted is not None:
+        return hinted
+
     for record in records:
         for node in iter_dicts(record):
             for key, value in node.items():
@@ -161,6 +189,20 @@ def detect_primary_role(records: list[Any]) -> Optional[str]:
     for role, signature in ROLE_SIGNATURES.items():
         if signature in full_text:
             return role
+
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        source = str(record.get("source") or "").strip().upper()
+        rec_type = str(record.get("type") or "").strip().upper()
+        if source != "USER_EXPLICIT" or rec_type != "USER_INPUT":
+            continue
+        content = str(record.get("content") or "")
+        marker = re.search(r"NTG_ROLE\s*[:=]\s*([a-zA-Z_-]+)", content)
+        hinted = _normalize_role_hint(marker.group(1) if marker else None)
+        if hinted is not None:
+            return hinted
+        break  # only the first user input may carry provenance
     return None
 
 
@@ -384,7 +426,7 @@ def main() -> None:
         respond("stop")
         return
 
-    role = detect_primary_role(records)
+    role = detect_primary_role(records, role_hint=event.get("roleHint") or event.get("agentName"))
     if role not in {"bulldozer", "piledriver"}:
         respond("stop")
         return

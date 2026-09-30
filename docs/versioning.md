@@ -44,6 +44,24 @@ Native Gravity is an Antigravity-native plugin. Because it relies directly on ho
 | :--- | :--- | :--- | :--- | :--- |
 | `0.4.0` | alpha | AGY 1.1.21 | validated | Custom primary delegation and nested Bobcat -> Advisor gate validated |
 | `0.4.0` | alpha | AGY 1.1.24 | validated | Clean install and primary/subagent execution validated |
-| `0.4.0` | alpha | AGY 1.2.12 | validated w/ regression | All named delegation/review paths pass (see [issue 59 report](review/issue59-12x-validation.md)); Stop hooks inert in headless print mode and `--agent` role body absent from transcripts — tracked as issue #64 |
+| `0.4.0` | alpha | AGY 1.2.12 | validated w/ regression | All named delegation/review paths pass (see [issue 59 report](review/issue59-12x-validation.md)); Stop hooks inert in headless print mode and `--agent` role body absent from transcripts — mitigated by `roleHint`/`agentName`/`NTG_ROLE:` attribution (issue #64) |
+
+### Role attribution under AGY 1.2.x (issue #64)
+
+On 1.1.x the `--agent` role body was injected into transcripts and the primary
+review gate could read role identity from text. On 1.2.x the body is absent and
+print mode (`agy -p`) never fires Stop at all. The primary review gate resolves
+the role in this order:
+
+1. `roleHint` or `agentName` on the Stop event payload (preferred — supplied by
+   `hooks.json`/the invoking harness).
+2. Agent identity keys present in the transcript (1.1.x behavior).
+3. Role signature text in the transcript (1.1.x or model echo).
+4. `NTG_ROLE: <role>` marker in the first `USER_INPUT` record — the documented
+   wrapper convention for 1.2.x callers. Only the first user input carries
+   provenance; later prompts are untrusted text.
+
+Fully headless print sessions still cannot be gated (no Stop event exists);
+callers must run the review gate manually for those.
 
 When Google Antigravity updates, compatibility gates must be revalidated against the new runtime build and updated in `docs/status.md` and the compatibility matrix without altering the product version unless harness modifications are required.
