@@ -1,8 +1,11 @@
 # Issue #59 — AGY 1.2.x host-surface revalidation
 
 Date: 2026-09-30 (revised after gate review). Host: agy CLI 1.2.12
-(`agy --version` → 1.2.12). Plugin installed via `agy plugin install /tmp/ntg`
-on HEAD (main post-#62, commit 1c42bbb). Prior report structure follows
+(`agy --version` → 1.2.12). Clean reinstall per README
+(`agy plugin uninstall native-gravity` → `agy plugin install /tmp/ntg`)
+on HEAD (main post-#62, commit 1c42bbb): uninstall succeeded, install
+processed 9 agents + 4 hooks, `agy plugin list` shows native-gravity
+imported at 2026-09-30T05:15:34Z. Prior report structure follows
 docs/review/issue56-09preview-validation.md.
 
 ## Result matrix
@@ -52,12 +55,12 @@ Live transcripts under
    event). Combined with the missing role-body injection, the completion
    gates cannot be exercised end-to-end from `-p` probes.
    Tracked as issue #64.
-3. **Host tool surface** — `list_dir`, `find_by_name`, `grep_search`, and
-   `multi_replace_file_content` all execute on live 1.2.12 sessions
-   (find_by_name/list_dir/grep_search used by Excavator c15c0a7b;
-   multi_replace_file_content listed among tools in the same session's
-   environment). The earlier 'absent tools' characterization was stale —
-   corrected here.
+3. **Host tool surface** — `list_dir`, `find_by_name`, and `grep_search`
+   demonstrably execute on live 1.2.12 sessions (invoked with results by
+   Excavator c15c0a7b). `multi_replace_file_content` appears in the session
+   tool environment but was not directly invoked in these probes — its
+   availability is listed, not demonstrated. The earlier 'absent tools'
+   characterization was stale; corrected here.
 4. **`--agent` role injection removed** — role attribution must now rely on
    model echo or the session directory name (brain/<uuid>), not transcript
    text. Tracked as issue #64.
