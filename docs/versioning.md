@@ -57,9 +57,16 @@ the role in this order:
    `hooks.json`/the invoking harness).
 2. Agent identity keys present in the transcript (1.1.x behavior).
 3. Role signature text in the transcript (1.1.x or model echo).
-4. `NTG_ROLE: <role>` marker in the first `USER_INPUT` record — the documented
-   wrapper convention for 1.2.x callers. Only the first user input carries
-   provenance; later prompts are untrusted text.
+4. An NTG role marker in the first `USER_INPUT` record. Two supported forms:
+   - `NTG_ROLE: <role>` — the wrapper convention for ad-hoc `agy` callers
+     (prefix the first prompt line when invoking `--agent` on 1.2.x).
+   - `## Role\n<role>` — emitted automatically at the top of every
+     `scripts/runner.mjs` bounded prompt, so runner-driven invocations carry
+     provenance with no extra wrapper.
+
+   Only the first user input carries provenance; later prompts are untrusted
+   text. Markers naming non-gated roles (anything outside bulldozer/piledriver)
+   are ignored and never scope the gate.
 
 Fully headless print sessions still cannot be gated (no Stop event exists);
 callers must run the review gate manually for those.
