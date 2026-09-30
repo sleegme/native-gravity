@@ -1,40 +1,73 @@
 # Issue #59 — AGY 1.2.x host-surface revalidation
 
-Date: 2026-09-30. Host: agy CLI 1.2.12 (`agy --version` → 1.2.12). Plugin
-installed via `agy plugin install /tmp/ntg` on sleegme/native-gravity HEAD
-(40bcc2b+NTG #62 merged). Follows docs/review/issue56-09preview-validation.md.
+Date: 2026-09-30 (revised after gate review). Host: agy CLI 1.2.12
+(`agy --version` → 1.2.12). Plugin installed via `agy plugin install /tmp/ntg`
+on HEAD (main post-#62, commit 1c42bbb). Prior report structure follows
+docs/review/issue56-09preview-validation.md.
 
 ## Result matrix
 
 | Path | Result |
 |---|---|
-| Bulldozer → Jaguar factual lookup | PASS — live `invoke_subagent` to jaguar returned the correct `model:` value from agents/puma.md |
-| Bulldozer → Bobcat (nested gate) | PASS — bobcat wrote probe files via host write tools; nested delegation under Bulldozer completed |
-| Bobcat → Strix Halo review | PASS — the second-hop review delegation completed inside the same session |
-| Excavator → Zen completion gate | PASS — zen independently ran `NTG_ZEN_VERIFY=1` commands and returned `VERDICT: GO` (session a8adf6d8) |
-| `run_command` shell guard | PASS — declared and registered on `^run_command$`; guarded commands still enforced |
-| `agy --print` multi-tool sessions | PASS in 1.2.12 — multi-step tool use completed; earlier `error: interrupted` on 0.9-preview did not reproduce |
-| Prompt drop | NOT REPRODUCED — full prompts flowed through multi-tool sessions |
+| Bulldozer → Jaguar factual lookup | PASS — live `invoke_subagent` returned `model: flash` from agents/puma.md (session b2f64648; child be07ff46) |
+| Bulldozer → Bobcat → Strix Halo nested gate | PASS with `--dangerously-skip-permissions` — Bobcat created /tmp/ntg-bobcat3.txt (`gate-ok`), invoked Strix Halo (bf2dde20), returned `VERDICT: ACCEPT` via parent 2821e232. **Earlier attempts without auto-approve ended at a host permission denial before the second hop — headless probes need the flag.** |
+| Excavator → Zen completion gate | PASS — zen ran `NTG_ZEN_VERIFY=1` commands and returned `VERDICT: GO` (parent c15c0a7b, zen a8adf6d8) |
+| Piledriver → Jaguar/Zen plan gate | PASS — session b9812ffa: Jaguar discovery report + Zen `VERDICT: GO`, parent ended `PLAN READY` |
+| `run_command` shell guard | PASS — two `^run_command$` PreToolUse registrations loaded; Zen's `NTG_ZEN_VERIFY` commands executed inside the allowed marker scope |
+| `agy --print` multi-tool sessions | PASS — multi-step tool use completes in 1.2.12 |
 
-## Transcript field-name comparison (1.2.12 real transcripts)
+## 1.2.x transcript contract (actual observed records)
 
-Real session transcripts under
-`~/.gemini/antigravity-cli/brain/<uuid>/.system_generated/logs/transcript*.jsonl`:
+Live transcripts under
+`~/.gemini/antigravity-cli/brain/<uuid>/.system_generated/logs/`
+(two files per session, `transcript.jsonl` and `transcript_full.jsonl`):
 
-- `type` values present: `USER_INPUT`, `SYSTEM_MESSAGE`, `PLANNER_RESPONSE`, `GENERIC`
-- `tool_calls` records carry `name` + `args` where `invoke_subagent` args contain `Subagents`
-- `detect_primary_role` on real transcripts resolves `bulldozer` and `piledriver` — role signatures embedded in session records match `AGENT_ROLE_SIGNATURES`
-- Caveat: `agentName` records were NOT observed in live transcripts; role resolution relies on SYSTEM_MESSAGE/USER_INPUT signature matching, which works
+- Top-level fields: `step_index`, `source`, `type`, `status`, `created_at`,
+  `content`, `thinking`, `tool_calls` (error records add `error`;
+  truncated records add `truncated_fields`).
+- `source`/`type` combos observed: `USER_EXPLICIT`/`USER_INPUT`,
+  `SYSTEM`/`SYSTEM_MESSAGE`, `MODEL`/`PLANNER_RESPONSE`, `MODEL`/`GENERIC`.
+- `tool_calls[].args` for `invoke_subagent` carries `Subagents` (list),
+  `toolAction`, `toolSummary`; created-child messages carry `conversationId`
+  and `logAbsoluteUri`.
+- **`transcript.jsonl` truncates `tool_calls` args** (`truncated_fields:
+  ["tool_calls"]`) — `transcript_full.jsonl` preserves them. Replaying the
+  Excavator Stop parser: `review_state(full)` → `(True,'GO',50,27)`;
+  `review_state(shortened)` → `(False,None,-1,27)`. The shortened file is
+  NOT a valid substitute when a session's Stop event points at it.
+- `agentName` records: NOT observed in any inspected 1.2.12 session.
+- Role signatures: NOT injected by `--agent` into the transcript on 1.2.12
+  (role body no longer appears as USER_INPUT/SYSTEM text).
+  `detect_primary_role` returns `None` on the validation probes; it resolves
+  a role only when the signature happens to appear in model output or a file
+  read (e.g. session 4e3f33e3 answering 'quote your first sentence').
 
-## Host surface regression vs 0.9-preview (unchanged)
+## Findings
 
-`list_dir`, `find_by_name`, `grep_search`, `multi_replace_file_content` are
-still ABSENT on the live host surface. Agents that declare them may only use
-the declared tools that exist (view_file, run_command, invoke_subagent,
-write_to_file, replace_file_content) in live sessions.
+1. **Delegation and review paths all pass on 1.2.12** with auto-approved
+   permissions; the named-issue 'multi-tool interrupted' symptom did not
+   reproduce.
+2. **Stop hook inert under headless print mode** — the host does not invoke
+   `Stop` commands for `agy -p` sessions (spy-instrumented gate received no
+   event). Combined with the missing role-body injection, the completion
+   gates cannot be exercised end-to-end from `-p` probes.
+   Tracked as issue #64.
+3. **Host tool surface** — `list_dir`, `find_by_name`, `grep_search`, and
+   `multi_replace_file_content` all execute on live 1.2.12 sessions
+   (find_by_name/list_dir/grep_search used by Excavator c15c0a7b;
+   multi_replace_file_content listed among tools in the same session's
+   environment). The earlier 'absent tools' characterization was stale —
+   corrected here.
+4. **`--agent` role injection removed** — role attribution must now rely on
+   model echo or the session directory name (brain/<uuid>), not transcript
+   text. Tracked as issue #64.
 
 ## Evidence
 
-- Probe sessions: brain/c15c0a7b, brain/9898b641, brain/b5487c46 (files under ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/)
-- Excavator→Zen session: excavator brain/c15c0a7b → zen a8adf6d8-b984-462f-91c7-05a9922b51cc returned `VERDICT: GO`
-- Artifact files created by bobcat delegation: /tmp/ntg-bobcat-probe.txt, /tmp/ntg-bobcat2.txt
+- Brain sessions: b2f64648, be07ff46 (Bulldozer→Jaguar); 2821e232, 87a5061e,
+  bf2dde20 (nested gate); c15c0a7b, a8adf6d8 (Excavator→Zen);
+  b9812ffa, 025c6e9d (Piledriver→Jaguar/Zen); 4e3f33e3 (role echo);
+  ff21e598 (run_command probe).
+- Probe artifacts: /tmp/ntg-bobcat-probe.txt, /tmp/ntg-bobcat2.txt,
+  /tmp/ntg-bobcat3.txt.
+- Parser replay via hook subprocess on the cited transcripts.

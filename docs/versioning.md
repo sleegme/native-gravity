@@ -44,5 +44,6 @@ Native Gravity is an Antigravity-native plugin. Because it relies directly on ho
 | :--- | :--- | :--- | :--- | :--- |
 | `0.4.0` | alpha | AGY 1.1.21 | validated | Custom primary delegation and nested Bobcat -> Advisor gate validated |
 | `0.4.0` | alpha | AGY 1.1.24 | validated | Clean install and primary/subagent execution validated |
+| `0.4.0` | alpha | AGY 1.2.12 | validated w/ regression | All named delegation/review paths pass (see [issue 59 report](review/issue59-12x-validation.md)); Stop hooks inert in headless print mode and `--agent` role body absent from transcripts — tracked as issue #64 |
 
 When Google Antigravity updates, compatibility gates must be revalidated against the new runtime build and updated in `docs/status.md` and the compatibility matrix without altering the product version unless harness modifications are required.
