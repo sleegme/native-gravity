@@ -614,13 +614,28 @@ export function invoke(role, packet, opts = {}) {
     };
   }
 
-  return invokeTransport({
+  const res = invokeTransport({
     ...options,
     slug,
     prompt,
     role,
     outputFormat: "json",
   });
+
+  // 44G live smoke finding: `agy --output-format json` intermittently returns
+  // { ok: true, response: "" } — non-deterministic empty body, not a packet
+  // shape problem. Retry a bounded number of times before surfacing a typed
+  // EMPTY_RESPONSE error so runMilestone gets a real failure, not
+  // JSON.parse("").
+  const MAX_EMPTY_RETRIES = 3;
+  let attempt = res;
+  for (let i = 0; i < MAX_EMPTY_RETRIES && attempt.ok && (attempt.response || "").trim() === ""; i++) {
+    attempt = invokeTransport({ ...options, slug, prompt, role, outputFormat: "json" });
+  }
+  if (attempt.ok && (attempt.response || "").trim() === "") {
+    return { ok: false, error: "EMPTY_RESPONSE", role, slug, attempts: MAX_EMPTY_RETRIES + 1 };
+  }
+  return attempt;
 }
 
 // CLI execution support
