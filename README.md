@@ -52,7 +52,7 @@ That also invalidates the v0.3.3 global Gemini 3.1 Pro mutation deny: Excavator 
 
 ## Native-first boundary
 
-Native Gravity does not ship a replacement runtime or wrapper CLI. The npm entrypoint is installation-only: it locates the packaged plugin directory and delegates installation back to `agy plugin install`. It does not intercept or wrap Antigravity runtime execution. Antigravity owns primary/subagent execution, lifecycle, sessions, workspaces, model resolution, and tool permissions. Native Gravity supplies role contracts, routing policy, and model-adaptive behavioral guidance.
+Native Gravity does not ship a replacement runtime. The npm entrypoint is installation-only: it locates the packaged plugin directory and delegates installation back to `agy plugin install`. It does not intercept or wrap Antigravity runtime execution. Antigravity owns primary/subagent execution, lifecycle, sessions, workspaces, model resolution, and tool permissions. Native Gravity supplies role contracts, routing policy, model-adaptive behavioral guidance, and `ntg-run` — a thin invocation helper that only prepends the `NTG_ROLE` attribution marker to gated-role prompts so the review gate can see which role ran under AGY 1.2.x. It does not replace or wrap runtime behavior.
 
 ## Alpha compatibility gate
 

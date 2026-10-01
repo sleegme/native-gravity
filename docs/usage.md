@@ -62,3 +62,13 @@ Before trusting 0.4.0 for real work, confirm the current AGY runtime can:
 6. return actual subagent/Zen results instead of only launch acknowledgements.
 
 If Excavator ends a task as `BLOCKED`, start a separate Bulldozer task for the open decision so Bulldozer can consult Steamroller. Do not treat Excavator as a Bulldozer child.
+## `ntg-run` helper (AGY 1.2.x role attribution)
+
+On AGY 1.2.x, `agy --agent` no longer writes the role body into the transcript (issue #64), so the primary review gate cannot see which primary role ran. `ntg-run` is a thin wrapper that prepends `NTG_ROLE: <role>` to the first prompt argument — the marker convention established in PR #71. The gate reads that marker and attributes the session correctly; nothing else changes about the run.
+
+```bash
+ntg-run --agent bulldozer -p "implement the thing"
+ntg-run --agent piledriver -p "plan this" -- --agy-extra-flag value
+```
+
+Marker is only injected for the gated roles (`bulldozer`, `piledriver`) — the roles the gate enforces — and only when the prompt does not already carry an `NTG_ROLE:` line, so the helper stays out of the way of agents the gate does not enforce and never double-marks.
