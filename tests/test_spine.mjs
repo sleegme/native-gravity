@@ -32,19 +32,20 @@ const envelope = value => parseResponseEnvelope(JSON.stringify({
   status: 'SUCCESS', response: JSON.stringify(value),
 }));
 
-function fixture(t, { output, review, initialPlan = plan() } = {}) {
+function fixture(t, { output, review, initialPlan = plan(), invokeSpecialist } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'ntg-spine-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const ledgerPath = join(dir, 'ledger.json');
   const calls = [];
-  const invokeRole = async (role, packet) => {
+  let spine;
+  const invokeRole = async (role, packet, runnerOptions = {}) => {
     calls.push(role);
     // Exercise the shipped runner boundary, not an invented packet transport.
     assert.ok(composeBoundedPrompt(role, packet));
     const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
     if (role === 'piledriver') return envelope({ recommendation: 'retain plan' });
     assert.equal(role, 'bulldozer');
-    if (output) return envelope(await output(contract));
+    if (output) return envelope(await output(contract, { spine, dir, calls, runnerOptions }));
     // Model only the native host: Bobcat creates a real artifact and reports
     // READY inside Bulldozer, which independently checks it before issuing DONE.
     calls.push('bobcat');
@@ -55,6 +56,24 @@ function fixture(t, { output, review, initialPlan = plan() } = {}) {
     assert.equal(readFileSync(worker.artifact, 'utf8'), contract.milestone_id);
     const hash = createHash('sha256').update(readFileSync(artifact)).digest('hex');
     return envelope(candidate(contract, { candidate_artifact_ref: `sha256:${hash}` }));
+  };
+  const defaultInvokeSpecialist = async (role, packet, options) => {
+    calls.push(role);
+    if (role === 'jaguar') {
+      return { status: 'SUCCESS', findings: [`factual discovery for ${packet.milestone_id}`] };
+    }
+    if (role === 'puma') {
+      return { status: 'READY', edits: [`mechanical text edit for ${packet.milestone_id}`] };
+    }
+    if (role === 'bobcat') {
+      const artifact = join(dir, `${packet.milestone_id}.txt`);
+      writeFileSync(artifact, packet.milestone_id);
+      return { status: 'READY', artifact };
+    }
+    if (role === 'strix-halo') {
+      return { verdict: 'ACCEPT', notes: 'contract verified locally' };
+    }
+    throw new Error(`Unexpected specialist role: ${role}`);
   };
   const invokeZen = async request => {
     calls.push('zen');
@@ -71,8 +90,14 @@ function fixture(t, { output, review, initialPlan = plan() } = {}) {
       request.candidate.candidate_artifact_ref);
     return verdict(request);
   };
-  const options = { ledgerPath, invokeRole, invokeZen };
-  return { spine: new MinimalSpine({ ...options, plan: initialPlan }), options, calls, ledgerPath, dir };
+  const options = {
+    ledgerPath,
+    invokeRole,
+    invokeZen,
+    invokeSpecialist: invokeSpecialist ?? defaultInvokeSpecialist,
+  };
+  spine = new MinimalSpine({ ...options, plan: initialPlan });
+  return { spine, options, calls, ledgerPath, dir };
 }
 
 test('planning stays advisory; native work and independent GO survive fresh resume', { timeout: 3000 }, async t => {
@@ -240,3 +265,229 @@ test('candidate must bind current identity and immutable artifact versions', asy
     assert.deepEqual(f.spine.state.completed_milestones, []);
   }
 });
+
+test('specialists can be invoked under an active milestone without touching ledger state', async t => {
+  let diskBefore;
+  const f = fixture(t, {
+    output: async (contract, { spine, dir }) => {
+      // Record disk ledger state before any specialist call
+      diskBefore = readFileSync(f.ledgerPath, 'utf8');
+
+      // 1. Bulldozer invokes Jaguar for read-only retrieval
+      const jaguarResult = await spine.invokeJaguar({ query: 'inspect existing components' });
+      assert.deepEqual(jaguarResult, { status: 'SUCCESS', findings: ['factual discovery for one'] });
+
+      // Ledger on disk is completely untouched by specialist invocation
+      assert.equal(readFileSync(f.ledgerPath, 'utf8'), diskBefore);
+      assert.deepEqual(spine.state.completed_milestones, []);
+      assert.equal(spine.state.current_milestone, 'one');
+
+      // 2. Bulldozer invokes Puma for mechanical edits
+      const pumaResult = await spine.invokePuma({ files: ['one.txt'], instruction: 'format' });
+      assert.deepEqual(pumaResult, { status: 'READY', edits: ['mechanical text edit for one'] });
+
+      // Ledger on disk is still untouched
+      assert.equal(readFileSync(f.ledgerPath, 'utf8'), diskBefore);
+      assert.deepEqual(spine.state.completed_milestones, []);
+
+      // 3. Bulldozer invokes Bobcat for implementation
+      // Inside Bobcat: Bobcat invokes Strix Halo for local gate
+      const bobcatResult = await spine.invokeBobcat({ task: 'implement feature', advisor_gate: 'REQUIRED' });
+      assert.equal(bobcatResult.status, 'READY');
+
+      const strixResult = await spine.invokeStrixHalo({ task: 'check implementation' }, { caller: 'bobcat' });
+      assert.equal(strixResult.verdict, 'ACCEPT');
+
+      // Ledger on disk is STILL untouched
+      assert.equal(readFileSync(f.ledgerPath, 'utf8'), diskBefore);
+      assert.deepEqual(spine.state.completed_milestones, []);
+
+      // Bulldozer produces candidate with observed evidence
+      const artifact = bobcatResult.artifact;
+      const hash = createHash('sha256').update(readFileSync(artifact)).digest('hex');
+      return candidate(contract, {
+        candidate_artifact_ref: `sha256:${hash}`,
+        verification_evidence: [
+          ...observed,
+          { classification: 'OBSERVED', specialist: 'jaguar', findings: jaguarResult.findings },
+          { classification: 'OBSERVED', specialist: 'puma', edits: pumaResult.edits },
+          { classification: 'OBSERVED', specialist: 'strix-halo', verdict: strixResult.verdict },
+        ],
+      });
+    },
+  });
+
+  const res = await f.spine.runMilestone('one');
+  assert.equal(res.verified, true);
+  assert.deepEqual(f.calls, ['bulldozer', 'jaguar', 'puma', 'bobcat', 'strix-halo', 'zen']);
+  assert.deepEqual(f.spine.state.completed_milestones, ['one']);
+  assert.equal(f.spine.state.current_milestone, null);
+});
+
+test('specialists receive milestone packet slice and never ledger or global authority', async t => {
+  let capturedPacket;
+  const f = fixture(t, {
+    invokeSpecialist: async (role, packet) => {
+      capturedPacket = packet;
+      return { status: 'SUCCESS', received: true };
+    },
+    output: async (contract, { spine }) => {
+      await spine.invokeSpecialist('jaguar', { task: 'retrieval task', search_path: 'docs/' });
+      // Assert forbidden fields are rejected
+      for (const field of ['ledger', 'ledgerPath', 'save', 'declareGlobalCompletion', 'completed_milestones', 'verdict', 'zen_verdict', 'result_ref']) {
+        await assert.rejects(
+          spine.invokeSpecialist('jaguar', { task: 'bad', [field]: 'forbidden-value' }),
+          new RegExp(`Specialists cannot receive ledger or global authority: "${field}" is prohibited`)
+        );
+      }
+      writeFileSync(join(f.dir, `${contract.milestone_id}.txt`), contract.milestone_id);
+      const hash = createHash('sha256').update(contract.milestone_id).digest('hex');
+      return candidate(contract, { candidate_artifact_ref: `sha256:${hash}` });
+    },
+  });
+
+  await f.spine.runMilestone('one');
+  assert.equal(capturedPacket.milestone_id, 'one');
+  assert.equal(capturedPacket.plan_version, 'v1');
+  assert.equal(capturedPacket.objective, 'Deliver one');
+  assert.deepEqual(capturedPacket.bounded_scope, ['one.txt']);
+  assert.deepEqual(capturedPacket.non_goals, ['activation']);
+  assert.deepEqual(capturedPacket.acceptance_criteria, ['content matches milestone ID']);
+  assert.equal(capturedPacket.task, 'retrieval task');
+  assert.equal(capturedPacket.search_path, 'docs/');
+  assert.equal(capturedPacket.ledger, undefined);
+  assert.equal(capturedPacket.ledgerPath, undefined);
+  assert.equal(capturedPacket.declareGlobalCompletion, undefined);
+  assert.equal(capturedPacket.completed_milestones, undefined);
+});
+
+test('specialist invocation is prohibited without an active milestone', async t => {
+  const f = fixture(t);
+  assert.equal(f.spine.state.current_milestone, null);
+  for (const role of ['jaguar', 'puma', 'bobcat', 'strix-halo']) {
+    await assert.rejects(
+      f.spine.invokeSpecialist(role, { task: 'work' }),
+      /Specialist invocation requires an active milestone/
+    );
+  }
+  await assert.rejects(f.spine.invokeJaguar({ query: 'find' }), /Specialist invocation requires an active milestone/);
+  await assert.rejects(f.spine.invokePuma({ files: [] }), /Specialist invocation requires an active milestone/);
+  await assert.rejects(f.spine.invokeBobcat({ task: 'code' }), /Specialist invocation requires an active milestone/);
+  await assert.rejects(f.spine.invokeStrixHalo({ task: 'gate' }), /Specialist invocation requires an active milestone/);
+});
+
+test('specialist routing strictly enforces caller-role boundaries', async t => {
+  const f = fixture(t, {
+    output: async (contract, { spine }) => {
+      // 1. Bulldozer cannot invoke Strix Halo directly (Strix Halo is Bobcat-local gate)
+      await assert.rejects(
+        spine.invokeSpecialist('strix-halo', { task: 'review' }, { caller: 'bulldozer' }),
+        /Strix Halo is a Bobcat-local advisor gate; Bulldozer cannot invoke Strix Halo directly/
+      );
+
+      // 2. Bobcat cannot invoke Jaguar, Puma, or Bobcat
+      for (const forbidden of ['jaguar', 'puma', 'bobcat']) {
+        await assert.rejects(
+          spine.invokeSpecialist(forbidden, { task: 'work' }, { caller: 'bobcat' }),
+          new RegExp(`Bobcat may invoke only Strix Halo; cannot invoke "${forbidden}"`)
+        );
+      }
+
+      // 3. Jaguar, Puma, Strix Halo cannot invoke any subagents
+      for (const caller of ['jaguar', 'puma', 'strix-halo']) {
+        await assert.rejects(
+          spine.invokeSpecialist('jaguar', { task: 'work' }, { caller }),
+          new RegExp(`Specialist "${caller}" has no delegation authority and cannot invoke subagents`)
+        );
+      }
+
+      // 4. Unauthorized callers (e.g. steamroller or unknown) cannot invoke specialists
+      for (const caller of ['steamroller', 'piledriver', 'zen', 'external']) {
+        await assert.rejects(
+          spine.invokeSpecialist('jaguar', { task: 'work' }, { caller }),
+          new RegExp(`Caller "${caller}" is not authorized to invoke specialists under a milestone`)
+        );
+      }
+
+      // 5. Cannot invoke non-specialist roles via specialist routing
+      for (const role of ['zen', 'piledriver', 'steamroller', 'bulldozer', 'unknown-role']) {
+        await assert.rejects(
+          spine.invokeSpecialist(role, { task: 'work' }),
+          new RegExp(`Unknown or disallowed specialist role: "${role}"`)
+        );
+      }
+      writeFileSync(join(f.dir, `${contract.milestone_id}.txt`), contract.milestone_id);
+      const hash = createHash('sha256').update(contract.milestone_id).digest('hex');
+      return candidate(contract, { candidate_artifact_ref: `sha256:${hash}` });
+    },
+  });
+
+  await f.spine.runMilestone('one');
+});
+
+test('Strix Halo REVISE leads to repair and re-check before Bobcat READY', async t => {
+  let strixAttempts = 0;
+  const f = fixture(t, {
+    invokeSpecialist: async (role, packet) => {
+      if (role === 'strix-halo') {
+        strixAttempts++;
+        if (strixAttempts === 1) {
+          return { verdict: 'REVISE', defect: 'Missing boundary check on empty input' };
+        }
+        return { verdict: 'ACCEPT', notes: 'Defect corrected and verified' };
+      }
+      return { status: 'READY' };
+    },
+    output: async (contract, { spine, dir }) => {
+      // Bobcat simulates implementation and checks with Strix Halo
+      const check1 = await spine.invokeStrixHalo({ task: 'check v1' }, { caller: 'bobcat' });
+      assert.equal(check1.verdict, 'REVISE');
+      assert.equal(check1.defect, 'Missing boundary check on empty input');
+
+      // Bobcat repairs and re-checks
+      const check2 = await spine.invokeStrixHalo({ task: 'check v2 after repair' }, { caller: 'bobcat' });
+      assert.equal(check2.verdict, 'ACCEPT');
+
+      const artifact = join(dir, `${contract.milestone_id}.txt`);
+      writeFileSync(artifact, contract.milestone_id);
+      const hash = createHash('sha256').update(readFileSync(artifact)).digest('hex');
+      return candidate(contract, { candidate_artifact_ref: `sha256:${hash}` });
+    },
+  });
+
+  const res = await f.spine.runMilestone('one');
+  assert.equal(res.verified, true);
+  assert.equal(strixAttempts, 2);
+  assert.deepEqual(f.spine.state.completed_milestones, ['one']);
+});
+
+test('Strix Halo NEEDS_DEEP escalates through Bobcat and Bulldozer without bypassing Steamroller', async t => {
+  const f = fixture(t, {
+    invokeSpecialist: async (role, packet) => {
+      if (role === 'strix-halo') {
+        return {
+          verdict: 'NEEDS_DEEP',
+          question: 'Ambiguous API contract requires architectural decision',
+        };
+      }
+      return { status: 'READY' };
+    },
+    output: async (contract, { spine }) => {
+      const strix = await spine.invokeStrixHalo({ task: 'check' }, { caller: 'bobcat' });
+      assert.equal(strix.verdict, 'NEEDS_DEEP');
+      // Bobcat reports NEEDS_DEEP to Bulldozer; Bulldozer returns NEEDS_DEEP candidate
+      return candidate(contract, {
+        status: 'NEEDS_DEEP',
+        escalation_needs: [strix.question],
+      });
+    },
+  });
+
+  const res = await f.spine.runMilestone('one');
+  assert.equal(res.status, 'NEEDS_DEEP');
+  assert.equal(res.verified, false);
+  assert.ok(!f.calls.includes('zen'));
+  assert.deepEqual(f.spine.state.completed_milestones, []);
+  assert.equal(f.spine.state.current_milestone, null);
+});
+

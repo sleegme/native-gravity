@@ -3,21 +3,24 @@ import { AuthoritativeLedger, deepClone, deepFreeze } from './ledger.mjs';
 import { invoke } from './runner.mjs';
 
 /**
- * Isolated 44E coordinator owned by Steamroller; not a default runtime entry or
+ * Isolated 44F coordinator owned by Steamroller; not a default runtime entry or
  * 44G activation. The exact-role adapter uses invoke(role, packet, options) and
- * returns {ok, response}. Bobcat remains native inside Bulldozer's invocation.
- * invokeZen is a required independent host-native call returning Zen's packet,
- * never a worker's relay. Children receive neither the ledger API nor its path.
+ * returns {ok, response}. Bulldozer milestone packets may invoke specialists:
+ * Jaguar (retrieval), Puma (mechanical), Bobcat (implementation). Strix Halo
+ * advises Bobcat locally. invokeZen is a required independent host-native call
+ * returning Zen's packet, never a worker's relay. Specialists receive only
+ * relevant milestone slices, never the ledger API, path, or global authority.
  */
 export class MinimalSpine {
   #ledger;
   #path;
   #invokeRole;
   #invokeZen;
+  #invokeSpecialist;
   #runnerOptions;
   #busy = false;
 
-  constructor({ ledgerPath, plan, invokeRole = invoke, invokeZen, runnerOptions = {} }) {
+  constructor({ ledgerPath, plan, invokeRole = invoke, invokeZen, invokeSpecialist, runnerOptions = {} }) {
     if (typeof ledgerPath !== 'string' || !ledgerPath.trim()) {
       throw new TypeError('A supervisor-owned ledgerPath is required');
     }
@@ -27,6 +30,7 @@ export class MinimalSpine {
     this.#path = ledgerPath;
     this.#invokeRole = invokeRole;
     this.#invokeZen = invokeZen;
+    this.#invokeSpecialist = invokeSpecialist;
     this.#runnerOptions = runnerOptions;
     if (plan !== undefined) {
       if (existsSync(ledgerPath)) throw new Error('Refusing to replace an existing ledger');
@@ -52,7 +56,10 @@ export class MinimalSpine {
     // whole contract into task so bounded prompt construction keeps its fields.
     const output = await this.#invokeRole(role, {
       task: instruction + '\n' + JSON.stringify(contract),
-    }, this.#runnerOptions);
+    }, {
+      ...this.#runnerOptions,
+      invokeSpecialist: (r, s, o) => this.invokeSpecialist(r, s, o),
+    });
     if (!output?.ok) {
       throw new Error(`${role} invocation failed: ${JSON.stringify(output)}`);
     }
@@ -61,6 +68,144 @@ export class MinimalSpine {
       throw new TypeError(`${role} must return a JSON object`);
     }
     return packet;
+  }
+
+  /**
+   * 44F specialist routing under an active milestone.
+   * Bulldozer milestone packets may invoke:
+   *   - jaguar (retrieval)
+   *   - puma (mechanical worker)
+   *   - bobcat (bounded implementation)
+   * Bobcat may invoke:
+   *   - strix-halo (Bobcat-local implementation advisor)
+   * Specialists receive the milestone packet's relevant slice, never the ledger
+   * or global authority. Outputs flow back without touching ledger state directly.
+   */
+  async invokeSpecialist(roleOrOpts, maybeSlice, maybeOptions = {}) {
+    let role, slice, options;
+    if (typeof roleOrOpts === 'object' && roleOrOpts !== null && !Array.isArray(roleOrOpts) && maybeSlice === undefined) {
+      role = roleOrOpts.role;
+      slice = roleOrOpts.slice ?? roleOrOpts.packet ?? roleOrOpts.task ?? {};
+      options = roleOrOpts;
+    } else {
+      role = roleOrOpts;
+      slice = maybeSlice ?? {};
+      options = maybeOptions ?? {};
+    }
+    const caller = typeof options === 'string' ? options : (options?.caller ?? 'bulldozer');
+
+    const activeMilestoneId = this.state.current_milestone;
+    if (activeMilestoneId === null) {
+      throw new Error('Specialist invocation requires an active milestone');
+    }
+
+    const normalizedRole = typeof role === 'string' ? role.trim().toLowerCase() : '';
+    const normalizedCaller = typeof caller === 'string' ? caller.trim().toLowerCase() : '';
+    const targetRole = normalizedRole === 'strix_halo' ? 'strix-halo' : normalizedRole;
+    const callerRole = normalizedCaller === 'strix_halo' ? 'strix-halo' : normalizedCaller;
+
+    const SPECIALIST_ROLES = ['jaguar', 'puma', 'bobcat', 'strix-halo'];
+    if (!SPECIALIST_ROLES.includes(targetRole)) {
+      throw new TypeError(`Unknown or disallowed specialist role: "${role}"`);
+    }
+
+    // Role boundary routing
+    if (callerRole === 'bulldozer') {
+      if (targetRole === 'strix-halo') {
+        throw new Error('Strix Halo is a Bobcat-local advisor gate; Bulldozer cannot invoke Strix Halo directly');
+      }
+      if (!['jaguar', 'puma', 'bobcat'].includes(targetRole)) {
+        throw new Error(`Bulldozer cannot invoke "${targetRole}"`);
+      }
+    } else if (callerRole === 'bobcat') {
+      if (targetRole !== 'strix-halo') {
+        throw new Error(`Bobcat may invoke only Strix Halo; cannot invoke "${targetRole}"`);
+      }
+    } else if (['jaguar', 'puma', 'strix-halo'].includes(callerRole)) {
+      throw new Error(`Specialist "${callerRole}" has no delegation authority and cannot invoke subagents`);
+    } else {
+      throw new Error(`Caller "${caller}" is not authorized to invoke specialists under a milestone`);
+    }
+
+    if (typeof slice === 'string') {
+      slice = { task: slice };
+    } else if (typeof slice !== 'object' || slice === null || Array.isArray(slice)) {
+      throw new TypeError('Specialist slice must be an object or task string');
+    }
+
+    // Prohibit passing ledger or global authority to specialists
+    const FORBIDDEN_KEYS = [
+      'ledger', 'ledgerPath', 'save', 'declareGlobalCompletion',
+      'completed_milestones', 'verdict', 'zen_verdict', 'result_ref',
+    ];
+    for (const key of FORBIDDEN_KEYS) {
+      if (key in slice && slice[key] !== undefined) {
+        throw new Error(`Specialists cannot receive ledger or global authority: "${key}" is prohibited`);
+      }
+    }
+
+    // Bounded milestone slice: relevant fields only, never ledger internals
+    const activeMilestone = this.state.milestones.find(m => m.id === activeMilestoneId);
+    const milestoneSlice = activeMilestone ? {
+      milestone_id: activeMilestone.id,
+      plan_version: this.state.plan_version,
+      objective: activeMilestone.objective,
+      bounded_scope: activeMilestone.bounded_scope,
+      non_goals: activeMilestone.non_goals,
+      acceptance_criteria: activeMilestone.acceptance_criteria,
+      constraints: this.state.constraints,
+    } : {
+      milestone_id: activeMilestoneId,
+      plan_version: this.state.plan_version,
+    };
+
+    const packet = deepFreeze(deepClone({
+      ...milestoneSlice,
+      ...slice,
+      milestone_id: activeMilestoneId,
+      plan_version: this.state.plan_version,
+    }));
+
+    let result;
+    if (this.#invokeSpecialist) {
+      result = await this.#invokeSpecialist(targetRole, packet, options);
+    } else if (this.#invokeRole) {
+      result = await this.#invokeRole(targetRole, packet, this.#runnerOptions);
+    } else {
+      throw new Error(`No invocation adapter available for specialist "${targetRole}"`);
+    }
+
+    if (result && typeof result === 'object') {
+      if (result.ok === false) {
+        throw new Error(`${targetRole} invocation failed: ${JSON.stringify(result)}`);
+      }
+      if (typeof result.response === 'string') {
+        try {
+          return deepFreeze(JSON.parse(result.response));
+        } catch {
+          return result.response;
+        }
+      }
+      return deepFreeze(deepClone(result));
+    }
+    return result;
+  }
+
+  async invokeJaguar(slice, options = {}) {
+    return this.invokeSpecialist('jaguar', slice, options);
+  }
+
+  async invokePuma(slice, options = {}) {
+    return this.invokeSpecialist('puma', slice, options);
+  }
+
+  async invokeBobcat(slice, options = {}) {
+    return this.invokeSpecialist('bobcat', slice, options);
+  }
+
+  async invokeStrixHalo(slice, options = {}) {
+    const caller = typeof options === 'string' ? options : (options?.caller ?? 'bobcat');
+    return this.invokeSpecialist('strix-halo', slice, typeof options === 'object' ? { ...options, caller } : { caller });
   }
 
   /** A planning response is advice; only explicit supervisor adoption changes state. */
@@ -85,11 +230,14 @@ export class MinimalSpine {
     this.#busy = true;
     try {
       const candidate = await this.#exact('bulldozer',
-        'Execute only this milestone. Delegate bounded implementation to native '
-        + 'Bobcat; set ADVISOR_GATE REQUIRED for substantive work or NONE only for '
-        + 'low-risk mechanical work. Bobcat may invoke only Strix Halo when required. '
+        'Execute only this milestone. Delegate bounded work to specialists by kind: '
+        + 'Jaguar for read-only factual retrieval, Puma for low-risk writing and '
+        + 'mechanical text/config edits, and Bobcat for bounded implementation. '
+        + 'For Bobcat, set ADVISOR_GATE REQUIRED for substantive work or NONE only '
+        + 'for low-risk mechanical work; Bobcat may invoke only Strix Halo when required. '
+        + 'Puma and Jaguar have no subagents and Puma has no advisor ceremony. '
         + 'If a required specialist is unavailable, return BLOCKED, not a gate waiver. '
-        + 'Inspect Bobcat results and actual evidence yourself. Worker READY and '
+        + 'Inspect specialist results and actual evidence yourself. Worker READY and '
         + 'Strix ACCEPT are not DONE. Return your own JSON result packet with '
         + 'milestone_id, plan_version, explicit status DONE|BLOCKED|NEEDS_DEEP, '
         + 'changes_made, verification_evidence, unresolved_unknowns, scope_deviations, '
