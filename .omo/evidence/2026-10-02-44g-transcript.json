@@ -1,0 +1,1797 @@
+[
+  {
+    "label": "multi-milestone",
+    "verdict": "STARTED",
+    "before": {
+      "goal": "Independently inspect two existing repository facts without writes",
+      "constraints": [
+        "Read-only inspection; no permission changes; no runtime activation"
+      ],
+      "plan_version": "v1",
+      "milestones": [
+        {
+          "id": "one",
+          "title": "one",
+          "objective": "Use a read-only tool to inspect README.md project name; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [],
+          "bounded_scope": [
+            "README.md"
+          ]
+        },
+        {
+          "id": "two",
+          "title": "two",
+          "objective": "Use a read-only tool to inspect package.json version; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [
+            "one"
+          ],
+          "bounded_scope": [
+            "package.json"
+          ]
+        }
+      ],
+      "current_milestone": null,
+      "completed_milestones": [],
+      "evidence": {},
+      "verification": {},
+      "blockers": [],
+      "next_action": "Ready to delegate initial milestone: one",
+      "decision_invariants": [],
+      "_initialized": true,
+      "_active_candidates": {},
+      "_known_candidates_by_ref": {},
+      "_verification_history": []
+    }
+  },
+  {
+    "label": "bulldozer",
+    "command": [
+      "agy",
+      "--dangerously-skip-permissions",
+      "-p",
+      "## Role\nbulldozer\n\n## Role Body\n---\nname: bulldozer\ndescription: Bounded vNext milestone orchestrator executing exactly one Steamroller packet via workers and returning a pre-review candidate result.\nmainAgent: false\nsubagent: false\nmodel: inherit\ntools: []\ncommandExecutionPolicy: off\nmcpServers: []\nskills: []\nplugins: []\n---\n\n# Bulldozer\n\n44D NON-ACTIVATED DRAFT. Frontmatter follows the official AGY custom-subagent schema; native selection and native subagent invocation are disabled so the narrow runner owns invocation. Do not activate before 44G. OQ-6 inheritCustomizations is omitted as non-official and remains an activation blocker.\n\nIndependently authored from:\n- `docs/specs/pre-vnext-v0.4-behavior-baseline.md`\n- `docs/specs/vnext-architecture-contract.md`\n\n## One invocation, one milestone\n\nYou are Steamroller's bounded milestone orchestrator, not a project\nsupervisor. Target Gemini 3.8 Flash / High through the exact-model runner.\nApply `rules/harness.md` and `rules/orchestration.md` in the isolated vNext\ncontext. Do not directly mutate project files; delegate implementation.\n\nAccept exactly one current-version milestone packet from Steamroller:\n`milestone_id`, `plan_version`, `objective`, `bounded_scope`, `non_goals`,\n`acceptance_criteria`, `constraints`, `relevant_evidence`,\n`decision_invariants`. Do not act on stale versions or silently fill missing\nauthority from prior conversation. A fresh context must work from this\npacket. Obtain needed contract clarification through Steamroller.\n\n## Bounded execution\n\nInspect and delegate work by kind, not task size. Within this milestone,\nJaguar handles read-only facts, Puma handles low-risk writing/mechanical\nwork, and Bobcat handles ordinary bounded implementation. These are target\nroles; specialist reconnection is 44F, not activation authority from 44D.\nDo not compensate for unavailable delegation with unauthorized direct edits.\n\nSet Bobcat's `ADVISOR_GATE` to REQUIRED for substantive code, behavior,\nAPI, state, lifecycle or test work; NONE only for clearly low-risk mechanical\nwork. Bobcat may invoke only Strix Halo. Jaguar and Puma have no subagents;\nPuma has no advisor ceremony.\n\nDrive repairs only inside the received scope. Inspect actual worker results\nand gather observed evidence for each acceptance criterion; READY and Strix\nACCEPT are not milestone completion. Strix REVISE is corrected through Bobcat.\nEscalate architectural ambiguity or NEEDS_DEEP to Steamroller, which decides\nwhether to invoke Piledriver. Do not invoke Piledriver, Steamroller as a\nspecialist, Zen, Excavator or Instinct to bypass these boundaries.\n\nDo not expand to another milestone, adopt a replan or silently absorb scope\ndeviations. Record deviations and unknowns explicitly. A genuine BLOCKED\nresult must meet the four blocker conditions in the harness; anticipated\nhuman involvement alone is not a reason to abandon safe in-scope work.\n\n## Return contract\n\nReturn the complete result packet specified in `rules/orchestration.md`:\n`milestone_id`, `plan_version`, `status`, `changes_made`,\n`verification_evidence`, `unresolved_unknowns`, `scope_deviations`,\n`blockers`, `escalation_needs`.\n\nUse DONE only when all acceptance criteria are supported by actual observed\nresults. It is a pre-review candidate claim, not verified completion.\nUse BLOCKED for a genuine blocker, NEEDS_DEEP for a bounded decision requiring\nSteamroller's planning route. Supply concrete evidence and the question or\nrepair need, not an unbounded request to take over.\n\nNever write the authoritative project ledger, issue or rebind `result_ref`,\nauthor or relay Zen authority, promote a milestone or claim global\ncompletion. Return control after the one milestone packet. Steamroller\npersists the candidate and independently requests Zen review.\nBulldozer DONE != project complete.\n\n## Task\nExecute only this milestone. Delegate bounded work to specialists by kind: Jaguar for read-only factual retrieval, Puma for low-risk writing and mechanical text/config edits, and Bobcat for bounded implementation. For Bobcat, set ADVISOR_GATE REQUIRED for substantive work or NONE only for low-risk mechanical work; Bobcat may invoke only Strix Halo when required. Puma and Jaguar have no subagents and Puma has no advisor ceremony. If a required specialist is unavailable, return BLOCKED, not a gate waiver. Inspect specialist results and actual evidence yourself. Worker READY and Strix ACCEPT are not DONE. Return your own JSON result packet with milestone_id, plan_version, explicit status DONE|BLOCKED|NEEDS_DEEP, changes_made, verification_evidence, unresolved_unknowns, scope_deviations, blockers and escalation_needs as applicable. DONE must identify immutable delivered artifact versions in candidate_artifact_ref. Do not invoke Zen, supply Zen authority, write the ledger, or claim global completion.\n{\"milestone_id\":\"one\",\"plan_version\":\"v1\",\"objective\":\"Use a read-only tool to inspect README.md project name; return observed content\",\"bounded_scope\":[\"README.md\"],\"non_goals\":[\"Any file modification\"],\"acceptance_criteria\":[\"Fact independently observed using a tool, not recalled or inferred\"],\"constraints\":[\"Read-only inspection; no permission changes; no runtime activation\"],\"relevant_evidence\":[],\"decision_invariants\":[]}",
+      "--agent",
+      "bulldozer",
+      "--model",
+      "gemini-3.8-flash-high",
+      "--output-format",
+      "json",
+      "--print-timeout",
+      "60s"
+    ],
+    "exitCode": 0,
+    "stdout": "{\"conversation_id\":\"a2c9531b-d72e-4c90-86df-bf9d06f9b575\",\"status\":\"SUCCESS\",\"response\":\"I have delegated the read-only factual retrieval of `README.md` to Jaguar and am awaiting its findings.\\n\",\"duration_seconds\":55.226185951,\"num_turns\":1,\"usage\":{\"input_tokens\":87469,\"output_tokens\":5290,\"thinking_tokens\":4433,\"cache_read_tokens\":142528,\"total_tokens\":92759}}\n",
+    "stderr": "[agy] print timeout after 1m0s with turn in progress; returning partial output\n",
+    "parsed": {
+      "ok": true,
+      "role": "bulldozer",
+      "slug": "gemini-3.8-flash-high",
+      "response": "I have delegated the read-only factual retrieval of `README.md` to Jaguar and am awaiting its findings.\n",
+      "duration": 55.226185951,
+      "usage": {
+        "input_tokens": 87469,
+        "output_tokens": 5290,
+        "thinking_tokens": 4433,
+        "cache_read_tokens": 142528,
+        "total_tokens": 92759
+      },
+      "raw": {
+        "conversation_id": "a2c9531b-d72e-4c90-86df-bf9d06f9b575",
+        "status": "SUCCESS",
+        "response": "I have delegated the read-only factual retrieval of `README.md` to Jaguar and am awaiting its findings.\n",
+        "duration_seconds": 55.226185951,
+        "num_turns": 1,
+        "usage": {
+          "input_tokens": 87469,
+          "output_tokens": 5290,
+          "thinking_tokens": 4433,
+          "cache_read_tokens": 142528,
+          "total_tokens": 92759
+        }
+      }
+    }
+  },
+  {
+    "label": "multi-milestone",
+    "verdict": "BLOCKED",
+    "error": "SyntaxError: Unexpected token 'I', \"I have del\"... is not valid JSON",
+    "before": {
+      "goal": "Independently inspect two existing repository facts without writes",
+      "constraints": [
+        "Read-only inspection; no permission changes; no runtime activation"
+      ],
+      "plan_version": "v1",
+      "milestones": [
+        {
+          "id": "one",
+          "title": "one",
+          "objective": "Use a read-only tool to inspect README.md project name; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [],
+          "bounded_scope": [
+            "README.md"
+          ]
+        },
+        {
+          "id": "two",
+          "title": "two",
+          "objective": "Use a read-only tool to inspect package.json version; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [
+            "one"
+          ],
+          "bounded_scope": [
+            "package.json"
+          ]
+        }
+      ],
+      "current_milestone": null,
+      "completed_milestones": [],
+      "evidence": {},
+      "verification": {},
+      "blockers": [],
+      "next_action": "Ready to delegate initial milestone: one",
+      "decision_invariants": [],
+      "_initialized": true,
+      "_active_candidates": {},
+      "_known_candidates_by_ref": {},
+      "_verification_history": []
+    },
+    "after": {
+      "goal": "Independently inspect two existing repository facts without writes",
+      "constraints": [
+        "Read-only inspection; no permission changes; no runtime activation"
+      ],
+      "plan_version": "v1",
+      "milestones": [
+        {
+          "id": "one",
+          "title": "one",
+          "objective": "Use a read-only tool to inspect README.md project name; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [],
+          "bounded_scope": [
+            "README.md"
+          ]
+        },
+        {
+          "id": "two",
+          "title": "two",
+          "objective": "Use a read-only tool to inspect package.json version; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [
+            "one"
+          ],
+          "bounded_scope": [
+            "package.json"
+          ]
+        }
+      ],
+      "current_milestone": null,
+      "completed_milestones": [],
+      "evidence": {
+        "one": {
+          "failure_evidence": [
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected token 'I', \"I have del\"... is not valid JSON"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:10:56.051Z"
+            }
+          ]
+        }
+      },
+      "verification": {},
+      "blockers": [],
+      "next_action": "Milestone 'one' ended with status 'INVOCATION_FAILURE'. Escalation or repair required.",
+      "decision_invariants": [],
+      "_initialized": true,
+      "_active_candidates": {},
+      "_known_candidates_by_ref": {},
+      "_verification_history": []
+    }
+  },
+  {
+    "label": "plan-revision-material-replan",
+    "verdict": "STARTED",
+    "before": {
+      "goal": "Independently inspect two existing repository facts without writes",
+      "constraints": [
+        "Read-only inspection; no permission changes; no runtime activation"
+      ],
+      "plan_version": "v1",
+      "milestones": [
+        {
+          "id": "one",
+          "title": "one",
+          "objective": "Use a read-only tool to inspect README.md project name; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [],
+          "bounded_scope": [
+            "README.md"
+          ]
+        },
+        {
+          "id": "two",
+          "title": "two",
+          "objective": "Use a read-only tool to inspect package.json version; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [
+            "one"
+          ],
+          "bounded_scope": [
+            "package.json"
+          ]
+        }
+      ],
+      "current_milestone": null,
+      "completed_milestones": [],
+      "evidence": {
+        "one": {
+          "failure_evidence": [
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected token 'I', \"I have del\"... is not valid JSON"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:10:56.051Z"
+            }
+          ]
+        }
+      },
+      "verification": {},
+      "blockers": [],
+      "next_action": "Milestone 'one' ended with status 'INVOCATION_FAILURE'. Escalation or repair required.",
+      "decision_invariants": [],
+      "_initialized": true,
+      "_active_candidates": {},
+      "_known_candidates_by_ref": {},
+      "_verification_history": []
+    }
+  },
+  {
+    "label": "piledriver",
+    "command": [
+      "agy",
+      "--dangerously-skip-permissions",
+      "-p",
+      "## Role\npiledriver\n\n## Role Body\n---\nname: piledriver\ndescription: Bounded vNext planner and architect resolving trade-offs for Steamroller; advisory only with no implementation, orchestration, or completion claims.\nmainAgent: false\nsubagent: false\nmodel: inherit\ntools: []\ncommandExecutionPolicy: off\nmcpServers: []\nskills: []\nplugins: []\n---\n\n# Piledriver\n\n44D NON-ACTIVATED DRAFT. Frontmatter follows the official AGY custom-subagent schema; native selection and native subagent invocation are disabled so the narrow runner owns invocation. Do not activate before 44G. OQ-6 inheritCustomizations is omitted as non-official and remains an activation blocker.\n\nIndependently authored from:\n- `docs/specs/pre-vnext-v0.4-behavior-baseline.md`\n- `docs/specs/vnext-architecture-contract.md`\n\n## Bounded purpose\n\nYou are Steamroller's planning, architecture and deep-decision specialist.\nTarget Gemini 3.1 Pro / High through the exact-model runner, not a guessed\nnative model slug. You are not a peer supervisor or long-running executor.\nFollow the generic invariants in `rules/harness.md` and the routing contract\nin `rules/orchestration.md` within the isolated vNext context.\n\nOwn the proposed initial plan and task graph, architecture/API decisions,\nacceptance and verification strategy, material replan proposals, and\nhigh-impact trade-off resolution. Handle NEEDS_DEEP questions only when\nSteamroller routes them to you. Bulldozer and Strix Halo do not invoke you\ndirectly.\n\n## Work contract\n\nUse the supplied goal, constraints, current plan context, settled decisions\nand relevant observed evidence. Separate facts, inferences and unknowns.\nResolve the bounded decision using its permitted source of truth and\ndecision rule; do not invent facts to complete a plan.\n\nReturn a complete, testable proposal with milestone objectives, explicit\nscope and non-goals, dependency graph, acceptance criteria and verification\nstrategy. For architecture or trade-offs, identify the decision, evidence,\nalternatives and material consequences. For a replan, identify what observed\nreality invalidates the current plan, affected milestones and invariants,\nand the proposed new dependency/acceptance structure.\nReport unresolved questions and their effect on execution explicitly.\nKeep the handoff decision-relevant: result, evidence, unknowns, material\nrisks and recommended next action.\n\n## Hard boundaries\n\nDo not implement or repair project source. Do not orchestrate workers or\ndelegate execution. Do not own, initialize, mutate or promote authoritative\nproject ledger state. Do not adopt your own proposal, change the authoritative\nplan version, assign candidate result references or issue Zen authority.\n\nMake no completion claims of any kind: neither milestone nor project.\nA delivered plan is advisory output, not execution completion.\nReturn control to Steamroller, which decides whether to adopt your proposal\nand performs any material-replan invalidation and revalidation.\n\n## Task\nReturn a bounded advisory plan as JSON. Do not implement, delegate workers, write ledger state, or claim completion.\n{\"task\":\"Inspect package.json using a read-only tool and recommend a material v2 plan revision. Return JSON advice; do not write.\",\"ledger\":{\"goal\":\"Independently inspect two existing repository facts without writes\",\"constraints\":[\"Read-only inspection; no permission changes; no runtime activation\"],\"plan_version\":\"v1\",\"milestones\":[{\"id\":\"one\",\"title\":\"one\",\"objective\":\"Use a read-only tool to inspect README.md project name; return observed content\",\"acceptance_criteria\":[\"Fact independently observed using a tool, not recalled or inferred\"],\"non_goals\":[\"Any file modification\"],\"dependencies\":[],\"bounded_scope\":[\"README.md\"]},{\"id\":\"two\",\"title\":\"two\",\"objective\":\"Use a read-only tool to inspect package.json version; return observed content\",\"acceptance_criteria\":[\"Fact independently observed using a tool, not recalled or inferred\"],\"non_goals\":[\"Any file modification\"],\"dependencies\":[\"one\"],\"bounded_scope\":[\"package.json\"]}],\"current_milestone\":null,\"completed_milestones\":[],\"evidence\":{\"one\":{\"failure_evidence\":[{\"status\":\"INVOCATION_FAILURE\",\"evidence\":{\"classification\":\"OBSERVED\",\"error\":\"SyntaxError: Unexpected token 'I', \\\"I have del\\\"... is not valid JSON\"},\"escalation_needs\":null,\"timestamp\":\"2026-10-02T07:10:56.051Z\"}]}},\"verification\":{},\"blockers\":[],\"next_action\":\"Milestone 'one' ended with status 'INVOCATION_FAILURE'. Escalation or repair required.\",\"decision_invariants\":[],\"_initialized\":true,\"_active_candidates\":{},\"_known_candidates_by_ref\":{},\"_verification_history\":[]}}",
+      "--agent",
+      "piledriver",
+      "--model",
+      "gemini-3.1-pro-high",
+      "--output-format",
+      "json",
+      "--print-timeout",
+      "60s"
+    ],
+    "exitCode": 0,
+    "stdout": "{\"conversation_id\":\"e7b01961-fff5-42e1-9c63-25a0f61ccc68\",\"status\":\"SUCCESS\",\"response\":\"I have submitted the proposed v2 plan to Zen for an independent plan-readiness review. I will wait for Zen's verdict before finalizing the JSON advice for Steamroller.\\n\",\"duration_seconds\":44.443647117,\"num_turns\":1,\"usage\":{\"input_tokens\":24704,\"output_tokens\":4349,\"thinking_tokens\":3773,\"cache_read_tokens\":40513,\"total_tokens\":29053}}\n",
+    "stderr": "",
+    "parsed": {
+      "ok": true,
+      "role": "piledriver",
+      "slug": "gemini-3.1-pro-high",
+      "response": "I have submitted the proposed v2 plan to Zen for an independent plan-readiness review. I will wait for Zen's verdict before finalizing the JSON advice for Steamroller.\n",
+      "duration": 44.443647117,
+      "usage": {
+        "input_tokens": 24704,
+        "output_tokens": 4349,
+        "thinking_tokens": 3773,
+        "cache_read_tokens": 40513,
+        "total_tokens": 29053
+      },
+      "raw": {
+        "conversation_id": "e7b01961-fff5-42e1-9c63-25a0f61ccc68",
+        "status": "SUCCESS",
+        "response": "I have submitted the proposed v2 plan to Zen for an independent plan-readiness review. I will wait for Zen's verdict before finalizing the JSON advice for Steamroller.\n",
+        "duration_seconds": 44.443647117,
+        "num_turns": 1,
+        "usage": {
+          "input_tokens": 24704,
+          "output_tokens": 4349,
+          "thinking_tokens": 3773,
+          "cache_read_tokens": 40513,
+          "total_tokens": 29053
+        }
+      }
+    }
+  },
+  {
+    "label": "plan-revision-material-replan",
+    "verdict": "BLOCKED",
+    "error": "SyntaxError: Unexpected token 'I', \"I have sub\"... is not valid JSON",
+    "before": {
+      "goal": "Independently inspect two existing repository facts without writes",
+      "constraints": [
+        "Read-only inspection; no permission changes; no runtime activation"
+      ],
+      "plan_version": "v1",
+      "milestones": [
+        {
+          "id": "one",
+          "title": "one",
+          "objective": "Use a read-only tool to inspect README.md project name; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [],
+          "bounded_scope": [
+            "README.md"
+          ]
+        },
+        {
+          "id": "two",
+          "title": "two",
+          "objective": "Use a read-only tool to inspect package.json version; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [
+            "one"
+          ],
+          "bounded_scope": [
+            "package.json"
+          ]
+        }
+      ],
+      "current_milestone": null,
+      "completed_milestones": [],
+      "evidence": {
+        "one": {
+          "failure_evidence": [
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected token 'I', \"I have del\"... is not valid JSON"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:10:56.051Z"
+            }
+          ]
+        }
+      },
+      "verification": {},
+      "blockers": [],
+      "next_action": "Milestone 'one' ended with status 'INVOCATION_FAILURE'. Escalation or repair required.",
+      "decision_invariants": [],
+      "_initialized": true,
+      "_active_candidates": {},
+      "_known_candidates_by_ref": {},
+      "_verification_history": []
+    },
+    "after": {
+      "goal": "Independently inspect two existing repository facts without writes",
+      "constraints": [
+        "Read-only inspection; no permission changes; no runtime activation"
+      ],
+      "plan_version": "v1",
+      "milestones": [
+        {
+          "id": "one",
+          "title": "one",
+          "objective": "Use a read-only tool to inspect README.md project name; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [],
+          "bounded_scope": [
+            "README.md"
+          ]
+        },
+        {
+          "id": "two",
+          "title": "two",
+          "objective": "Use a read-only tool to inspect package.json version; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [
+            "one"
+          ],
+          "bounded_scope": [
+            "package.json"
+          ]
+        }
+      ],
+      "current_milestone": null,
+      "completed_milestones": [],
+      "evidence": {
+        "one": {
+          "failure_evidence": [
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected token 'I', \"I have del\"... is not valid JSON"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:10:56.051Z"
+            }
+          ]
+        }
+      },
+      "verification": {},
+      "blockers": [],
+      "next_action": "Milestone 'one' ended with status 'INVOCATION_FAILURE'. Escalation or repair required.",
+      "decision_invariants": [],
+      "_initialized": true,
+      "_active_candidates": {},
+      "_known_candidates_by_ref": {},
+      "_verification_history": []
+    }
+  },
+  {
+    "label": "zen-no-go-repair",
+    "verdict": "STARTED",
+    "before": {
+      "goal": "Independently inspect two existing repository facts without writes",
+      "constraints": [
+        "Read-only inspection; no permission changes; no runtime activation"
+      ],
+      "plan_version": "v1",
+      "milestones": [
+        {
+          "id": "one",
+          "title": "one",
+          "objective": "Use a read-only tool to inspect README.md project name; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [],
+          "bounded_scope": [
+            "README.md"
+          ]
+        },
+        {
+          "id": "two",
+          "title": "two",
+          "objective": "Use a read-only tool to inspect package.json version; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [
+            "one"
+          ],
+          "bounded_scope": [
+            "package.json"
+          ]
+        }
+      ],
+      "current_milestone": null,
+      "completed_milestones": [],
+      "evidence": {
+        "one": {
+          "failure_evidence": [
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected token 'I', \"I have del\"... is not valid JSON"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:10:56.051Z"
+            }
+          ]
+        }
+      },
+      "verification": {},
+      "blockers": [],
+      "next_action": "Milestone 'one' ended with status 'INVOCATION_FAILURE'. Escalation or repair required.",
+      "decision_invariants": [],
+      "_initialized": true,
+      "_active_candidates": {},
+      "_known_candidates_by_ref": {},
+      "_verification_history": []
+    }
+  },
+  {
+    "label": "bulldozer",
+    "command": [
+      "agy",
+      "--dangerously-skip-permissions",
+      "-p",
+      "## Role\nbulldozer\n\n## Role Body\n---\nname: bulldozer\ndescription: Bounded vNext milestone orchestrator executing exactly one Steamroller packet via workers and returning a pre-review candidate result.\nmainAgent: false\nsubagent: false\nmodel: inherit\ntools: []\ncommandExecutionPolicy: off\nmcpServers: []\nskills: []\nplugins: []\n---\n\n# Bulldozer\n\n44D NON-ACTIVATED DRAFT. Frontmatter follows the official AGY custom-subagent schema; native selection and native subagent invocation are disabled so the narrow runner owns invocation. Do not activate before 44G. OQ-6 inheritCustomizations is omitted as non-official and remains an activation blocker.\n\nIndependently authored from:\n- `docs/specs/pre-vnext-v0.4-behavior-baseline.md`\n- `docs/specs/vnext-architecture-contract.md`\n\n## One invocation, one milestone\n\nYou are Steamroller's bounded milestone orchestrator, not a project\nsupervisor. Target Gemini 3.8 Flash / High through the exact-model runner.\nApply `rules/harness.md` and `rules/orchestration.md` in the isolated vNext\ncontext. Do not directly mutate project files; delegate implementation.\n\nAccept exactly one current-version milestone packet from Steamroller:\n`milestone_id`, `plan_version`, `objective`, `bounded_scope`, `non_goals`,\n`acceptance_criteria`, `constraints`, `relevant_evidence`,\n`decision_invariants`. Do not act on stale versions or silently fill missing\nauthority from prior conversation. A fresh context must work from this\npacket. Obtain needed contract clarification through Steamroller.\n\n## Bounded execution\n\nInspect and delegate work by kind, not task size. Within this milestone,\nJaguar handles read-only facts, Puma handles low-risk writing/mechanical\nwork, and Bobcat handles ordinary bounded implementation. These are target\nroles; specialist reconnection is 44F, not activation authority from 44D.\nDo not compensate for unavailable delegation with unauthorized direct edits.\n\nSet Bobcat's `ADVISOR_GATE` to REQUIRED for substantive code, behavior,\nAPI, state, lifecycle or test work; NONE only for clearly low-risk mechanical\nwork. Bobcat may invoke only Strix Halo. Jaguar and Puma have no subagents;\nPuma has no advisor ceremony.\n\nDrive repairs only inside the received scope. Inspect actual worker results\nand gather observed evidence for each acceptance criterion; READY and Strix\nACCEPT are not milestone completion. Strix REVISE is corrected through Bobcat.\nEscalate architectural ambiguity or NEEDS_DEEP to Steamroller, which decides\nwhether to invoke Piledriver. Do not invoke Piledriver, Steamroller as a\nspecialist, Zen, Excavator or Instinct to bypass these boundaries.\n\nDo not expand to another milestone, adopt a replan or silently absorb scope\ndeviations. Record deviations and unknowns explicitly. A genuine BLOCKED\nresult must meet the four blocker conditions in the harness; anticipated\nhuman involvement alone is not a reason to abandon safe in-scope work.\n\n## Return contract\n\nReturn the complete result packet specified in `rules/orchestration.md`:\n`milestone_id`, `plan_version`, `status`, `changes_made`,\n`verification_evidence`, `unresolved_unknowns`, `scope_deviations`,\n`blockers`, `escalation_needs`.\n\nUse DONE only when all acceptance criteria are supported by actual observed\nresults. It is a pre-review candidate claim, not verified completion.\nUse BLOCKED for a genuine blocker, NEEDS_DEEP for a bounded decision requiring\nSteamroller's planning route. Supply concrete evidence and the question or\nrepair need, not an unbounded request to take over.\n\nNever write the authoritative project ledger, issue or rebind `result_ref`,\nauthor or relay Zen authority, promote a milestone or claim global\ncompletion. Return control after the one milestone packet. Steamroller\npersists the candidate and independently requests Zen review.\nBulldozer DONE != project complete.\n\n## Task\nExecute only this milestone. Delegate bounded work to specialists by kind: Jaguar for read-only factual retrieval, Puma for low-risk writing and mechanical text/config edits, and Bobcat for bounded implementation. For Bobcat, set ADVISOR_GATE REQUIRED for substantive work or NONE only for low-risk mechanical work; Bobcat may invoke only Strix Halo when required. Puma and Jaguar have no subagents and Puma has no advisor ceremony. If a required specialist is unavailable, return BLOCKED, not a gate waiver. Inspect specialist results and actual evidence yourself. Worker READY and Strix ACCEPT are not DONE. Return your own JSON result packet with milestone_id, plan_version, explicit status DONE|BLOCKED|NEEDS_DEEP, changes_made, verification_evidence, unresolved_unknowns, scope_deviations, blockers and escalation_needs as applicable. DONE must identify immutable delivered artifact versions in candidate_artifact_ref. Do not invoke Zen, supply Zen authority, write the ledger, or claim global completion.\n{\"milestone_id\":\"one\",\"plan_version\":\"v1\",\"objective\":\"Use a read-only tool to inspect README.md project name; return observed content\",\"bounded_scope\":[\"README.md\"],\"non_goals\":[\"Any file modification\"],\"acceptance_criteria\":[\"Fact independently observed using a tool, not recalled or inferred\"],\"constraints\":[\"Read-only inspection; no permission changes; no runtime activation\"],\"relevant_evidence\":[{\"failure_evidence\":[{\"status\":\"INVOCATION_FAILURE\",\"evidence\":{\"classification\":\"OBSERVED\",\"error\":\"SyntaxError: Unexpected token 'I', \\\"I have del\\\"... is not valid JSON\"},\"escalation_needs\":null,\"timestamp\":\"2026-10-02T07:10:56.051Z\"}]}],\"decision_invariants\":[]}",
+      "--agent",
+      "bulldozer",
+      "--model",
+      "gemini-3.8-flash-high",
+      "--output-format",
+      "json",
+      "--print-timeout",
+      "60s"
+    ],
+    "exitCode": 0,
+    "stdout": "{\"conversation_id\":\"5d29600e-2a5e-42e0-80a2-4468d8624389\",\"status\":\"SUCCESS\",\"response\":\"\",\"duration_seconds\":54.850640845,\"num_turns\":1,\"usage\":{\"input_tokens\":80007,\"output_tokens\":4957,\"thinking_tokens\":4629,\"cache_read_tokens\":16285,\"total_tokens\":84964}}\n",
+    "stderr": "[agy] print timeout after 1m0s with turn in progress; returning partial output\n",
+    "parsed": {
+      "ok": true,
+      "role": "bulldozer",
+      "slug": "gemini-3.8-flash-high",
+      "response": "",
+      "duration": 54.850640845,
+      "usage": {
+        "input_tokens": 80007,
+        "output_tokens": 4957,
+        "thinking_tokens": 4629,
+        "cache_read_tokens": 16285,
+        "total_tokens": 84964
+      },
+      "raw": {
+        "conversation_id": "5d29600e-2a5e-42e0-80a2-4468d8624389",
+        "status": "SUCCESS",
+        "response": "",
+        "duration_seconds": 54.850640845,
+        "num_turns": 1,
+        "usage": {
+          "input_tokens": 80007,
+          "output_tokens": 4957,
+          "thinking_tokens": 4629,
+          "cache_read_tokens": 16285,
+          "total_tokens": 84964
+        }
+      }
+    }
+  },
+  {
+    "label": "zen-no-go-repair",
+    "verdict": "BLOCKED",
+    "error": "SyntaxError: Unexpected end of JSON input",
+    "before": {
+      "goal": "Independently inspect two existing repository facts without writes",
+      "constraints": [
+        "Read-only inspection; no permission changes; no runtime activation"
+      ],
+      "plan_version": "v1",
+      "milestones": [
+        {
+          "id": "one",
+          "title": "one",
+          "objective": "Use a read-only tool to inspect README.md project name; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [],
+          "bounded_scope": [
+            "README.md"
+          ]
+        },
+        {
+          "id": "two",
+          "title": "two",
+          "objective": "Use a read-only tool to inspect package.json version; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [
+            "one"
+          ],
+          "bounded_scope": [
+            "package.json"
+          ]
+        }
+      ],
+      "current_milestone": null,
+      "completed_milestones": [],
+      "evidence": {
+        "one": {
+          "failure_evidence": [
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected token 'I', \"I have del\"... is not valid JSON"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:10:56.051Z"
+            }
+          ]
+        }
+      },
+      "verification": {},
+      "blockers": [],
+      "next_action": "Milestone 'one' ended with status 'INVOCATION_FAILURE'. Escalation or repair required.",
+      "decision_invariants": [],
+      "_initialized": true,
+      "_active_candidates": {},
+      "_known_candidates_by_ref": {},
+      "_verification_history": []
+    },
+    "after": {
+      "goal": "Independently inspect two existing repository facts without writes",
+      "constraints": [
+        "Read-only inspection; no permission changes; no runtime activation"
+      ],
+      "plan_version": "v1",
+      "milestones": [
+        {
+          "id": "one",
+          "title": "one",
+          "objective": "Use a read-only tool to inspect README.md project name; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [],
+          "bounded_scope": [
+            "README.md"
+          ]
+        },
+        {
+          "id": "two",
+          "title": "two",
+          "objective": "Use a read-only tool to inspect package.json version; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [
+            "one"
+          ],
+          "bounded_scope": [
+            "package.json"
+          ]
+        }
+      ],
+      "current_milestone": null,
+      "completed_milestones": [],
+      "evidence": {
+        "one": {
+          "failure_evidence": [
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected token 'I', \"I have del\"... is not valid JSON"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:10:56.051Z"
+            },
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected end of JSON input"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:13:07.822Z"
+            }
+          ]
+        }
+      },
+      "verification": {},
+      "blockers": [],
+      "next_action": "Milestone 'one' ended with status 'INVOCATION_FAILURE'. Escalation or repair required.",
+      "decision_invariants": [],
+      "_initialized": true,
+      "_active_candidates": {},
+      "_known_candidates_by_ref": {},
+      "_verification_history": []
+    }
+  },
+  {
+    "label": "fresh-context-resume",
+    "verdict": "STARTED",
+    "before": {
+      "goal": "Independently inspect two existing repository facts without writes",
+      "constraints": [
+        "Read-only inspection; no permission changes; no runtime activation"
+      ],
+      "plan_version": "v1",
+      "milestones": [
+        {
+          "id": "one",
+          "title": "one",
+          "objective": "Use a read-only tool to inspect README.md project name; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [],
+          "bounded_scope": [
+            "README.md"
+          ]
+        },
+        {
+          "id": "two",
+          "title": "two",
+          "objective": "Use a read-only tool to inspect package.json version; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [
+            "one"
+          ],
+          "bounded_scope": [
+            "package.json"
+          ]
+        }
+      ],
+      "current_milestone": null,
+      "completed_milestones": [],
+      "evidence": {
+        "one": {
+          "failure_evidence": [
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected token 'I', \"I have del\"... is not valid JSON"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:10:56.051Z"
+            },
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected end of JSON input"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:13:07.822Z"
+            }
+          ]
+        }
+      },
+      "verification": {},
+      "blockers": [],
+      "next_action": "Milestone 'one' ended with status 'INVOCATION_FAILURE'. Escalation or repair required.",
+      "decision_invariants": [],
+      "_initialized": true,
+      "_active_candidates": {},
+      "_known_candidates_by_ref": {},
+      "_verification_history": []
+    }
+  },
+  {
+    "label": "bulldozer",
+    "command": [
+      "agy",
+      "--dangerously-skip-permissions",
+      "-p",
+      "## Role\nbulldozer\n\n## Role Body\n---\nname: bulldozer\ndescription: Bounded vNext milestone orchestrator executing exactly one Steamroller packet via workers and returning a pre-review candidate result.\nmainAgent: false\nsubagent: false\nmodel: inherit\ntools: []\ncommandExecutionPolicy: off\nmcpServers: []\nskills: []\nplugins: []\n---\n\n# Bulldozer\n\n44D NON-ACTIVATED DRAFT. Frontmatter follows the official AGY custom-subagent schema; native selection and native subagent invocation are disabled so the narrow runner owns invocation. Do not activate before 44G. OQ-6 inheritCustomizations is omitted as non-official and remains an activation blocker.\n\nIndependently authored from:\n- `docs/specs/pre-vnext-v0.4-behavior-baseline.md`\n- `docs/specs/vnext-architecture-contract.md`\n\n## One invocation, one milestone\n\nYou are Steamroller's bounded milestone orchestrator, not a project\nsupervisor. Target Gemini 3.8 Flash / High through the exact-model runner.\nApply `rules/harness.md` and `rules/orchestration.md` in the isolated vNext\ncontext. Do not directly mutate project files; delegate implementation.\n\nAccept exactly one current-version milestone packet from Steamroller:\n`milestone_id`, `plan_version`, `objective`, `bounded_scope`, `non_goals`,\n`acceptance_criteria`, `constraints`, `relevant_evidence`,\n`decision_invariants`. Do not act on stale versions or silently fill missing\nauthority from prior conversation. A fresh context must work from this\npacket. Obtain needed contract clarification through Steamroller.\n\n## Bounded execution\n\nInspect and delegate work by kind, not task size. Within this milestone,\nJaguar handles read-only facts, Puma handles low-risk writing/mechanical\nwork, and Bobcat handles ordinary bounded implementation. These are target\nroles; specialist reconnection is 44F, not activation authority from 44D.\nDo not compensate for unavailable delegation with unauthorized direct edits.\n\nSet Bobcat's `ADVISOR_GATE` to REQUIRED for substantive code, behavior,\nAPI, state, lifecycle or test work; NONE only for clearly low-risk mechanical\nwork. Bobcat may invoke only Strix Halo. Jaguar and Puma have no subagents;\nPuma has no advisor ceremony.\n\nDrive repairs only inside the received scope. Inspect actual worker results\nand gather observed evidence for each acceptance criterion; READY and Strix\nACCEPT are not milestone completion. Strix REVISE is corrected through Bobcat.\nEscalate architectural ambiguity or NEEDS_DEEP to Steamroller, which decides\nwhether to invoke Piledriver. Do not invoke Piledriver, Steamroller as a\nspecialist, Zen, Excavator or Instinct to bypass these boundaries.\n\nDo not expand to another milestone, adopt a replan or silently absorb scope\ndeviations. Record deviations and unknowns explicitly. A genuine BLOCKED\nresult must meet the four blocker conditions in the harness; anticipated\nhuman involvement alone is not a reason to abandon safe in-scope work.\n\n## Return contract\n\nReturn the complete result packet specified in `rules/orchestration.md`:\n`milestone_id`, `plan_version`, `status`, `changes_made`,\n`verification_evidence`, `unresolved_unknowns`, `scope_deviations`,\n`blockers`, `escalation_needs`.\n\nUse DONE only when all acceptance criteria are supported by actual observed\nresults. It is a pre-review candidate claim, not verified completion.\nUse BLOCKED for a genuine blocker, NEEDS_DEEP for a bounded decision requiring\nSteamroller's planning route. Supply concrete evidence and the question or\nrepair need, not an unbounded request to take over.\n\nNever write the authoritative project ledger, issue or rebind `result_ref`,\nauthor or relay Zen authority, promote a milestone or claim global\ncompletion. Return control after the one milestone packet. Steamroller\npersists the candidate and independently requests Zen review.\nBulldozer DONE != project complete.\n\n## Task\nExecute only this milestone. Delegate bounded work to specialists by kind: Jaguar for read-only factual retrieval, Puma for low-risk writing and mechanical text/config edits, and Bobcat for bounded implementation. For Bobcat, set ADVISOR_GATE REQUIRED for substantive work or NONE only for low-risk mechanical work; Bobcat may invoke only Strix Halo when required. Puma and Jaguar have no subagents and Puma has no advisor ceremony. If a required specialist is unavailable, return BLOCKED, not a gate waiver. Inspect specialist results and actual evidence yourself. Worker READY and Strix ACCEPT are not DONE. Return your own JSON result packet with milestone_id, plan_version, explicit status DONE|BLOCKED|NEEDS_DEEP, changes_made, verification_evidence, unresolved_unknowns, scope_deviations, blockers and escalation_needs as applicable. DONE must identify immutable delivered artifact versions in candidate_artifact_ref. Do not invoke Zen, supply Zen authority, write the ledger, or claim global completion.\n{\"milestone_id\":\"one\",\"plan_version\":\"v1\",\"objective\":\"Use a read-only tool to inspect README.md project name; return observed content\",\"bounded_scope\":[\"README.md\"],\"non_goals\":[\"Any file modification\"],\"acceptance_criteria\":[\"Fact independently observed using a tool, not recalled or inferred\"],\"constraints\":[\"Read-only inspection; no permission changes; no runtime activation\"],\"relevant_evidence\":[{\"failure_evidence\":[{\"status\":\"INVOCATION_FAILURE\",\"evidence\":{\"classification\":\"OBSERVED\",\"error\":\"SyntaxError: Unexpected token 'I', \\\"I have del\\\"... is not valid JSON\"},\"escalation_needs\":null,\"timestamp\":\"2026-10-02T07:10:56.051Z\"},{\"status\":\"INVOCATION_FAILURE\",\"evidence\":{\"classification\":\"OBSERVED\",\"error\":\"SyntaxError: Unexpected end of JSON input\"},\"escalation_needs\":null,\"timestamp\":\"2026-10-02T07:13:07.822Z\"}]}],\"decision_invariants\":[]}",
+      "--agent",
+      "bulldozer",
+      "--model",
+      "gemini-3.8-flash-high",
+      "--output-format",
+      "json",
+      "--print-timeout",
+      "60s"
+    ],
+    "exitCode": 0,
+    "stdout": "{\"conversation_id\":\"2d36e837-1b23-4a25-a76b-18e7a5f3a4b4\",\"status\":\"SUCCESS\",\"response\":\"\",\"duration_seconds\":57.772751741,\"num_turns\":1,\"usage\":{\"input_tokens\":157552,\"output_tokens\":6420,\"thinking_tokens\":5609,\"cache_read_tokens\":195745,\"total_tokens\":163972}}\n",
+    "stderr": "[agy] print timeout after 1m0s with turn in progress; returning partial output\n",
+    "parsed": {
+      "ok": true,
+      "role": "bulldozer",
+      "slug": "gemini-3.8-flash-high",
+      "response": "",
+      "duration": 57.772751741,
+      "usage": {
+        "input_tokens": 157552,
+        "output_tokens": 6420,
+        "thinking_tokens": 5609,
+        "cache_read_tokens": 195745,
+        "total_tokens": 163972
+      },
+      "raw": {
+        "conversation_id": "2d36e837-1b23-4a25-a76b-18e7a5f3a4b4",
+        "status": "SUCCESS",
+        "response": "",
+        "duration_seconds": 57.772751741,
+        "num_turns": 1,
+        "usage": {
+          "input_tokens": 157552,
+          "output_tokens": 6420,
+          "thinking_tokens": 5609,
+          "cache_read_tokens": 195745,
+          "total_tokens": 163972
+        }
+      }
+    }
+  },
+  {
+    "label": "fresh-context-resume",
+    "verdict": "BLOCKED",
+    "error": "SyntaxError: Unexpected end of JSON input",
+    "before": {
+      "goal": "Independently inspect two existing repository facts without writes",
+      "constraints": [
+        "Read-only inspection; no permission changes; no runtime activation"
+      ],
+      "plan_version": "v1",
+      "milestones": [
+        {
+          "id": "one",
+          "title": "one",
+          "objective": "Use a read-only tool to inspect README.md project name; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [],
+          "bounded_scope": [
+            "README.md"
+          ]
+        },
+        {
+          "id": "two",
+          "title": "two",
+          "objective": "Use a read-only tool to inspect package.json version; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [
+            "one"
+          ],
+          "bounded_scope": [
+            "package.json"
+          ]
+        }
+      ],
+      "current_milestone": null,
+      "completed_milestones": [],
+      "evidence": {
+        "one": {
+          "failure_evidence": [
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected token 'I', \"I have del\"... is not valid JSON"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:10:56.051Z"
+            },
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected end of JSON input"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:13:07.822Z"
+            }
+          ]
+        }
+      },
+      "verification": {},
+      "blockers": [],
+      "next_action": "Milestone 'one' ended with status 'INVOCATION_FAILURE'. Escalation or repair required.",
+      "decision_invariants": [],
+      "_initialized": true,
+      "_active_candidates": {},
+      "_known_candidates_by_ref": {},
+      "_verification_history": []
+    },
+    "after": {
+      "goal": "Independently inspect two existing repository facts without writes",
+      "constraints": [
+        "Read-only inspection; no permission changes; no runtime activation"
+      ],
+      "plan_version": "v1",
+      "milestones": [
+        {
+          "id": "one",
+          "title": "one",
+          "objective": "Use a read-only tool to inspect README.md project name; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [],
+          "bounded_scope": [
+            "README.md"
+          ]
+        },
+        {
+          "id": "two",
+          "title": "two",
+          "objective": "Use a read-only tool to inspect package.json version; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [
+            "one"
+          ],
+          "bounded_scope": [
+            "package.json"
+          ]
+        }
+      ],
+      "current_milestone": null,
+      "completed_milestones": [],
+      "evidence": {
+        "one": {
+          "failure_evidence": [
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected token 'I', \"I have del\"... is not valid JSON"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:10:56.051Z"
+            },
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected end of JSON input"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:13:07.822Z"
+            },
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected end of JSON input"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:14:12.743Z"
+            }
+          ]
+        }
+      },
+      "verification": {},
+      "blockers": [],
+      "next_action": "Milestone 'one' ended with status 'INVOCATION_FAILURE'. Escalation or repair required.",
+      "decision_invariants": [],
+      "_initialized": true,
+      "_active_candidates": {},
+      "_known_candidates_by_ref": {},
+      "_verification_history": []
+    }
+  },
+  {
+    "label": "provenance-closure",
+    "verdict": "STARTED",
+    "before": {
+      "goal": "Independently inspect two existing repository facts without writes",
+      "constraints": [
+        "Read-only inspection; no permission changes; no runtime activation"
+      ],
+      "plan_version": "v1",
+      "milestones": [
+        {
+          "id": "one",
+          "title": "one",
+          "objective": "Use a read-only tool to inspect README.md project name; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [],
+          "bounded_scope": [
+            "README.md"
+          ]
+        },
+        {
+          "id": "two",
+          "title": "two",
+          "objective": "Use a read-only tool to inspect package.json version; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [
+            "one"
+          ],
+          "bounded_scope": [
+            "package.json"
+          ]
+        }
+      ],
+      "current_milestone": null,
+      "completed_milestones": [],
+      "evidence": {
+        "one": {
+          "failure_evidence": [
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected token 'I', \"I have del\"... is not valid JSON"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:10:56.051Z"
+            },
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected end of JSON input"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:13:07.822Z"
+            },
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected end of JSON input"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:14:12.743Z"
+            }
+          ]
+        }
+      },
+      "verification": {},
+      "blockers": [],
+      "next_action": "Milestone 'one' ended with status 'INVOCATION_FAILURE'. Escalation or repair required.",
+      "decision_invariants": [],
+      "_initialized": true,
+      "_active_candidates": {},
+      "_known_candidates_by_ref": {},
+      "_verification_history": []
+    }
+  },
+  {
+    "label": "provenance-audit",
+    "command": [
+      "agy",
+      "--dangerously-skip-permissions",
+      "-p",
+      "Read docs/specs/vnext-architecture-contract.md section 9 and inspect docs/specs/vnext plus plugin.json and hooks.json using read-only tools. Report JSON per-surface closure evidence and unresolved provenance. Do not infer authorship from labels. Do not write or activate anything.",
+      "--agent",
+      "steamroller",
+      "--model",
+      "gemini-3.8-flash-high",
+      "--output-format",
+      "json",
+      "--print-timeout",
+      "60s"
+    ],
+    "exitCode": 0,
+    "stdout": "{\"conversation_id\":\"a710be6a-b3a1-4055-9949-6386b5d56736\",\"status\":\"SUCCESS\",\"response\":\"\",\"duration_seconds\":57.444085854,\"num_turns\":1,\"usage\":{\"input_tokens\":108520,\"output_tokens\":3287,\"thinking_tokens\":2499,\"cache_read_tokens\":191641,\"total_tokens\":111807}}\n",
+    "stderr": "[agy] print timeout after 1m0s with turn in progress; returning partial output\n",
+    "parsed": {
+      "ok": true,
+      "role": "steamroller",
+      "slug": "gemini-3.8-flash-high",
+      "response": "",
+      "duration": 57.444085854,
+      "usage": {
+        "input_tokens": 108520,
+        "output_tokens": 3287,
+        "thinking_tokens": 2499,
+        "cache_read_tokens": 191641,
+        "total_tokens": 111807
+      },
+      "raw": {
+        "conversation_id": "a710be6a-b3a1-4055-9949-6386b5d56736",
+        "status": "SUCCESS",
+        "response": "",
+        "duration_seconds": 57.444085854,
+        "num_turns": 1,
+        "usage": {
+          "input_tokens": 108520,
+          "output_tokens": 3287,
+          "thinking_tokens": 2499,
+          "cache_read_tokens": 191641,
+          "total_tokens": 111807
+        }
+      }
+    }
+  },
+  {
+    "label": "provenance-closure",
+    "verdict": "OBSERVED",
+    "result": {
+      "response": "",
+      "ledgerUnchanged": {
+        "goal": "Independently inspect two existing repository facts without writes",
+        "constraints": [
+          "Read-only inspection; no permission changes; no runtime activation"
+        ],
+        "plan_version": "v1",
+        "milestones": [
+          {
+            "id": "one",
+            "title": "one",
+            "objective": "Use a read-only tool to inspect README.md project name; return observed content",
+            "acceptance_criteria": [
+              "Fact independently observed using a tool, not recalled or inferred"
+            ],
+            "non_goals": [
+              "Any file modification"
+            ],
+            "dependencies": [],
+            "bounded_scope": [
+              "README.md"
+            ]
+          },
+          {
+            "id": "two",
+            "title": "two",
+            "objective": "Use a read-only tool to inspect package.json version; return observed content",
+            "acceptance_criteria": [
+              "Fact independently observed using a tool, not recalled or inferred"
+            ],
+            "non_goals": [
+              "Any file modification"
+            ],
+            "dependencies": [
+              "one"
+            ],
+            "bounded_scope": [
+              "package.json"
+            ]
+          }
+        ],
+        "current_milestone": null,
+        "completed_milestones": [],
+        "evidence": {
+          "one": {
+            "failure_evidence": [
+              {
+                "status": "INVOCATION_FAILURE",
+                "evidence": {
+                  "classification": "OBSERVED",
+                  "error": "SyntaxError: Unexpected token 'I', \"I have del\"... is not valid JSON"
+                },
+                "escalation_needs": null,
+                "timestamp": "2026-10-02T07:10:56.051Z"
+              },
+              {
+                "status": "INVOCATION_FAILURE",
+                "evidence": {
+                  "classification": "OBSERVED",
+                  "error": "SyntaxError: Unexpected end of JSON input"
+                },
+                "escalation_needs": null,
+                "timestamp": "2026-10-02T07:13:07.822Z"
+              },
+              {
+                "status": "INVOCATION_FAILURE",
+                "evidence": {
+                  "classification": "OBSERVED",
+                  "error": "SyntaxError: Unexpected end of JSON input"
+                },
+                "escalation_needs": null,
+                "timestamp": "2026-10-02T07:14:12.743Z"
+              }
+            ]
+          }
+        },
+        "verification": {},
+        "blockers": [],
+        "next_action": "Milestone 'one' ended with status 'INVOCATION_FAILURE'. Escalation or repair required.",
+        "decision_invariants": [],
+        "_initialized": true,
+        "_active_candidates": {},
+        "_known_candidates_by_ref": {},
+        "_verification_history": []
+      }
+    },
+    "before": {
+      "goal": "Independently inspect two existing repository facts without writes",
+      "constraints": [
+        "Read-only inspection; no permission changes; no runtime activation"
+      ],
+      "plan_version": "v1",
+      "milestones": [
+        {
+          "id": "one",
+          "title": "one",
+          "objective": "Use a read-only tool to inspect README.md project name; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [],
+          "bounded_scope": [
+            "README.md"
+          ]
+        },
+        {
+          "id": "two",
+          "title": "two",
+          "objective": "Use a read-only tool to inspect package.json version; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [
+            "one"
+          ],
+          "bounded_scope": [
+            "package.json"
+          ]
+        }
+      ],
+      "current_milestone": null,
+      "completed_milestones": [],
+      "evidence": {
+        "one": {
+          "failure_evidence": [
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected token 'I', \"I have del\"... is not valid JSON"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:10:56.051Z"
+            },
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected end of JSON input"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:13:07.822Z"
+            },
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected end of JSON input"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:14:12.743Z"
+            }
+          ]
+        }
+      },
+      "verification": {},
+      "blockers": [],
+      "next_action": "Milestone 'one' ended with status 'INVOCATION_FAILURE'. Escalation or repair required.",
+      "decision_invariants": [],
+      "_initialized": true,
+      "_active_candidates": {},
+      "_known_candidates_by_ref": {},
+      "_verification_history": []
+    },
+    "after": {
+      "goal": "Independently inspect two existing repository facts without writes",
+      "constraints": [
+        "Read-only inspection; no permission changes; no runtime activation"
+      ],
+      "plan_version": "v1",
+      "milestones": [
+        {
+          "id": "one",
+          "title": "one",
+          "objective": "Use a read-only tool to inspect README.md project name; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [],
+          "bounded_scope": [
+            "README.md"
+          ]
+        },
+        {
+          "id": "two",
+          "title": "two",
+          "objective": "Use a read-only tool to inspect package.json version; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [
+            "one"
+          ],
+          "bounded_scope": [
+            "package.json"
+          ]
+        }
+      ],
+      "current_milestone": null,
+      "completed_milestones": [],
+      "evidence": {
+        "one": {
+          "failure_evidence": [
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected token 'I', \"I have del\"... is not valid JSON"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:10:56.051Z"
+            },
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected end of JSON input"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:13:07.822Z"
+            },
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected end of JSON input"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:14:12.743Z"
+            }
+          ]
+        }
+      },
+      "verification": {},
+      "blockers": [],
+      "next_action": "Milestone 'one' ended with status 'INVOCATION_FAILURE'. Escalation or repair required.",
+      "decision_invariants": [],
+      "_initialized": true,
+      "_active_candidates": {},
+      "_known_candidates_by_ref": {},
+      "_verification_history": []
+    }
+  },
+  {
+    "label": "role-body-probe-A",
+    "command": [
+      "agy",
+      "--dangerously-skip-permissions",
+      "-p",
+      "Do not use tools. Return exactly the JSON object {\"probe\":\"ok\"} and nothing else.",
+      "--agent",
+      "bulldozer",
+      "--model",
+      "gemini-3.8-flash-high",
+      "--output-format",
+      "json",
+      "--print-timeout",
+      "60s"
+    ],
+    "exitCode": 0,
+    "stdout": "{\"conversation_id\":\"539daa43-05de-43e0-9b85-6a9c5b415fd7\",\"status\":\"SUCCESS\",\"response\":\"{\\\"probe\\\":\\\"ok\\\"}\\n\",\"duration_seconds\":3.955890318,\"num_turns\":1,\"usage\":{\"input_tokens\":9836,\"output_tokens\":524,\"thinking_tokens\":519,\"cache_read_tokens\":0,\"total_tokens\":10360}}\n",
+    "stderr": "",
+    "parsed": {
+      "ok": true,
+      "role": "bulldozer",
+      "slug": "gemini-3.8-flash-high",
+      "response": "{\"probe\":\"ok\"}\n",
+      "duration": 3.955890318,
+      "usage": {
+        "input_tokens": 9836,
+        "output_tokens": 524,
+        "thinking_tokens": 519,
+        "cache_read_tokens": 0,
+        "total_tokens": 10360
+      },
+      "raw": {
+        "conversation_id": "539daa43-05de-43e0-9b85-6a9c5b415fd7",
+        "status": "SUCCESS",
+        "response": "{\"probe\":\"ok\"}\n",
+        "duration_seconds": 3.955890318,
+        "num_turns": 1,
+        "usage": {
+          "input_tokens": 9836,
+          "output_tokens": 524,
+          "thinking_tokens": 519,
+          "cache_read_tokens": 0,
+          "total_tokens": 10360
+        }
+      }
+    }
+  },
+  {
+    "label": "role-body-probe-B",
+    "command": [
+      "agy",
+      "--dangerously-skip-permissions",
+      "-p",
+      "## Role\nbulldozer\n\n## Role Body\n---\nname: bulldozer\ndescription: Bounded vNext milestone orchestrator executing exactly one Steamroller packet via workers and returning a pre-review candidate result.\nmainAgent: false\nsubagent: false\nmodel: inherit\ntools: []\ncommandExecutionPolicy: off\nmcpServers: []\nskills: []\nplugins: []\n---\n\n# Bulldozer\n\n44D NON-ACTIVATED DRAFT. Frontmatter follows the official AGY custom-subagent schema; native selection and native subagent invocation are disabled so the narrow runner owns invocation. Do not activate before 44G. OQ-6 inheritCustomizations is omitted as non-official and remains an activation blocker.\n\nIndependently authored from:\n- `docs/specs/pre-vnext-v0.4-behavior-baseline.md`\n- `docs/specs/vnext-architecture-contract.md`\n\n## One invocation, one milestone\n\nYou are Steamroller's bounded milestone orchestrator, not a project\nsupervisor. Target Gemini 3.8 Flash / High through the exact-model runner.\nApply `rules/harness.md` and `rules/orchestration.md` in the isolated vNext\ncontext. Do not directly mutate project files; delegate implementation.\n\nAccept exactly one current-version milestone packet from Steamroller:\n`milestone_id`, `plan_version`, `objective`, `bounded_scope`, `non_goals`,\n`acceptance_criteria`, `constraints`, `relevant_evidence`,\n`decision_invariants`. Do not act on stale versions or silently fill missing\nauthority from prior conversation. A fresh context must work from this\npacket. Obtain needed contract clarification through Steamroller.\n\n## Bounded execution\n\nInspect and delegate work by kind, not task size. Within this milestone,\nJaguar handles read-only facts, Puma handles low-risk writing/mechanical\nwork, and Bobcat handles ordinary bounded implementation. These are target\nroles; specialist reconnection is 44F, not activation authority from 44D.\nDo not compensate for unavailable delegation with unauthorized direct edits.\n\nSet Bobcat's `ADVISOR_GATE` to REQUIRED for substantive code, behavior,\nAPI, state, lifecycle or test work; NONE only for clearly low-risk mechanical\nwork. Bobcat may invoke only Strix Halo. Jaguar and Puma have no subagents;\nPuma has no advisor ceremony.\n\nDrive repairs only inside the received scope. Inspect actual worker results\nand gather observed evidence for each acceptance criterion; READY and Strix\nACCEPT are not milestone completion. Strix REVISE is corrected through Bobcat.\nEscalate architectural ambiguity or NEEDS_DEEP to Steamroller, which decides\nwhether to invoke Piledriver. Do not invoke Piledriver, Steamroller as a\nspecialist, Zen, Excavator or Instinct to bypass these boundaries.\n\nDo not expand to another milestone, adopt a replan or silently absorb scope\ndeviations. Record deviations and unknowns explicitly. A genuine BLOCKED\nresult must meet the four blocker conditions in the harness; anticipated\nhuman involvement alone is not a reason to abandon safe in-scope work.\n\n## Return contract\n\nReturn the complete result packet specified in `rules/orchestration.md`:\n`milestone_id`, `plan_version`, `status`, `changes_made`,\n`verification_evidence`, `unresolved_unknowns`, `scope_deviations`,\n`blockers`, `escalation_needs`.\n\nUse DONE only when all acceptance criteria are supported by actual observed\nresults. It is a pre-review candidate claim, not verified completion.\nUse BLOCKED for a genuine blocker, NEEDS_DEEP for a bounded decision requiring\nSteamroller's planning route. Supply concrete evidence and the question or\nrepair need, not an unbounded request to take over.\n\nNever write the authoritative project ledger, issue or rebind `result_ref`,\nauthor or relay Zen authority, promote a milestone or claim global\ncompletion. Return control after the one milestone packet. Steamroller\npersists the candidate and independently requests Zen review.\nBulldozer DONE != project complete.\n\n## Task\nDo not use tools. Return exactly the JSON object {\"probe\":\"ok\"} and nothing else.",
+      "--agent",
+      "bulldozer",
+      "--model",
+      "gemini-3.8-flash-high",
+      "--output-format",
+      "json",
+      "--print-timeout",
+      "60s"
+    ],
+    "exitCode": 0,
+    "stdout": "{\"conversation_id\":\"d64056f1-9877-4567-810d-86432b7e9e3a\",\"status\":\"SUCCESS\",\"response\":\"{\\\"probe\\\":\\\"ok\\\"}\\n\",\"duration_seconds\":3.507537435,\"num_turns\":1,\"usage\":{\"input_tokens\":10729,\"output_tokens\":122,\"thinking_tokens\":117,\"cache_read_tokens\":0,\"total_tokens\":10851}}\n",
+    "stderr": "",
+    "parsed": {
+      "ok": true,
+      "role": "bulldozer",
+      "slug": "gemini-3.8-flash-high",
+      "response": "{\"probe\":\"ok\"}\n",
+      "duration": 3.507537435,
+      "usage": {
+        "input_tokens": 10729,
+        "output_tokens": 122,
+        "thinking_tokens": 117,
+        "cache_read_tokens": 0,
+        "total_tokens": 10851
+      },
+      "raw": {
+        "conversation_id": "d64056f1-9877-4567-810d-86432b7e9e3a",
+        "status": "SUCCESS",
+        "response": "{\"probe\":\"ok\"}\n",
+        "duration_seconds": 3.507537435,
+        "num_turns": 1,
+        "usage": {
+          "input_tokens": 10729,
+          "output_tokens": 122,
+          "thinking_tokens": 117,
+          "cache_read_tokens": 0,
+          "total_tokens": 10851
+        }
+      }
+    }
+  },
+  {
+    "label": "role-body-probe-B",
+    "command": [
+      "agy",
+      "--dangerously-skip-permissions",
+      "-p",
+      "## Role\nbulldozer\n\n## Role Body\n---\nname: bulldozer\ndescription: Bounded vNext milestone orchestrator executing exactly one Steamroller packet via workers and returning a pre-review candidate result.\nmainAgent: false\nsubagent: false\nmodel: inherit\ntools: []\ncommandExecutionPolicy: off\nmcpServers: []\nskills: []\nplugins: []\n---\n\n# Bulldozer\n\n44D NON-ACTIVATED DRAFT. Frontmatter follows the official AGY custom-subagent schema; native selection and native subagent invocation are disabled so the narrow runner owns invocation. Do not activate before 44G. OQ-6 inheritCustomizations is omitted as non-official and remains an activation blocker.\n\nIndependently authored from:\n- `docs/specs/pre-vnext-v0.4-behavior-baseline.md`\n- `docs/specs/vnext-architecture-contract.md`\n\n## One invocation, one milestone\n\nYou are Steamroller's bounded milestone orchestrator, not a project\nsupervisor. Target Gemini 3.8 Flash / High through the exact-model runner.\nApply `rules/harness.md` and `rules/orchestration.md` in the isolated vNext\ncontext. Do not directly mutate project files; delegate implementation.\n\nAccept exactly one current-version milestone packet from Steamroller:\n`milestone_id`, `plan_version`, `objective`, `bounded_scope`, `non_goals`,\n`acceptance_criteria`, `constraints`, `relevant_evidence`,\n`decision_invariants`. Do not act on stale versions or silently fill missing\nauthority from prior conversation. A fresh context must work from this\npacket. Obtain needed contract clarification through Steamroller.\n\n## Bounded execution\n\nInspect and delegate work by kind, not task size. Within this milestone,\nJaguar handles read-only facts, Puma handles low-risk writing/mechanical\nwork, and Bobcat handles ordinary bounded implementation. These are target\nroles; specialist reconnection is 44F, not activation authority from 44D.\nDo not compensate for unavailable delegation with unauthorized direct edits.\n\nSet Bobcat's `ADVISOR_GATE` to REQUIRED for substantive code, behavior,\nAPI, state, lifecycle or test work; NONE only for clearly low-risk mechanical\nwork. Bobcat may invoke only Strix Halo. Jaguar and Puma have no subagents;\nPuma has no advisor ceremony.\n\nDrive repairs only inside the received scope. Inspect actual worker results\nand gather observed evidence for each acceptance criterion; READY and Strix\nACCEPT are not milestone completion. Strix REVISE is corrected through Bobcat.\nEscalate architectural ambiguity or NEEDS_DEEP to Steamroller, which decides\nwhether to invoke Piledriver. Do not invoke Piledriver, Steamroller as a\nspecialist, Zen, Excavator or Instinct to bypass these boundaries.\n\nDo not expand to another milestone, adopt a replan or silently absorb scope\ndeviations. Record deviations and unknowns explicitly. A genuine BLOCKED\nresult must meet the four blocker conditions in the harness; anticipated\nhuman involvement alone is not a reason to abandon safe in-scope work.\n\n## Return contract\n\nReturn the complete result packet specified in `rules/orchestration.md`:\n`milestone_id`, `plan_version`, `status`, `changes_made`,\n`verification_evidence`, `unresolved_unknowns`, `scope_deviations`,\n`blockers`, `escalation_needs`.\n\nUse DONE only when all acceptance criteria are supported by actual observed\nresults. It is a pre-review candidate claim, not verified completion.\nUse BLOCKED for a genuine blocker, NEEDS_DEEP for a bounded decision requiring\nSteamroller's planning route. Supply concrete evidence and the question or\nrepair need, not an unbounded request to take over.\n\nNever write the authoritative project ledger, issue or rebind `result_ref`,\nauthor or relay Zen authority, promote a milestone or claim global\ncompletion. Return control after the one milestone packet. Steamroller\npersists the candidate and independently requests Zen review.\nBulldozer DONE != project complete.\n\n## Task\nDo not use tools. Return exactly the JSON object {\"probe\":\"ok\"} and nothing else.",
+      "--agent",
+      "bulldozer",
+      "--model",
+      "gemini-3.8-flash-high",
+      "--output-format",
+      "json",
+      "--print-timeout",
+      "60s"
+    ],
+    "exitCode": 0,
+    "stdout": "{\"conversation_id\":\"4845451a-fdbd-448d-a058-bf41866398cb\",\"status\":\"SUCCESS\",\"response\":\"{\\\"probe\\\":\\\"ok\\\"}\\n\",\"duration_seconds\":3.128645252,\"num_turns\":1,\"usage\":{\"input_tokens\":10724,\"output_tokens\":284,\"thinking_tokens\":279,\"cache_read_tokens\":0,\"total_tokens\":11008}}\n",
+    "stderr": "",
+    "parsed": {
+      "ok": true,
+      "role": "bulldozer",
+      "slug": "gemini-3.8-flash-high",
+      "response": "{\"probe\":\"ok\"}\n",
+      "duration": 3.128645252,
+      "usage": {
+        "input_tokens": 10724,
+        "output_tokens": 284,
+        "thinking_tokens": 279,
+        "cache_read_tokens": 0,
+        "total_tokens": 11008
+      },
+      "raw": {
+        "conversation_id": "4845451a-fdbd-448d-a058-bf41866398cb",
+        "status": "SUCCESS",
+        "response": "{\"probe\":\"ok\"}\n",
+        "duration_seconds": 3.128645252,
+        "num_turns": 1,
+        "usage": {
+          "input_tokens": 10724,
+          "output_tokens": 284,
+          "thinking_tokens": 279,
+          "cache_read_tokens": 0,
+          "total_tokens": 11008
+        }
+      }
+    }
+  },
+  {
+    "label": "role-body-probe-A",
+    "command": [
+      "agy",
+      "--dangerously-skip-permissions",
+      "-p",
+      "Do not use tools. Return exactly the JSON object {\"probe\":\"ok\"} and nothing else.",
+      "--agent",
+      "bulldozer",
+      "--model",
+      "gemini-3.8-flash-high",
+      "--output-format",
+      "json",
+      "--print-timeout",
+      "60s"
+    ],
+    "exitCode": 0,
+    "stdout": "{\"conversation_id\":\"6ba360de-64ba-4470-8634-280ba9923d0c\",\"status\":\"SUCCESS\",\"response\":\"{\\\"probe\\\":\\\"ok\\\"}\\n\",\"duration_seconds\":4.78724175,\"num_turns\":1,\"usage\":{\"input_tokens\":9836,\"output_tokens\":552,\"thinking_tokens\":547,\"cache_read_tokens\":0,\"total_tokens\":10388}}\n",
+    "stderr": "",
+    "parsed": {
+      "ok": true,
+      "role": "bulldozer",
+      "slug": "gemini-3.8-flash-high",
+      "response": "{\"probe\":\"ok\"}\n",
+      "duration": 4.78724175,
+      "usage": {
+        "input_tokens": 9836,
+        "output_tokens": 552,
+        "thinking_tokens": 547,
+        "cache_read_tokens": 0,
+        "total_tokens": 10388
+      },
+      "raw": {
+        "conversation_id": "6ba360de-64ba-4470-8634-280ba9923d0c",
+        "status": "SUCCESS",
+        "response": "{\"probe\":\"ok\"}\n",
+        "duration_seconds": 4.78724175,
+        "num_turns": 1,
+        "usage": {
+          "input_tokens": 9836,
+          "output_tokens": 552,
+          "thinking_tokens": 547,
+          "cache_read_tokens": 0,
+          "total_tokens": 10388
+        }
+      }
+    }
+  },
+  {
+    "label": "final-ledger",
+    "state": {
+      "goal": "Independently inspect two existing repository facts without writes",
+      "constraints": [
+        "Read-only inspection; no permission changes; no runtime activation"
+      ],
+      "plan_version": "v1",
+      "milestones": [
+        {
+          "id": "one",
+          "title": "one",
+          "objective": "Use a read-only tool to inspect README.md project name; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [],
+          "bounded_scope": [
+            "README.md"
+          ]
+        },
+        {
+          "id": "two",
+          "title": "two",
+          "objective": "Use a read-only tool to inspect package.json version; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [
+            "one"
+          ],
+          "bounded_scope": [
+            "package.json"
+          ]
+        }
+      ],
+      "current_milestone": null,
+      "completed_milestones": [],
+      "evidence": {
+        "one": {
+          "failure_evidence": [
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected token 'I', \"I have del\"... is not valid JSON"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:10:56.051Z"
+            },
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected end of JSON input"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:13:07.822Z"
+            },
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected end of JSON input"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:14:12.743Z"
+            }
+          ]
+        }
+      },
+      "verification": {},
+      "blockers": [],
+      "next_action": "Milestone 'one' ended with status 'INVOCATION_FAILURE'. Escalation or repair required.",
+      "decision_invariants": [],
+      "_initialized": true,
+      "_active_candidates": {},
+      "_known_candidates_by_ref": {},
+      "_verification_history": []
+    },
+    "saved": {
+      "goal": "Independently inspect two existing repository facts without writes",
+      "constraints": [
+        "Read-only inspection; no permission changes; no runtime activation"
+      ],
+      "plan_version": "v1",
+      "milestones": [
+        {
+          "id": "one",
+          "title": "one",
+          "objective": "Use a read-only tool to inspect README.md project name; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [],
+          "bounded_scope": [
+            "README.md"
+          ]
+        },
+        {
+          "id": "two",
+          "title": "two",
+          "objective": "Use a read-only tool to inspect package.json version; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [
+            "one"
+          ],
+          "bounded_scope": [
+            "package.json"
+          ]
+        }
+      ],
+      "current_milestone": null,
+      "completed_milestones": [],
+      "evidence": {
+        "one": {
+          "failure_evidence": [
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected token 'I', \"I have del\"... is not valid JSON"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:10:56.051Z"
+            },
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected end of JSON input"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:13:07.822Z"
+            },
+            {
+              "status": "INVOCATION_FAILURE",
+              "evidence": {
+                "classification": "OBSERVED",
+                "error": "SyntaxError: Unexpected end of JSON input"
+              },
+              "escalation_needs": null,
+              "timestamp": "2026-10-02T07:14:12.743Z"
+            }
+          ]
+        }
+      },
+      "verification": {},
+      "blockers": [],
+      "next_action": "Milestone 'one' ended with status 'INVOCATION_FAILURE'. Escalation or repair required.",
+      "decision_invariants": [],
+      "_initialized": true,
+      "_active_candidates": {},
+      "_known_candidates_by_ref": {},
+      "_verification_history": []
+    }
+  }
+]

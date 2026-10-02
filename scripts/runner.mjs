@@ -344,8 +344,9 @@ export function composeBoundedPrompt(role, packet, opts = {}) {
 
 /**
  * Validates and parses the JSON response envelope from an AGY execution.
- * Only SUCCESS with valid string response succeeds. Any other status, unparseable JSON,
- * or malformed envelope returns structured INVALID_OUTPUT or MODEL_ERROR failure.
+ * Only SUCCESS with valid string response and no explicit tool denials succeeds.
+ * Denials return TOOL_PERMISSION_DENIED; other invalid envelopes return
+ * structured INVALID_OUTPUT or MODEL_ERROR failure.
  *
  * @param {string} stdout - Raw stdout from agy
  * @param {object} [meta] - Context metadata (role, slug)
@@ -391,6 +392,17 @@ export function parseResponseEnvelope(stdout, meta = {}) {
   }
 
   if (parsed.status === "SUCCESS") {
+    if (Array.isArray(parsed.denied_actions) && parsed.denied_actions.length > 0) {
+      return {
+        ok: false,
+        error: "TOOL_PERMISSION_DENIED",
+        ...(role ? { role } : {}),
+        ...(slug ? { slug } : {}),
+        denied_actions: parsed.denied_actions,
+        details: parsed,
+      };
+    }
+
     if (typeof parsed.response !== "string") {
       return {
         ok: false,
@@ -421,6 +433,24 @@ export function parseResponseEnvelope(stdout, meta = {}) {
     message: `Unexpected response status: "${parsed.status}"`,
     details: parsed,
   };
+}
+
+/**
+ * Validates the inner response when a caller requires a JSON object packet.
+ * Generic text responses remain supported by the envelope/transport boundary.
+ */
+export function parseResponsePacket(result) {
+  if (!result.ok) return result;
+  if (!result.response.trim()) return { ...result, ok: false, error: "EMPTY_RESPONSE" };
+  try {
+    const packet = JSON.parse(result.response);
+    if (packet === null || typeof packet !== "object" || Array.isArray(packet)) {
+      return { ...result, ok: false, error: "INVALID_RESPONSE_FORMAT" };
+    }
+    return { ...result, packet };
+  } catch {
+    return { ...result, ok: false, error: "INVALID_RESPONSE_FORMAT" };
+  }
 }
 
 /**
@@ -622,11 +652,8 @@ export function invoke(role, packet, opts = {}) {
     outputFormat: "json",
   });
 
-  // 44G live smoke finding: `agy --output-format json` intermittently returns
-  // { ok: true, response: "" } — non-deterministic empty body, not a packet
-  // shape problem. Retry a bounded number of times before surfacing a typed
-  // EMPTY_RESPONSE error so runMilestone gets a real failure, not
-  // JSON.parse("").
+  // Retry boundedly only when SUCCESS has an empty response and no explicit
+  // denied_actions. Explicit tool denials are classified by parseResponseEnvelope.
   const MAX_EMPTY_RETRIES = 3;
   let attempt = res;
   for (let i = 0; i < MAX_EMPTY_RETRIES && attempt.ok && (attempt.response || "").trim() === ""; i++) {

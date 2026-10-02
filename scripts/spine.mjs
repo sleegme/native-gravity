@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { AuthoritativeLedger, deepClone, deepFreeze } from './ledger.mjs';
-import { invoke } from './runner.mjs';
+import { invoke, parseResponsePacket } from './runner.mjs';
 
 /**
  * Isolated 44F coordinator owned by Steamroller; not a default runtime entry or
@@ -63,11 +63,11 @@ export class MinimalSpine {
     if (!output?.ok) {
       throw new Error(`${role} invocation failed: ${JSON.stringify(output)}`);
     }
-    const packet = JSON.parse(output.response);
-    if (!packet || typeof packet !== 'object' || Array.isArray(packet)) {
-      throw new TypeError(`${role} must return a JSON object`);
+    const parsed = parseResponsePacket(output);
+    if (!parsed.ok) {
+      throw new Error(`${role} invocation failed: ${JSON.stringify(parsed)}`);
     }
-    return packet;
+    return parsed.packet;
   }
 
   /**

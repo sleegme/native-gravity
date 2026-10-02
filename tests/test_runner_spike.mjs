@@ -16,6 +16,7 @@ import {
   resolveSlug,
   composeBoundedPrompt,
   parseResponseEnvelope,
+  parseResponsePacket,
   invokeTransport,
   invoke,
 } from "../scripts/runner.mjs";
@@ -245,6 +246,102 @@ runTest("2.6: status === 'SUCCESS' with valid string response succeeds", () => {
   assert.strictEqual(res.usage.total_tokens, 120);
   assert.strictEqual(res.role, "piledriver");
   assert.strictEqual(res.slug, "gemini-3.1-pro-high");
+});
+
+runTest("2.6a: SUCCESS with denied_actions is a preserved tool-permission failure", () => {
+  const deniedActions = [{ action: "command", display_name: "RunCommand" }];
+  const res = parseResponseEnvelope(JSON.stringify({
+    status: "SUCCESS",
+    response: "",
+    denied_actions: deniedActions,
+  }), { role: "bulldozer", slug: "gemini-3.8-flash-high" });
+  assert.strictEqual(res.ok, false);
+  assert.strictEqual(res.error, "TOOL_PERMISSION_DENIED");
+  assert.deepStrictEqual(res.denied_actions, deniedActions);
+  assert.strictEqual(res.role, "bulldozer");
+  assert.strictEqual(res.slug, "gemini-3.8-flash-high");
+});
+
+runTest("2.6b: invoke does not retry an explicit tool denial", () => {
+  const root = mkdtempSync(join(tmpdir(), "mock-agy-denial-"));
+  const mockScript = join(root, "agy.mjs");
+  const callsFile = join(root, "calls");
+  writeFileSync(mockScript, `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+appendFileSync(process.env.MOCK_CALLS_FILE, "call\\n");
+console.log(JSON.stringify({
+  status: "SUCCESS",
+  response: "",
+  denied_actions: [{ action: "command", display_name: "RunCommand" }]
+}));
+`);
+  chmodSync(mockScript, 0o755);
+  try {
+    const res = invoke("piledriver", { task: "Test denial" }, {
+      agyPath: mockScript,
+      installedModels: [{ slug: "gemini-3.1-pro-high", description: "Gemini 3.1 Pro (High)" }],
+      env: { MOCK_CALLS_FILE: callsFile },
+    });
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.error, "TOOL_PERMISSION_DENIED");
+    assert.deepStrictEqual(res.denied_actions, [{ action: "command", display_name: "RunCommand" }]);
+    assert.strictEqual(readFileSync(callsFile, "utf8"), "call\n");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+runTest("2.6c: explicit denial wins over a nonempty response", () => {
+  const res = parseResponseEnvelope(JSON.stringify({
+    status: "SUCCESS",
+    response: "Partial output",
+    denied_actions: [{ action: "command" }],
+  }));
+  assert.strictEqual(res.ok, false);
+  assert.strictEqual(res.error, "TOOL_PERMISSION_DENIED");
+  assert.strictEqual(res.details.response, "Partial output");
+});
+
+runTest("2.6d: an empty denial list preserves success", () => {
+  const res = parseResponseEnvelope(JSON.stringify({
+    status: "SUCCESS",
+    response: "Complete output",
+    denied_actions: [],
+  }));
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(res.response, "Complete output");
+});
+
+runTest("2.6e: JSON packet boundary classifies prose and malformed packet shapes", () => {
+  for (const response of ["I have delegated the work", "{", "null", "[]", '"text"', "42"]) {
+    const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }), {
+      role: "bulldozer", slug: "gemini-3.8-flash-high",
+    });
+    assert.strictEqual(envelope.ok, true);
+    const res = parseResponsePacket(envelope);
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.error, "INVALID_RESPONSE_FORMAT");
+    assert.strictEqual(res.response, response);
+    assert.strictEqual(res.role, "bulldozer");
+    assert.strictEqual(res.slug, "gemini-3.8-flash-high");
+  }
+});
+
+runTest("2.6f: JSON packet boundary preserves empty and denial taxonomy", () => {
+  const empty = parseResponsePacket(parseResponseEnvelope(JSON.stringify({
+    status: "SUCCESS", response: " \n",
+  })));
+  assert.strictEqual(empty.error, "EMPTY_RESPONSE");
+  const denied = parseResponseEnvelope(JSON.stringify({
+    status: "SUCCESS", response: "", denied_actions: [{ action: "command" }],
+  }));
+  assert.strictEqual(parseResponsePacket(denied), denied);
+  assert.strictEqual(denied.error, "TOOL_PERMISSION_DENIED");
+  const valid = parseResponsePacket(parseResponseEnvelope(JSON.stringify({
+    status: "SUCCESS", response: '{"milestone_id":"one"}',
+  })));
+  assert.strictEqual(valid.ok, true);
+  assert.deepStrictEqual(valid.packet, { milestone_id: "one" });
 });
 
 runTest("2.7: invokeTransport enforces response envelope validation on process execution", () => {

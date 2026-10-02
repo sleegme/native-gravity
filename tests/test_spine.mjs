@@ -133,6 +133,22 @@ test('construction cannot omit the independent Zen adapter', t => {
   assert.throws(() => new MinimalSpine({ ledgerPath: f.ledgerPath }), /Zen/);
 });
 
+test('prose in a SUCCESS envelope persists a typed failure without promotion', async t => {
+  const f = fixture(t);
+  const spine = new MinimalSpine({
+    ...f.options,
+    invokeRole: () => parseResponseEnvelope(JSON.stringify({
+      status: 'SUCCESS', response: 'I have delegated the work and am awaiting findings.',
+    })),
+  });
+  await assert.rejects(spine.runMilestone('one'), /INVALID_RESPONSE_FORMAT/);
+  const saved = new MinimalSpine(f.options).state;
+  assert.deepEqual(saved.completed_milestones, []);
+  assert.equal(saved.current_milestone, null);
+  assert.ok(JSON.stringify(saved.evidence).includes('INVALID_RESPONSE_FORMAT'));
+  assert.ok(!f.calls.includes('zen'));
+});
+
 for (const field of ['verdict', 'zen_verdict', 'result_ref']) {
   test(`candidate cannot supply supervisor or reviewer authority: ${field}`, async t => {
     const f = fixture(t, { output: contract => candidate(contract, { [field]: 'GO' }) });
