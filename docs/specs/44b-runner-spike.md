@@ -115,7 +115,7 @@ Exits with code `0` on success and prints the response, or exits with code `1` a
 |---|---|---|---|
 | **OQ-1** | Exact AGY model slugs for Gemini 3.8 Flash and 3.1 Pro | **RESOLVED** | Verified directly against installed `agy models` surface. Slugs `gemini-3.8-flash-high` and `gemini-3.1-pro-high` confirmed live. |
 | **OQ-2** | Whether Zen should use exact 3.1P/High or remain on native Pro | **UNRESOLVED / DEFERRED** | Deferred to 44F per contract §6.3 and §9. Zen remains native AGY subagent on native Pro baseline until comparative validation demonstrates material improvement. |
-| **OQ-4** | Exact AGY CLI invocation path for Sonnet (Instinct backend) | **UNRESOLVED / DEFERRED** | Deferred to post-44G / issue #20 per contract §6.4 and §9. Model slug `claude-sonnet-4-6` is observed on the installed `agy models` list, but Instinct integration is an explicit non-goal in 44B. |
+| **OQ-4** | Exact AGY CLI invocation path for Sonnet (Instinct backend) | **UNRESOLVED / DEFERRED** | Deferred to post-44G / issue #20 per contract §6.4 and §9. Model slug `claude-sonnet-5-5-high` is observed on the installed `agy models` list, but Instinct integration is an explicit non-goal in 44B. |
 
 ## 6. Runner Architecture Safeguards Summary
 
