@@ -133,6 +133,48 @@ test('construction cannot omit the independent Zen adapter', t => {
   assert.throws(() => new MinimalSpine({ ledgerPath: f.ledgerPath }), /Zen/);
 });
 
+for (const patch of [
+  { status: 'READY' }, { plan_version: 'stale' }, { changes_made: null },
+  { verification_evidence: [] }, { candidate_artifact_ref: {} }, { zen_verdict: 'GO' },
+]) {
+  test(`unwrapped candidate still rejects schema or authority mismatch ${JSON.stringify(patch)}`, async t => {
+    const f = fixture(t);
+    const spine = new MinimalSpine({
+      ...f.options,
+      invokeRole: (_role, packet) => {
+        const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+        return parseResponseEnvelope(JSON.stringify({
+          status: 'SUCCESS',
+          response: `Result:\n\`\`\`json\n${JSON.stringify(candidate(contract, patch))}\n\`\`\`\nEnd.`,
+        }));
+      },
+    });
+    await assert.rejects(spine.runMilestone('one'));
+    assert.ok(!f.calls.includes('zen'));
+    assert.deepEqual(spine.state.completed_milestones, []);
+    assert.equal(spine.state.current_milestone, null);
+    assert.throws(() => spine.declareGlobalCompletion());
+  });
+}
+
+test('unwrapped candidate still needs an independent matching Zen GO', async t => {
+  const f = fixture(t, { review: request => verdict(request, { verdict: 'NO-GO' }) });
+  const spine = new MinimalSpine({
+    ...f.options,
+    invokeRole: (_role, packet) => {
+      const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+      return parseResponseEnvelope(JSON.stringify({
+        status: 'SUCCESS',
+        response: `Result:\n\`\`\`json\n${JSON.stringify(candidate(contract))}\n\`\`\`\nEnd.`,
+      }));
+    },
+  });
+  assert.equal((await spine.runMilestone('one')).verified, false);
+  assert.deepEqual(f.calls, ['zen']);
+  assert.deepEqual(spine.state.completed_milestones, []);
+  assert.throws(() => spine.declareGlobalCompletion());
+});
+
 test('prose in a SUCCESS envelope persists a typed failure without promotion', async t => {
   const f = fixture(t);
   const spine = new MinimalSpine({
