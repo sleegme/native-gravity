@@ -75,7 +75,7 @@ export class RoleBodyError extends Error {
 /**
  * Loads the role file as Markdown content, without interpreting AGY frontmatter.
  * Directory precedence: roleBodyDir, opts.env.NTG_ROLE_BODY_DIR, process env,
- * then ../agents relative to this module. Relative overrides also use RUNNER_DIR,
+ * then ../docs/specs/vnext/agents relative to this module. Relative overrides also use RUNNER_DIR,
  * never the invocation cwd. Missing/invalid files never fall back to defaults.
  */
 function loadRoleBody(role, opts) {
@@ -86,7 +86,7 @@ function loadRoleBody(role, opts) {
 
   try {
     const directory = opts.roleBodyDir ?? opts.env?.NTG_ROLE_BODY_DIR ??
-      process.env.NTG_ROLE_BODY_DIR ?? "../agents";
+      process.env.NTG_ROLE_BODY_DIR ?? "../docs/specs/vnext/agents";
     if (typeof directory !== "string" || !directory.trim()) {
       throw new Error("Role body directory must be a non-empty path string");
     }
@@ -438,19 +438,43 @@ export function parseResponseEnvelope(stdout, meta = {}) {
 /**
  * Validates the inner response when a caller requires a JSON object packet.
  * Generic text responses remain supported by the envelope/transport boundary.
+ * Only narration/fences around one object may be removed. Role-specific schema
+ * and authority checks remain at the spine/ledger boundary, after extraction.
+ * response and raw are never rewritten: they retain the original provenance.
  */
 export function parseResponsePacket(result) {
   if (!result.ok) return result;
   if (!result.response.trim()) return { ...result, ok: false, error: "EMPTY_RESPONSE" };
+  let packet;
   try {
-    const packet = JSON.parse(result.response);
-    if (packet === null || typeof packet !== "object" || Array.isArray(packet)) {
+    packet = JSON.parse(result.response);
+  } catch {
+    const start = result.response.indexOf("{");
+    const end = result.response.lastIndexOf("}");
+    if (start === -1 || end < start) {
       return { ...result, ok: false, error: "INVALID_RESPONSE_FORMAT" };
     }
-    return { ...result, packet };
-  } catch {
+    // Do not search for a parsable subset or choose between successive packets.
+    // Parsing first-to-last braces rejects multiple objects and malformed outer
+    // objects, while JSON.parse handles nested objects and escaped string braces.
+    const surrounding = result.response.slice(0, start) + "\n" + result.response.slice(end + 1);
+    const narration = surrounding.replace(/^[ \t]*```(?:json)?[ \t]*$/gim, "");
+    // Arrays, quoted JSON, unmatched delimiters and extra JSON scalar values
+    // outside the candidate are not narration. Ambiguity must fail closed.
+    if (/[{}\[\]"`]/.test(narration)
+        || /(?:^|\s)(?:null|true|false|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=\s|$)/.test(narration)) {
+      return { ...result, ok: false, error: "INVALID_RESPONSE_FORMAT" };
+    }
+    try {
+      packet = JSON.parse(result.response.slice(start, end + 1));
+    } catch {
+      return { ...result, ok: false, error: "INVALID_RESPONSE_FORMAT" };
+    }
+  }
+  if (packet === null || typeof packet !== "object" || Array.isArray(packet)) {
     return { ...result, ok: false, error: "INVALID_RESPONSE_FORMAT" };
   }
+  return { ...result, packet };
 }
 
 /**
@@ -508,6 +532,8 @@ export function invokeTransport(slugOrOpts, maybePrompt, maybeOpts) {
     ...(nextChain ? { NTG_RUNNER_CHAIN: nextChain } : {}),
   };
 
+  // The composed role body is the machine contract. Do not add --agent:
+  // installed primary agents inject the released READY / PLAN READY contracts.
   const args = [
     "--model",
     slug,

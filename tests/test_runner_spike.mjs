@@ -344,6 +344,50 @@ runTest("2.6f: JSON packet boundary preserves empty and denial taxonomy", () => 
   assert.deepStrictEqual(valid.packet, { milestone_id: "one" });
 });
 
+runTest("2.6g: Unambiguous fenced and narrated objects preserve raw response provenance", () => {
+  const packet = { nested: { values: [1, {}] }, text: 'braces } { and "quotes" and \\ escapes' };
+  const json = JSON.stringify(packet);
+  for (const response of [
+    json, `\`\`\`json\n${json}\n\`\`\``, `\`\`\`\n${json}\n\`\`\``,
+    `Result follows:\n${json}\nEnd.`,
+    `Result follows:\n\`\`\`json\n${json}\n\`\`\`\nEnd.`,
+  ]) {
+    const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
+    const result = parseResponsePacket(envelope);
+    assert.strictEqual(result.ok, true, response);
+    assert.deepStrictEqual(result.packet, packet);
+    assert.strictEqual(result.response, response);
+    assert.strictEqual(result.raw, envelope.raw);
+    assert.strictEqual(result.raw.response, response);
+    assert.strictEqual(envelope.packet, undefined);
+  }
+});
+
+runTest("2.6h: Multiple objects and malformed or non-object payloads are never unwrapped", () => {
+  for (const response of [
+    '{}\n{}', 'Before {}\nAfter {}', '```json\n{}\n```\n```json\n{}\n```',
+    'Before {"broken": {"valid": true},} After', 'Before {"broken": After',
+    'Before {} } After', 'Before { {} After', 'Before {} [ After',
+    '[{}]', 'Before [{}] After', '```json\n[{}]\n```',
+    '"{}"', 'Before "{}" After', '```json\nnull\n```',
+    '{}\nnull', 'true\n{}', '{}\n42', 'Before {"x":NaN} After',
+    'Before {"x":undefined} After', 'Before {"x":1,} After',
+    'No JSON here', '```json\nnot JSON\n```',
+  ]) {
+    const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
+    const result = parseResponsePacket(envelope);
+    assert.strictEqual(result.ok, false, response);
+    assert.strictEqual(result.error, "INVALID_RESPONSE_FORMAT", response);
+    assert.strictEqual(result.response, response);
+    assert.strictEqual(result.raw, envelope.raw);
+  }
+  const denied = parseResponseEnvelope(JSON.stringify({
+    status: "SUCCESS", response: '```json\n{}\n```', denied_actions: [{ action: "command" }],
+  }));
+  assert.strictEqual(parseResponsePacket(denied), denied);
+  assert.strictEqual(denied.error, "TOOL_PERMISSION_DENIED");
+});
+
 runTest("2.7: invokeTransport enforces response envelope validation on process execution", () => {
   // Test using a mock executable that writes to stdout
   const mockScript = join(tmpdir(), `mock-agy-${Date.now()}-${Math.random().toString(36).slice(2)}.mjs`);
@@ -475,7 +519,7 @@ process.exit(0);
 
 runTest("3.1: Deterministic prompt construction with minimal packet", () => {
   const prompt = composeBoundedPrompt("piledriver", { task: "Implement feature X" });
-  const body = readFileSync(new URL("../agents/piledriver.md", import.meta.url), "utf8").trim();
+  const body = readFileSync(new URL("../docs/specs/vnext/agents/piledriver.md", import.meta.url), "utf8").trim();
   assert.strictEqual(prompt, `## Role\npiledriver\n\n## Role Body\n${body}\n\n## Task\nImplement feature X`);
 });
 
@@ -491,7 +535,7 @@ runTest("3.2: Deterministic prompt construction with complete structured packet"
 
   const expectedPrompt = [
     "## Role\nbulldozer",
-    `## Role Body\n${readFileSync(new URL("../agents/bulldozer.md", import.meta.url), "utf8").trim()}`,
+    `## Role Body\n${readFileSync(new URL("../docs/specs/vnext/agents/bulldozer.md", import.meta.url), "utf8").trim()}`,
     "## Task\nRefactor database migrations",
     "## Context Files\n- db/schema.sql\n- db/migrate.js",
     "## Evidence\n- Migration 004 failed on test DB\n- Disk usage at 80%",
@@ -504,7 +548,7 @@ runTest("3.2: Deterministic prompt construction with complete structured packet"
 
 runTest("3.3: Task alias 'objective' is accepted when 'task' is omitted", () => {
   const prompt = composeBoundedPrompt("steamroller", { objective: "Analyze trade-offs" });
-  const body = readFileSync(new URL("../agents/steamroller.md", import.meta.url), "utf8").trim();
+  const body = readFileSync(new URL("../docs/specs/vnext/agents/steamroller.md", import.meta.url), "utf8").trim();
   assert.strictEqual(prompt, `## Role\nsteamroller\n\n## Role Body\n${body}\n\n## Task\nAnalyze trade-offs`);
 });
 
@@ -673,7 +717,7 @@ if (process.argv[2] === "models") {
   const value = flag => process.argv[process.argv.indexOf(flag) + 1];
   console.log(JSON.stringify({ status: "SUCCESS", response: JSON.stringify({
     prompt: value("--print"), slug: value("--model"), format: value("--output-format"),
-    chain: process.env.NTG_RUNNER_CHAIN, cwd: process.cwd()
+    chain: process.env.NTG_RUNNER_CHAIN, cwd: process.cwd(), args: process.argv.slice(2)
   }) }));
 }
 `);
@@ -711,6 +755,7 @@ runTest("6.1: All three role bodies reach transport deterministically with hando
       assert.strictEqual(received.format, "json");
       assert.strictEqual(received.chain, role);
       assert.strictEqual(received.cwd, opts.cwd);
+      assert.strictEqual(received.args.includes("--agent"), false);
     }
     const mixedCase = invoke(" PileDriver ", packet, opts);
     assert.strictEqual(mixedCase.ok, true, JSON.stringify(mixedCase));
@@ -783,7 +828,7 @@ runTest("6.6: Neutral process cwd needs no customization for explicit or module-
         const explicit = invoke(role, packet, opts);
         assert.strictEqual(explicit.ok, true, JSON.stringify(explicit));
         assert.ok(JSON.parse(explicit.response).prompt.includes(`BODY_MARKER_${role}`));
-        const shipped = readFileSync(new URL(`../agents/${role}.md`, import.meta.url), "utf8").trim();
+        const shipped = readFileSync(new URL(`../docs/specs/vnext/agents/${role}.md`, import.meta.url), "utf8").trim();
         const defaultPrompt = composeBoundedPrompt(role, packet);
         assert.ok(defaultPrompt.includes(`## Role Body\n${shipped}\n\n## Task\nTASK_MARKER`));
         const runnerDir = dirname(fileURLToPath(new URL("../scripts/runner.mjs", import.meta.url)));

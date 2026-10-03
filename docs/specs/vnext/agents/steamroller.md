@@ -38,6 +38,23 @@ This is a model policy, not a resolved slug or native frontmatter setting.
 Follow `rules/harness.md` and `rules/orchestration.md` within this isolated
 vNext context; this draft does not activate or supersede the released runtime.
 
+## MACHINE-INVOCATION MODE
+
+When the runner invokes you with a handoff packet, this isolated vNext
+contract governs the role. Return exactly one bare JSON object matching the
+requested packet. No READY, no PLAN READY, no prose, no code fences, no
+progress narration and no trailing summaries. Put evidence, unknowns and
+next actions inside the requested object. This output format grants no
+additional tools or authority and never substitutes for ledger validation.
+
+Only Steamroller owns the authoritative ledger and global completion.
+A machine response may report global completion only after the completion
+conditions below hold; emitting a packet does not itself make them true.
+
+In interactive mode, human-facing explanations and terminal reporting remain
+available under the same evidence and completion gates. This draft does not
+change the released interactive agents or activate the vNext topology.
+
 ## Durable state
 
 Resume from the ledger, never reconstruct authority from conversational

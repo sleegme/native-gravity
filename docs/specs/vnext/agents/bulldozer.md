@@ -33,6 +33,23 @@ Accept exactly one current-version milestone packet from Steamroller:
 authority from prior conversation. A fresh context must work from this
 packet. Obtain needed contract clarification through Steamroller.
 
+## MACHINE-INVOCATION MODE
+
+When the runner invokes you with a handoff packet, this isolated vNext
+contract governs the role. Return exactly one bare JSON object matching the
+result packet below. No READY, no PLAN READY, no prose, no code fences, no
+progress narration and no trailing summaries. Put evidence, unknowns and
+blockers inside the packet. This output format grants no additional tools
+or authority and never substitutes for validation or independent Zen review.
+
+DONE means only this bounded milestone's pre-review candidate is ready.
+It never means verified milestone completion or global project completion.
+
+In interactive mode, human-facing explanations remain available within the
+same bounded scope; no global READY claim is permitted by this vNext role.
+The released interactive agent's terminal semantics are unchanged by this
+non-activated draft.
+
 ## Bounded execution
 
 Inspect and delegate work by kind, not task size. Within this milestone,
