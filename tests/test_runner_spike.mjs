@@ -109,7 +109,7 @@ runTest("1.4: Deterministic resolution against cached installed models for all r
   const mockSurface = [
     { slug: "gemini-3.1-pro-high", description: "Gemini 3.1 Pro (High)" },
     { slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" },
-    { slug: "claude-sonnet-4-6", description: "Claude Sonnet 4.6 (Thinking)" },
+    { slug: "claude-sonnet-5-5-high", description: "Claude Sonnet 5.5 (High)" },
   ];
 
   const piledriverSlug = resolveSlug("piledriver", { installedModels: mockSurface });
@@ -143,7 +143,7 @@ Fetching available models...
 gemini-3.8-flash-high\tGemini 3.8 Flash (High)
 gemini-3.8-flash-low\tGemini 3.8 Flash (Low)
 gemini-3.1-pro-high\tGemini 3.1 Pro (High)
-claude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)
+claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)
 `;
   const parsed = parseInstalledModels(sampleStdout);
   assert.strictEqual(parsed.length, 4);
