@@ -1,0 +1,585 @@
+[
+  {
+    "type": "configuration",
+    "cwd": "/home/sleeg/work/native-gravity",
+    "dryRun": false,
+    "liveCallsBudget": "target <=16 agy calls",
+    "permissionMode": "production invoke() unmodified (no --agent, no skip flag); harness Zen uses skip flag for read-only verify tools"
+  },
+  {
+    "type": "call-start",
+    "label": "case1:bulldozer",
+    "invocation": "production invoke()",
+    "packetSha256": "e4fafb02b65d7a9449d5f8df04a35e07d7d8b3ff6d0bea74d3f5fde6a9055448",
+    "packet": {
+      "task": "Execute only this milestone. Delegate bounded work to specialists by kind: Jaguar for read-only factual retrieval, Puma for low-risk writing and mechanical text/config edits, and Bobcat for bounded implementation. For Bobcat, set ADVISOR_GATE REQUIRED for substantive work or NONE only for low-risk mechanical work; Bobcat may invoke only Strix Halo when required. Puma and Jaguar have no subagents and Puma has no advisor ceremony. If a required specialist is unavailable, return BLOCKED, not a gate waiver. Inspect specialist results and actual evidence yourself. Worker READY and Strix ACCEPT are not DONE. Return your own JSON result packet with milestone_id, plan_version, explicit status DONE|BLOCKED|NEEDS_DEEP, changes_made, verification_evidence, unresolved_unknowns, scope_deviations, blockers and escalation_needs as applicable. DONE must identify immutable delivered artifact versions in candidate_artifact_ref. Do not invoke Zen, supply Zen authority, write the ledger, or claim global completion.\n{\"milestone_id\":\"one\",\"plan_version\":\"v1\",\"objective\":\"Use a read-only tool to inspect README.md project name; return observed content\",\"bounded_scope\":[\"README.md\"],\"non_goals\":[\"Any file modification\"],\"acceptance_criteria\":[\"Fact independently observed using a tool, not recalled or inferred\"],\"constraints\":[\"Read-only inspection; no permission changes; no runtime activation\"],\"relevant_evidence\":[],\"decision_invariants\":[]}"
+    },
+    "startedAt": "2026-10-04T06:19:57.941Z"
+  },
+  {
+    "type": "call",
+    "label": "case1:bulldozer",
+    "role": "bulldozer",
+    "elapsedMs": 21807,
+    "output": {
+      "ok": false,
+      "error": "TOOL_PERMISSION_DENIED",
+      "role": "bulldozer",
+      "slug": "gemini-3.8-flash-high",
+      "denied_actions": [
+        {
+          "action": "command",
+          "display_name": "RunCommand"
+        }
+      ],
+      "details": {
+        "conversation_id": "7fb48820-1670-483c-bce6-ba406db33754",
+        "status": "SUCCESS",
+        "response": "",
+        "duration_seconds": 9.650256217999999,
+        "num_turns": 1,
+        "usage": {
+          "input_tokens": 42782,
+          "output_tokens": 1245,
+          "thinking_tokens": 1066,
+          "cache_read_tokens": 16305,
+          "total_tokens": 44027
+        },
+        "denied_actions": [
+          {
+            "action": "command",
+            "display_name": "RunCommand"
+          }
+        ]
+      }
+    },
+    "parsed": {
+      "ok": false,
+      "error": "TOOL_PERMISSION_DENIED",
+      "role": "bulldozer",
+      "slug": "gemini-3.8-flash-high",
+      "denied_actions": [
+        {
+          "action": "command",
+          "display_name": "RunCommand"
+        }
+      ],
+      "details": {
+        "conversation_id": "7fb48820-1670-483c-bce6-ba406db33754",
+        "status": "SUCCESS",
+        "response": "",
+        "duration_seconds": 9.650256217999999,
+        "num_turns": 1,
+        "usage": {
+          "input_tokens": 42782,
+          "output_tokens": 1245,
+          "thinking_tokens": 1066,
+          "cache_read_tokens": 16305,
+          "total_tokens": 44027
+        },
+        "denied_actions": [
+          {
+            "action": "command",
+            "display_name": "RunCommand"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "scenario-error",
+    "label": "case1-milestone-one",
+    "error": "Error: bulldozer invocation failed: {\"ok\":false,\"error\":\"TOOL_PERMISSION_DENIED\",\"role\":\"bulldozer\",\"slug\":\"gemini-3.8-flash-high\",\"denied_actions\":[{\"action\":\"command\",\"display_name\":\"RunCommand\"}],\"details\":{\"conversation_id\":\"7fb48820-1670-483c-bce6-ba406db33754\",\"status\":\"SUCCESS\",\"response\":\"\",\"duration_seconds\":9.650256217999999,\"num_turns\":1,\"usage\":{\"input_tokens\":42782,\"output_tokens\":1245,\"thinking_tokens\":1066,\"cache_read_tokens\":16305,\"total_tokens\":44027},\"denied_actions\":[{\"action\":\"command\",\"display_name\":\"RunCommand\"}]}}"
+  },
+  {
+    "type": "case-verdict",
+    "case": "case3-fresh-context-resume",
+    "verdict": "SKIP",
+    "reason": "milestone one did not complete; dependency for two unmet"
+  },
+  {
+    "type": "call-start",
+    "label": "case4:bulldozer",
+    "invocation": "production invoke()",
+    "packetSha256": "4a9e061a0b65801f2c836235b3c9487743f016d4ffd079d52a404d239b373c1a",
+    "packet": {
+      "task": "Execute only this milestone. Delegate bounded work to specialists by kind: Jaguar for read-only factual retrieval, Puma for low-risk writing and mechanical text/config edits, and Bobcat for bounded implementation. For Bobcat, set ADVISOR_GATE REQUIRED for substantive work or NONE only for low-risk mechanical work; Bobcat may invoke only Strix Halo when required. Puma and Jaguar have no subagents and Puma has no advisor ceremony. If a required specialist is unavailable, return BLOCKED, not a gate waiver. Inspect specialist results and actual evidence yourself. Worker READY and Strix ACCEPT are not DONE. Return your own JSON result packet with milestone_id, plan_version, explicit status DONE|BLOCKED|NEEDS_DEEP, changes_made, verification_evidence, unresolved_unknowns, scope_deviations, blockers and escalation_needs as applicable. DONE must identify immutable delivered artifact versions in candidate_artifact_ref. Do not invoke Zen, supply Zen authority, write the ledger, or claim global completion.\n{\"milestone_id\":\"one\",\"plan_version\":\"v2\",\"objective\":\"Use a read-only tool to inspect README.md project name; return observed content\",\"bounded_scope\":[\"README.md\"],\"non_goals\":[\"Any file modification\"],\"acceptance_criteria\":[\"Fact independently observed\",\"README.md heading text returned verbatim\"],\"constraints\":[\"Read-only inspection; no permission changes; no runtime activation\"],\"relevant_evidence\":[{\"failure_evidence\":[{\"status\":\"INVOCATION_FAILURE\",\"evidence\":{\"classification\":\"OBSERVED\",\"error\":\"Error: bulldozer invocation failed: {\\\"ok\\\":false,\\\"error\\\":\\\"TOOL_PERMISSION_DENIED\\\",\\\"role\\\":\\\"bulldozer\\\",\\\"slug\\\":\\\"gemini-3.8-flash-high\\\",\\\"denied_actions\\\":[{\\\"action\\\":\\\"command\\\",\\\"display_name\\\":\\\"RunCommand\\\"}],\\\"details\\\":{\\\"conversation_id\\\":\\\"7fb48820-1670-483c-bce6-ba406db33754\\\",\\\"status\\\":\\\"SUCCESS\\\",\\\"response\\\":\\\"\\\",\\\"duration_seconds\\\":9.650256217999999,\\\"num_turns\\\":1,\\\"usage\\\":{\\\"input_tokens\\\":42782,\\\"output_tokens\\\":1245,\\\"thinking_tokens\\\":1066,\\\"cache_read_tokens\\\":16305,\\\"total_tokens\\\":44027},\\\"denied_actions\\\":[{\\\"action\\\":\\\"command\\\",\\\"display_name\\\":\\\"RunCommand\\\"}]}}\"},\"escalation_needs\":null,\"timestamp\":\"2026-10-04T06:20:19.750Z\"}]}],\"decision_invariants\":[]}"
+    },
+    "startedAt": "2026-10-04T06:20:19.751Z"
+  },
+  {
+    "type": "call",
+    "label": "case4:bulldozer",
+    "role": "bulldozer",
+    "elapsedMs": 43092,
+    "output": {
+      "ok": false,
+      "error": "TOOL_PERMISSION_DENIED",
+      "role": "bulldozer",
+      "slug": "gemini-3.8-flash-high",
+      "denied_actions": [
+        {
+          "action": "command",
+          "display_name": "RunCommand"
+        }
+      ],
+      "details": {
+        "conversation_id": "a90e3632-64a6-4cb9-a940-81deed6ad886",
+        "status": "SUCCESS",
+        "response": "",
+        "duration_seconds": 32.451071815,
+        "num_turns": 1,
+        "usage": {
+          "input_tokens": 50325,
+          "output_tokens": 4233,
+          "thinking_tokens": 3607,
+          "cache_read_tokens": 154887,
+          "total_tokens": 54558
+        },
+        "denied_actions": [
+          {
+            "action": "command",
+            "display_name": "RunCommand"
+          }
+        ]
+      }
+    },
+    "parsed": {
+      "ok": false,
+      "error": "TOOL_PERMISSION_DENIED",
+      "role": "bulldozer",
+      "slug": "gemini-3.8-flash-high",
+      "denied_actions": [
+        {
+          "action": "command",
+          "display_name": "RunCommand"
+        }
+      ],
+      "details": {
+        "conversation_id": "a90e3632-64a6-4cb9-a940-81deed6ad886",
+        "status": "SUCCESS",
+        "response": "",
+        "duration_seconds": 32.451071815,
+        "num_turns": 1,
+        "usage": {
+          "input_tokens": 50325,
+          "output_tokens": 4233,
+          "thinking_tokens": 3607,
+          "cache_read_tokens": 154887,
+          "total_tokens": 54558
+        },
+        "denied_actions": [
+          {
+            "action": "command",
+            "display_name": "RunCommand"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "scenario-error",
+    "label": "case4-plan-revision",
+    "error": "Error: bulldozer invocation failed: {\"ok\":false,\"error\":\"TOOL_PERMISSION_DENIED\",\"role\":\"bulldozer\",\"slug\":\"gemini-3.8-flash-high\",\"denied_actions\":[{\"action\":\"command\",\"display_name\":\"RunCommand\"}],\"details\":{\"conversation_id\":\"a90e3632-64a6-4cb9-a940-81deed6ad886\",\"status\":\"SUCCESS\",\"response\":\"\",\"duration_seconds\":32.451071815,\"num_turns\":1,\"usage\":{\"input_tokens\":50325,\"output_tokens\":4233,\"thinking_tokens\":3607,\"cache_read_tokens\":154887,\"total_tokens\":54558},\"denied_actions\":[{\"action\":\"command\",\"display_name\":\"RunCommand\"}]}}"
+  },
+  {
+    "type": "call-start",
+    "label": "case2:bulldozer",
+    "invocation": "production invoke()",
+    "packetSha256": "ac0485e576a56d6fb349fd0ee10c052a4c95addb28520a5064f53674c305e590",
+    "packet": {
+      "task": "Execute only this milestone. Delegate bounded work to specialists by kind: Jaguar for read-only factual retrieval, Puma for low-risk writing and mechanical text/config edits, and Bobcat for bounded implementation. For Bobcat, set ADVISOR_GATE REQUIRED for substantive work or NONE only for low-risk mechanical work; Bobcat may invoke only Strix Halo when required. Puma and Jaguar have no subagents and Puma has no advisor ceremony. If a required specialist is unavailable, return BLOCKED, not a gate waiver. Inspect specialist results and actual evidence yourself. Worker READY and Strix ACCEPT are not DONE. Return your own JSON result packet with milestone_id, plan_version, explicit status DONE|BLOCKED|NEEDS_DEEP, changes_made, verification_evidence, unresolved_unknowns, scope_deviations, blockers and escalation_needs as applicable. DONE must identify immutable delivered artifact versions in candidate_artifact_ref. Do not invoke Zen, supply Zen authority, write the ledger, or claim global completion.\n{\"milestone_id\":\"gate\",\"plan_version\":\"v1\",\"objective\":\"Use a read-only tool to inspect the package.json name field; return observed content\",\"bounded_scope\":[\"package.json\"],\"non_goals\":[\"Any file modification\"],\"acceptance_criteria\":[\"package.json name independently observed using a read-only tool\",\"candidate_artifact_ref is an immutable, content-addressed reference to the delivered artifact (a working-tree file path or mutable ref does not satisfy this)\"],\"constraints\":[\"Read-only inspection; no permission changes; no runtime activation\"],\"relevant_evidence\":[],\"decision_invariants\":[]}"
+    },
+    "startedAt": "2026-10-04T06:21:02.844Z"
+  },
+  {
+    "type": "call",
+    "label": "case2:bulldozer",
+    "role": "bulldozer",
+    "elapsedMs": 29573,
+    "output": {
+      "ok": false,
+      "error": "TOOL_PERMISSION_DENIED",
+      "role": "bulldozer",
+      "slug": "gemini-3.8-flash-high",
+      "denied_actions": [
+        {
+          "action": "command",
+          "display_name": "RunCommand"
+        }
+      ],
+      "details": {
+        "conversation_id": "65ce304f-8b07-4f87-bb06-eb304712fa5d",
+        "status": "SUCCESS",
+        "response": "",
+        "duration_seconds": 21.308744765,
+        "num_turns": 1,
+        "usage": {
+          "input_tokens": 76617,
+          "output_tokens": 4787,
+          "thinking_tokens": 4555,
+          "cache_read_tokens": 20411,
+          "total_tokens": 81404
+        },
+        "denied_actions": [
+          {
+            "action": "command",
+            "display_name": "RunCommand"
+          }
+        ]
+      }
+    },
+    "parsed": {
+      "ok": false,
+      "error": "TOOL_PERMISSION_DENIED",
+      "role": "bulldozer",
+      "slug": "gemini-3.8-flash-high",
+      "denied_actions": [
+        {
+          "action": "command",
+          "display_name": "RunCommand"
+        }
+      ],
+      "details": {
+        "conversation_id": "65ce304f-8b07-4f87-bb06-eb304712fa5d",
+        "status": "SUCCESS",
+        "response": "",
+        "duration_seconds": 21.308744765,
+        "num_turns": 1,
+        "usage": {
+          "input_tokens": 76617,
+          "output_tokens": 4787,
+          "thinking_tokens": 4555,
+          "cache_read_tokens": 20411,
+          "total_tokens": 81404
+        },
+        "denied_actions": [
+          {
+            "action": "command",
+            "display_name": "RunCommand"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "scenario-error",
+    "label": "case2-zen-no-go",
+    "error": "Error: bulldozer invocation failed: {\"ok\":false,\"error\":\"TOOL_PERMISSION_DENIED\",\"role\":\"bulldozer\",\"slug\":\"gemini-3.8-flash-high\",\"denied_actions\":[{\"action\":\"command\",\"display_name\":\"RunCommand\"}],\"details\":{\"conversation_id\":\"65ce304f-8b07-4f87-bb06-eb304712fa5d\",\"status\":\"SUCCESS\",\"response\":\"\",\"duration_seconds\":21.308744765,\"num_turns\":1,\"usage\":{\"input_tokens\":76617,\"output_tokens\":4787,\"thinking_tokens\":4555,\"cache_read_tokens\":20411,\"total_tokens\":81404},\"denied_actions\":[{\"action\":\"command\",\"display_name\":\"RunCommand\"}]}}"
+  },
+  {
+    "type": "call-start",
+    "label": "advisory:piledriver",
+    "invocation": "production invoke()",
+    "packetSha256": "248e8850fddc83503f4e34c301414ebc386db1e9d053feeb58e94483b537545d",
+    "packet": {
+      "task": "Return a bounded advisory plan as JSON. Do not implement, delegate workers, write ledger state, or claim completion.\n{\"task\":\"Inspect package.json name via a read-only tool and propose a materially revised v2 plan. Return JSON advice only; do not write.\",\"ledger\":{\"goal\":\"Independently inspect two existing repository facts without writes\",\"constraints\":[\"Read-only inspection; no permission changes; no runtime activation\"],\"plan_version\":\"v1\",\"milestones\":[{\"id\":\"one\",\"title\":\"one\",\"objective\":\"Use a read-only tool to inspect README.md project name; return observed content\",\"acceptance_criteria\":[\"Fact independently observed using a tool, not recalled or inferred\"],\"non_goals\":[\"Any file modification\"],\"dependencies\":[],\"bounded_scope\":[\"README.md\"]},{\"id\":\"two\",\"title\":\"two\",\"objective\":\"Use a read-only tool to inspect package.json version field; return observed content\",\"acceptance_criteria\":[\"Fact independently observed using a tool, not recalled or inferred\"],\"non_goals\":[\"Any file modification\"],\"dependencies\":[\"one\"],\"bounded_scope\":[\"package.json\"]}],\"current_milestone\":null,\"completed_milestones\":[],\"evidence\":{},\"verification\":{},\"blockers\":[],\"next_action\":\"Ready to delegate initial milestone: one\",\"decision_invariants\":[],\"_initialized\":true,\"_active_candidates\":{},\"_known_candidates_by_ref\":{},\"_verification_history\":[]}}"
+    },
+    "startedAt": "2026-10-04T06:21:32.418Z"
+  },
+  {
+    "type": "call",
+    "label": "advisory:piledriver",
+    "role": "piledriver",
+    "elapsedMs": 37201,
+    "output": {
+      "ok": true,
+      "role": "piledriver",
+      "slug": "gemini-3.1-pro-high",
+      "response": "{\n  \"result\": \"Replan proposed to incorporate package.json name inspection.\",\n  \"invalidating_reality\": \"New task directive requires inspecting the package.json name field, but plan v1 milestone 'two' only specifies the version field.\",\n  \"affected_milestones\": [\n    \"two\"\n  ],\n  \"affected_invariants\": [],\n  \"evidence\": {\n    \"package.json_name_observed\": \"native-gravity\"\n  },\n  \"unknowns\": [],\n  \"unresolved_questions\": [],\n  \"material_risks\": [\n    \"None identified; read-only inspection scopes remain unmodified.\"\n  ],\n  \"recommended_next_action\": \"Steamroller should adopt v2 plan and proceed to execute milestone one.\",\n  \"proposed_plan\": {\n    \"goal\": \"Independently inspect two existing repository facts without writes\",\n    \"constraints\": [\n      \"Read-only inspection; no permission changes; no runtime activation\"\n    ],\n    \"plan_version\": \"v2\",\n    \"milestones\": [\n      {\n        \"id\": \"one\",\n        \"title\": \"one\",\n        \"objective\": \"Use a read-only tool to inspect README.md project name; return observed content\",\n        \"acceptance_criteria\": [\n          \"Fact independently observed using a tool, not recalled or inferred\"\n        ],\n        \"non_goals\": [\n          \"Any file modification\"\n        ],\n        \"dependencies\": [],\n        \"bounded_scope\": [\n          \"README.md\"\n        ]\n      },\n      {\n        \"id\": \"two\",\n        \"title\": \"two\",\n        \"objective\": \"Use a read-only tool to inspect package.json version and name fields; return observed content\",\n        \"acceptance_criteria\": [\n          \"Fact independently observed using a tool, not recalled or inferred\",\n          \"Observed package name (native-gravity) and version are successfully extracted\"\n        ],\n        \"non_goals\": [\n          \"Any file modification\"\n        ],\n        \"dependencies\": [\n          \"one\"\n        ],\n        \"bounded_scope\": [\n          \"package.json\"\n        ]\n      }\n    ]\n  }\n}\n",
+      "duration": 28.219029412,
+      "usage": {
+        "input_tokens": 21244,
+        "output_tokens": 3382,
+        "thinking_tokens": 2830,
+        "cache_read_tokens": 12168,
+        "total_tokens": 24626
+      },
+      "raw": {
+        "conversation_id": "97750f9f-5fce-4167-89c0-3a175ffc5322",
+        "status": "SUCCESS",
+        "response": "{\n  \"result\": \"Replan proposed to incorporate package.json name inspection.\",\n  \"invalidating_reality\": \"New task directive requires inspecting the package.json name field, but plan v1 milestone 'two' only specifies the version field.\",\n  \"affected_milestones\": [\n    \"two\"\n  ],\n  \"affected_invariants\": [],\n  \"evidence\": {\n    \"package.json_name_observed\": \"native-gravity\"\n  },\n  \"unknowns\": [],\n  \"unresolved_questions\": [],\n  \"material_risks\": [\n    \"None identified; read-only inspection scopes remain unmodified.\"\n  ],\n  \"recommended_next_action\": \"Steamroller should adopt v2 plan and proceed to execute milestone one.\",\n  \"proposed_plan\": {\n    \"goal\": \"Independently inspect two existing repository facts without writes\",\n    \"constraints\": [\n      \"Read-only inspection; no permission changes; no runtime activation\"\n    ],\n    \"plan_version\": \"v2\",\n    \"milestones\": [\n      {\n        \"id\": \"one\",\n        \"title\": \"one\",\n        \"objective\": \"Use a read-only tool to inspect README.md project name; return observed content\",\n        \"acceptance_criteria\": [\n          \"Fact independently observed using a tool, not recalled or inferred\"\n        ],\n        \"non_goals\": [\n          \"Any file modification\"\n        ],\n        \"dependencies\": [],\n        \"bounded_scope\": [\n          \"README.md\"\n        ]\n      },\n      {\n        \"id\": \"two\",\n        \"title\": \"two\",\n        \"objective\": \"Use a read-only tool to inspect package.json version and name fields; return observed content\",\n        \"acceptance_criteria\": [\n          \"Fact independently observed using a tool, not recalled or inferred\",\n          \"Observed package name (native-gravity) and version are successfully extracted\"\n        ],\n        \"non_goals\": [\n          \"Any file modification\"\n        ],\n        \"dependencies\": [\n          \"one\"\n        ],\n        \"bounded_scope\": [\n          \"package.json\"\n        ]\n      }\n    ]\n  }\n}\n",
+        "duration_seconds": 28.219029412,
+        "num_turns": 1,
+        "usage": {
+          "input_tokens": 21244,
+          "output_tokens": 3382,
+          "thinking_tokens": 2830,
+          "cache_read_tokens": 12168,
+          "total_tokens": 24626
+        }
+      }
+    },
+    "parsed": {
+      "ok": true,
+      "role": "piledriver",
+      "slug": "gemini-3.1-pro-high",
+      "response": "{\n  \"result\": \"Replan proposed to incorporate package.json name inspection.\",\n  \"invalidating_reality\": \"New task directive requires inspecting the package.json name field, but plan v1 milestone 'two' only specifies the version field.\",\n  \"affected_milestones\": [\n    \"two\"\n  ],\n  \"affected_invariants\": [],\n  \"evidence\": {\n    \"package.json_name_observed\": \"native-gravity\"\n  },\n  \"unknowns\": [],\n  \"unresolved_questions\": [],\n  \"material_risks\": [\n    \"None identified; read-only inspection scopes remain unmodified.\"\n  ],\n  \"recommended_next_action\": \"Steamroller should adopt v2 plan and proceed to execute milestone one.\",\n  \"proposed_plan\": {\n    \"goal\": \"Independently inspect two existing repository facts without writes\",\n    \"constraints\": [\n      \"Read-only inspection; no permission changes; no runtime activation\"\n    ],\n    \"plan_version\": \"v2\",\n    \"milestones\": [\n      {\n        \"id\": \"one\",\n        \"title\": \"one\",\n        \"objective\": \"Use a read-only tool to inspect README.md project name; return observed content\",\n        \"acceptance_criteria\": [\n          \"Fact independently observed using a tool, not recalled or inferred\"\n        ],\n        \"non_goals\": [\n          \"Any file modification\"\n        ],\n        \"dependencies\": [],\n        \"bounded_scope\": [\n          \"README.md\"\n        ]\n      },\n      {\n        \"id\": \"two\",\n        \"title\": \"two\",\n        \"objective\": \"Use a read-only tool to inspect package.json version and name fields; return observed content\",\n        \"acceptance_criteria\": [\n          \"Fact independently observed using a tool, not recalled or inferred\",\n          \"Observed package name (native-gravity) and version are successfully extracted\"\n        ],\n        \"non_goals\": [\n          \"Any file modification\"\n        ],\n        \"dependencies\": [\n          \"one\"\n        ],\n        \"bounded_scope\": [\n          \"package.json\"\n        ]\n      }\n    ]\n  }\n}\n",
+      "duration": 28.219029412,
+      "usage": {
+        "input_tokens": 21244,
+        "output_tokens": 3382,
+        "thinking_tokens": 2830,
+        "cache_read_tokens": 12168,
+        "total_tokens": 24626
+      },
+      "raw": {
+        "conversation_id": "97750f9f-5fce-4167-89c0-3a175ffc5322",
+        "status": "SUCCESS",
+        "response": "{\n  \"result\": \"Replan proposed to incorporate package.json name inspection.\",\n  \"invalidating_reality\": \"New task directive requires inspecting the package.json name field, but plan v1 milestone 'two' only specifies the version field.\",\n  \"affected_milestones\": [\n    \"two\"\n  ],\n  \"affected_invariants\": [],\n  \"evidence\": {\n    \"package.json_name_observed\": \"native-gravity\"\n  },\n  \"unknowns\": [],\n  \"unresolved_questions\": [],\n  \"material_risks\": [\n    \"None identified; read-only inspection scopes remain unmodified.\"\n  ],\n  \"recommended_next_action\": \"Steamroller should adopt v2 plan and proceed to execute milestone one.\",\n  \"proposed_plan\": {\n    \"goal\": \"Independently inspect two existing repository facts without writes\",\n    \"constraints\": [\n      \"Read-only inspection; no permission changes; no runtime activation\"\n    ],\n    \"plan_version\": \"v2\",\n    \"milestones\": [\n      {\n        \"id\": \"one\",\n        \"title\": \"one\",\n        \"objective\": \"Use a read-only tool to inspect README.md project name; return observed content\",\n        \"acceptance_criteria\": [\n          \"Fact independently observed using a tool, not recalled or inferred\"\n        ],\n        \"non_goals\": [\n          \"Any file modification\"\n        ],\n        \"dependencies\": [],\n        \"bounded_scope\": [\n          \"README.md\"\n        ]\n      },\n      {\n        \"id\": \"two\",\n        \"title\": \"two\",\n        \"objective\": \"Use a read-only tool to inspect package.json version and name fields; return observed content\",\n        \"acceptance_criteria\": [\n          \"Fact independently observed using a tool, not recalled or inferred\",\n          \"Observed package name (native-gravity) and version are successfully extracted\"\n        ],\n        \"non_goals\": [\n          \"Any file modification\"\n        ],\n        \"dependencies\": [\n          \"one\"\n        ],\n        \"bounded_scope\": [\n          \"package.json\"\n        ]\n      }\n    ]\n  }\n}\n",
+        "duration_seconds": 28.219029412,
+        "num_turns": 1,
+        "usage": {
+          "input_tokens": 21244,
+          "output_tokens": 3382,
+          "thinking_tokens": 2830,
+          "cache_read_tokens": 12168,
+          "total_tokens": 24626
+        }
+      },
+      "packet": {
+        "result": "Replan proposed to incorporate package.json name inspection.",
+        "invalidating_reality": "New task directive requires inspecting the package.json name field, but plan v1 milestone 'two' only specifies the version field.",
+        "affected_milestones": [
+          "two"
+        ],
+        "affected_invariants": [],
+        "evidence": {
+          "package.json_name_observed": "native-gravity"
+        },
+        "unknowns": [],
+        "unresolved_questions": [],
+        "material_risks": [
+          "None identified; read-only inspection scopes remain unmodified."
+        ],
+        "recommended_next_action": "Steamroller should adopt v2 plan and proceed to execute milestone one.",
+        "proposed_plan": {
+          "goal": "Independently inspect two existing repository facts without writes",
+          "constraints": [
+            "Read-only inspection; no permission changes; no runtime activation"
+          ],
+          "plan_version": "v2",
+          "milestones": [
+            {
+              "id": "one",
+              "title": "one",
+              "objective": "Use a read-only tool to inspect README.md project name; return observed content",
+              "acceptance_criteria": [
+                "Fact independently observed using a tool, not recalled or inferred"
+              ],
+              "non_goals": [
+                "Any file modification"
+              ],
+              "dependencies": [],
+              "bounded_scope": [
+                "README.md"
+              ]
+            },
+            {
+              "id": "two",
+              "title": "two",
+              "objective": "Use a read-only tool to inspect package.json version and name fields; return observed content",
+              "acceptance_criteria": [
+                "Fact independently observed using a tool, not recalled or inferred",
+                "Observed package name (native-gravity) and version are successfully extracted"
+              ],
+              "non_goals": [
+                "Any file modification"
+              ],
+              "dependencies": [
+                "one"
+              ],
+              "bounded_scope": [
+                "package.json"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "type": "scenario",
+    "label": "advisory-requestPlan",
+    "advice": {
+      "result": "Replan proposed to incorporate package.json name inspection.",
+      "invalidating_reality": "New task directive requires inspecting the package.json name field, but plan v1 milestone 'two' only specifies the version field.",
+      "affected_milestones": [
+        "two"
+      ],
+      "affected_invariants": [],
+      "evidence": {
+        "package.json_name_observed": "native-gravity"
+      },
+      "unknowns": [],
+      "unresolved_questions": [],
+      "material_risks": [
+        "None identified; read-only inspection scopes remain unmodified."
+      ],
+      "recommended_next_action": "Steamroller should adopt v2 plan and proceed to execute milestone one.",
+      "proposed_plan": {
+        "goal": "Independently inspect two existing repository facts without writes",
+        "constraints": [
+          "Read-only inspection; no permission changes; no runtime activation"
+        ],
+        "plan_version": "v2",
+        "milestones": [
+          {
+            "id": "one",
+            "title": "one",
+            "objective": "Use a read-only tool to inspect README.md project name; return observed content",
+            "acceptance_criteria": [
+              "Fact independently observed using a tool, not recalled or inferred"
+            ],
+            "non_goals": [
+              "Any file modification"
+            ],
+            "dependencies": [],
+            "bounded_scope": [
+              "README.md"
+            ]
+          },
+          {
+            "id": "two",
+            "title": "two",
+            "objective": "Use a read-only tool to inspect package.json version and name fields; return observed content",
+            "acceptance_criteria": [
+              "Fact independently observed using a tool, not recalled or inferred",
+              "Observed package name (native-gravity) and version are successfully extracted"
+            ],
+            "non_goals": [
+              "Any file modification"
+            ],
+            "dependencies": [
+              "one"
+            ],
+            "bounded_scope": [
+              "package.json"
+            ]
+          }
+        ]
+      }
+    },
+    "state": {
+      "goal": "Independently inspect two existing repository facts without writes",
+      "constraints": [
+        "Read-only inspection; no permission changes; no runtime activation"
+      ],
+      "plan_version": "v1",
+      "milestones": [
+        {
+          "id": "one",
+          "title": "one",
+          "objective": "Use a read-only tool to inspect README.md project name; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [],
+          "bounded_scope": [
+            "README.md"
+          ]
+        },
+        {
+          "id": "two",
+          "title": "two",
+          "objective": "Use a read-only tool to inspect package.json version field; return observed content",
+          "acceptance_criteria": [
+            "Fact independently observed using a tool, not recalled or inferred"
+          ],
+          "non_goals": [
+            "Any file modification"
+          ],
+          "dependencies": [
+            "one"
+          ],
+          "bounded_scope": [
+            "package.json"
+          ]
+        }
+      ],
+      "current_milestone": null,
+      "completed_milestones": [],
+      "evidence": {},
+      "verification": {},
+      "blockers": [],
+      "next_action": "Ready to delegate initial milestone: one",
+      "decision_invariants": [],
+      "_initialized": true,
+      "_active_candidates": {},
+      "_known_candidates_by_ref": {},
+      "_verification_history": []
+    }
+  },
+  {
+    "type": "case-verdict",
+    "case": "advisory-requestPlan",
+    "verdict": "PASS",
+    "observed": {
+      "result": "Replan proposed to incorporate package.json name inspection.",
+      "invalidating_reality": "New task directive requires inspecting the package.json name field, but plan v1 milestone 'two' only specifies the version field.",
+      "affected_milestones": [
+        "two"
+      ],
+      "affected_invariants": [],
+      "evidence": {
+        "package.json_name_observed": "native-gravity"
+      },
+      "unknowns": [],
+      "unresolved_questions": [],
+      "material_risks": [
+        "None identified; read-only inspection scopes remain unmodified."
+      ],
+      "recommended_next_action": "Steamroller should adopt v2 plan and proceed to execute milestone one.",
+      "proposed_plan": {
+        "goal": "Independently inspect two existing repository facts without writes",
+        "constraints": [
+          "Read-only inspection; no permission changes; no runtime activation"
+        ],
+        "plan_version": "v2",
+        "milestones": [
+          {
+            "id": "one",
+            "title": "one",
+            "objective": "Use a read-only tool to inspect README.md project name; return observed content",
+            "acceptance_criteria": [
+              "Fact independently observed using a tool, not recalled or inferred"
+            ],
+            "non_goals": [
+              "Any file modification"
+            ],
+            "dependencies": [],
+            "bounded_scope": [
+              "README.md"
+            ]
+          },
+          {
+            "id": "two",
+            "title": "two",
+            "objective": "Use a read-only tool to inspect package.json version and name fields; return observed content",
+            "acceptance_criteria": [
+              "Fact independently observed using a tool, not recalled or inferred",
+              "Observed package name (native-gravity) and version are successfully extracted"
+            ],
+            "non_goals": [
+              "Any file modification"
+            ],
+            "dependencies": [
+              "one"
+            ],
+            "bounded_scope": [
+              "package.json"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "complete",
+    "agyCalls": 4,
+    "finishedAt": "2026-10-04T06:22:09.620Z"
+  }
+]
