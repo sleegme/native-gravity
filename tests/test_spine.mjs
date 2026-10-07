@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { MinimalSpine } from '../scripts/spine.mjs';
 import { AuthoritativeLedger } from '../scripts/ledger.mjs';
-import { InvalidHandoffPacketError, composeBoundedPrompt, parseResponseEnvelope } from '../scripts/runner.mjs';
+import { InvalidHandoffPacketError, InvalidResponseFormatError, composeBoundedPrompt, parseResponseEnvelope } from '../scripts/runner.mjs';
 
 const observed = [{ classification: 'OBSERVED', criterion: 'content', result: 'artifact inspected' }];
 const plan = () => ({
@@ -667,31 +667,54 @@ test('specialists can be invoked under an active milestone without touching ledg
   assert.equal(f.spine.state.current_milestone, null);
 });
 
-test('specialist response strings use the fail-closed packet parser', async t => {
-  const responses = {
-    jaguar: '{"status":"SUCCESS"}',
-    puma: 'Narration\n```json\n{"status":"READY"}\n```',
-    bobcat: 'plain prose, not a packet',
-  };
-  let results;
+for (const role of ['jaguar', 'puma', 'bobcat', 'strix-halo']) {
+  test(`${role} response strings use the fail-closed packet parser`, async t => {
+    let response;
+    let wrapped;
+    const f = fixture(t, {
+      invokeSpecialist: async () => wrapped ? { ok: true, response } : response,
+      output: async (contract, { spine, dir }) => {
+        const options = { caller: role === 'strix-halo' ? 'bobcat' : 'bulldozer' };
+        for (wrapped of [true, false]) {
+          for (response of [
+            '{"status":"READY"}',
+            '```json\n{"status":"READY"}\n```',
+            'Result follows:\n{"status":"READY"}\nEnd.',
+          ]) {
+            const result = await spine.invokeSpecialist(role, { task: 'work' }, options);
+            assert.deepEqual(result, { status: 'READY' });
+            assert.ok(Object.isFrozen(result));
+          }
+          for (response of ['not JSON', '{"status":"READY"}{"status":"BLOCKED"}']) {
+            await assert.rejects(
+              spine.invokeSpecialist(role, { task: 'work' }, options),
+              error => error instanceof InvalidResponseFormatError
+                && error.error === 'INVALID_RESPONSE_FORMAT' && error.role === role,
+            );
+          }
+        }
+        writeFileSync(join(dir, `${contract.milestone_id}.txt`), contract.milestone_id);
+        const hash = createHash('sha256').update(contract.milestone_id).digest('hex');
+        return candidate(contract, { candidate_artifact_ref: `sha256:${hash}` });
+      },
+    });
+
+    assert.equal((await f.spine.runMilestone('one')).verified, true);
+  });
+}
+
+test('unhandled specialist parse failure durably fails the milestone before Zen', async t => {
   const f = fixture(t, {
-    invokeSpecialist: async role => ({ ok: true, response: responses[role] }),
-    output: async (contract, { spine, dir }) => {
-      results = {
-        jaguar: await spine.invokeJaguar({ task: 'a' }),
-        puma: await spine.invokePuma({ task: 'b' }),
-        bobcat: await spine.invokeBobcat({ task: 'c' }),
-      };
-      writeFileSync(join(dir, `${contract.milestone_id}.txt`), contract.milestone_id);
-      const hash = createHash('sha256').update(contract.milestone_id).digest('hex');
-      return candidate(contract, { candidate_artifact_ref: `sha256:${hash}` });
-    },
+    invokeSpecialist: async () => ({ ok: true, response: 'not JSON' }),
+    output: async (_contract, { spine }) => spine.invokeBobcat({ task: 'work' }),
   });
 
-  await f.spine.runMilestone('one');
-  assert.deepEqual(results.jaguar, { status: 'SUCCESS' });
-  assert.deepEqual(results.puma, { status: 'READY' });
-  assert.deepEqual(results.bobcat, { ok: false, error: 'INVALID_RESPONSE_FORMAT', role: 'bobcat' });
+  await assert.rejects(f.spine.runMilestone('one'), InvalidResponseFormatError);
+  assert.ok(!f.calls.includes('zen'));
+  const saved = AuthoritativeLedger.load(f.ledgerPath).getState();
+  assert.equal(saved.current_milestone, null);
+  assert.deepEqual(saved.completed_milestones, []);
+  assert.ok(JSON.stringify(saved.evidence).includes('INVALID_RESPONSE_FORMAT'));
 });
 
 test('specialists receive milestone packet slice and never ledger or global authority', async t => {
