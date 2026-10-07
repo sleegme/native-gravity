@@ -55,7 +55,7 @@ Hooks read stdin JSON — contract surface is version-independent, but verified 
 
 Covers AGENTS.md checklist items 10-11 at the guard-contract level. Items 5-7 (live Excavator→Zen round-trip) still need an interactive session.
 
-## Excavator→Zen gate round-trip on 1.3.1 (2026-10-07) — checklist 5-7
+## Excavator→Zen gate round-trip on 1.3.1 (2026-10-07) — checklist 5-6, partial 7
 
 `ntg-run --agent excavator --model gemini-3.8-flash-low --dangerously-skip-permissions -p "Create an empty file named marker.txt, then reply READY when done."`
 
@@ -69,8 +69,9 @@ ROLLBACK: `rm /tmp/ntg-live-ws/marker.txt`
 READY
 ```
 
-- Excavator can edit (marker.txt created) — checklist 5 PASS.
-- Excavator invoked Zen and observed the verdict before READY (ZEN_VERDICT: VERDICT: GO precedes READY in the transcript) — checklist 6 PASS.
+- Excavator can edit (marker.txt created via `NTG_EXCAVATOR=1 touch marker.txt` in transcript) — checklist 5 PASS.
+- Zen invocation proven by transcript: `invoke_subagent` tool call with `TypeName:"zen"`, `Role:"Independent Reviewer"` (real subagent dispatch, not printed text) + subsequent `view_file` on the Zen transcript + `ZEN_VERDICT: VERDICT: GO` before READY — checklist 6 PASS.
+- Checklist 7 (NO-GO / post-GO-write re-review forcing correction) NOT exercised — needs a failing-artifact scenario; remains open.
 - Structured gate output (ROOT_CAUSE/CHANGES/VERIFICATION_EVIDENCE/ZEN_VERDICT/ROLLBACK) emitted correctly on 1.3.1.
 
 ## NEW upstream behavior confirmed on 1.3.1 (the "permissions respected" fix)
@@ -86,6 +87,8 @@ re-run with --dangerously-skip-permissions to auto-approve all tools.
 
 This is the upstream fix NTG depended on: permission denials are now honored instead of silently auto-approved. NTG callers that run agents headlessly must either pass `--dangerously-skip-permissions` or pre-authorize `command(...)` rules in settings.json.
 
-## Remaining open items — none blocking
+## Remaining open items
 
-Checklist items 1-3, 8-9 (delegation graph breadth, Puma, observed-verdict internals) are role-body behaviors exercised by the same code path just verified; full matrix remains owner-scheduled interactive QA. All blocking gaps for the 1.3.1 patch are closed.
+- Checklist item 7 (NO-GO re-review) — open, needs a deliberately failing artifact run.
+- Checklist items 1-3, 8-9 (delegation graph breadth, Puma, observed-verdict internals) — role-body breadth, owner-scheduled interactive QA.
+- Note: probe compares captured stdout heads (400-char truncation in the script), not whole outputs; table cells marked `identical` mean identical captured prefix.

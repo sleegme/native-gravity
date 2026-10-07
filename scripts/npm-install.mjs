@@ -49,14 +49,20 @@ function checkAgyCli() {
     console.error('Could not execute `agy --version`. Check your Antigravity CLI installation.');
     process.exit(check.status ?? 1);
   }
-  const match = (check.stdout ?? '').trim().match(/^(\d+)\.(\d+)\.(\d+)/);
-  if (match) {
-    const found = [Number(match[1]), Number(match[2]), Number(match[3])];
-    const below = found[0] < MIN_AGY[0] || (found[0] === MIN_AGY[0] && (found[1] < MIN_AGY[1] || (found[1] === MIN_AGY[1] && found[2] < MIN_AGY[2])));
-    if (below) {
-      console.error(`Native Gravity requires AGY >= ${MIN_AGY.join('.')} (found ${found.join('.')}). Upgrade: https://antigravity.google/download`);
-      process.exit(1);
-    }
+  const out = (check.stdout ?? '').trim();
+  const match = out.match(/^(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/);
+  if (!match) {
+    console.error(`Could not determine AGY version from \`agy --version\` output: ${JSON.stringify(out)}`);
+    console.error(`Native Gravity requires AGY >= ${MIN_AGY.join('.')}. Upgrade: https://antigravity.google/download`);
+    process.exit(1);
+  }
+  const found = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const below = found[0] < MIN_AGY[0]
+    || (found[0] === MIN_AGY[0] && (found[1] < MIN_AGY[1] || (found[1] === MIN_AGY[1] && found[2] < MIN_AGY[2])))
+    || (match[4] !== undefined && found[0] === MIN_AGY[0] && found[1] === MIN_AGY[1] && found[2] === MIN_AGY[2]);
+  if (below) {
+    console.error(`Native Gravity requires AGY >= ${MIN_AGY.join('.')} (found ${out}). Upgrade: https://antigravity.google/download`);
+    process.exit(1);
   }
 }
 
