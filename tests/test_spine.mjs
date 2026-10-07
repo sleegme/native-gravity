@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -312,6 +312,15 @@ for (const field of ['verdict', 'zen_verdict', 'result_ref']) {
     await assert.rejects(f.spine.runMilestone('one'), /cannot issue/);
     assert.ok(!f.calls.includes('zen'));
     assert.deepEqual(f.spine.state.completed_milestones, []);
+    const disk = AuthoritativeLedger.load(f.ledgerPath).getState();
+    assert.deepEqual(disk, f.spine.state);
+    assert.equal(disk.current_milestone, null);
+    assert.deepEqual(disk.verification, {});
+    assert.equal(disk.evidence.one.failure_evidence[0].status, 'INVOCATION_FAILURE');
+    assert.match(disk.evidence.one.failure_evidence[0].evidence.error, /cannot issue/);
+    assert.equal(disk.evidence.one.candidate, undefined);
+    assert.throws(() => f.spine.declareGlobalCompletion());
+    assert.deepEqual(f.resume().state, disk);
   });
 }
 
@@ -358,8 +367,96 @@ for (const status of ['BLOCKED', 'NEEDS_DEEP']) {
     assert.deepEqual(f.calls, ['bulldozer']);
     assert.equal(f.spine.state.current_milestone, null);
     assert.deepEqual(f.spine.state.completed_milestones, []);
+    const disk = AuthoritativeLedger.load(f.ledgerPath).getState();
+    assert.deepEqual(disk, f.spine.state);
+    assert.deepEqual(disk.verification, {});
+    assert.equal(disk.blockers.length, 1);
+    assert.equal(disk.blockers[0].affects_milestone, 'one');
+    const failure = disk.evidence.one.failure_evidence;
+    assert.equal(failure.length, 1);
+    assert.equal(failure[0].status, status);
+    assert.deepEqual(failure[0].evidence, result.candidate);
+    assert.deepEqual(failure[0].escalation_needs, ['Resolve interface decision']);
+    assert.throws(() => f.spine.declareGlobalCompletion(), /active blocker/);
+    assert.deepEqual(f.resume().state, disk);
   });
 }
+
+test('resolved ingress blocker permits global completion only after independent GO', async t => {
+  const f = fixture(t);
+  let first = true;
+  const spine = f.resume({
+    invokeRole: (...args) => {
+      if (!first) return f.options.invokeRole(...args);
+      first = false;
+      const contract = JSON.parse(args[1].task.slice(args[1].task.indexOf('\n') + 1));
+      return envelope(candidate(contract, {
+        status: 'BLOCKED',
+        blockers: [{ description: 'required capability unavailable' }],
+      }));
+    },
+  });
+  assert.equal((await spine.runMilestone('one')).status, 'BLOCKED');
+  const blocked = AuthoritativeLedger.load(f.ledgerPath).getState();
+  assert.equal(blocked.blockers.length, 1);
+  assert.deepEqual(blocked.completed_milestones, []);
+  assert.equal((await spine.runMilestone('one')).verified, true);
+  assert.equal((await spine.runMilestone('two')).verified, true);
+  const reviewed = AuthoritativeLedger.load(f.ledgerPath).getState();
+  assert.deepEqual(reviewed.completed_milestones, ['one', 'two']);
+  assert.deepEqual(reviewed.blockers, blocked.blockers);
+  assert.throws(() => spine.declareGlobalCompletion(), /active blocker/);
+  const blockerId = blocked.blockers[0].id;
+  assert.throws(() => spine.resolveBlocker(blockerId, { classification: 'INFERRED' }), /Observed/);
+  assert.deepEqual(AuthoritativeLedger.load(f.ledgerPath).getState(), reviewed);
+  const evidence = { classification: 'OBSERVED', result: 'capability restored and artifacts verified' };
+  const resolution = spine.resolveBlocker(blockerId, evidence);
+  const resolved = AuthoritativeLedger.load(f.ledgerPath).getState();
+  assert.deepEqual(resolved.blockers, []);
+  assert.deepEqual(resolved.evidence.resolved_blockers, [resolution]);
+  assert.equal(resolution.blocker_id, blockerId);
+  assert.deepEqual(resolution.resolution_evidence, evidence);
+  assert.deepEqual(resolved.verification, reviewed.verification);
+  const resumed = f.resume();
+  assert.deepEqual(resumed.state, resolved);
+  assert.equal(resumed.declareGlobalCompletion().completed, true);
+});
+
+test('runner TIMEOUT is durable and the same milestone can be redelegated', async t => {
+  const f = fixture(t);
+  let attempts = 0;
+  const spine = f.resume({
+    invokeRole: async (...args) => {
+      attempts++;
+      const disk = AuthoritativeLedger.load(f.ledgerPath).getState();
+      assert.equal(disk.current_milestone, 'one');
+      assert.deepEqual(disk.completed_milestones, []);
+      if (attempts === 1) return { ok: false, error: 'TIMEOUT' };
+      assert.equal(disk.evidence.one.failure_evidence[0].status, 'INVOCATION_FAILURE');
+      return f.options.invokeRole(...args);
+    },
+  });
+  await assert.rejects(spine.runMilestone('one'), /TIMEOUT/);
+  const failed = AuthoritativeLedger.load(f.ledgerPath).getState();
+  assert.deepEqual(failed, spine.state);
+  assert.equal(failed.current_milestone, null);
+  assert.deepEqual(failed.completed_milestones, []);
+  assert.deepEqual(failed.verification, {});
+  assert.deepEqual(f.calls, []);
+  assert.equal(failed.evidence.one.failure_evidence[0].status, 'INVOCATION_FAILURE');
+  assert.equal(failed.evidence.one.failure_evidence[0].evidence.classification, 'OBSERVED');
+  assert.match(failed.evidence.one.failure_evidence[0].evidence.error, /TIMEOUT/);
+  assert.throws(() => spine.declareGlobalCompletion());
+  const result = await spine.runMilestone('one');
+  assert.equal(attempts, 2);
+  assert.equal(result.verified, true);
+  const recovered = AuthoritativeLedger.load(f.ledgerPath).getState();
+  assert.equal(recovered.current_milestone, null);
+  assert.deepEqual(recovered.completed_milestones, ['one']);
+  assert.equal(recovered.verification.one.result_ref, result.result_ref);
+  assert.deepEqual(recovered.evidence.one.failure_evidence, failed.evidence.one.failure_evidence);
+  assert.deepEqual(f.calls, ['bulldozer', 'bobcat', 'zen']);
+});
 
 test('pending review forbids concurrent work, replan, completion, and resumed retry', { timeout: 3000 }, async t => {
   let enterReview;
@@ -417,18 +514,67 @@ test('review invocation failure is persisted and rethrown', async t => {
   assert.ok(JSON.stringify(disk.evidence).includes('native review failed'));
 });
 
-test('interrupted durable invocation requires observed recovery before retry', async t => {
+test('SIGKILL between durable delegation and candidate requires observed crash recovery', { timeout: 5000 }, async t => {
   const f = fixture(t);
   f.spine.close();
-  const ledger = AuthoritativeLedger.load(f.ledgerPath);
-  ledger.delegate('one');
-  ledger.save(f.ledgerPath);
+  const source = `
+    import { MinimalSpine } from ${JSON.stringify(new URL('../scripts/spine.mjs', import.meta.url).href)};
+    const spine = new MinimalSpine({
+      ledgerPath: process.argv[1],
+      invokeRole: async () => {
+        const released = new Promise(resolve => process.once('message', resolve));
+        process.send('delegated');
+        await released;
+      },
+      invokeZen: () => { throw new Error('Zen must not run before candidate'); },
+    });
+    await spine.runMilestone('one');
+  `;
+  const child = spawn(process.execPath, ['--input-type=module', '-e', source, f.ledgerPath], {
+    stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
+  });
+  const exited = once(child, 'close');
+  const delegated = once(child, 'message');
+  t.after(async () => {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    await exited;
+  });
+  assert.deepEqual(await delegated, ['delegated', undefined]);
+  const interrupted = AuthoritativeLedger.load(f.ledgerPath).getState();
+  assert.equal(interrupted.current_milestone, 'one');
+  assert.deepEqual(interrupted.completed_milestones, []);
+  assert.deepEqual(interrupted.evidence, {});
+  assert.deepEqual(interrupted.verification, {});
+  const bytes = readFileSync(f.ledgerPath, 'utf8');
+  assert.equal(child.kill('SIGKILL'), true);
+  const [code, signal] = await exited;
+  assert.equal(code, null);
+  assert.equal(signal, 'SIGKILL');
+  assert.equal(readFileSync(f.ledgerPath, 'utf8'), bytes);
+  // SIGKILL cannot release ownership. Recover the stale lock only after the
+  // exact owner is observed dead; never manufacture a clean ledger resume.
+  assert.equal(readFileSync(`${f.ledgerPath}.lock`, 'utf8'), `${child.pid}\n`);
+  assert.throws(() => f.resume(), { code: 'LEDGER_LOCKED' });
+  unlinkSync(`${f.ledgerPath}.lock`);
   const resumed = f.resume();
+  assert.deepEqual(resumed.state, interrupted);
   await assert.rejects(resumed.runMilestone('one'), /already active/);
-  assert.throws(() => resumed.endInterruptedInvocation({ classification: 'INFERRED' }));
-  resumed.endInterruptedInvocation({ classification: 'OBSERVED', result: 'executor terminated' });
+  assert.throws(() => resumed.endInterruptedInvocation({ classification: 'INFERRED' }), /Observed/);
+  assert.equal(readFileSync(f.ledgerPath, 'utf8'), bytes);
+  const evidence = { classification: 'OBSERVED', pid: child.pid, exit_code: code, signal };
+  resumed.endInterruptedInvocation(evidence);
   assert.equal(resumed.state.current_milestone, null);
-  assert.equal((await resumed.runMilestone('one')).verified, true);
+  const recovered = AuthoritativeLedger.load(f.ledgerPath).getState();
+  assert.deepEqual(recovered, resumed.state);
+  assert.deepEqual(recovered.completed_milestones, []);
+  assert.equal(recovered.evidence.one.failure_evidence[0].status, 'INVOCATION_FAILURE');
+  assert.deepEqual(recovered.evidence.one.failure_evidence[0].evidence, evidence);
+  const result = await resumed.runMilestone('one');
+  assert.equal(result.verified, true);
+  const disk = AuthoritativeLedger.load(f.ledgerPath).getState();
+  assert.deepEqual(disk.completed_milestones, ['one']);
+  assert.equal(disk.verification.one.result_ref, result.result_ref);
+  assert.deepEqual(disk.evidence.one.failure_evidence, recovered.evidence.one.failure_evidence);
 });
 
 test('candidate must bind current identity and immutable artifact versions', async t => {
