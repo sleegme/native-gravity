@@ -44,3 +44,13 @@ Probed a side-installed standalone `agy` 1.3.1 (`/tmp/agy-1-3-1/antigravity`, Gi
 ## Still open (needs multi-agent interactive run)
 
 - Excavator → Zen review round-trip and Stop-hook firing behavior in an interactive session (compat checklist 5-7, 10-11). Headless `-p` does not fire Stop events by design (#64), so this must be exercised interactively or deferred.
+
+## Hook guard contract verification (2026-10-07, hooks unchanged by 1.3.1)
+
+Hooks read stdin JSON — contract surface is version-independent, but verified here for the record:
+
+- zen-shell-guard: `NTG_ZEN_VERIFY=1 git status` → allow; `NTG_ZEN_VERIFY=1 rm -rf /tmp/x` → deny ("Zen permits only read-only verification commands"); unmarked mutation → allow (outside Zen boundary).
+- excavator-shell-guard: `NTG_EXCAVATOR=1 sudo smartctl -a /dev/sda` → allow (sudo diagnostics OK per #64-era policy); `NTG_EXCAVATOR=1 sudo pacman -Syu` and `sudo pacman -Su` → deny (full-upgrade).
+- primary-review-gate synthetic Stop event → clean allow; schema errors fail closed to deny.
+
+Covers AGENTS.md checklist items 10-11 at the guard-contract level. Items 5-7 (live Excavator→Zen round-trip) still need an interactive session.
