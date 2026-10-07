@@ -180,11 +180,12 @@ export class MinimalSpine {
         throw new Error(`${targetRole} invocation failed: ${JSON.stringify(result)}`);
       }
       if (typeof result.response === 'string') {
-        try {
-          return deepFreeze(JSON.parse(result.response));
-        } catch {
-          return result.response;
+        // Same fail-closed packet boundary as #exact; raw prose is never passed through.
+        const parsed = parseResponsePacket(result);
+        if (!parsed.ok) {
+          return deepFreeze({ ok: false, error: parsed.error, role: targetRole });
         }
+        return deepFreeze(deepClone(parsed.packet));
       }
       return deepFreeze(deepClone(result));
     }

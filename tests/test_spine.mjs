@@ -382,6 +382,33 @@ test('specialists can be invoked under an active milestone without touching ledg
   assert.equal(f.spine.state.current_milestone, null);
 });
 
+test('specialist response strings use the fail-closed packet parser', async t => {
+  const responses = {
+    jaguar: '{"status":"SUCCESS"}',
+    puma: 'Narration\n```json\n{"status":"READY"}\n```',
+    bobcat: 'plain prose, not a packet',
+  };
+  let results;
+  const f = fixture(t, {
+    invokeSpecialist: async role => ({ ok: true, response: responses[role] }),
+    output: async (contract, { spine, dir }) => {
+      results = {
+        jaguar: await spine.invokeJaguar({ task: 'a' }),
+        puma: await spine.invokePuma({ task: 'b' }),
+        bobcat: await spine.invokeBobcat({ task: 'c' }),
+      };
+      writeFileSync(join(dir, `${contract.milestone_id}.txt`), contract.milestone_id);
+      const hash = createHash('sha256').update(contract.milestone_id).digest('hex');
+      return candidate(contract, { candidate_artifact_ref: `sha256:${hash}` });
+    },
+  });
+
+  await f.spine.runMilestone('one');
+  assert.deepEqual(results.jaguar, { status: 'SUCCESS' });
+  assert.deepEqual(results.puma, { status: 'READY' });
+  assert.deepEqual(results.bobcat, { ok: false, error: 'INVALID_RESPONSE_FORMAT', role: 'bobcat' });
+});
+
 test('specialists receive milestone packet slice and never ledger or global authority', async t => {
   let capturedPacket;
   const f = fixture(t, {
