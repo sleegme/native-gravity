@@ -10,8 +10,6 @@ tools:
   - write_to_file
   - replace_file_content
   - invoke_subagent
-rules:
-  - rules/harness.md
 mainAgent: true
 inheritCustomizations: true
 subagent: false

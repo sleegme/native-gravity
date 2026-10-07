@@ -1,3 +1,8 @@
+---
+trigger: always_on
+description: Generic behavioral baseline for Native Gravity roles.
+---
+
 # Native Gravity generic behavioral harness
 
 This file is the canonical model-agnostic behavioral baseline for Native Gravity roles that inherit or explicitly bind it. Role-specific files may narrow authority or add role-local behavior, but should not duplicate or weaken these invariants.

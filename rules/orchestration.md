@@ -1,3 +1,8 @@
+---
+trigger: always_on
+description: Routing and delegation policy for Native Gravity orchestration.
+---
+
 # Native Gravity v0.4 orchestration policy
 
 This file defines Bulldozer's orchestration delta. Generic evidence, effect, failure, and human-boundary behavior belongs to `harness.md`.
