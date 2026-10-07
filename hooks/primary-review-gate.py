@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Stop-hook completion gate for Bulldozer and Piledriver Zen review cycles.
 
-AGY 1.2.x note (issue #64): the host does not fire Stop events for `agy -p`
+AGY 1.2/1.3 note (issue #64): the host does not fire Stop events for `agy -p`
 headless print sessions, and `--agent` no longer injects the role body into
 the transcript. Role attribution therefore accepts `roleHint`/`agentName` on
 the event payload first, then falls back to an `NTG_ROLE: <role>` marker in
-the first user prompt (documented wrapper convention for 1.2.x callers).
+the first user prompt (documented wrapper convention for 1.2/1.3 callers).
 """
 
 from __future__ import annotations
@@ -163,7 +163,7 @@ def _normalize_role_hint(value: Any) -> Optional[str]:
 def detect_primary_role(records: list[Any], role_hint: Optional[str] = None) -> Optional[str]:
     """Resolve the primary role for this Stop event.
 
-    AGY 1.2.x no longer injects the `--agent` role body into transcripts, and
+    AGY 1.2/1.3 does not inject the `--agent` role body into transcripts, and
     print-mode sessions never receive a Stop event, so role attribution needs
     explicit provenance instead of signature text alone:
 
@@ -205,7 +205,7 @@ def detect_primary_role(records: list[Any], role_hint: Optional[str] = None) -> 
         if hinted is not None:
             return hinted
         # scripts/runner.mjs bounded prompts always open with a `## Role` section;
-        # on 1.2.x that heading is the only in-band role provenance available.
+        # on 1.2/1.3 that heading is the only in-band role provenance available.
         marker = re.search(r"^\s*#+\s*Role\s*\n\s*([a-zA-Z_-]+)", content)
         hinted = _normalize_role_hint(marker.group(1) if marker else None)
         if hinted is not None:

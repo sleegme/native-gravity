@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
  * ntg-run — thin wrapper for `agy` that injects the NTG_ROLE marker so the
- * primary review gate can attribute the session's primary role on AGY 1.2.x,
+ * primary review gate can attribute the session's primary role on AGY 1.2/1.3,
  * where `--agent` no longer writes the role body into the transcript (issue #64,
- * convention from PR #71).
+ * convention from PR #71). Verified on CLI 1.3.1.
  *
  * Marker is injected only for gated roles (bulldozer, piledriver) — the roles the
  * gate actually enforces. Other agents pass through unchanged so the gate stays

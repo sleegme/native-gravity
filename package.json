@@ -1,6 +1,6 @@
 {
     "name": "native-gravity",
-    "version": "0.4.3",
+    "version": "0.4.4",
     "description": "A thin Antigravity-native orchestration plugin with delegated implementation and independent verification.",
     "type": "module",
     "bin": {

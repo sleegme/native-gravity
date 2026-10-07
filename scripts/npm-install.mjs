@@ -32,8 +32,10 @@ Commands:
   stream.write(usage);
 }
 
+const MIN_AGY = [1, 3, 0];
+
 function checkAgyCli() {
-  const check = spawnSync('agy', ['--version'], { stdio: 'ignore' });
+  const check = spawnSync('agy', ['--version'], { encoding: 'utf8' });
   if (check.error) {
     if (check.error.code === 'ENOENT') {
       console.error('Native Gravity requires Antigravity CLI (`agy`) on PATH.');
@@ -46,6 +48,15 @@ function checkAgyCli() {
   if (check.status !== 0) {
     console.error('Could not execute `agy --version`. Check your Antigravity CLI installation.');
     process.exit(check.status ?? 1);
+  }
+  const match = (check.stdout ?? '').trim().match(/^(\d+)\.(\d+)\.(\d+)/);
+  if (match) {
+    const found = [Number(match[1]), Number(match[2]), Number(match[3])];
+    const below = found[0] < MIN_AGY[0] || (found[0] === MIN_AGY[0] && (found[1] < MIN_AGY[1] || (found[1] === MIN_AGY[1] && found[2] < MIN_AGY[2])));
+    if (below) {
+      console.error(`Native Gravity requires AGY >= ${MIN_AGY.join('.')} (found ${found.join('.')}). Upgrade: https://antigravity.google/download`);
+      process.exit(1);
+    }
   }
 }
 

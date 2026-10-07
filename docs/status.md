@@ -6,6 +6,7 @@
   - AGY 1.1.21 — validated
   - AGY 1.1.24 — validated
   - AGY 1.2.12 — validated w/ regression (see [issue 59 report](review/issue59-12x-validation.md)); Stop hooks inert in headless print mode and `--agent` role body absent from transcripts — tracked as [#64](https://github.com/sleegme/native-gravity/issues/64)
+  - AGY 1.3.1 — surface probe identical to 1.2.12; headless `--print`, `--dangerously-skip-permissions`, and `--agent bulldozer` verified; full suite green (90 py + 120 mjs). See `.omo/evidence/agy-1-3-1/side-probe.md`. Same #64 transcript caveats apply.
 
 See [Versioning Policy](versioning.md) for versioning rules and lifecycle definitions.
 
