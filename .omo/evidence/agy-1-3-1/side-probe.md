@@ -103,3 +103,13 @@ Observed behavior:
 - The gate therefore fails closed on NO-GO: no READY is emitted after an observed negative verdict. (The "post-GO-write forces fresh review" sub-case remains unexercised — it needs a transcript where a write follows the first GO; the NO-GO leg is proven.)
 
 Checklist 7: **PASS** (NO-GO leg). Post-GO-rewrite re-review remains open but is a narrower hook condition already covered by the review-gate's stale-verdict logic (unit-tested in test_primary_review_gate.py).
+
+## Bulldozer→Jaguar delegation on 1.3.1 (2026-10-08)
+
+`ntg-run --agent bulldozer --model gemini-3.8-flash-low --dangerously-skip-permissions -p "Use Jaguar to locate the largest function under scripts/…"`
+
+- Session d78749e6 spawned subagent fd7d9d72 with descriptor `{"typeName":"jaguar","role":"Factual Discovery"}` at step 2.
+- Jaguar ran read-only discovery (grep_search ×7, view_file ×14), then reported via send_message: "Factual Retrieval: Largest function…" naming `AuthoritativeLedger.fromJSON` in ledger.mjs (195 lines) — correct answer.
+- Bulldozer relayed the report to the user. Checklist 2 Jaguar leg: **PASS** on 1.3.1.
+
+This also confirms custom primary → custom subagent routing works headlessly (the historical 0.4 concern).
