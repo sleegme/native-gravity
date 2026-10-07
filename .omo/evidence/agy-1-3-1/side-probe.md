@@ -27,3 +27,10 @@ Probed a side-installed standalone `agy` 1.3.1 (`/tmp/agy-1-3-1/antigravity`, Gi
 - Excavator/Zen hooks under a real task (`NTG_EXCAVATOR=1`, `NTG_ZEN_VERIFY=1` markers reaching run_command on 1.3.1) — compat checklist items 5-7, 10-11.
 - Queued-message / stream-json semantics changes.
 - 1.3.1 subagent `Error:` state visibility improvement is orthogonal to NTG gates.
+
+## Post-approval upgrade + suite run (2026-10-07 ~23:2x KST)
+
+- `agy update` self-update failed: `/usr/bin` not writable (pacman-owned). Non-destructive alternative taken: 1.3.1 binary installed to `~/.local/bin/agy`, which precedes `/usr/bin` in PATH — rollback is `rm ~/.local/bin/agy`.
+- `which agy` → `/home/sleeg/.local/bin/agy`, `agy --version` → `1.3.1`.
+- NTG suite under 1.3.1 PATH: python unittest discovery 90/90 OK; `node --test tests/*.mjs` 120/120 pass.
+- Primary-review-gate direct smoke: `{"roleHint":"bulldozer","stopReason":"stop",...}` → `{"decision":"stop"}` (clean allow — synthetic, not a live Stop event).
