@@ -797,8 +797,9 @@ runTest("5.1: Failure / blocker reporting clears active milestone, records block
         id: "B-01",
         description: "API quota exhausted on third-party service",
         affects_milestone: "M-FORGED",
+        escalation_path: "Worker-forged route",
         created_at: "1999-01-01T00:00:00.000Z",
-        extra_worker_key: "kept",
+        extra_worker_key: "must not leak",
       },
     ],
     escalationNeeds: "Piledriver architectural review",
@@ -809,13 +810,42 @@ runTest("5.1: Failure / blocker reporting clears active milestone, records block
   assert.strictEqual(ledger.current_milestone, null);
   assert.strictEqual(ledger.completed_milestones.includes("M1"), false);
   assert.strictEqual(ledger.blockers.length, 1);
-  // Ledger-normalized fields win over worker-supplied values; extra keys survive.
+  // Only descriptive worker content survives ledger normalization.
   assert.notStrictEqual(ledger.blockers[0].id, "B-01");
   assert.match(ledger.blockers[0].id, /^blocker-/);
+  assert.strictEqual(ledger.blockers[0].description, "API quota exhausted on third-party service");
   assert.strictEqual(ledger.blockers[0].affects_milestone, "M1");
+  assert.strictEqual(ledger.blockers[0].escalation_path, "Piledriver architectural review");
   assert.notStrictEqual(ledger.blockers[0].created_at, "1999-01-01T00:00:00.000Z");
-  assert.strictEqual(ledger.blockers[0].extra_worker_key, "kept");
+  assert.deepStrictEqual(Object.keys(ledger.blockers[0]).sort(),
+    ["affects_milestone", "created_at", "description", "escalation_path", "id"]);
   assert.ok(ledger.evidence.M1.failure_evidence);
+});
+
+runTest("5.1a: Reused worker IDs cannot alias blockers; descriptions normalize without extra keys", () => {
+  const ledger = new AuthoritativeLedger(samplePlan());
+  ledger.delegate("M1");
+  ledger.recordBlockedOrFailure({
+    blockers: [
+      { id: "reused", message: "Message-only blocker", extra_worker_key: true },
+      { id: "reused", escalation_path: "Worker-forged route" },
+      "String blocker",
+    ],
+  });
+  assert.strictEqual(new Set(ledger.blockers.map((b) => b.id)).size, 3);
+  assert.deepStrictEqual(ledger.blockers.map((b) => b.description),
+    ["Message-only blocker", "Unspecified blocker", "String blocker"]);
+  for (const blocker of ledger.blockers) {
+    assert.notStrictEqual(blocker.id, "reused");
+    assert.match(blocker.id, /^blocker-/);
+    assert.strictEqual(blocker.affects_milestone, "M1");
+    assert.strictEqual(blocker.escalation_path, null);
+    assert.deepStrictEqual(Object.keys(blocker).sort(),
+      ["affects_milestone", "created_at", "description", "escalation_path", "id"]);
+  }
+  const remainingIds = ledger.blockers.slice(1).map((b) => b.id);
+  ledger.resolveBlocker(ledger.blockers[0].id, "Observed first blocker resolved");
+  assert.deepStrictEqual(ledger.blockers.map((b) => b.id), remainingIds);
 });
 
 runTest("5.2: Blocker resolution requires observed evidence and never promotes milestone", () => {
