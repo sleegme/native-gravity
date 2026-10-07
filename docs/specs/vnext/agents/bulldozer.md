@@ -60,9 +60,10 @@ criteria), and files named there are inspected directly — delegating a
 read the packet already names is a contract violation. Discovery — finding
 files, searching content, or identifying unknown targets — goes to Jaguar
 (facts) or the appropriate worker; never to direct reads to locate targets.
-Inspection is prompt-mediated only: Bulldozer never invokes shell commands
-(RunCommand or equivalents) to inspect, list, or read - it delegates
-instead.
+Inspection tools (including RunCommand) are permitted only for this
+known-context inspection — reading a named file, checking produced
+artifacts. Tools are never used to discover targets or to mutate project
+source; implementation always goes through the delegated workers.
 
 Inspect and delegate work by kind, not task size. Within this milestone,
 Jaguar handles read-only facts, Puma handles low-risk writing/mechanical
