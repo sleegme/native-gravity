@@ -492,6 +492,20 @@ runTest("2.6h: Multiple objects and malformed or non-object payloads are never u
   assert.strictEqual(denied.error, "TOOL_PERMISSION_DENIED");
 });
 
+runTest("2.6.a: Oversized UTF-8 prompts fail with PROMPT_TOO_LARGE before spawning", () => {
+  const prompt = "漢".repeat(50000);
+  const result = invokeTransport({
+    slug: "test-model", role: "bulldozer", prompt,
+    agyPath: join(tmpdir(), "ntg-must-not-spawn-missing-executable"),
+  });
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.error, "PROMPT_TOO_LARGE");
+  assert.strictEqual(result.promptBytes, Buffer.byteLength(prompt, "utf8"));
+  assert.strictEqual(result.limit, 128 * 1024);
+  assert.strictEqual(result.role, "bulldozer");
+  assert.strictEqual(result.slug, "test-model");
+});
+
 runTest("2.7: invokeTransport enforces response envelope validation on process execution", () => {
   // Test using a mock executable that writes to stdout
   const mockScript = join(tmpdir(), `mock-agy-${Date.now()}-${Math.random().toString(36).slice(2)}.mjs`);

@@ -1,4 +1,6 @@
-import { existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { AuthoritativeLedger, deepClone, deepFreeze } from './ledger.mjs';
 import { acquireLedgerLock } from './ledger-lock.mjs';
 import { InvalidHandoffPacketError, InvalidResponseFormatError, invoke, parseResponsePacket } from './runner.mjs';
@@ -352,9 +354,26 @@ export class MinimalSpine {
       return { status: 'DONE', result_ref, verdict, verified: verdict.verdict === 'GO' };
     } catch (error) {
       if (this.state.current_milestone === milestoneId) {
+        const errorText = String(error);
+        const evidence = { classification: 'OBSERVED', error: errorText };
+        const bytes = Buffer.from(errorText, 'utf8');
+        const MAX_ERROR_BYTES = 8 * 1024;
+        if (bytes.length > MAX_ERROR_BYTES) {
+          const digest = createHash('sha256').update(bytes).digest('hex');
+          const transcriptDir = `${this.#path}.transcripts`;
+          mkdirSync(transcriptDir, { recursive: true });
+          evidence.transcript_ref = join(transcriptDir, `${digest}.txt`);
+          writeFileSync(evidence.transcript_ref, bytes);
+          const marker = `\n[truncated ${bytes.length} bytes; sha256:${digest}]\n`;
+          // Reserve UTF-8 decoding slack at both cut boundaries.
+          const previewBytes = Math.floor((MAX_ERROR_BYTES - Buffer.byteLength(marker)) / 2) - 3;
+          evidence.error = bytes.subarray(0, previewBytes).toString('utf8')
+            + marker + bytes.subarray(-previewBytes).toString('utf8');
+          evidence.error_digest = `sha256:${digest}`;
+        }
         this.#ledger.recordBlockedOrFailure({
           milestoneId, status: 'INVOCATION_FAILURE',
-          evidence: { classification: 'OBSERVED', error: String(error) },
+          evidence,
         });
         this.#ledger.save(this.#path);
       }
