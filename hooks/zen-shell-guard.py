@@ -19,7 +19,7 @@ READ_COMMANDS = {
 }
 GIT_READ_COMMANDS = {
     "status", "diff", "log", "show", "ls-files", "ls-tree", "rev-parse",
-    "rev-list", "show-ref", "cat-file", "describe",
+    "rev-list", "show-ref", "cat-file", "describe", "branch",
 }
 SEPARATORS = {";", "|", "&&", "||"}
 
@@ -43,6 +43,15 @@ def read_only_command(words):
             args = args[1:]
         if not args or args[0] not in GIT_READ_COMMANDS:
             return False
+        if args[0] == "branch":
+            # Branch names create refs unless --list explicitly selects patterns.
+            safe_long_options = {"--list", "--show-current", "--sort"}
+            return all(
+                (arg.split("=", 1)[0] in safe_long_options if arg.startswith("--")
+                 else arg in {"-v", "-vv", "-a", "-r"} if arg.startswith("-")
+                 else "--list" in args[1:] or args[index - 1] == "--sort")
+                for index, arg in enumerate(args[1:], start=1)
+            )
         # Enumerate long options: Git's abbreviations must not turn --out into
         # an output write or permit external diff, filters, or text conversion.
         safe_long_options = {
