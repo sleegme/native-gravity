@@ -49,6 +49,10 @@ GAP-6 | NTG lacks a documented AGY minimum-version check | closed by todo 7
 - No marketplace/plugin-economy integration work.
 - No rewrite of ROLE_POLICY_TABLE.
 
+## Planning-time verification (2026-10-07)
+
+Standalone 1.3.1 tarball side-installed (no system package change). Full probe diff + headless smokes: `.omo/evidence/agy-1-3-1/side-probe.md`. Bottom line: NTG's entire contract surface is IDENTICAL on 1.3.1 for the probed paths; remaining risk concentrates in interactive/hook paths (todo 4) which need a real workspace run.
+
 ## Findings (cited - path:lines)
 
 - `scripts/ntg-run.mjs:3-10` — comment reads "AGY 1.2.x" and injects `NTG_ROLE` marker for gated roles (bulldozer, piledriver).
@@ -79,13 +83,11 @@ GAP-6 | NTG lacks a documented AGY minimum-version check | closed by todo 7
 
 ## Todos
 
-- [ ] 1. Upgrade `agy` to the latest CLI release (currently 1.3.1 per `agy changelog`). Record old + new versions in the commit message. Verify `agy --version` reports 1.3.1 and `agy models` still lists the Gemini families ROLE_POLICY_TABLE references.
+- [x] 1. ~~Upgrade `agy`~~ Superseded at planning time: standalone 1.3.1 binary side-installed to `/tmp/agy-1-3-1/antigravity` (system pacman package `antigravity-cli 1.2.12` untouched — upgrade is a PO/pacman decision, not part of this patch). `agy --version` → `1.3.1`, `agy models` head identical to 1.2.12. Evidence: `.omo/evidence/agy-1-3-1/side-probe.md`.
   Recommended task executor category: unspecified-low
-  QA: `agy --version` output captured to `.omo/evidence/agy-1-3-1/version.txt`.
 
-- [ ] 2. Smoke every flag NTG invokes: `agy --model gemini-3.1-pro --output-format json --print "ping"`, `agy --model gemini-3.1-pro --output-format json --print "ping" --dangerously-skip-permissions`, `agy models`, `agy agents`, `agy plugins list`. Record exit codes + first lines.
+- [x] 2. ~~Smoke every flag~~ Done at planning time via `scripts/agy-compat-check.mjs` + headless smokes on 1.3.1: `--print`+`--model`+`--output-format json` → SUCCESS/exit 0; `--dangerously-skip-permissions` → SUCCESS; `--agent bulldozer` → SUCCESS (installed plugin primary loads). Evidence: `.omo/evidence/agy-1-3-1/side-probe.md`.
   Recommended task executor category: unspecified-low
-  QA: results written to `.omo/evidence/agy-1-3-1/flags.txt`.
 
 - [ ] 3. Update every code/doc comment that says `1.2.x`: `scripts/ntg-run.mjs` header, any runner comment that names the pinned line, README quickstart if it pins a version.
   Recommended task executor category: quick
