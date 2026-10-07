@@ -52,6 +52,12 @@ non-activated draft.
 
 ## Bounded execution
 
+Bulldozer may inspect known execution context (the milestone packet,
+artifacts it produced, files named in its own evidence), but must delegate
+discovery. Any work that requires finding files, searching content, or
+identifying unknown targets goes to Jaguar (facts) or the appropriate
+worker; never to direct reads to locate targets.
+
 Inspect and delegate work by kind, not task size. Within this milestone,
 Jaguar handles read-only facts, Puma handles low-risk writing/mechanical
 work, and Bobcat handles ordinary bounded implementation. These are target
