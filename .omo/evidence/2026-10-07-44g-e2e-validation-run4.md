@@ -32,9 +32,15 @@ Runner HEAD: `d91003f` (flag-order fix + bare-JSON + no-shell contract lines)
 | Bulldozer error paths return structured `{"ok":false,...}` | holds — TIMEOUT returned structured |
 | `TOOL_PERMISSION_DENIED` blocks e2e | RESOLVED by dd0c722 |
 
-## Open
+## Open — RESOLVED in solo rerun
 
-- case2 timeout: bulldozer did real work but needed >360s. Either the milestone
-  needs a longer budget for zen-no-go flows, or bulldozer spent cycles on
-  delegated work it should have compressed. Needs a one-off rerun of case2
-  alone at a higher budget to distinguish "slow" from "wedged".
+- case2 timeout: RESOLVED — solo rerun (`.omo/evidence/2026-10-07-44g-case2-solo.mjs`,
+  transcript `/tmp/ntg-44g-case2-xHCGsw/transcript.json`) at 600s budget:
+  bulldozer DONE + Zen GO. The >360s was real work: producing a
+  content-addressed artifact (git blob `4d79e9255...:package.json`) plus Zen
+  verification via `git cat-file`. Not wedged.
+- Naming note: "case2-zen-no-go" expected NO-GO because it assumed the criteria
+  could not be satisfied. With permission to inspect, bulldozer produced a
+  compliant artifact so GO is the correct verdict. Exercising actual NO-GO
+  requires a deliberately non-compliant candidate — a test-design follow-up,
+  not a defect.
