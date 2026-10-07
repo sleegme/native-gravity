@@ -40,12 +40,14 @@ resolves to so a future tier switch can diff behavior deliberately.
 
 ## Current profiles
 
-- `gemini-3.1-flash.md` — stub (fast lane; planner default)
-- `gemini-3.1-pro.md` — stub (slow lane; reviewer/executor default)
+- `gemini-3.1-flash.md` — stub (legacy fast lane)
+- `gemini-3.1-pro.md` — stub (legacy slow lane; reviewer/executor default)
+- `gemini-3.8-flash.md` — draft (current de-facto executor tier on AGY ≥1.3)
 
 ## Pipeline hook
 
-`scripts/ntg-improvement-loop.mjs` (user plugin) is the collection path: it
-should emit a per-model aggregation (success rate, failure mode, reasoning
-style tag) that feeds these files. That script lives outside this repo; the
-schema here is the contract it should target.
+`~/chat/ntg-improvement-loop.mjs` (user-local, driven by the daily timer) is
+the collection path. Since 2026-10-08 it aggregates per-model
+`Resolving model <slug>` counts from the CLI logs into
+`~/.chat/ntg-model-stats.json`, which is the feed for these files. The schema
+above is the contract that aggregation targets.
