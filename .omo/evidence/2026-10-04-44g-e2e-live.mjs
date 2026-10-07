@@ -70,7 +70,7 @@ function invokeZen(request, label) {
 function spineOptions(ledgerPath, label) {
   return {
     ledgerPath,
-    runnerOptions: { timeout: 150000 },
+    runnerOptions: { timeout: 360000 },
     // Production runner path, unmodified: invoke() resolves the slug, composes
     // the bounded prompt from ../docs/specs/vnext/agents, and calls agy with no
     // --agent and no permission flags.
