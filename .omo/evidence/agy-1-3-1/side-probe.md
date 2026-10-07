@@ -34,3 +34,13 @@ Probed a side-installed standalone `agy` 1.3.1 (`/tmp/agy-1-3-1/antigravity`, Gi
 - `which agy` → `/home/sleeg/.local/bin/agy`, `agy --version` → `1.3.1`.
 - NTG suite under 1.3.1 PATH: python unittest discovery 90/90 OK; `node --test tests/*.mjs` 120/120 pass.
 - Primary-review-gate direct smoke: `{"roleHint":"bulldozer","stopReason":"stop",...}` → `{"decision":"stop"}` (clean allow — synthetic, not a live Stop event).
+
+## Live gated-role run on 1.3.1 (2026-10-07)
+
+- `ntg-run --agent bulldozer --model gemini-3.8-flash-low -p "Reply with exactly: NTG_LIVE_OK"` → printed `NTG_LIVE_OK`, exit 0.
+- `NTG_ROLE` marker confirmed present in the session transcript (`~/.gemini/antigravity-cli/brain/f1aa04d4-*/transcript.jsonl`) — the review-gate provenance path survives on 1.3.1.
+- Version gate in `npm-install.mjs` verified with shims: `1.2.0` fails closed, `1.3.1` passes.
+
+## Still open (needs multi-agent interactive run)
+
+- Excavator → Zen review round-trip and Stop-hook firing behavior in an interactive session (compat checklist 5-7, 10-11). Headless `-p` does not fire Stop events by design (#64), so this must be exercised interactively or deferred.
