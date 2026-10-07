@@ -678,25 +678,36 @@ export function invoke(role, packet, opts = {}) {
     };
   }
 
-  const res = invokeTransport({
+  // One wall-clock budget (the original timeout) is shared by all attempts.
+  const totalTimeout = typeof options.timeout === "number" ? options.timeout : 90000;
+  const deadline = Date.now() + totalTimeout;
+  const run = () => invokeTransport({
     ...options,
+    timeout: Math.max(1, deadline - Date.now()),
     slug,
     prompt,
     role,
     outputFormat: "json",
   });
 
+  let attempt = run();
+  let attempts = 1;
+
   // Retry boundedly only when SUCCESS has an empty response and no explicit
   // denied_actions. Explicit tool denials are classified by parseResponseEnvelope.
+  // Bulldozer is never retried: it may have delegated edits before returning
+  // empty, and a retry would re-execute the milestone on a changed tree.
   const MAX_EMPTY_RETRIES = 3;
-  let attempt = res;
-  for (let i = 0; i < MAX_EMPTY_RETRIES && attempt.ok && (attempt.response || "").trim() === ""; i++) {
-    attempt = invokeTransport({ ...options, slug, prompt, role, outputFormat: "json" });
+  const retryable = normalizedRole !== "bulldozer";
+  while (retryable && attempts <= MAX_EMPTY_RETRIES && Date.now() < deadline
+    && attempt.ok && (attempt.response || "").trim() === "") {
+    attempt = run();
+    attempts++;
   }
   if (attempt.ok && (attempt.response || "").trim() === "") {
-    return { ok: false, error: "EMPTY_RESPONSE", role, slug, attempts: MAX_EMPTY_RETRIES + 1 };
+    return { ok: false, error: "EMPTY_RESPONSE", role, slug, attempts };
   }
-  return attempt;
+  return { ...attempt, attempts };
 }
 
 // CLI execution support
