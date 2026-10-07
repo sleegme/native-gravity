@@ -571,6 +571,8 @@ export function invokeTransport(slugOrOpts, maybePrompt, maybeOpts) {
   try {
     result = spawnSync(agyPath, args, {
       timeout,
+      killSignal: "SIGKILL",
+      detached: process.platform !== "win32",
       env: childEnv,
       cwd: opts.cwd || process.cwd(),
       encoding: "utf-8",
@@ -588,12 +590,21 @@ export function invokeTransport(slugOrOpts, maybePrompt, maybeOpts) {
 
   if (result.error) {
     if (result.error.code === "ETIMEDOUT") {
+      // POSIX detached children lead their own group; kill remaining descendants.
+      if (process.platform !== "win32" && result.pid) {
+        try {
+          process.kill(-result.pid, "SIGKILL");
+        } catch (err) {
+          if (err.code !== "ESRCH") throw err;
+        }
+      }
       return {
         ok: false,
         error: "TIMEOUT",
         ...(role ? { role } : {}),
         slug,
         timeout,
+        stderr: (result.stderr || "").toString(),
       };
     }
     return {

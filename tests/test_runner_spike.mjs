@@ -491,6 +491,60 @@ process.exit(Number(process.env.MOCK_EXIT_CODE || 0));
   }
 });
 
+runTest("2.7a: Timeout kills a SIGTERM-resistant process and preserves partial stderr", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ntg-timeout-"));
+  const script = join(dir, "agy.mjs");
+  writeFileSync(script, `#!/usr/bin/env node
+import { spawn } from "node:child_process";
+import { writeSync } from "node:fs";
+process.on("SIGTERM", () => {});
+if (process.platform === "win32") {
+  writeSync(2, "partial diagnostic\\n");
+  setInterval(() => {}, 1000);
+} else {
+  const child = spawn(process.execPath, ["-e", \`
+    process.on("SIGTERM", () => {});
+    process.send("ready");
+    setInterval(() => {}, 1000);
+  \`], { stdio: ["ignore", "ignore", "ignore", "ipc"] });
+  child.once("message", () => {
+    writeSync(2, "partial diagnostic\\nchild=" + child.pid + "\\n");
+  });
+}
+`);
+  chmodSync(script, 0o755);
+  let childPid;
+  try {
+    const result = invokeTransport({
+      slug: "test-model", prompt: "test", role: "bulldozer",
+      agyPath: script, timeout: 2000,
+    });
+    childPid = Number(result.stderr?.match(/child=(\d+)/)?.[1]);
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.error, "TIMEOUT");
+    assert.strictEqual(result.role, "bulldozer");
+    assert.strictEqual(result.slug, "test-model");
+    assert.strictEqual(result.timeout, 2000);
+    assert.match(result.stderr, /partial diagnostic/);
+    if (process.platform !== "win32") {
+      assert.ok(childPid > 0, "Child readiness must precede timeout");
+      // A killed orphan can remain a zombie until its system reaper runs.
+      const status = spawnSync("ps", ["-o", "stat=", "-p", String(childPid)], {
+        encoding: "utf8", timeout: 3000,
+      });
+      assert.ifError(status.error);
+      assert.ok(status.status === 1 || /^Z/.test(status.stdout.trim()), status.stdout);
+    }
+  } finally {
+    if (childPid) {
+      try { process.kill(childPid, "SIGKILL"); } catch (error) {
+        if (error.code !== "ESRCH") throw error;
+      }
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 runTest("2.8: Output format discipline: invoke() rejects non-JSON / cannot bypass envelope validation, while invokeTransport retains text support", () => {
   // 1. invoke() explicitly rejects outputFormat: "text" with INVALID_OUTPUT_FORMAT
   const textRes = invoke("piledriver", { task: "Test" }, { outputFormat: "text" });
