@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { MinimalSpine } from '../scripts/spine.mjs';
 import { AuthoritativeLedger } from '../scripts/ledger.mjs';
-import { composeBoundedPrompt, parseResponseEnvelope } from '../scripts/runner.mjs';
+import { InvalidHandoffPacketError, composeBoundedPrompt, parseResponseEnvelope } from '../scripts/runner.mjs';
 
 const observed = [{ classification: 'OBSERVED', criterion: 'content', result: 'artifact inspected' }];
 const plan = () => ({
@@ -136,6 +136,56 @@ for (const status of ['READY', undefined, null, '', 'ACCEPT', 'GO', 'done']) {
     assert.deepEqual(f.spine.state.completed_milestones, []);
     assert.equal(f.spine.state.current_milestone, null);
     assert.throws(() => f.spine.declareGlobalCompletion());
+  });
+}
+
+for (const role of ['zen', 'piledriver', 'excavator', 'steamroller', 'strix-halo', 'unknown']) {
+  for (const status of ['DONE', 'BLOCKED', 'NEEDS_DEEP']) {
+    test(`native packet delegation to ${role} rejects ${status} before review`, async t => {
+      const f = fixture(t, {
+        output: contract => candidate(contract, { status, delegations: [{ role }] }),
+      });
+      await assert.rejects(f.spine.runMilestone('one'), error =>
+        error instanceof InvalidHandoffPacketError
+        && error.error === 'INVALID_HANDOFF_PACKET'
+        && error.message.includes(`"${role}"`));
+      assert.deepEqual(f.calls, ['bulldozer']);
+      const disk = AuthoritativeLedger.load(f.ledgerPath).getState();
+      assert.deepEqual(disk.completed_milestones, []);
+      assert.equal(disk.current_milestone, null);
+      assert.equal(disk.evidence.one.failure_evidence[0].status, 'INVOCATION_FAILURE');
+      assert.throws(() => f.spine.declareGlobalCompletion());
+    });
+  }
+}
+
+for (const delegations of [null, {}, 'bobcat', [{}], [null], [[]], ['bobcat'],
+  [{ role: null }], [{ role: 1 }], [{ role: '' }], [{ role: ' ' }],
+  [{ role: 'bobcat' }, {}]]) {
+  test(`malformed native delegations fail closed: ${JSON.stringify(delegations)}`, async t => {
+    const f = fixture(t, {
+      output: contract => candidate(contract, { delegations }),
+    });
+    await assert.rejects(f.spine.runMilestone('one'), error =>
+      error instanceof InvalidHandoffPacketError && error.error === 'INVALID_HANDOFF_PACKET');
+    assert.deepEqual(f.calls, ['bulldozer']);
+    const disk = AuthoritativeLedger.load(f.ledgerPath).getState();
+    assert.deepEqual(disk.completed_milestones, []);
+    assert.equal(disk.current_milestone, null);
+    assert.equal(disk.evidence.one.failure_evidence[0].status, 'INVOCATION_FAILURE');
+  });
+}
+
+for (const delegations of [[], [{ role: 'bobcat' }, { role: 'jaguar' }],
+  [{ role: 'puma' }], [{ role: ' Bobcat ', task: 'bounded implementation' }]]) {
+  test(`allowed native delegations enter independent review: ${JSON.stringify(delegations)}`, async t => {
+    const f = fixture(t, {
+      output: contract => candidate(contract, { delegations }),
+      review: request => verdict(request),
+    });
+    assert.equal((await f.spine.runMilestone('one')).verified, true);
+    assert.deepEqual(f.calls, ['bulldozer', 'zen']);
+    assert.deepEqual(AuthoritativeLedger.load(f.ledgerPath).getState().completed_milestones, ['one']);
   });
 }
 

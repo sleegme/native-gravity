@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { AuthoritativeLedger, deepClone, deepFreeze } from './ledger.mjs';
 import { acquireLedgerLock } from './ledger-lock.mjs';
-import { invoke, parseResponsePacket } from './runner.mjs';
+import { InvalidHandoffPacketError, invoke, parseResponsePacket } from './runner.mjs';
 
 /**
  * Isolated 44F coordinator owned by Steamroller; not a default runtime entry or
@@ -133,7 +133,11 @@ export class MinimalSpine {
       throw new TypeError(`Unknown or disallowed specialist role: "${role}"`);
     }
 
-    // Role boundary routing
+    // Role boundary routing for injected adapters only. Runtime delegation is
+    // native to agy: runner.invoke()/invokeTransport() do not consume the
+    // invokeSpecialist callback. These routing, authority and slicing checks are
+    // advisory for native runs; runMilestone checks declared delegations post-hoc,
+    // not as interception or proof that undeclared native calls did not occur.
     if (callerRole === 'bulldozer') {
       if (targetRole === 'strix-halo') {
         throw new Error('Strix Halo is a Bobcat-local advisor gate; Bulldozer cannot invoke Strix Halo directly');
@@ -273,6 +277,23 @@ export class MinimalSpine {
       if (candidate.milestone_id !== contract.milestone_id
           || candidate.plan_version !== contract.plan_version) {
         throw new Error('Candidate does not match the active milestone and plan');
+      }
+      // The runner loads the bounded vNext Bulldozer contract, not the released
+      // primary agent: only Jaguar, Puma and Bobcat are milestone children.
+      if ('delegations' in candidate) {
+        if (!Array.isArray(candidate.delegations)) {
+          throw new InvalidHandoffPacketError('Bulldozer delegations must be an array');
+        }
+        for (const delegation of candidate.delegations) {
+          if (!delegation || typeof delegation !== 'object' || Array.isArray(delegation)
+              || typeof delegation.role !== 'string' || !delegation.role.trim()) {
+            throw new InvalidHandoffPacketError('Each Bulldozer delegation must have a non-empty role');
+          }
+          const role = delegation.role.trim().toLowerCase();
+          if (!['jaguar', 'puma', 'bobcat'].includes(role)) {
+            throw new InvalidHandoffPacketError(`Bulldozer cannot delegate to "${role}" within a milestone`);
+          }
+        }
       }
       // Preserve ingress status. Missing status, READY, and local advisor verdicts
       // cannot be normalized to DONE or used to skip the independent review.
