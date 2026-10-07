@@ -112,7 +112,7 @@ Standalone 1.3.1 tarball side-installed (no system package change). Full probe d
 - [x] F1. Done at planning time: under 1.3.1 userland install (`~/.local/bin/agy`), python unittest discovery 90/90 OK + `node --test tests/*.mjs` 120/120 pass. Evidence: `.omo/evidence/agy-1-3-1/side-probe.md`.
   Recommended task executor category: deep-low
 
-- [ ] F2. Fresh reviewer pass on the diff before merge.
+- [x] F2. Done: two review rounds — round 1 NO-GO (gate unparseable-bypass + prerelease acceptance + overstated evidence), fixed in 503e7c6; round 2 NO-GO (leading-zero/empty-identifier semver), fixed in 26cb7f8; round 3 **GO** — 18/18 version-matrix cases verified by execution.
   Recommended task executor category: deep-high
 
 ## Dependency
