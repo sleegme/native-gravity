@@ -797,6 +797,9 @@ export class AuthoritativeLedger {
    * Delegates a bounded milestone to Bulldozer.
    * Validates no active milestone, milestone exists, and all dependencies are completed.
    * Sets current_milestone and next_action. Returns handoff packet.
+   * Open question (#93): should open blockers gate delegation globally or only
+   * for affected milestones? The architecture contract section 3.5 does not
+   * specify this; preserve retries while blockers remain until policy is settled.
    *
    * @param {string} milestoneId
    * @returns {object} Steamroller -> Bulldozer handoff packet
@@ -1054,14 +1057,13 @@ export class AuthoritativeLedger {
             created_at: new Date().toISOString(),
           };
         } else if (typeof b === "object" && b !== null) {
-          // Worker keys are kept, but ledger-normalized fields are spread last
-          // so model output can never override ledger authority.
+          // Only descriptive worker content enters the authoritative blocker;
+          // identity, milestone, escalation and timestamp belong to the ledger.
           blockerObj = {
-            ...b,
             id: `blocker-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             description: b.description || b.message || "Unspecified blocker",
             affects_milestone: activeMilestone,
-            escalation_path: b.escalation_path || escalationNeeds,
+            escalation_path: escalationNeeds,
             created_at: new Date().toISOString(),
           };
         }

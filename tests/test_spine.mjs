@@ -381,7 +381,11 @@ for (const status of ['BLOCKED', 'NEEDS_DEEP']) {
   test(`${status} returns evidence without promotion or automatic planner invocation`, async t => {
     const f = fixture(t, { output: contract => candidate(contract, {
       status,
-      blockers: [{ id: 'b1', description: 'required capability unavailable', affects_milestone: 'one', escalation_path: 'supervisor' }],
+      blockers: [{
+        id: 'b1', description: 'required capability unavailable',
+        affects_milestone: 'two', escalation_path: 'worker-forged',
+        created_at: '1999-01-01T00:00:00.000Z', extra_worker_key: 'must not leak',
+      }],
       escalation_needs: ['Resolve interface decision'],
     }) });
     const result = await f.spine.runMilestone('one');
@@ -394,7 +398,14 @@ for (const status of ['BLOCKED', 'NEEDS_DEEP']) {
     assert.deepEqual(disk, f.spine.state);
     assert.deepEqual(disk.verification, {});
     assert.equal(disk.blockers.length, 1);
+    assert.notEqual(disk.blockers[0].id, 'b1');
+    assert.match(disk.blockers[0].id, /^blocker-/);
+    assert.equal(disk.blockers[0].description, 'required capability unavailable');
     assert.equal(disk.blockers[0].affects_milestone, 'one');
+    assert.deepEqual(disk.blockers[0].escalation_path, ['Resolve interface decision']);
+    assert.notEqual(disk.blockers[0].created_at, '1999-01-01T00:00:00.000Z');
+    assert.deepEqual(Object.keys(disk.blockers[0]).sort(),
+      ['affects_milestone', 'created_at', 'description', 'escalation_path', 'id']);
     const failure = disk.evidence.one.failure_evidence;
     assert.equal(failure.length, 1);
     assert.equal(failure[0].status, status);
