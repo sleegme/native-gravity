@@ -50,7 +50,7 @@ function checkAgyCli() {
     process.exit(check.status ?? 1);
   }
   const out = (check.stdout ?? '').trim();
-  const match = out.match(/^(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/);
+  const match = out.match(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-((0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(\.(0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(\+([0-9a-zA-Z-]+(\.[0-9a-zA-Z-]+)*))?$/);
   if (!match) {
     console.error(`Could not determine AGY version from \`agy --version\` output: ${JSON.stringify(out)}`);
     console.error(`Native Gravity requires AGY >= ${MIN_AGY.join('.')}. Upgrade: https://antigravity.google/download`);
