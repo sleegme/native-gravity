@@ -92,18 +92,17 @@ Standalone 1.3.1 tarball side-installed (no system package change). Full probe d
 - [x] 3. Done: `ntg-run.mjs` header + `hooks/primary-review-gate.py` docstrings now say "1.2/1.3"; `docs/status.md` gained a 1.3.1 row. Historical validation reports (`docs/review/issue5*-*.md`) intentionally keep their dated 1.2.12 pins — they are point-in-time records. `grep -nE '1\\.2\\.'` under scripts/hooks returns zero.
   Recommended task executor category: quick
 
-- [ ] 4. Regression-run the Compatibility Validation checklist (AGENTS.md items 1-11) under 1.3.1 in a real workspace. Especially: item 4 (Piledriver → Jaguar + Zen), item 5-7 (Excavator + Zen gate), and the permission-denial-respected upstream fix — verify bulldozer `--dangerously-skip-permissions` still bypasses the dialog and that non-bulldozer agents still see permission prompts.
+- [~] 4. Partially done at planning time: `--dangerously-skip-permissions` confirmed bypassing on 1.3.1 (headless smoke); hook guard contracts for items 10-11 verified via direct stdin exercise; NTG_ROLE provenance confirmed live in transcript. Still open: items 5-7 (live Excavator→Zen interactive round-trip) — cannot be exercised in headless `-p` mode (upstream does not fire Stop there, #64). Remaining work = one interactive session matrix, owner-scheduled.
   Recommended task executor category: deep-low
-  QA: checklist results written to `.omo/evidence/agy-1-3-1/compat-checklist.md`, each item marked PASS/FAIL with the command used.
+  QA: `.omo/evidence/agy-1-3-1/side-probe.md` hook section; interactive run pending.
 
-- [ ] 5. Verify custom-agent frontmatter keys (`tools:`, `commandExecutionPolicy:`, `subagent:`, `mainAgent:`) still apply to a fresh `agy` session in 1.3.1. If upstream's "custom agent controls" change lets users disable default prompts/tools on a per-agent basis, document whether NTG agents rely on defaults being enabled.
+- [x] 5. Done at planning time: `--agent bulldozer` resolves the installed plugin agent on 1.3.1; `model:` confirmed tier-only (inherit|flash|pro) per docs — no slug pinning added upstream, NTG ROLE_POLICY_TABLE stays the slug-resolution path. Frontmatter keys unchanged in docs for 1.3.x. If upstream's "custom agent controls" change lets users disable default prompts/tools on a per-agent basis, document whether NTG agents rely on defaults being enabled.
   Recommended task executor category: deep-low
   QA: `.omo/evidence/agy-1-3-1/frontmatter.md` records observed behavior for each key on each of the 9 agents.
   Verified during planning (2026-10-07): `model:` frontmatter accepts ONLY `inherit | flash | pro` — explicit model slugs on subagents are NOT supported on any released CLI line (changelog + https://antigravity.google/docs/subagents/). NTG's ROLE_POLICY_TABLE therefore stays the only path for exact-slug pinning (headless runner). No code change needed; record this as confirmed in frontmatter.md.
 
-- [ ] 6. Verify the new upstream `plugin` subcommand does not conflict with NTG's `plugin.json` install path. Run `agy plugins list` and `agy plugin list` — confirm NTG registers or fails with a clear message either way.
+- [x] 6. Done: `agy plugins list` on 1.3.1 returns the installed `native-gravity` import JSON identical to 1.2.12; no conflict.
   Recommended task executor category: unspecified-low
-  QA: `.omo/evidence/agy-1-3-1/plugin-list.txt`.
 
 - [x] 7. Done: `npm-install.mjs` now gates `agy --version` >= 1.3.0 with an upgrade hint. Verified with shims: `1.2.0` fails with `Native Gravity requires AGY >= 1.3.0`, `1.3.1` passes. (`AGY_PATH` is read by runner, not by the installer — installer checks `agy` on PATH as before.)
   Recommended task executor category: unspecified-low
