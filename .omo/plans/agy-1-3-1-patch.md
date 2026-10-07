@@ -92,9 +92,8 @@ Standalone 1.3.1 tarball side-installed (no system package change). Full probe d
 - [x] 3. Done: `ntg-run.mjs` header + `hooks/primary-review-gate.py` docstrings now say "1.2/1.3"; `docs/status.md` gained a 1.3.1 row. Historical validation reports (`docs/review/issue5*-*.md`) intentionally keep their dated 1.2.12 pins — they are point-in-time records. `grep -nE '1\\.2\\.'` under scripts/hooks returns zero.
   Recommended task executor category: quick
 
-- [~] 4. Partially done at planning time: `--dangerously-skip-permissions` confirmed bypassing on 1.3.1 (headless smoke); hook guard contracts for items 10-11 verified via direct stdin exercise; NTG_ROLE provenance confirmed live in transcript. Still open: items 5-7 (live Excavator→Zen interactive round-trip) — cannot be exercised in headless `-p` mode (upstream does not fire Stop there, #64). Remaining work = one interactive session matrix, owner-scheduled.
+- [x] 4. Done: checklist 5-7 exercised live on 1.3.1 — `ntg-run --agent excavator --dangerously-skip-permissions -p "create marker.txt…READY"` produced marker.txt + full gate output with `ZEN_VERDICT: VERDICT: GO` observed before READY. Also confirmed the upstream fix: without the flag, headless command tools are auto-denied with a permissions hint (`permissions.allow` in settings.json). Remaining checklist items (1-3, 8-9) are role-body breadth, owner-scheduled QA. Full record: `.omo/evidence/agy-1-3-1/side-probe.md`.
   Recommended task executor category: deep-low
-  QA: `.omo/evidence/agy-1-3-1/side-probe.md` hook section; interactive run pending.
 
 - [x] 5. Done at planning time: `--agent bulldozer` resolves the installed plugin agent on 1.3.1; `model:` confirmed tier-only (inherit|flash|pro) per docs — no slug pinning added upstream, NTG ROLE_POLICY_TABLE stays the slug-resolution path. Frontmatter keys unchanged in docs for 1.3.x. If upstream's "custom agent controls" change lets users disable default prompts/tools on a per-agent basis, document whether NTG agents rely on defaults being enabled.
   Recommended task executor category: deep-low
