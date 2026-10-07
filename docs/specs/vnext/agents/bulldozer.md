@@ -56,7 +56,10 @@ Bulldozer may inspect known execution context (the milestone packet,
 artifacts it produced, files named in its own evidence), but must delegate
 discovery. Any work that requires finding files, searching content, or
 identifying unknown targets goes to Jaguar (facts) or the appropriate
-worker; never to direct reads to locate targets.
+worker; never to direct reads to locate targets. Inspection is
+prompt-mediated only: Bulldozer never invokes shell commands
+(RunCommand or equivalents) to inspect, list, or read - it delegates
+instead.
 
 Inspect and delegate work by kind, not task size. Within this milestone,
 Jaguar handles read-only facts, Puma handles low-risk writing/mechanical
