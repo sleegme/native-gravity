@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { once } from 'node:events';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -34,7 +36,6 @@ const envelope = value => parseResponseEnvelope(JSON.stringify({
 
 function fixture(t, { output, review, initialPlan = plan(), invokeSpecialist } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'ntg-spine-'));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
   const ledgerPath = join(dir, 'ledger.json');
   const calls = [];
   let spine;
@@ -97,7 +98,17 @@ function fixture(t, { output, review, initialPlan = plan(), invokeSpecialist } =
     invokeSpecialist: invokeSpecialist ?? defaultInvokeSpecialist,
   };
   spine = new MinimalSpine({ ...options, plan: initialPlan });
-  return { spine, options, calls, ledgerPath, dir };
+  let owner = spine;
+  t.after(() => {
+    owner.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const resume = (overrides = {}) => {
+    owner.close();
+    owner = new MinimalSpine({ ...options, ...overrides });
+    return owner;
+  };
+  return { spine, options, calls, ledgerPath, dir, resume };
 }
 
 test('planning stays advisory; native work and independent GO survive fresh resume', { timeout: 3000 }, async t => {
@@ -110,7 +121,7 @@ test('planning stays advisory; native work and independent GO survive fresh resu
   assert.deepEqual(f.calls, ['piledriver', 'bulldozer', 'bobcat', 'zen']);
   assert.deepEqual(f.spine.state.completed_milestones, ['one']);
   assert.throws(() => f.spine.declareGlobalCompletion());
-  const resumed = new MinimalSpine(f.options);
+  const resumed = f.resume();
   await resumed.runMilestone('two');
   assert.equal(resumed.declareGlobalCompletion().completed, true);
   assert.deepEqual(resumed.state.completed_milestones, ['one', 'two']);
@@ -133,14 +144,70 @@ test('construction cannot omit the independent Zen adapter', t => {
   assert.throws(() => new MinimalSpine({ ledgerPath: f.ledgerPath }), /Zen/);
 });
 
+test('spine ownership refuses duplicate startup before reading or replacing state', async t => {
+  const f = fixture(t);
+  const before = readFileSync(f.ledgerPath, 'utf8');
+  assert.equal(readFileSync(`${f.ledgerPath}.lock`, 'utf8'), `${process.pid}\n`);
+  for (const options of [f.options, { ...f.options, plan: plan() }]) {
+    assert.throws(() => new MinimalSpine(options), { code: 'LEDGER_LOCKED' });
+    assert.equal(readFileSync(f.ledgerPath, 'utf8'), before);
+  }
+  f.spine.close();
+  f.spine.close();
+  assert.equal(existsSync(`${f.ledgerPath}.lock`), false);
+  await assert.rejects(f.spine.runMilestone('one'), /closed/);
+  assert.throws(() => f.spine.adoptReplan(plan()), /closed/);
+  assert.throws(() => f.spine.endInterruptedInvocation({ classification: 'OBSERVED' }), /closed/);
+  const resumed = f.resume();
+  assert.equal((await resumed.runMilestone('one')).verified, true);
+});
+
+test('failed spine initialization releases ownership', t => {
+  const f = fixture(t);
+  f.spine.close();
+  assert.throws(() => new MinimalSpine({ ...f.options, plan: plan() }), /replace an existing ledger/);
+  assert.equal(existsSync(`${f.ledgerPath}.lock`), false);
+  assert.deepEqual(f.resume().state.completed_milestones, []);
+});
+
+for (const termination of ['normal', 'SIGINT', 'SIGTERM']) {
+  test(`spine releases its process lock on ${termination}`, { timeout: 5000 }, async t => {
+    const f = fixture(t);
+    f.spine.close();
+    const source = `
+      import { MinimalSpine } from ${JSON.stringify(new URL('../scripts/spine.mjs', import.meta.url).href)};
+      new MinimalSpine({ ledgerPath: process.argv[1], invokeZen: () => {} });
+      process.on('message', () => process.exit(0));
+      process.send('ready');
+    `;
+    const child = spawn(process.execPath, ['--input-type=module', '-e', source, f.ledgerPath], {
+      stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
+    });
+    const exited = once(child, 'close');
+    const ready = once(child, 'message');
+    t.after(async () => {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      await exited;
+    });
+    assert.deepEqual(await ready, ['ready', undefined]);
+    assert.equal(readFileSync(`${f.ledgerPath}.lock`, 'utf8'), `${child.pid}\n`);
+    assert.throws(() => new MinimalSpine(f.options), { code: 'LEDGER_LOCKED' });
+    if (termination === 'normal') child.send('finish');
+    else child.kill(termination);
+    const [code] = await exited;
+    assert.equal(code, termination === 'normal' ? 0 : termination === 'SIGINT' ? 130 : 143);
+    assert.equal(existsSync(`${f.ledgerPath}.lock`), false);
+    assert.deepEqual(f.resume().state.completed_milestones, []);
+  });
+}
+
 for (const patch of [
   { status: 'READY' }, { plan_version: 'stale' }, { changes_made: null },
   { verification_evidence: [] }, { candidate_artifact_ref: {} }, { zen_verdict: 'GO' },
 ]) {
   test(`unwrapped candidate still rejects schema or authority mismatch ${JSON.stringify(patch)}`, async t => {
     const f = fixture(t);
-    const spine = new MinimalSpine({
-      ...f.options,
+    const spine = f.resume({
       invokeRole: (_role, packet) => {
         const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
         return parseResponseEnvelope(JSON.stringify({
@@ -159,8 +226,7 @@ for (const patch of [
 
 test('unwrapped candidate still needs an independent matching Zen GO', async t => {
   const f = fixture(t, { review: request => verdict(request, { verdict: 'NO-GO' }) });
-  const spine = new MinimalSpine({
-    ...f.options,
+  const spine = f.resume({
     invokeRole: (_role, packet) => {
       const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
       return parseResponseEnvelope(JSON.stringify({
@@ -177,14 +243,13 @@ test('unwrapped candidate still needs an independent matching Zen GO', async t =
 
 test('prose in a SUCCESS envelope persists a typed failure without promotion', async t => {
   const f = fixture(t);
-  const spine = new MinimalSpine({
-    ...f.options,
+  const spine = f.resume({
     invokeRole: () => parseResponseEnvelope(JSON.stringify({
       status: 'SUCCESS', response: 'I have delegated the work and am awaiting findings.',
     })),
   });
   await assert.rejects(spine.runMilestone('one'), /INVALID_RESPONSE_FORMAT/);
-  const saved = new MinimalSpine(f.options).state;
+  const saved = f.resume().state;
   assert.deepEqual(saved.completed_milestones, []);
   assert.equal(saved.current_milestone, null);
   assert.ok(JSON.stringify(saved.evidence).includes('INVALID_RESPONSE_FORMAT'));
@@ -209,7 +274,7 @@ for (const patch of [
     const f = fixture(t, { review: request => verdict(request, patch) });
     await assert.rejects(f.spine.runMilestone('one'));
     assert.deepEqual(f.spine.state.completed_milestones, []);
-    assert.deepEqual(new MinimalSpine(f.options).state.completed_milestones, []);
+    assert.deepEqual(f.resume().state.completed_milestones, []);
   });
 }
 
@@ -264,8 +329,8 @@ test('pending review forbids concurrent work, replan, completion, and resumed re
     await assert.rejects(f.spine.runMilestone('two'), /already active/);
     assert.throws(() => f.spine.adoptReplan(plan()), /already active/);
     assert.throws(() => f.spine.declareGlobalCompletion(), /already active/);
-    const resumed = new MinimalSpine(f.options);
-    await assert.rejects(resumed.runMilestone('one'), /already active/);
+    assert.throws(() => new MinimalSpine(f.options), { code: 'LEDGER_LOCKED' });
+    assert.throws(() => f.spine.close(), /active invocation/);
   } finally {
     releaseReview();
   }
@@ -296,7 +361,7 @@ test('material replan invalidates old GO and requires fresh dependency-ordered r
 test('review invocation failure is persisted and rethrown', async t => {
   const f = fixture(t, { review: () => { throw new Error('native review failed'); } });
   await assert.rejects(f.spine.runMilestone('one'), /native review failed/);
-  const disk = new MinimalSpine(f.options).state;
+  const disk = f.resume().state;
   assert.equal(disk.current_milestone, null);
   assert.deepEqual(disk.completed_milestones, []);
   assert.ok(JSON.stringify(disk.evidence).includes('native review failed'));
@@ -304,10 +369,11 @@ test('review invocation failure is persisted and rethrown', async t => {
 
 test('interrupted durable invocation requires observed recovery before retry', async t => {
   const f = fixture(t);
+  f.spine.close();
   const ledger = AuthoritativeLedger.load(f.ledgerPath);
   ledger.delegate('one');
   ledger.save(f.ledgerPath);
-  const resumed = new MinimalSpine(f.options);
+  const resumed = f.resume();
   await assert.rejects(resumed.runMilestone('one'), /already active/);
   assert.throws(() => resumed.endInterruptedInvocation({ classification: 'INFERRED' }));
   resumed.endInterruptedInvocation({ classification: 'OBSERVED', result: 'executor terminated' });

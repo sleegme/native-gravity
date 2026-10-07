@@ -52,7 +52,32 @@ That also invalidates the v0.3.3 global Gemini 3.1 Pro mutation deny: Excavator 
 
 ## Native-first boundary
 
-Native Gravity does not ship a replacement runtime. The npm entrypoint is installation-only: it locates the packaged plugin directory and delegates installation back to `agy plugin install`. It does not intercept or wrap Antigravity runtime execution. Antigravity owns primary/subagent execution, lifecycle, sessions, workspaces, model resolution, and tool permissions. Native Gravity supplies role contracts, routing policy, model-adaptive behavioral guidance, and `ntg-run` — a thin invocation helper that only prepends the `NTG_ROLE` attribution marker to gated-role prompts so the review gate can see which role ran under AGY 1.2.x. It does not replace or wrap runtime behavior.
+Native Gravity does not ship a replacement runtime. The npm entrypoint is installation-only: it locates the packaged plugin directory and delegates installation back to `agy plugin install`. It does not intercept or wrap Antigravity runtime execution. Antigravity owns primary/subagent execution, lifecycle, sessions, workspaces, model resolution, and tool permissions. Native Gravity supplies role contracts, routing policy, model-adaptive behavioral guidance, and `ntg-run` — a thin invocation helper that prepends the `NTG_ROLE` attribution marker to gated-role prompts so the review gate can see which role ran under AGY 1.2.x, and optionally holds exclusive ledger ownership via `--ledger`. It does not replace Antigravity runtime behavior.
+
+## Ledger ownership
+
+For invocations sharing a ledger, use `ntg-run --ledger /path/to/ledger.json
+--agent bulldozer -p "..."`. The wrapper consumes `--ledger` and holds an
+exclusive `ledger.json.lock` for the lifetime of the `agy` child. Without
+`--ledger`, invocation keeps its existing marker-only behavior.
+`MinimalSpine` acquires the same lock before creating or loading the ledger,
+and holds it until `close()` or process exit. Close the previous spine before
+resuming in another instance; a closed spine cannot mutate state, and a busy
+spine cannot be closed.
+
+The lock is created with `openSync(..., 'wx')` (exclusive creation) and contains
+the owner's decimal PID followed by a newline. An existing lock always refuses
+startup with `LEDGER_LOCKED`, even if its PID appears dead or its contents are
+empty. Normal exit, SIGINT, and SIGTERM release ownership; `ntg-run` forwards
+termination signals and waits for the child to exit before releasing the lock.
+SIGKILL, a crash, or a machine shutdown may leave a stale lock. Inspect the PID
+and confirm the owning invocation and its children are no longer running
+(PIDs can be reused), then remove only `/path/to/ledger.json.lock` and retry.
+Never remove a live owner's lock. Lock recovery does not resolve an interrupted
+ledger milestone: resume still requires observed interruption evidence.
+All writers must use the same ledger path and ownership protocol; low-level
+`AuthoritativeLedger.load()` / `save()` remain persistence primitives, not
+independent session owners.
 
 ## Alpha compatibility gate
 

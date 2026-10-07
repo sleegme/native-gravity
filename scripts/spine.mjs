@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { AuthoritativeLedger, deepClone, deepFreeze } from './ledger.mjs';
+import { acquireLedgerLock } from './ledger-lock.mjs';
 import { invoke, parseResponsePacket } from './runner.mjs';
 
 /**
@@ -19,6 +20,7 @@ export class MinimalSpine {
   #invokeSpecialist;
   #runnerOptions;
   #busy = false;
+  #releaseLock;
 
   constructor({ ledgerPath, plan, invokeRole = invoke, invokeZen, invokeSpecialist, runnerOptions = {} }) {
     if (typeof ledgerPath !== 'string' || !ledgerPath.trim()) {
@@ -32,13 +34,30 @@ export class MinimalSpine {
     this.#invokeZen = invokeZen;
     this.#invokeSpecialist = invokeSpecialist;
     this.#runnerOptions = runnerOptions;
-    if (plan !== undefined) {
-      if (existsSync(ledgerPath)) throw new Error('Refusing to replace an existing ledger');
-      this.#ledger = new AuthoritativeLedger(plan);
-      this.#ledger.save(this.#path);
-    } else {
-      this.#ledger = AuthoritativeLedger.load(ledgerPath);
+    this.#releaseLock = acquireLedgerLock(ledgerPath);
+    try {
+      if (plan !== undefined) {
+        if (existsSync(ledgerPath)) throw new Error('Refusing to replace an existing ledger');
+        this.#ledger = new AuthoritativeLedger(plan);
+        this.#ledger.save(this.#path);
+      } else {
+        this.#ledger = AuthoritativeLedger.load(ledgerPath);
+      }
+    } catch (error) {
+      this.close();
+      throw error;
     }
+  }
+
+  /** Explicitly end ownership before another supervisor resumes this ledger. */
+  close() {
+    if (this.#busy) throw new Error('Cannot close during an active invocation');
+    this.#releaseLock?.();
+    this.#releaseLock = undefined;
+  }
+
+  #open() {
+    if (!this.#releaseLock) throw new Error('Spine is closed');
   }
 
   get state() {
@@ -46,6 +65,7 @@ export class MinimalSpine {
   }
 
   #idle() {
+    this.#open();
     if (this.#busy || this.state.current_milestone !== null) {
       throw new Error('Execution or review is already active');
     }
@@ -82,6 +102,7 @@ export class MinimalSpine {
    * or global authority. Outputs flow back without touching ledger state directly.
    */
   async invokeSpecialist(roleOrOpts, maybeSlice, maybeOptions = {}) {
+    this.#open();
     let role, slice, options;
     if (typeof roleOrOpts === 'object' && roleOrOpts !== null && !Array.isArray(roleOrOpts) && maybeSlice === undefined) {
       role = roleOrOpts.role;
@@ -314,6 +335,7 @@ export class MinimalSpine {
 
   /** Fresh-context recovery needs observed interruption, not a silent retry. */
   endInterruptedInvocation(evidence) {
+    this.#open();
     if (this.#busy) throw new Error('Cannot interrupt a live invocation through resume recovery');
     if (evidence?.classification !== 'OBSERVED') throw new Error('Observed interruption evidence required');
     const milestoneId = this.state.current_milestone;
