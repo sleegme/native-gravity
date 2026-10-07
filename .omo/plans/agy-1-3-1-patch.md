@@ -89,9 +89,8 @@ Standalone 1.3.1 tarball side-installed (no system package change). Full probe d
 - [x] 2. ~~Smoke every flag~~ Done at planning time via `scripts/agy-compat-check.mjs` + headless smokes on 1.3.1: `--print`+`--model`+`--output-format json` → SUCCESS/exit 0; `--dangerously-skip-permissions` → SUCCESS; `--agent bulldozer` → SUCCESS (installed plugin primary loads). Evidence: `.omo/evidence/agy-1-3-1/side-probe.md`.
   Recommended task executor category: unspecified-low
 
-- [ ] 3. Update every code/doc comment that says `1.2.x`: `scripts/ntg-run.mjs` header, any runner comment that names the pinned line, README quickstart if it pins a version.
+- [x] 3. Done: `ntg-run.mjs` header + `hooks/primary-review-gate.py` docstrings now say "1.2/1.3"; `docs/status.md` gained a 1.3.1 row. Historical validation reports (`docs/review/issue5*-*.md`) intentionally keep their dated 1.2.12 pins — they are point-in-time records. `grep -nE '1\\.2\\.'` under scripts/hooks returns zero.
   Recommended task executor category: quick
-  QA: `grep -nE '1\\.2\\.'` returns zero hits under `scripts/`, `docs/`, `README.md`, `AGENTS.md`.
 
 - [ ] 4. Regression-run the Compatibility Validation checklist (AGENTS.md items 1-11) under 1.3.1 in a real workspace. Especially: item 4 (Piledriver → Jaguar + Zen), item 5-7 (Excavator + Zen gate), and the permission-denial-respected upstream fix — verify bulldozer `--dangerously-skip-permissions` still bypasses the dialog and that non-bulldozer agents still see permission prompts.
   Recommended task executor category: deep-low
@@ -106,13 +105,11 @@ Standalone 1.3.1 tarball side-installed (no system package change). Full probe d
   Recommended task executor category: unspecified-low
   QA: `.omo/evidence/agy-1-3-1/plugin-list.txt`.
 
-- [ ] 7. Add a minimum-AGY-version check to `scripts/npm-install.mjs`: fail fast with `AGY_VERSION_TOO_OLD` if `agy --version` reports < 1.3.0. Keep `AGY_PATH` override working.
+- [x] 7. Done: `npm-install.mjs` now gates `agy --version` >= 1.3.0 with an upgrade hint. Verified with shims: `1.2.0` fails with `Native Gravity requires AGY >= 1.3.0`, `1.3.1` passes. (`AGY_PATH` is read by runner, not by the installer — installer checks `agy` on PATH as before.)
   Recommended task executor category: unspecified-low
-  QA: a synthetic `agy` shim that echoes `1.2.0` produces the typed failure; a shim echoing `1.3.1` passes.
 
-- [ ] 8. Update `AGENTS.md` and `README.md` where they describe the supported AGY line; bump `VERSION` to `0.4.1` if that is the release convention, else note the compat bump in a changelog section.
+- [x] 8. Done: `VERSION` + `package.json` bumped to 0.4.4 (harness change → version bump per docs/versioning.md §74). `docs/status.md` compatibility matrix carries the 1.3.1 row. `AGENTS.md`/`README.md` name no pinned CLI version — nothing to update there.
   Recommended task executor category: quick
-  QA: `grep -nE 'AGY.*1\\.3|antigravity.*1\\.3' AGENTS.md README.md` shows updated text.
 
 - [x] F1. Done at planning time: under 1.3.1 userland install (`~/.local/bin/agy`), python unittest discovery 90/90 OK + `node --test tests/*.mjs` 120/120 pass. Evidence: `.omo/evidence/agy-1-3-1/side-probe.md`.
   Recommended task executor category: deep-low
