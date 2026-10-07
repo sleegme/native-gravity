@@ -34,6 +34,7 @@ export function acquireLedgerLock(ledgerPath, { handleSignals = true } = {}) {
   let released = false;
   const onInterrupt = () => process.exit(130);
   const onTerminate = () => process.exit(143);
+  const onHangup = () => process.exit(129);
   const release = () => {
     if (released) return;
     unlinkSync(lockPath);
@@ -41,11 +42,13 @@ export function acquireLedgerLock(ledgerPath, { handleSignals = true } = {}) {
     process.removeListener('exit', release);
     process.removeListener('SIGINT', onInterrupt);
     process.removeListener('SIGTERM', onTerminate);
+    process.removeListener('SIGHUP', onHangup);
   };
   process.once('exit', release);
   if (handleSignals) {
     process.once('SIGINT', onInterrupt);
     process.once('SIGTERM', onTerminate);
+    process.once('SIGHUP', onHangup);
   }
   return release;
 }

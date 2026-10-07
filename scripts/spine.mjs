@@ -22,7 +22,7 @@ export class MinimalSpine {
   #busy = false;
   #releaseLock;
 
-  constructor({ ledgerPath, plan, invokeRole = invoke, invokeZen, invokeSpecialist, runnerOptions = {} }) {
+  constructor({ ledgerPath, plan, invokeRole = invoke, invokeZen, invokeSpecialist, runnerOptions = {}, handleSignals = true }) {
     if (typeof ledgerPath !== 'string' || !ledgerPath.trim()) {
       throw new TypeError('A supervisor-owned ledgerPath is required');
     }
@@ -34,7 +34,10 @@ export class MinimalSpine {
     this.#invokeZen = invokeZen;
     this.#invokeSpecialist = invokeSpecialist;
     this.#runnerOptions = runnerOptions;
-    this.#releaseLock = acquireLedgerLock(ledgerPath);
+    // Callers embedding a spine (daemon, test harness) can opt out of
+    // SIGINT/SIGTERM/SIGHUP ownership via handleSignals:false; the lock's
+    // exit-cleanup still runs either way.
+    this.#releaseLock = acquireLedgerLock(ledgerPath, { handleSignals });
     try {
       if (plan !== undefined) {
         if (existsSync(ledgerPath)) throw new Error('Refusing to replace an existing ledger');

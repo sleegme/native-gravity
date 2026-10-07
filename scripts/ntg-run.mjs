@@ -70,6 +70,7 @@ function main() {
       index -= 1;
     }
   }
+  // This wrapper owns signals itself; the lock only registers exit-cleanup.
   const release = ledgerPath ? acquireLedgerLock(ledgerPath, { handleSignals: false }) : () => {};
   const role = agentArg(ours);
   const prompt = firstPromptIndex(ours);
@@ -96,12 +97,16 @@ function main() {
   child.on("error", error => {
     console.error(error.message);
   });
+  const onHangup = () => forward("SIGHUP");
+  process.on("SIGHUP", onHangup);
   child.once("close", (code, signal) => {
     process.removeListener("SIGINT", onInterrupt);
     process.removeListener("SIGTERM", onTerminate);
+    process.removeListener("SIGHUP", onHangup);
     release();
     const exitSignal = interrupted ?? signal;
-    process.exit(code ?? (exitSignal === "SIGINT" ? 130 : exitSignal === "SIGTERM" ? 143 : 1));
+    if (typeof code === "number" && code >= 0 && code <= 255) { process.exit(code); }
+    process.exit(exitSignal === "SIGINT" ? 130 : exitSignal === "SIGTERM" ? 143 : exitSignal === "SIGHUP" ? 129 : 1);
   });
 }
 
