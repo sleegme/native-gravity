@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
-import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { MinimalSpine } from '../scripts/spine.mjs';
 import { AuthoritativeLedger } from '../scripts/ledger.mjs';
-import { InvalidHandoffPacketError, composeBoundedPrompt, parseResponseEnvelope } from '../scripts/runner.mjs';
+import { InvalidHandoffPacketError, composeBoundedPrompt, invoke, parseResponseEnvelope } from '../scripts/runner.mjs';
 
 const observed = [{ classification: 'OBSERVED', criterion: 'content', result: 'artifact inspected' }];
 const plan = () => ({
@@ -291,6 +291,36 @@ test('unwrapped candidate still needs an independent matching Zen GO', async t =
   assert.deepEqual(f.calls, ['zen']);
   assert.deepEqual(spine.state.completed_milestones, []);
   assert.throws(() => spine.declareGlobalCompletion());
+});
+
+test('empty Bulldozer response after mutation records one durable invocation failure', async t => {
+  const f = fixture(t);
+  const script = join(f.dir, 'agy.mjs');
+  const mutations = join(f.dir, 'mutations');
+  writeFileSync(script, `#!/usr/bin/env node
+import { appendFileSync } from 'node:fs';
+appendFileSync(process.env.MUTATIONS_FILE, 'delegated edit\\n');
+console.log(JSON.stringify({ status: 'SUCCESS', response: '' }));
+`);
+  chmodSync(script, 0o755);
+  const spine = f.resume({
+    invokeRole: invoke,
+    runnerOptions: {
+      agyPath: script,
+      installedModels: [{ slug: 'gemini-3.8-flash-high', description: 'Gemini 3.8 Flash (High)' }],
+      env: { MUTATIONS_FILE: mutations },
+    },
+  });
+  await assert.rejects(spine.runMilestone('one'), /EMPTY_RESPONSE.*"attempts":1/);
+  assert.equal(readFileSync(mutations, 'utf8'), 'delegated edit\n');
+  const disk = AuthoritativeLedger.load(f.ledgerPath).getState();
+  assert.equal(disk.current_milestone, null);
+  assert.deepEqual(disk.completed_milestones, []);
+  assert.equal(disk.evidence.one.failure_evidence.length, 1);
+  assert.equal(disk.evidence.one.failure_evidence[0].status, 'INVOCATION_FAILURE');
+  assert.match(disk.evidence.one.failure_evidence[0].evidence.error, /EMPTY_RESPONSE.*"attempts":1/);
+  assert.ok(!f.calls.includes('zen'));
+  assert.deepEqual(f.resume().state, disk);
 });
 
 test('prose in a SUCCESS envelope persists a typed failure without promotion', async t => {
