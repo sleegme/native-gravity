@@ -339,6 +339,10 @@ export class MinimalSpine {
           || !verdict.verification_evidence.every(item => item?.classification === 'OBSERVED')) {
         throw new Error('Zen must supply directly observed verification evidence');
       }
+      if (verdict.verdict === 'NO-GO'
+          && (typeof verdict.repair_needs !== 'string' || !verdict.repair_needs.trim())) {
+        throw new InvalidHandoffPacketError('Zen NO-GO must supply non-empty repair_needs');
+      }
       if (verdict.verdict === 'GO') this.#ledger.recordZenGo(verdict);
       else this.#ledger.recordZenNoGo(verdict);
       this.#ledger.save(this.#path);

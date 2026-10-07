@@ -31,7 +31,8 @@ Accept exactly one current-version milestone packet from Steamroller:
 `acceptance_criteria`, `constraints`, `relevant_evidence`,
 `decision_invariants`. Do not act on stale versions or silently fill missing
 authority from prior conversation. A fresh context must work from this
-packet. Obtain needed contract clarification through Steamroller.
+packet. For needed contract clarification, return NEEDS_DEEP with the question
+in `escalation_needs`.
 
 ## MACHINE-INVOCATION MODE
 

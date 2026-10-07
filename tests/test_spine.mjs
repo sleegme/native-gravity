@@ -275,7 +275,9 @@ for (const patch of [
 }
 
 test('unwrapped candidate still needs an independent matching Zen GO', async t => {
-  const f = fixture(t, { review: request => verdict(request, { verdict: 'NO-GO' }) });
+  const f = fixture(t, { review: request => verdict(request, {
+    verdict: 'NO-GO', repair_needs: 'Correct the delivered content',
+  }) });
   const spine = f.resume({
     invokeRole: (_role, packet) => {
       const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
@@ -337,6 +339,24 @@ for (const patch of [
   });
 }
 
+for (const repair_needs of [undefined, null, '', '   ', [], {}, 42]) {
+  test(`NO-GO rejects unactionable repair needs: ${JSON.stringify(repair_needs)}`, async t => {
+    const f = fixture(t, { review: request => verdict(request, {
+      verdict: 'NO-GO', repair_needs, reason: 'A reason does not replace repair_needs',
+    }) });
+    await assert.rejects(f.spine.runMilestone('one'), error =>
+      error instanceof InvalidHandoffPacketError && error.error === 'INVALID_HANDOFF_PACKET');
+    const disk = AuthoritativeLedger.load(f.ledgerPath).getState();
+    assert.deepEqual(disk.completed_milestones, []);
+    assert.equal(disk.current_milestone, null);
+    assert.deepEqual(disk.verification, {});
+    assert.equal(disk.evidence.one.failure_evidence[0].status, 'INVOCATION_FAILURE');
+    assert.match(disk.evidence.one.failure_evidence[0].evidence.error, /repair_needs/);
+    assert.deepEqual(f.resume().state, disk);
+    assert.throws(() => f.spine.declareGlobalCompletion());
+  });
+}
+
 test('NO-GO preserves incompletion; a repaired artifact gets a distinct reviewed reference', async t => {
   let attempt = 0;
   const refs = [];
@@ -344,12 +364,15 @@ test('NO-GO preserves incompletion; a repaired artifact gets a distinct reviewed
     output: contract => candidate(contract, { candidate_artifact_ref: `sha256:revision-${++attempt}` }),
     review: request => {
       refs.push(request.result_ref);
-      return verdict(request, { verdict: attempt === 1 ? 'NO-GO' : 'GO' });
+      return verdict(request, {
+        verdict: attempt === 1 ? 'NO-GO' : 'GO', repair_needs: 'Deliver the corrected revision',
+      });
     },
   });
   assert.equal((await f.spine.runMilestone('one')).verified, false);
   assert.deepEqual(f.spine.state.completed_milestones, []);
   assert.equal(f.spine.state.current_milestone, null);
+  assert.equal(f.spine.state.verification.one.repair_needs, 'Deliver the corrected revision');
   assert.equal((await f.spine.runMilestone('one')).verified, true);
   assert.notEqual(refs[0], refs[1]);
 });
