@@ -79,6 +79,28 @@ All writers must use the same ledger path and ownership protocol; low-level
 `AuthoritativeLedger.load()` / `save()` remain persistence primitives, not
 independent session owners.
 
+## Google AI Studio lane
+
+`scripts/studio-runner.mjs` provides a second execution profile for A/B
+comparison: the same role + packet goes through the bounded prompt contract,
+then a direct `generateContent` REST call instead of `agy`.
+
+```js
+import { invokeStudio } from './scripts/studio-runner.mjs';
+const result = await invokeStudio('steamroller', packet, {
+  model: 'gemini-3.1-pro-high',
+  generationConfig: { temperature: 0.2 },
+});
+```
+
+Set `GOOGLE_AI_STUDIO_API_KEY` (or `GOOGLE_API_KEY`) in the environment — the
+key goes only to Google in the request URL and is never written to results,
+errors, or ledger state. Results carry `provider: 'google-ai-studio'`, the
+model id, and token `usage` so comparisons stay attributable by
+model + provider + settings. This lane has no tools, subagents, or ledger
+authority; it answers "is this the model or the harness?", not "run the
+orchestration".
+
 ## Alpha compatibility gate
 
 An older Native Gravity test found that a custom primary could fail to invoke subagents while the Antigravity Default agent succeeded. On AGY 1.1.21 and AGY 1.1.24, a clean install validates Bulldozer's internal delegation and the nested Bulldozer -> Bobcat -> Strix Halo gate. Revalidate this compatibility gate when the AGY runtime changes. See [Versioning Policy](docs/versioning.md) for versioning details and the compatibility matrix.
