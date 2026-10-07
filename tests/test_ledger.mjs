@@ -796,6 +796,9 @@ runTest("5.1: Failure / blocker reporting clears active milestone, records block
       {
         id: "B-01",
         description: "API quota exhausted on third-party service",
+        affects_milestone: "M-FORGED",
+        created_at: "1999-01-01T00:00:00.000Z",
+        extra_worker_key: "kept",
       },
     ],
     escalationNeeds: "Piledriver architectural review",
@@ -806,8 +809,12 @@ runTest("5.1: Failure / blocker reporting clears active milestone, records block
   assert.strictEqual(ledger.current_milestone, null);
   assert.strictEqual(ledger.completed_milestones.includes("M1"), false);
   assert.strictEqual(ledger.blockers.length, 1);
-  assert.strictEqual(ledger.blockers[0].id, "B-01");
+  // Ledger-normalized fields win over worker-supplied values; extra keys survive.
+  assert.notStrictEqual(ledger.blockers[0].id, "B-01");
+  assert.match(ledger.blockers[0].id, /^blocker-/);
   assert.strictEqual(ledger.blockers[0].affects_milestone, "M1");
+  assert.notStrictEqual(ledger.blockers[0].created_at, "1999-01-01T00:00:00.000Z");
+  assert.strictEqual(ledger.blockers[0].extra_worker_key, "kept");
   assert.ok(ledger.evidence.M1.failure_evidence);
 });
 
@@ -824,13 +831,14 @@ runTest("5.2: Blocker resolution requires observed evidence and never promotes m
   assert.throws(() => ledger.resolveBlocker("NON_EXISTENT", "evidence"), BlockerNotFoundError);
 
   // Cannot resolve blocker without observed evidence
-  assert.throws(() => ledger.resolveBlocker("B-01", ""), InvariantViolationError);
-  assert.throws(() => ledger.resolveBlocker("B-01", null), InvariantViolationError);
-  assert.throws(() => ledger.resolveBlocker("B-01", []), InvariantViolationError);
+  const blockerId = ledger.blockers[0].id;
+  assert.throws(() => ledger.resolveBlocker(blockerId, ""), InvariantViolationError);
+  assert.throws(() => ledger.resolveBlocker(blockerId, null), InvariantViolationError);
+  assert.throws(() => ledger.resolveBlocker(blockerId, []), InvariantViolationError);
 
   // Successfully resolve with evidence
-  const resolution = ledger.resolveBlocker("B-01", "Observed new token pool refreshed, HTTP 200 returned");
-  assert.strictEqual(resolution.blocker_id, "B-01");
+  const resolution = ledger.resolveBlocker(blockerId, "Observed new token pool refreshed, HTTP 200 returned");
+  assert.strictEqual(resolution.blocker_id, blockerId);
   assert.strictEqual(ledger.blockers.length, 0);
   assert.ok(ledger.evidence.resolved_blockers.length > 0);
 

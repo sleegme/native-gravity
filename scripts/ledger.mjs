@@ -1054,13 +1054,15 @@ export class AuthoritativeLedger {
             created_at: new Date().toISOString(),
           };
         } else if (typeof b === "object" && b !== null) {
+          // Worker keys are kept, but ledger-normalized fields are spread last
+          // so model output can never override ledger authority.
           blockerObj = {
-            id: b.id || `blocker-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            description: b.description || b.message || "Unspecified blocker",
-            affects_milestone: b.affects_milestone || activeMilestone,
-            escalation_path: b.escalation_path || escalationNeeds,
-            created_at: b.created_at || new Date().toISOString(),
             ...b,
+            id: `blocker-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            description: b.description || b.message || "Unspecified blocker",
+            affects_milestone: activeMilestone,
+            escalation_path: b.escalation_path || escalationNeeds,
+            created_at: new Date().toISOString(),
           };
         }
         if (blockerObj) {
