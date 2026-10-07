@@ -92,3 +92,14 @@ This is the upstream fix NTG depended on: permission denials are now honored ins
 - Checklist item 7 (NO-GO re-review) — open, needs a deliberately failing artifact run.
 - Checklist items 1-3, 8-9 (delegation graph breadth, Puma, observed-verdict internals) — role-body breadth, owner-scheduled interactive QA.
 - Note: probe compares captured stdout heads (400-char truncation in the script), not whole outputs; table cells marked `identical` mean identical captured prefix.
+
+## Checklist 7 — Zen NO-GO forces non-READY termination (2026-10-08)
+
+`ntg-run --agent excavator --model gemini-3.8-flash-low --dangerously-skip-permissions -p "Create marker2.txt containing 'data'. Then obtain a Zen review against acceptance: marker2.txt exists AND is exactly 0 bytes."`
+
+Observed behavior:
+- Excavator created marker2.txt (4 bytes), invoked Zen (invoke_subagent dispatch), received `VERDICT: NO-GO` (file is 4 bytes, not 0).
+- Excavator emitted structured gate output with `ZEN_VERDICT: VERDICT: NO-GO`, `ROOT_CAUSE: LIKELY` citing the contradiction, `ROLLBACK`, and terminated with `BLOCKED` — NOT `READY`.
+- The gate therefore fails closed on NO-GO: no READY is emitted after an observed negative verdict. (The "post-GO-write forces fresh review" sub-case remains unexercised — it needs a transcript where a write follows the first GO; the NO-GO leg is proven.)
+
+Checklist 7: **PASS** (NO-GO leg). Post-GO-rewrite re-review remains open but is a narrower hook condition already covered by the review-gate's stale-verdict logic (unit-tested in test_primary_review_gate.py).
