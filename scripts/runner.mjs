@@ -539,9 +539,33 @@ export function invokeTransport(slugOrOpts, maybePrompt, maybeOpts) {
     slug,
     "--output-format",
     outputFormat,
-    "--print",
-    prompt,
   ];
+
+  // Permission grant: owner decision 2026-10-07 — bulldozer may inspect
+  // known execution context via tools (incl. RunCommand); discovery still
+  // delegated. Skip-permissions applies to bulldozer invocations only.
+  // Must precede --print: agy consumes the token after --print as the prompt.
+  const normalizedRole = typeof role === "string" ? role.trim().toLowerCase() : "";
+  if (normalizedRole === "bulldozer") {
+    args.push("--dangerously-skip-permissions");
+  }
+  args.push("--print", prompt);
+
+  // Linux caps a single argv element at MAX_ARG_STRLEN (128 KiB); oversize
+  // prompts would otherwise surface as an E2BIG SPAWN_ERROR that looks like
+  // a broken agy install. Fail with a typed error before spawning (Refs #91).
+  const promptBytes = Buffer.byteLength(typeof prompt === "string" ? prompt : String(prompt), "utf8");
+  const MAX_ARG_STRLEN = 128 * 1024;
+  if (promptBytes > MAX_ARG_STRLEN) {
+    return {
+      ok: false,
+      error: "PROMPT_TOO_LARGE",
+      ...(role ? { role } : {}),
+      slug,
+      promptBytes,
+      limit: MAX_ARG_STRLEN,
+    };
+  }
 
   let result;
   try {
@@ -670,25 +694,36 @@ export function invoke(role, packet, opts = {}) {
     };
   }
 
-  const res = invokeTransport({
+  // One wall-clock budget (the original timeout) is shared by all attempts.
+  const totalTimeout = typeof options.timeout === "number" ? options.timeout : 90000;
+  const deadline = Date.now() + totalTimeout;
+  const run = () => invokeTransport({
     ...options,
+    timeout: Math.max(1, deadline - Date.now()),
     slug,
     prompt,
     role,
     outputFormat: "json",
   });
 
+  let attempt = run();
+  let attempts = 1;
+
   // Retry boundedly only when SUCCESS has an empty response and no explicit
   // denied_actions. Explicit tool denials are classified by parseResponseEnvelope.
+  // Bulldozer is never retried: it may have delegated edits before returning
+  // empty, and a retry would re-execute the milestone on a changed tree.
   const MAX_EMPTY_RETRIES = 3;
-  let attempt = res;
-  for (let i = 0; i < MAX_EMPTY_RETRIES && attempt.ok && (attempt.response || "").trim() === ""; i++) {
-    attempt = invokeTransport({ ...options, slug, prompt, role, outputFormat: "json" });
+  const retryable = normalizedRole !== "bulldozer";
+  while (retryable && attempts <= MAX_EMPTY_RETRIES && Date.now() < deadline
+    && attempt.ok && (attempt.response || "").trim() === "") {
+    attempt = run();
+    attempts++;
   }
   if (attempt.ok && (attempt.response || "").trim() === "") {
-    return { ok: false, error: "EMPTY_RESPONSE", role, slug, attempts: MAX_EMPTY_RETRIES + 1 };
+    return { ok: false, error: "EMPTY_RESPONSE", role, slug, attempts };
   }
-  return attempt;
+  return { ...attempt, attempts };
 }
 
 // CLI execution support

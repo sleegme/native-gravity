@@ -291,6 +291,42 @@ console.log(JSON.stringify({
   }
 });
 
+runTest("2.6b2: empty response is never retried for bulldozer but is retried boundedly for other roles", () => {
+  const root = mkdtempSync(join(tmpdir(), "mock-agy-empty-"));
+  const mockScript = join(root, "agy.mjs");
+  const callsFile = join(root, "calls");
+  writeFileSync(mockScript, `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+appendFileSync(process.env.MOCK_CALLS_FILE, "call\\n");
+console.log(JSON.stringify({ status: "SUCCESS", response: "" }));
+`);
+  chmodSync(mockScript, 0o755);
+  const opts = {
+    agyPath: mockScript,
+    installedModels: [
+      { slug: "gemini-3.1-pro-high", description: "Gemini 3.1 Pro (High)" },
+      { slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" },
+    ],
+    env: { MOCK_CALLS_FILE: callsFile },
+  };
+  try {
+    const bulldozer = invoke("bulldozer", { task: "Empty" }, opts);
+    assert.strictEqual(bulldozer.ok, false);
+    assert.strictEqual(bulldozer.error, "EMPTY_RESPONSE");
+    assert.strictEqual(bulldozer.attempts, 1);
+    assert.strictEqual(readFileSync(callsFile, "utf8"), "call\n");
+    unlinkSync(callsFile);
+
+    const piledriver = invoke("piledriver", { task: "Empty" }, opts);
+    assert.strictEqual(piledriver.ok, false);
+    assert.strictEqual(piledriver.error, "EMPTY_RESPONSE");
+    assert.strictEqual(piledriver.attempts, 4);
+    assert.strictEqual(readFileSync(callsFile, "utf8"), "call\n".repeat(4));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 runTest("2.6c: explicit denial wins over a nonempty response", () => {
   const res = parseResponseEnvelope(JSON.stringify({
     status: "SUCCESS",
