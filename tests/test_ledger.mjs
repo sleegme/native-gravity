@@ -818,6 +818,33 @@ runTest("5.1: Failure / blocker reporting clears active milestone, records block
   assert.ok(ledger.evidence.M1.failure_evidence);
 });
 
+runTest("5.1.a: Relevant evidence caps each failure history at five without losing audit history", () => {
+  const ledger = new AuthoritativeLedger(samplePlan());
+  for (let attempt = 0; attempt < 12; attempt++) {
+    ledger.delegate("M1");
+    ledger.recordBlockedOrFailure({
+      milestoneId: "M1", status: "INVOCATION_FAILURE",
+      evidence: { classification: "OBSERVED", error: `failure-${attempt}` },
+    });
+  }
+  ledger.evidence.M1.other_evidence = { retained: true };
+  // A dependent milestone must not pull the dependency's whole failure history.
+  ledger.evidence.M2 = { failure_evidence: [...ledger.evidence.M1.failure_evidence] };
+  const before = JSON.stringify(ledger.evidence);
+  const relevant = ledger.getRelevantEvidence("M2");
+  assert.strictEqual(relevant.length, 2);
+  for (const entry of relevant) {
+    assert.strictEqual(entry.failure_evidence.length, 5);
+    assert.deepStrictEqual(entry.failure_evidence.map(item => item.evidence.error),
+      ["failure-7", "failure-8", "failure-9", "failure-10", "failure-11"]);
+  }
+  assert.deepStrictEqual(relevant[1].other_evidence, { retained: true });
+  relevant[0].failure_evidence[0].evidence.error = "caller mutation";
+  assert.strictEqual(JSON.stringify(ledger.evidence), before);
+  assert.strictEqual(ledger.evidence.M1.failure_evidence.length, 12);
+  assert.deepStrictEqual(ledger.getRelevantEvidence("unknown"), []);
+});
+
 runTest("5.2: Blocker resolution requires observed evidence and never promotes milestone", () => {
   const ledger = new AuthoritativeLedger(samplePlan());
   ledger.delegate("M1");

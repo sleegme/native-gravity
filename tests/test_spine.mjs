@@ -445,6 +445,45 @@ test('resolved ingress blocker permits global completion only after independent 
   assert.equal(resumed.declareGlobalCompletion().completed, true);
 });
 
+test('repeated invocation failures bound prompts and retain hashed transcripts', async t => {
+  const f = fixture(t);
+  const promptSizes = [];
+  const spine = f.resume({
+    invokeRole: async (role, packet) => {
+      promptSizes.push(Buffer.byteLength(composeBoundedPrompt(role, packet)));
+      const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+      assert.ok((contract.relevant_evidence[0]?.failure_evidence.length ?? 0) <= 5);
+      // A failure may echo its input alongside a large Unicode stdout payload.
+      return { ok: false, error: 'INVALID_OUTPUT', raw: packet.task + '漢😀'.repeat(10000) + 'stdout-tail' };
+    },
+  });
+  for (let attempt = 0; attempt < 15; attempt++) {
+    let originalError;
+    await assert.rejects(spine.runMilestone('one'), error => {
+      originalError = String(error);
+      return /INVALID_OUTPUT/.test(originalError);
+    });
+    const disk = AuthoritativeLedger.load(f.ledgerPath).getState();
+    assert.deepEqual(disk, spine.state);
+    assert.equal(disk.current_milestone, null);
+    assert.equal(disk.evidence.one.failure_evidence.length, attempt + 1);
+    const recorded = disk.evidence.one.failure_evidence.at(-1).evidence;
+    const digest = createHash('sha256').update(originalError).digest('hex');
+    assert.ok(Buffer.byteLength(recorded.error) <= 8 * 1024);
+    assert.equal(recorded.error_digest, `sha256:${digest}`);
+    assert.ok(recorded.error.includes(`sha256:${digest}`));
+    assert.ok(recorded.error.startsWith('Error: bulldozer invocation failed:'));
+    assert.ok(recorded.error.endsWith('stdout-tail"}'));
+    assert.equal(readFileSync(recorded.transcript_ref, 'utf8'), originalError);
+    assert.equal(join(`${f.ledgerPath}.transcripts`, `${digest}.txt`), recorded.transcript_ref);
+  }
+  // JSON may double preview bytes by escaping quotes/backslashes in echoed input.
+  const failureBudget = 5 * (2 * 8 * 1024 + 1024);
+  assert.ok(Math.max(...promptSizes) < promptSizes[0] + failureBudget);
+  assert.ok(Math.max(...promptSizes) < 128 * 1024);
+  assert.deepEqual(f.resume().state, spine.state);
+});
+
 test('runner TIMEOUT is durable and the same milestone can be redelegated', async t => {
   const f = fixture(t);
   let attempts = 0;

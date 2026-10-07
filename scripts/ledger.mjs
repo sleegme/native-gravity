@@ -866,7 +866,16 @@ export class AuthoritativeLedger {
         }
       }
     }
-    return relevant;
+    // Keep the complete audit history on disk, but do not replay every failed
+    // attempt into a new invocation (including failures on dependencies).
+    const MAX_RELEVANT_FAILURES = 5;
+    return relevant.map((entry) => {
+      const projected = { ...entry };
+      if (projected.failure_evidence) {
+        projected.failure_evidence = projected.failure_evidence.slice(-MAX_RELEVANT_FAILURES);
+      }
+      return deepClone(projected);
+    });
   }
 
   /**
