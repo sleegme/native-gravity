@@ -7,8 +7,6 @@ tools:
   - find_by_name
   - grep_search
   - invoke_subagent
-rules:
-  - rules/harness.md
 mainAgent: true
 inheritCustomizations: true
 subagent: false
