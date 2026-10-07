@@ -539,9 +539,17 @@ export function invokeTransport(slugOrOpts, maybePrompt, maybeOpts) {
     slug,
     "--output-format",
     outputFormat,
-    "--print",
-    prompt,
   ];
+
+  // Permission grant: owner decision 2026-10-07 — bulldozer may inspect
+  // known execution context via tools (incl. RunCommand); discovery still
+  // delegated. Skip-permissions applies to bulldozer invocations only.
+  // Must precede --print: agy consumes the token after --print as the prompt.
+  const normalizedRole = typeof role === "string" ? role.trim().toLowerCase() : "";
+  if (normalizedRole === "bulldozer") {
+    args.push("--dangerously-skip-permissions");
+  }
+  args.push("--print", prompt);
 
   let result;
   try {
