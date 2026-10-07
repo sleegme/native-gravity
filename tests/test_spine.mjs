@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
-import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { MinimalSpine } from '../scripts/spine.mjs';
 import { AuthoritativeLedger } from '../scripts/ledger.mjs';
-import { InvalidHandoffPacketError, InvalidResponseFormatError, composeBoundedPrompt, parseResponseEnvelope } from '../scripts/runner.mjs';
+import { InvalidHandoffPacketError, InvalidResponseFormatError, composeBoundedPrompt, invoke, parseResponseEnvelope } from '../scripts/runner.mjs';
 
 const observed = [{ classification: 'OBSERVED', criterion: 'content', result: 'artifact inspected' }];
 const plan = () => ({
@@ -293,6 +293,36 @@ test('unwrapped candidate still needs an independent matching Zen GO', async t =
   assert.throws(() => spine.declareGlobalCompletion());
 });
 
+test('empty Bulldozer response after mutation records one durable invocation failure', async t => {
+  const f = fixture(t);
+  const script = join(f.dir, 'agy.mjs');
+  const mutations = join(f.dir, 'mutations');
+  writeFileSync(script, `#!/usr/bin/env node
+import { appendFileSync } from 'node:fs';
+appendFileSync(process.env.MUTATIONS_FILE, 'delegated edit\\n');
+console.log(JSON.stringify({ status: 'SUCCESS', response: '' }));
+`);
+  chmodSync(script, 0o755);
+  const spine = f.resume({
+    invokeRole: invoke,
+    runnerOptions: {
+      agyPath: script,
+      installedModels: [{ slug: 'gemini-3.8-flash-high', description: 'Gemini 3.8 Flash (High)' }],
+      env: { MUTATIONS_FILE: mutations },
+    },
+  });
+  await assert.rejects(spine.runMilestone('one'), /EMPTY_RESPONSE.*"attempts":1/);
+  assert.equal(readFileSync(mutations, 'utf8'), 'delegated edit\n');
+  const disk = AuthoritativeLedger.load(f.ledgerPath).getState();
+  assert.equal(disk.current_milestone, null);
+  assert.deepEqual(disk.completed_milestones, []);
+  assert.equal(disk.evidence.one.failure_evidence.length, 1);
+  assert.equal(disk.evidence.one.failure_evidence[0].status, 'INVOCATION_FAILURE');
+  assert.match(disk.evidence.one.failure_evidence[0].evidence.error, /EMPTY_RESPONSE.*"attempts":1/);
+  assert.ok(!f.calls.includes('zen'));
+  assert.deepEqual(f.resume().state, disk);
+});
+
 test('prose in a SUCCESS envelope persists a typed failure without promotion', async t => {
   const f = fixture(t);
   const spine = f.resume({
@@ -381,7 +411,11 @@ for (const status of ['BLOCKED', 'NEEDS_DEEP']) {
   test(`${status} returns evidence without promotion or automatic planner invocation`, async t => {
     const f = fixture(t, { output: contract => candidate(contract, {
       status,
-      blockers: [{ id: 'b1', description: 'required capability unavailable', affects_milestone: 'one', escalation_path: 'supervisor' }],
+      blockers: [{
+        id: 'b1', description: 'required capability unavailable',
+        affects_milestone: 'two', escalation_path: 'worker-forged',
+        created_at: '1999-01-01T00:00:00.000Z', extra_worker_key: 'must not leak',
+      }],
       escalation_needs: ['Resolve interface decision'],
     }) });
     const result = await f.spine.runMilestone('one');
@@ -394,7 +428,14 @@ for (const status of ['BLOCKED', 'NEEDS_DEEP']) {
     assert.deepEqual(disk, f.spine.state);
     assert.deepEqual(disk.verification, {});
     assert.equal(disk.blockers.length, 1);
+    assert.notEqual(disk.blockers[0].id, 'b1');
+    assert.match(disk.blockers[0].id, /^blocker-/);
+    assert.equal(disk.blockers[0].description, 'required capability unavailable');
     assert.equal(disk.blockers[0].affects_milestone, 'one');
+    assert.deepEqual(disk.blockers[0].escalation_path, ['Resolve interface decision']);
+    assert.notEqual(disk.blockers[0].created_at, '1999-01-01T00:00:00.000Z');
+    assert.deepEqual(Object.keys(disk.blockers[0]).sort(),
+      ['affects_milestone', 'created_at', 'description', 'escalation_path', 'id']);
     const failure = disk.evidence.one.failure_evidence;
     assert.equal(failure.length, 1);
     assert.equal(failure[0].status, status);
