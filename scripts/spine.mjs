@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { AuthoritativeLedger, deepClone, deepFreeze } from './ledger.mjs';
 import { acquireLedgerLock } from './ledger-lock.mjs';
-import { InvalidHandoffPacketError, invoke, parseResponsePacket } from './runner.mjs';
+import { InvalidHandoffPacketError, InvalidResponseFormatError, invoke, parseResponsePacket } from './runner.mjs';
 
 /**
  * Isolated 44F coordinator owned by Steamroller; not a default runtime entry or
@@ -205,6 +205,9 @@ export class MinimalSpine {
       throw new Error(`No invocation adapter available for specialist "${targetRole}"`);
     }
 
+    if (typeof result === 'string') {
+      result = { ok: true, response: result };
+    }
     if (result && typeof result === 'object') {
       if (result.ok === false) {
         throw new Error(`${targetRole} invocation failed: ${JSON.stringify(result)}`);
@@ -213,7 +216,7 @@ export class MinimalSpine {
         // Same fail-closed packet boundary as #exact; raw prose is never passed through.
         const parsed = parseResponsePacket(result);
         if (!parsed.ok) {
-          return deepFreeze({ ok: false, error: parsed.error, role: targetRole });
+          throw new InvalidResponseFormatError(targetRole, parsed.error);
         }
         return deepFreeze(deepClone(parsed.packet));
       }

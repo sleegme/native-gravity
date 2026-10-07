@@ -62,6 +62,16 @@ export class InvalidHandoffPacketError extends Error {
   }
 }
 
+export class InvalidResponseFormatError extends Error {
+  constructor(role, error = "INVALID_RESPONSE_FORMAT") {
+    super(`${role} invocation failed: ${error}`);
+    this.name = "InvalidResponseFormatError";
+    this.ok = false;
+    this.error = error;
+    this.role = role;
+  }
+}
+
 export class RoleBodyError extends Error {
   constructor(role, error, message) {
     super(message);

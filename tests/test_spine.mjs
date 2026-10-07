@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
-import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { MinimalSpine } from '../scripts/spine.mjs';
 import { AuthoritativeLedger } from '../scripts/ledger.mjs';
-import { InvalidHandoffPacketError, composeBoundedPrompt, parseResponseEnvelope } from '../scripts/runner.mjs';
+import { InvalidHandoffPacketError, InvalidResponseFormatError, composeBoundedPrompt, invoke, parseResponseEnvelope } from '../scripts/runner.mjs';
 
 const observed = [{ classification: 'OBSERVED', criterion: 'content', result: 'artifact inspected' }];
 const plan = () => ({
@@ -293,6 +293,36 @@ test('unwrapped candidate still needs an independent matching Zen GO', async t =
   assert.throws(() => spine.declareGlobalCompletion());
 });
 
+test('empty Bulldozer response after mutation records one durable invocation failure', async t => {
+  const f = fixture(t);
+  const script = join(f.dir, 'agy.mjs');
+  const mutations = join(f.dir, 'mutations');
+  writeFileSync(script, `#!/usr/bin/env node
+import { appendFileSync } from 'node:fs';
+appendFileSync(process.env.MUTATIONS_FILE, 'delegated edit\\n');
+console.log(JSON.stringify({ status: 'SUCCESS', response: '' }));
+`);
+  chmodSync(script, 0o755);
+  const spine = f.resume({
+    invokeRole: invoke,
+    runnerOptions: {
+      agyPath: script,
+      installedModels: [{ slug: 'gemini-3.8-flash-high', description: 'Gemini 3.8 Flash (High)' }],
+      env: { MUTATIONS_FILE: mutations },
+    },
+  });
+  await assert.rejects(spine.runMilestone('one'), /EMPTY_RESPONSE.*"attempts":1/);
+  assert.equal(readFileSync(mutations, 'utf8'), 'delegated edit\n');
+  const disk = AuthoritativeLedger.load(f.ledgerPath).getState();
+  assert.equal(disk.current_milestone, null);
+  assert.deepEqual(disk.completed_milestones, []);
+  assert.equal(disk.evidence.one.failure_evidence.length, 1);
+  assert.equal(disk.evidence.one.failure_evidence[0].status, 'INVOCATION_FAILURE');
+  assert.match(disk.evidence.one.failure_evidence[0].evidence.error, /EMPTY_RESPONSE.*"attempts":1/);
+  assert.ok(!f.calls.includes('zen'));
+  assert.deepEqual(f.resume().state, disk);
+});
+
 test('prose in a SUCCESS envelope persists a typed failure without promotion', async t => {
   const f = fixture(t);
   const spine = f.resume({
@@ -381,7 +411,11 @@ for (const status of ['BLOCKED', 'NEEDS_DEEP']) {
   test(`${status} returns evidence without promotion or automatic planner invocation`, async t => {
     const f = fixture(t, { output: contract => candidate(contract, {
       status,
-      blockers: [{ id: 'b1', description: 'required capability unavailable', affects_milestone: 'one', escalation_path: 'supervisor' }],
+      blockers: [{
+        id: 'b1', description: 'required capability unavailable',
+        affects_milestone: 'two', escalation_path: 'worker-forged',
+        created_at: '1999-01-01T00:00:00.000Z', extra_worker_key: 'must not leak',
+      }],
       escalation_needs: ['Resolve interface decision'],
     }) });
     const result = await f.spine.runMilestone('one');
@@ -394,7 +428,14 @@ for (const status of ['BLOCKED', 'NEEDS_DEEP']) {
     assert.deepEqual(disk, f.spine.state);
     assert.deepEqual(disk.verification, {});
     assert.equal(disk.blockers.length, 1);
+    assert.notEqual(disk.blockers[0].id, 'b1');
+    assert.match(disk.blockers[0].id, /^blocker-/);
+    assert.equal(disk.blockers[0].description, 'required capability unavailable');
     assert.equal(disk.blockers[0].affects_milestone, 'one');
+    assert.deepEqual(disk.blockers[0].escalation_path, ['Resolve interface decision']);
+    assert.notEqual(disk.blockers[0].created_at, '1999-01-01T00:00:00.000Z');
+    assert.deepEqual(Object.keys(disk.blockers[0]).sort(),
+      ['affects_milestone', 'created_at', 'description', 'escalation_path', 'id']);
     const failure = disk.evidence.one.failure_evidence;
     assert.equal(failure.length, 1);
     assert.equal(failure[0].status, status);
@@ -706,31 +747,54 @@ test('specialists can be invoked under an active milestone without touching ledg
   assert.equal(f.spine.state.current_milestone, null);
 });
 
-test('specialist response strings use the fail-closed packet parser', async t => {
-  const responses = {
-    jaguar: '{"status":"SUCCESS"}',
-    puma: 'Narration\n```json\n{"status":"READY"}\n```',
-    bobcat: 'plain prose, not a packet',
-  };
-  let results;
+for (const role of ['jaguar', 'puma', 'bobcat', 'strix-halo']) {
+  test(`${role} response strings use the fail-closed packet parser`, async t => {
+    let response;
+    let wrapped;
+    const f = fixture(t, {
+      invokeSpecialist: async () => wrapped ? { ok: true, response } : response,
+      output: async (contract, { spine, dir }) => {
+        const options = { caller: role === 'strix-halo' ? 'bobcat' : 'bulldozer' };
+        for (wrapped of [true, false]) {
+          for (response of [
+            '{"status":"READY"}',
+            '```json\n{"status":"READY"}\n```',
+            'Result follows:\n{"status":"READY"}\nEnd.',
+          ]) {
+            const result = await spine.invokeSpecialist(role, { task: 'work' }, options);
+            assert.deepEqual(result, { status: 'READY' });
+            assert.ok(Object.isFrozen(result));
+          }
+          for (response of ['not JSON', '{"status":"READY"}{"status":"BLOCKED"}']) {
+            await assert.rejects(
+              spine.invokeSpecialist(role, { task: 'work' }, options),
+              error => error instanceof InvalidResponseFormatError
+                && error.error === 'INVALID_RESPONSE_FORMAT' && error.role === role,
+            );
+          }
+        }
+        writeFileSync(join(dir, `${contract.milestone_id}.txt`), contract.milestone_id);
+        const hash = createHash('sha256').update(contract.milestone_id).digest('hex');
+        return candidate(contract, { candidate_artifact_ref: `sha256:${hash}` });
+      },
+    });
+
+    assert.equal((await f.spine.runMilestone('one')).verified, true);
+  });
+}
+
+test('unhandled specialist parse failure durably fails the milestone before Zen', async t => {
   const f = fixture(t, {
-    invokeSpecialist: async role => ({ ok: true, response: responses[role] }),
-    output: async (contract, { spine, dir }) => {
-      results = {
-        jaguar: await spine.invokeJaguar({ task: 'a' }),
-        puma: await spine.invokePuma({ task: 'b' }),
-        bobcat: await spine.invokeBobcat({ task: 'c' }),
-      };
-      writeFileSync(join(dir, `${contract.milestone_id}.txt`), contract.milestone_id);
-      const hash = createHash('sha256').update(contract.milestone_id).digest('hex');
-      return candidate(contract, { candidate_artifact_ref: `sha256:${hash}` });
-    },
+    invokeSpecialist: async () => ({ ok: true, response: 'not JSON' }),
+    output: async (_contract, { spine }) => spine.invokeBobcat({ task: 'work' }),
   });
 
-  await f.spine.runMilestone('one');
-  assert.deepEqual(results.jaguar, { status: 'SUCCESS' });
-  assert.deepEqual(results.puma, { status: 'READY' });
-  assert.deepEqual(results.bobcat, { ok: false, error: 'INVALID_RESPONSE_FORMAT', role: 'bobcat' });
+  await assert.rejects(f.spine.runMilestone('one'), InvalidResponseFormatError);
+  assert.ok(!f.calls.includes('zen'));
+  const saved = AuthoritativeLedger.load(f.ledgerPath).getState();
+  assert.equal(saved.current_milestone, null);
+  assert.deepEqual(saved.completed_milestones, []);
+  assert.ok(JSON.stringify(saved.evidence).includes('INVALID_RESPONSE_FORMAT'));
 });
 
 test('specialists receive milestone packet slice and never ledger or global authority', async t => {

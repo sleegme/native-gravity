@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import childProcess, { spawnSync } from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
+import { mock } from "node:test";
 import { writeFileSync, readFileSync, chmodSync, unlinkSync, mkdtempSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
@@ -324,6 +326,72 @@ console.log(JSON.stringify({ status: "SUCCESS", response: "" }));
     assert.strictEqual(readFileSync(callsFile, "utf8"), "call\n".repeat(4));
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+runTest("2.6b3: non-mutating empty retries consume one shared deadline", () => {
+  let now = 1000;
+  const timeouts = [];
+  const clock = mock.method(Date, "now", () => now);
+  const transport = mock.method(childProcess, "spawnSync", (_command, _args, options) => {
+    timeouts.push(options.timeout);
+    now += 60;
+    return { status: 0, stdout: JSON.stringify({ status: "SUCCESS", response: "" }) };
+  });
+  syncBuiltinESMExports();
+  try {
+    const result = invoke("piledriver", { task: "Empty" }, {
+      timeout: 100,
+      installedModels: [{ slug: "gemini-3.1-pro-high", description: "Gemini 3.1 Pro (High)" }],
+    });
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.error, "EMPTY_RESPONSE");
+    assert.strictEqual(result.attempts, 2);
+    assert.deepStrictEqual(timeouts, [100, 40]);
+  } finally {
+    transport.mock.restore();
+    clock.mock.restore();
+    syncBuiltinESMExports();
+  }
+});
+
+runTest("2.6b4: attempt count accompanies success and transport failure after retries", () => {
+  for (const [emptyAttempts, outcome] of [[0, "success"], [2, "success"], [1, "timeout"]]) {
+    let now = 1000;
+    const timeouts = [];
+    const clock = mock.method(Date, "now", () => now);
+    const transport = mock.method(childProcess, "spawnSync", (_command, _args, options) => {
+      timeouts.push(options.timeout);
+      now += 10;
+      if (timeouts.length <= emptyAttempts) {
+        return { status: 0, stdout: JSON.stringify({ status: "SUCCESS", response: "" }) };
+      }
+      if (outcome === "timeout") {
+        return { error: { code: "ETIMEDOUT" }, stderr: "" };
+      }
+      return { status: 0, stdout: JSON.stringify({ status: "SUCCESS", response: "Recovered" }) };
+    });
+    syncBuiltinESMExports();
+    try {
+      const result = invoke("steamroller", { task: "Retry read-only work" }, {
+        timeout: 100,
+        installedModels: [{ slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" }],
+      });
+      assert.strictEqual(result.attempts, emptyAttempts + 1);
+      assert.deepStrictEqual(timeouts, Array.from({ length: emptyAttempts + 1 }, (_, i) => 100 - i * 10));
+      if (outcome === "success") {
+        assert.strictEqual(result.ok, true);
+        assert.strictEqual(result.response, "Recovered");
+      } else {
+        assert.strictEqual(result.ok, false);
+        assert.strictEqual(result.error, "TIMEOUT");
+        assert.strictEqual(result.timeout, 90);
+      }
+    } finally {
+      transport.mock.restore();
+      clock.mock.restore();
+      syncBuiltinESMExports();
+    }
   }
 });
 
