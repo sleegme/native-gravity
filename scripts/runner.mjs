@@ -551,6 +551,22 @@ export function invokeTransport(slugOrOpts, maybePrompt, maybeOpts) {
   }
   args.push("--print", prompt);
 
+  // Linux caps a single argv element at MAX_ARG_STRLEN (128 KiB); oversize
+  // prompts would otherwise surface as an E2BIG SPAWN_ERROR that looks like
+  // a broken agy install. Fail with a typed error before spawning (Refs #91).
+  const promptBytes = Buffer.byteLength(typeof prompt === "string" ? prompt : String(prompt), "utf8");
+  const MAX_ARG_STRLEN = 128 * 1024;
+  if (promptBytes > MAX_ARG_STRLEN) {
+    return {
+      ok: false,
+      error: "PROMPT_TOO_LARGE",
+      ...(role ? { role } : {}),
+      slug,
+      promptBytes,
+      limit: MAX_ARG_STRLEN,
+    };
+  }
+
   let result;
   try {
     result = spawnSync(agyPath, args, {
