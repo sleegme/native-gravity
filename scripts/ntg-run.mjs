@@ -13,11 +13,13 @@
  * Usage:
  *   ntg-run --agent bulldozer -p "do the thing"
  *   ntg-run --agent piledriver --model gemini-3.1-pro -p "plan it" -- --passthrough
+ *   ntg-run --ledger /path/to/ledger.json --agent bulldozer -p "do the thing"
  *
  * Anything after `--` passes verbatim to agy.
  */
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import process from "node:process";
+import { acquireLedgerLock } from "./ledger-lock.mjs";
 
 const GATED_ROLES = Object.freeze(new Set(["bulldozer", "piledriver"]));
 const MARKER_RE = /^\s*NTG_ROLE\s*:/im;
@@ -56,6 +58,20 @@ function main() {
   const ours = passthrough === -1 ? raw : raw.slice(0, passthrough);
   const rest = passthrough === -1 ? [] : raw.slice(passthrough + 1);
 
+  // This wrapper-owned flag is never forwarded to agy.
+  let ledgerPath;
+  for (let index = 0; index < ours.length; index += 1) {
+    if (ours[index] === "--ledger" || ours[index].startsWith("--ledger=")) {
+      if (ledgerPath !== undefined) throw new TypeError("--ledger may only be specified once");
+      const inline = ours[index].startsWith("--ledger=");
+      ledgerPath = inline ? ours[index].slice("--ledger=".length) : ours[index + 1];
+      if (!ledgerPath || ledgerPath.startsWith("-")) throw new TypeError("--ledger requires a file path");
+      ours.splice(index, inline ? 1 : 2);
+      index -= 1;
+    }
+  }
+  // This wrapper owns signals itself; the lock only registers exit-cleanup.
+  const release = ledgerPath ? acquireLedgerLock(ledgerPath, { handleSignals: false }) : () => {};
   const role = agentArg(ours);
   const prompt = firstPromptIndex(ours);
   const args = [...ours];
@@ -68,8 +84,35 @@ function main() {
   }
 
   const agy = process.env.AGY_PATH ?? "agy";
-  const child = spawnSync(agy, [...args, ...rest], { stdio: "inherit", env: process.env });
-  process.exit(child.status ?? 1);
+  const child = spawn(agy, [...args, ...rest], { stdio: "inherit", env: process.env });
+  let interrupted;
+  const forward = signal => {
+    interrupted = signal;
+    child.kill(signal);
+  };
+  const onInterrupt = () => forward("SIGINT");
+  const onTerminate = () => forward("SIGTERM");
+  process.on("SIGINT", onInterrupt);
+  process.on("SIGTERM", onTerminate);
+  child.on("error", error => {
+    console.error(error.message);
+  });
+  const onHangup = () => forward("SIGHUP");
+  process.on("SIGHUP", onHangup);
+  child.once("close", (code, signal) => {
+    process.removeListener("SIGINT", onInterrupt);
+    process.removeListener("SIGTERM", onTerminate);
+    process.removeListener("SIGHUP", onHangup);
+    release();
+    const exitSignal = interrupted ?? signal;
+    if (typeof code === "number" && code >= 0 && code <= 255) { process.exit(code); }
+    process.exit(exitSignal === "SIGINT" ? 130 : exitSignal === "SIGTERM" ? 143 : exitSignal === "SIGHUP" ? 129 : 1);
+  });
 }
 
-main();
+try {
+  main();
+} catch (error) {
+  console.error(`${error.code ?? error.name}: ${error.message}`);
+  process.exit(1);
+}

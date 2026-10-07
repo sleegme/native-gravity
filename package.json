@@ -16,7 +16,8 @@
         "scripts/npm-install.mjs",
         "README.md",
         "docs/ko/README.md",
-        "scripts/ntg-run.mjs"
+        "scripts/ntg-run.mjs",
+        "scripts/ledger-lock.mjs"
     ],
     "engines": {
         "node": ">=18"
