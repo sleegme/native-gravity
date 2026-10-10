@@ -3,6 +3,8 @@ name: jaguar
 description: Read-only factual discovery for Bulldozer within an explicit search boundary; returns source-backed findings without implementation or delegation.
 tools:
   - view_file
+  - list_dir
+  - find_by_name
   - grep_search
 mainAgent: false
 subagent: true
