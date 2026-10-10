@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
+import { redactTelemetryValue } from "./telemetry.mjs";
+
 /**
  * Structured error classes for authoritative ledger transitions and invariant enforcement.
  */
@@ -1062,7 +1064,7 @@ export class AuthoritativeLedger {
             id: `blocker-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             description: b,
             affects_milestone: activeMilestone,
-            escalation_path: escalationNeeds,
+            escalation_path: redactTelemetryValue(escalationNeeds),
             created_at: new Date().toISOString(),
           };
         } else if (typeof b === "object" && b !== null) {
@@ -1072,7 +1074,7 @@ export class AuthoritativeLedger {
             id: `blocker-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             description: b.description || b.message || "Unspecified blocker",
             affects_milestone: activeMilestone,
-            escalation_path: escalationNeeds,
+            escalation_path: redactTelemetryValue(escalationNeeds),
             created_at: new Date().toISOString(),
           };
         }
@@ -1090,10 +1092,24 @@ export class AuthoritativeLedger {
       if (!this.evidence[activeMilestone].failure_evidence) {
         this.evidence[activeMilestone].failure_evidence = [];
       }
+      // Failure telemetry is redacted at the ledger boundary (NTG #114,
+      // tier B): the persisted record may be projected to Piledriver later,
+      // so secrets in recorded tool args never rest in ledger state.
+      // transcript_ref is the durable audit pointer to the full transcript;
+      // it stays exact here and is redacted only in the planner projection.
+      let redactedEvidence;
+      if (evidence && typeof evidence === "object" && !Array.isArray(evidence)
+          && Object.prototype.hasOwnProperty.call(evidence, "transcript_ref")) {
+        const { transcript_ref: transcriptRef, ...evidenceRest } = evidence;
+        redactedEvidence = redactTelemetryValue(evidenceRest);
+        redactedEvidence.transcript_ref = transcriptRef;
+      } else {
+        redactedEvidence = redactTelemetryValue(evidence);
+      }
       this.evidence[activeMilestone].failure_evidence.push({
         status,
-        evidence,
-        escalation_needs: escalationNeeds,
+        evidence: redactedEvidence,
+        escalation_needs: redactTelemetryValue(escalationNeeds),
         timestamp: new Date().toISOString(),
       });
     }

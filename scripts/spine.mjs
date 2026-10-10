@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { AuthoritativeLedger, deepClone, deepFreeze } from './ledger.mjs';
 import { acquireLedgerLock } from './ledger-lock.mjs';
 import { InvalidHandoffPacketError, InvalidResponseFormatError, invoke, parseResponsePacket } from './runner.mjs';
+import { projectFailureTelemetry, redactTelemetryValue } from './telemetry.mjs';
 
 /**
  * Isolated 44F coordinator owned by Steamroller; not a default runtime entry or
@@ -76,21 +77,64 @@ export class MinimalSpine {
     }
   }
 
+  /**
+   * Attaches tier-B failed-step telemetry to an error thrown by a step.
+   * The telemetry object records the tool name and args/command line of the
+   * failed step (never prompt text); the spine catch persists it with the
+   * ledger failure record for later Piledriver replan visibility (#114).
+   */
+  async #step(failedStep, thunk) {
+    try {
+      return await thunk();
+    } catch (error) {
+      if (error && typeof error === 'object' && error.failedStep === undefined) {
+        error.failedStep = failedStep;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Builds the agy command line for a failed transport invocation with the
+   * --print prompt value withheld — the prompt is tier-C material and must
+   * never enter failure telemetry (#114).
+   */
+  #transportCommand(role, slug) {
+    const parts = ['agy', '--model', slug ?? '<unresolved>', '--output-format', 'json'];
+    if (role === 'bulldozer') parts.push('--dangerously-skip-permissions');
+    parts.push('--print', '(prompt withheld)');
+    return parts.join(' ');
+  }
+
   async #exact(role, instruction, contract) {
     // The runner retains task text, not arbitrary packet fields. Serialize the
     // whole contract into task so bounded prompt construction keeps its fields.
-    const output = await this.#invokeRole(role, {
-      task: instruction + '\n' + JSON.stringify(contract),
-    }, {
-      ...this.#runnerOptions,
-      invokeSpecialist: (r, s, o) => this.invokeSpecialist(r, s, o),
-    });
+    const output = await this.#step(
+      { tool: 'runner.invoke', args: { role } },
+      () => this.#invokeRole(role, {
+        task: instruction + '\n' + JSON.stringify(contract),
+      }, {
+        ...this.#runnerOptions,
+        invokeSpecialist: (r, s, o) => this.invokeSpecialist(r, s, o),
+      })
+    );
     if (!output?.ok) {
-      throw new Error(`${role} invocation failed: ${JSON.stringify(output)}`);
+      const error = new Error(`${role} invocation failed: ${JSON.stringify(output)}`);
+      error.failedStep = {
+        tool: 'runner.invoke',
+        args: { role, slug: output?.slug ?? null, error: output?.error ?? null },
+        command: this.#transportCommand(role, output?.slug),
+      };
+      throw error;
     }
     const parsed = parseResponsePacket(output);
     if (!parsed.ok) {
-      throw new Error(`${role} invocation failed: ${JSON.stringify(parsed)}`);
+      const error = new Error(`${role} invocation failed: ${JSON.stringify(parsed)}`);
+      error.failedStep = {
+        tool: 'runner.invoke',
+        args: { role, slug: parsed?.slug ?? null, error: parsed?.error ?? null },
+      };
+      throw error;
     }
     return parsed.packet;
   }
@@ -196,33 +240,40 @@ export class MinimalSpine {
       plan_version: this.state.plan_version,
     }));
 
-    let result;
-    if (this.#invokeSpecialist) {
-      result = await this.#invokeSpecialist(targetRole, packet, options);
-    } else if (this.#invokeRole) {
-      result = await this.#invokeRole(targetRole, packet, this.#runnerOptions);
-    } else {
-      throw new Error(`No invocation adapter available for specialist "${targetRole}"`);
-    }
+    const failedStep = {
+      tool: 'invoke_subagent',
+      args: { role: targetRole, caller: callerRole, slice_keys: Object.keys(packet).sort() },
+    };
 
-    if (typeof result === 'string') {
-      result = { ok: true, response: result };
-    }
-    if (result && typeof result === 'object') {
-      if (result.ok === false) {
-        throw new Error(`${targetRole} invocation failed: ${JSON.stringify(result)}`);
+    return this.#step(failedStep, async () => {
+      let result;
+      if (this.#invokeSpecialist) {
+        result = await this.#invokeSpecialist(targetRole, packet, options);
+      } else if (this.#invokeRole) {
+        result = await this.#invokeRole(targetRole, packet, this.#runnerOptions);
+      } else {
+        throw new Error(`No invocation adapter available for specialist "${targetRole}"`);
       }
-      if (typeof result.response === 'string') {
-        // Same fail-closed packet boundary as #exact; raw prose is never passed through.
-        const parsed = parseResponsePacket(result);
-        if (!parsed.ok) {
-          throw new InvalidResponseFormatError(targetRole, parsed.error);
+
+      if (typeof result === 'string') {
+        result = { ok: true, response: result };
+      }
+      if (result && typeof result === 'object') {
+        if (result.ok === false) {
+          throw new Error(`${targetRole} invocation failed: ${JSON.stringify(result)}`);
         }
-        return deepFreeze(deepClone(parsed.packet));
+        if (typeof result.response === 'string') {
+          // Same fail-closed packet boundary as #exact; raw prose is never passed through.
+          const parsed = parseResponsePacket(result);
+          if (!parsed.ok) {
+            throw new InvalidResponseFormatError(targetRole, parsed.error);
+          }
+          return deepFreeze(deepClone(parsed.packet));
+        }
+        return deepFreeze(deepClone(result));
       }
-      return deepFreeze(deepClone(result));
-    }
-    return result;
+      return result;
+    });
   }
 
   async invokeJaguar(slice, options = {}) {
@@ -242,6 +293,44 @@ export class MinimalSpine {
     return this.invokeSpecialist('strix-halo', slice, typeof options === 'object' ? { ...options, caller } : { caller });
   }
 
+  /**
+   * Builds the tier-B replanning context exposed to Piledriver (NTG #114,
+   * PO-selected option B). Tier B carries which artifact/lane failed plus the
+   * failed step's tool and args/command line — never prompt text, raw worker
+   * candidate packets, or Zen verdict detail blobs (tier C, not selected).
+   * Verification records are projected to verdict summaries; failure records
+   * to telemetry. Sensitive values pass through the documented redaction list.
+   */
+  buildReplanContext() {
+    const state = this.state;
+    const verification_summary = {};
+    for (const [key, record] of Object.entries(state.verification ?? {})) {
+      if (!record || typeof record !== 'object') continue;
+      verification_summary[key] = {
+        verdict: record.verdict ?? null,
+        plan_version: record.plan_version ?? null,
+        result_ref: record.result_ref ?? null,
+        is_stale: record.is_stale ?? null,
+        repair_needs: record.repair_needs ?? null,
+        timestamp: record.timestamp ?? null,
+      };
+    }
+    return deepFreeze(deepClone(redactTelemetryValue({
+      telemetry_tier: 'B',
+      goal: state.goal,
+      constraints: state.constraints,
+      plan_version: state.plan_version,
+      milestones: state.milestones,
+      current_milestone: state.current_milestone,
+      completed_milestones: state.completed_milestones,
+      decision_invariants: state.decision_invariants,
+      blockers: state.blockers,
+      next_action: state.next_action,
+      failure_telemetry: projectFailureTelemetry(state.evidence),
+      verification_summary,
+    })));
+  }
+
   /** A planning response is advice; only explicit supervisor adoption changes state. */
   async requestPlan(task) {
     this.#idle();
@@ -250,7 +339,8 @@ export class MinimalSpine {
     try {
       return await this.#exact('piledriver',
         'Return a bounded advisory plan as JSON. Do not implement, delegate workers, '
-        + 'write ledger state, or claim completion.', { task, ledger: this.state });
+        + 'write ledger state, or claim completion.',
+        { task, replan_context: this.buildReplanContext() });
     } finally {
       this.#busy = false;
     }
@@ -330,7 +420,10 @@ export class MinimalSpine {
         contract,
         candidate: candidate_record,
       }));
-      const verdict = deepClone(await this.#invokeZen(request));
+      const verdict = deepClone(await this.#step(
+        { tool: 'zen_review', args: { milestone_id: contract.milestone_id, plan_version: contract.plan_version, result_ref } },
+        () => this.#invokeZen(request)
+      ));
       if (verdict?.verdict !== 'GO' && verdict?.verdict !== 'NO-GO') {
         throw new Error('Zen must return an observed GO or NO-GO');
       }
@@ -373,7 +466,9 @@ export class MinimalSpine {
         }
         this.#ledger.recordBlockedOrFailure({
           milestoneId, status: 'INVOCATION_FAILURE',
-          evidence,
+          evidence: error?.failedStep
+            ? { ...evidence, failed_step: error.failedStep }
+            : evidence,
         });
         this.#ledger.save(this.#path);
       }
