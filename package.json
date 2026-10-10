@@ -17,7 +17,8 @@
         "README.md",
         "docs/ko/README.md",
         "scripts/ntg-run.mjs",
-        "scripts/ledger-lock.mjs"
+        "scripts/ledger-lock.mjs",
+        "scripts/gate_panel.py"
     ],
     "engines": {
         "node": ">=18"

@@ -72,3 +72,17 @@ ntg-run --agent piledriver -p "plan this" -- --agy-extra-flag value
 ```
 
 Marker is only injected for the gated roles (`bulldozer`, `piledriver`) — the roles the gate enforces — and only when the prompt does not already carry an `NTG_ROLE:` line, so the helper stays out of the way of agents the gate does not enforce and never double-marks.
+
+## `gate_panel.py` (issue #112 gate-status panel)
+
+`scripts/gate_panel.py` renders the NTG gate-status panel: for each transcript it shows which gate is armed (primary = bulldozer/piledriver, excavator, or none), the latest observed Zen verdict, the decision the Stop hook would return, the constraint behind it, and the evidence source. It reads the same transcript records the Stop hooks enforce and replays their logic; it owns and mutates no state.
+
+```bash
+python3 scripts/gate_panel.py --transcript /path/to/transcript.jsonl
+python3 scripts/gate_panel.py --event stop-event.json
+python3 scripts/gate_panel.py --transcript a.jsonl --json
+```
+
+The layout is a fixed-width single-line-per-gate table so it fits horizontal-only panes; `--json` gives the same state to programmatic embedders.
+
+Limit (per the #112 decision's escape clause): the AGY plugin surface offers agents / hooks / commands / skills / mcpServers but no Settings-tabs host for a plugin panel, and no such surface exists in this repository. This module is therefore the smallest useful version — a renderer a Settings tab (or any pane) can host — not a plugin-integrated Settings tab. When a host surface for plugin panels lands, it can consume this output directly.
