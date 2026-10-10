@@ -79,6 +79,11 @@ old evidence remains history, not completion authority.
 Global completion requires every current milestone verified, no blockers,
 no active execution/review and Steamroller's direct observation of evidence.
 
+Piledriver's replanning view is a bounded tier-B projection, not the raw
+ledger: it records which artifact/lane failed plus the failed step's
+redacted tool args or command line (NTG #114). Prompt text, role text and
+contract fragments stay out of planning packets.
+
 ## Invocation and migration boundaries
 
 Steamroller/Bulldozer target Gemini 3.8 Flash / High; Piledriver targets
