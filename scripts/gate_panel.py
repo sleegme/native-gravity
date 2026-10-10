@@ -19,7 +19,9 @@ from the same transcripts and rules the Stop hooks enforce:
 
 Each row answers: which gate is armed for this session (or none), the latest
 observed Zen verdict, the decision the Stop hook would return for the event
-in effect, and the evidence the state was read from.
+in effect, and the evidence the state was read from. Decisions come from each
+hook's own decide(event, records) function — the panel reuses the enforced
+code path instead of reimplementing it, so the two cannot drift apart.
 
 Usage:
   python3 scripts/gate_panel.py --transcript /path/to/transcript.jsonl
@@ -67,32 +69,33 @@ def load_hooks():
     return _load_hook("primary-review-gate"), _load_hook("excavator-review-gate")
 
 
-def detect_gate(records: list[Any], primary_gate, excavator_gate) -> Optional[str]:
+def detect_gate(records: list[Any], event: dict[str, Any], primary_gate, excavator_gate) -> Optional[str]:
     if (
         excavator_gate.has_structured_excavator_identity(records)
         or excavator_gate.has_excavator_system_prompt(records)
         or excavator_gate.has_excavator_marker(records)
     ):
         return "excavator"
-    return primary_gate.detect_primary_role(records)
+    return primary_gate.detect_primary_role(
+        records, role_hint=event.get("roleHint") or event.get("agentName"))
 
 
 def evaluate(records: list[Any], event: dict[str, Any], role: str, primary_gate, excavator_gate) -> dict[str, Any]:
-    """Compute the row state for one armed gate by replaying the hook's own logic.
+    """Compute the row state for one armed gate.
 
-    Mirrors each hook main() decision chain for the fullyIdle / normal-stop
-    path so the reported decision is the real gate verdict, not a guess.
+    The decision and reason come from the hook's own decide() — the exact
+    chain main() enforces — so the panel can only display the real verdict.
     """
     if role == "excavator":
         gate = excavator_gate
         zen_started, verdict, verdict_index, latest_change = gate.review_state(records)
         stale = bool(verdict_index >= 0 and latest_change > verdict_index)
-        decision, reason = _excavator_decision(gate, records, event, zen_started, verdict, stale)
     else:
         gate = primary_gate
         zen_started, verdict, request_index, verdict_index = gate.review_state(records)
         stale = False
-        decision, reason = _primary_decision(gate, records, event, role, zen_started, verdict)
+
+    decision, reason = gate.decide(event, records)
 
     return {
         "gate": GATE_LABELS[role],
@@ -102,72 +105,22 @@ def evaluate(records: list[Any], event: dict[str, Any], role: str, primary_gate,
         "stale": stale,
         "decision": decision,
         "reason": reason,
+        "constraint": reason or _fallback_reason(gate, event, verdict),
     }
 
 
-def _latest_text(gate, records) -> Optional[str]:
-    return gate.get_latest_assistant_text(records)
+def _fallback_reason(gate, event: dict[str, Any], verdict: Optional[str]) -> str:
+    """Display-only label when the hook emits a bare stop with no reason.
 
-
-def _primary_decision(gate, records, event, role, zen_started, verdict) -> tuple[str, str]:
-    latest_text = _latest_text(gate, records)
-    if latest_text is None:
-        return "stop", "(no assistant text; gate not engaged)"
-    if role == "bulldozer":
-        ready = gate.has_line(gate._READY_LINE, latest_text) or gate.has_line(
-            gate._STATUS_READY_LINE, latest_text)
-        blocked = gate.has_line(gate._BLOCKED_LINE, latest_text) or gate.has_line(
-            gate._STATUS_BLOCKED_LINE, latest_text)
-        if ready and blocked:
-            return "continue", gate.CONTRADICTORY
-        if blocked or not ready:
-            return "stop", "(no READY claim; gate not engaged)"
-        if not event.get("fullyIdle", True):
-            return "continue", gate.REVIEW_PENDING
-        if not zen_started:
-            return "continue", gate.REVIEW_REQUIRED_BULLDOZER
-        if verdict == "NO-GO":
-            return "continue", gate.REVIEW_NO_GO
-        if verdict != "GO":
-            return "continue", gate.REVIEW_NO_VERDICT
-        return "stop", "READY + observed current VERDICT: GO"
-    if not gate.has_line(gate._PLAN_READY_LINE, latest_text):
-        return "stop", "(no PLAN READY claim; gate not engaged)"
-    if not event.get("fullyIdle", True):
-        return "continue", gate.REVIEW_PENDING
-    if not zen_started:
-        return "continue", gate.REVIEW_REQUIRED_PILEDRIVER
-    if verdict == "NO-GO":
-        return "continue", gate.REVIEW_NO_GO
-    if verdict != "GO":
-        return "continue", gate.REVIEW_NO_VERDICT
-    return "stop", "PLAN READY + observed current VERDICT: GO"
-
-
-def _excavator_decision(gate, records, event, zen_started, verdict, stale) -> tuple[str, str]:
-    latest_text = _latest_text(gate, records)
-    if latest_text is None:
-        return "stop", "(no assistant text; gate not engaged)"
-    lines = latest_text.splitlines()
-    has_ready = any(gate._READY_LINE.match(l) or gate._STATUS_READY_LINE.match(l) for l in lines)
-    has_blocked = any(gate._BLOCKED_LINE.match(l) or gate._STATUS_BLOCKED_LINE.match(l) for l in lines)
-    if has_ready and has_blocked:
-        return "continue", gate.REVIEW_CONTRADICTORY
-    if has_blocked:
-        return "stop", "(BLOCKED termination; Zen not required)"
-    if not has_ready:
-        return "stop", "(no READY claim; gate not engaged)"
-    if not event.get("fullyIdle", True):
-        return "continue", gate.REVIEW_PENDING
-    if not zen_started:
-        return "continue", gate.REVIEW_REQUIRED
-    if verdict == "NO-GO":
-        return "continue", gate.REVIEW_NO_GO
-    if verdict != "GO":
-        return "continue", gate.REVIEW_NO_VERDICT
-    if stale:
-        return "continue", gate.REVIEW_STALE
-    return "stop", "READY + observed current VERDICT: GO"
+    Bare stop covers several hook paths (abnormal event, no role, no READY);
+    the label states what the panel can see without guessing which one fired.
+    """
+    reason = str(event.get("terminationReason") or "").strip().lower()
+    if str(event.get("error") or "").strip() or reason not in gate.NORMAL_STOP_REASONS:
+        return "(abnormal stop event; hook stops without gate review)"
+    if verdict == "GO":
+        return "VERDICT: GO observed"
+    return "-"
 
 
 def _clip(text: str, width: int) -> str:
@@ -240,7 +193,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             continue
 
         records = primary_gate.read_transcript(str(path))
-        role = detect_gate(records, primary_gate, excavator_gate)
+        role = detect_gate(records, event, primary_gate, excavator_gate)
         if role is None:
             rows.append({
                 "gate": "none", "role": "-", "zen": "n/a", "decision": "stop",
@@ -262,7 +215,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             "role": role,
             "zen": state["zen"],
             "decision": state["decision"],
-            "constraint": state["reason"],
+            "constraint": state["constraint"],
             "evidence": path.name,
         })
         payload.append({

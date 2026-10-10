@@ -272,16 +272,89 @@ class GatePanelRenderTests(unittest.TestCase):
 
 class GatePanelConsistencyTests(unittest.TestCase):
 
+    def _hook_result(self, hook_path, event):
+        result = subprocess.run(
+            [sys.executable, str(hook_path)],
+            input=json.dumps(event), text=True, capture_output=True, check=True,
+        )
+        return json.loads(result.stdout)
+
     def _run_hook(self, hook_path, transcript):
         event = {
             "terminationReason": "NO_TOOL_CALL", "error": "",
             "fullyIdle": True, "transcriptPath": str(transcript),
         }
-        result = subprocess.run(
-            [sys.executable, str(hook_path)],
-            input=json.dumps(event), text=True, capture_output=True, check=True,
-        )
-        return json.loads(result.stdout)["decision"]
+        return self._hook_result(hook_path, event)["decision"]
+
+    def _assert_hook_parity(self, tmp, hook_name, records, event=None):
+        """Run the real hook and the panel on the same stop event; assert parity.
+
+        The panel answers "what would the Stop hook decide for this session" —
+        every divergence is a correctness bug, so decision and (when emitted)
+        reason must be identical.
+        """
+        transcript = write_transcript(tmp, records)
+        stop_event = {
+            "terminationReason": "NO_TOOL_CALL", "error": "",
+            "fullyIdle": True, "transcriptPath": str(transcript),
+        }
+        if event:
+            stop_event.update(event)
+        hook = self._hook_result(ROOT / "hooks" / hook_name, stop_event)
+        event_path = Path(tmp) / "event.json"
+        event_path.write_text(json.dumps(stop_event), encoding="utf-8")
+        payload = json.loads(run_panel("--event", str(event_path), "--json").stdout)
+        row = payload["rows"][0]
+        self.assertEqual(hook["decision"], row["decision"])
+        if "reason" in hook:
+            self.assertEqual(hook["reason"], row["reason"])
+        return row
+
+    def test_pending_zen_review_matches_primary_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for records in (
+                [identity("bulldozer"), primary_zen_call(), primary_zen_created(),
+                 assistant("still working on it")],
+                [identity("bulldozer"), primary_zen_call(), primary_zen_created(),
+                 ready_report()],
+                [identity("piledriver"), primary_zen_call(), primary_zen_created(),
+                 plan_ready_report()],
+            ):
+                row = self._assert_hook_parity(tmp, "primary-review-gate.py", records)
+                self.assertEqual("continue", row["decision"])
+
+    def test_role_hint_event_matches_primary_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            row = self._assert_hook_parity(
+                tmp, "primary-review-gate.py", [ready_report()],
+                event={"roleHint": "bulldozer"})
+            self.assertEqual("bulldozer", row["role"])
+            self.assertEqual("continue", row["decision"])
+
+    def test_agent_name_event_matches_primary_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            row = self._assert_hook_parity(
+                tmp, "primary-review-gate.py", [plan_ready_report()],
+                event={"agentName": "piledriver"})
+            self.assertEqual("piledriver", row["role"])
+            self.assertEqual("continue", row["decision"])
+
+    def test_abnormal_events_match_hooks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for hook_name, records, extra in (
+                ("primary-review-gate.py",
+                 [identity("bulldozer"), ready_report()], {"error": "boom"}),
+                ("primary-review-gate.py",
+                 [identity("bulldozer"), ready_report()],
+                 {"terminationReason": "MAX_STEPS"}),
+                ("excavator-review-gate.py",
+                 [identity("excavator"), ready_report()], {"error": "boom"}),
+                ("excavator-review-gate.py",
+                 [identity("excavator"), ready_report()],
+                 {"terminationReason": "MAX_STEPS"}),
+            ):
+                row = self._assert_hook_parity(tmp, hook_name, records, event=extra)
+                self.assertEqual("stop", row["decision"])
 
     def test_bulldozer_decision_matches_primary_gate(self):
         with tempfile.TemporaryDirectory() as tmp:

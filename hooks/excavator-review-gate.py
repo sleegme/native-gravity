@@ -498,23 +498,21 @@ def review_state(records: list[Any]) -> tuple[bool, str | None, int, int]:
     return zen_started, latest_verdict, verdict_index, latest_change
 
 
-def main() -> None:
-    try:
-        event = json.load(sys.stdin)
-    except Exception:
-        respond("stop")
-        return
+def decide(event: dict[str, Any], records: list[Any]) -> tuple[str, str | None]:
+    """The full Stop-hook decision chain as a pure function.
 
+    main() and external read-only consumers (e.g. scripts/gate_panel.py) share
+    this chain so the reported decision can never drift from the enforced one.
+    Returns (decision, reason) where reason is None when the hook would emit a
+    bare {"decision": "stop"}.
+    """
     reason = str(event.get("terminationReason") or "").strip().lower()
     error = str(event.get("error") or "").strip()
     if error or reason not in NORMAL_STOP_REASONS:
-        respond("stop")
-        return
+        return "stop", None
 
-    records = read_transcript(event.get("transcriptPath"))
     if not records:
-        respond("stop")
-        return
+        return "stop", None
 
     is_excavator = (
         has_structured_excavator_identity(records)
@@ -522,13 +520,11 @@ def main() -> None:
         or has_excavator_marker(records)
     )
     if not is_excavator:
-        respond("stop")
-        return
+        return "stop", None
 
     latest_text = get_latest_assistant_text(records)
     if latest_text is None:
-        respond("stop")
-        return
+        return "stop", None
 
     has_ready = any(
         _READY_LINE.match(line) or _STATUS_READY_LINE.match(line)
@@ -540,40 +536,44 @@ def main() -> None:
     )
 
     if has_ready and has_blocked:
-        respond("continue", REVIEW_CONTRADICTORY)
-        return
+        return "continue", REVIEW_CONTRADICTORY
 
     if has_blocked:
-        respond("stop")
-        return
+        return "stop", None
 
     if not has_ready:
-        respond("stop")
-        return
+        return "stop", None
 
     zen_started, verdict, verdict_index, latest_change = review_state(records)
 
     if not event.get("fullyIdle", True):
-        respond("continue", REVIEW_PENDING)
-        return
+        return "continue", REVIEW_PENDING
 
     if not zen_started:
-        respond("continue", REVIEW_REQUIRED)
-        return
+        return "continue", REVIEW_REQUIRED
 
     if verdict == "NO-GO":
-        respond("continue", REVIEW_NO_GO)
-        return
+        return "continue", REVIEW_NO_GO
 
     if verdict != "GO":
-        respond("continue", REVIEW_NO_VERDICT)
-        return
+        return "continue", REVIEW_NO_VERDICT
 
     if latest_change > verdict_index:
-        respond("continue", REVIEW_STALE)
+        return "continue", REVIEW_STALE
+
+    return "stop", None
+
+
+def main() -> None:
+    try:
+        event = json.load(sys.stdin)
+    except Exception:
+        respond("stop")
         return
 
-    respond("stop")
+    records = read_transcript(event.get("transcriptPath"))
+    decision, reason = decide(event, records)
+    respond(decision, reason)
 
 
 if __name__ == "__main__":

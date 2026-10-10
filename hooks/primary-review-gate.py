@@ -451,6 +451,67 @@ def has_line(pattern: re.Pattern[str], text: str) -> bool:
     return any(pattern.match(line) for line in text.splitlines())
 
 
+def decide(event: dict[str, Any], records: list[Any]) -> tuple[str, Optional[str]]:
+    """The full Stop-hook decision chain as a pure function.
+
+    main() and external read-only consumers (e.g. scripts/gate_panel.py) share
+    this chain so the reported decision can never drift from the enforced one.
+    Returns (decision, reason) where reason is None when the hook would emit a
+    bare {"decision": "stop"}.
+    """
+    reason = str(event.get("terminationReason") or "").strip().lower()
+    error = str(event.get("error") or "").strip()
+    if error or reason not in NORMAL_STOP_REASONS:
+        return "stop", None
+
+    if not records:
+        return "stop", None
+
+    role = detect_primary_role(records, role_hint=event.get("roleHint") or event.get("agentName"))
+    if role not in {"bulldozer", "piledriver"}:
+        return "stop", None
+
+    latest_text = get_latest_assistant_text(records)
+    if latest_text is None:
+        return "stop", None
+
+    zen_started, verdict, request_index, verdict_index = review_state(records)
+    pending_review = zen_started and request_index > verdict_index
+    if pending_review:
+        return "continue", REVIEW_PENDING
+
+    if role == "bulldozer":
+        ready = has_line(_READY_LINE, latest_text) or has_line(_STATUS_READY_LINE, latest_text)
+        blocked = has_line(_BLOCKED_LINE, latest_text) or has_line(_STATUS_BLOCKED_LINE, latest_text)
+
+        if ready and blocked:
+            return "continue", CONTRADICTORY
+        if blocked or not ready:
+            return "stop", None
+        if not event.get("fullyIdle", True):
+            return "continue", REVIEW_PENDING
+        if not zen_started:
+            return "continue", REVIEW_REQUIRED_BULLDOZER
+        if verdict == "NO-GO":
+            return "continue", REVIEW_NO_GO
+        if verdict != "GO":
+            return "continue", REVIEW_NO_VERDICT
+        return "stop", None
+
+    plan_ready = has_line(_PLAN_READY_LINE, latest_text)
+    if not plan_ready:
+        return "stop", None
+    if not event.get("fullyIdle", True):
+        return "continue", REVIEW_PENDING
+    if not zen_started:
+        return "continue", REVIEW_REQUIRED_PILEDRIVER
+    if verdict == "NO-GO":
+        return "continue", REVIEW_NO_GO
+    if verdict != "GO":
+        return "continue", REVIEW_NO_VERDICT
+    return "stop", None
+
+
 def main() -> None:
     try:
         event = json.load(sys.stdin)
@@ -458,75 +519,9 @@ def main() -> None:
         respond("stop")
         return
 
-    reason = str(event.get("terminationReason") or "").strip().lower()
-    error = str(event.get("error") or "").strip()
-    if error or reason not in NORMAL_STOP_REASONS:
-        respond("stop")
-        return
-
     records = read_transcript(event.get("transcriptPath"))
-    if not records:
-        respond("stop")
-        return
-
-    role = detect_primary_role(records, role_hint=event.get("roleHint") or event.get("agentName"))
-    if role not in {"bulldozer", "piledriver"}:
-        respond("stop")
-        return
-
-    latest_text = get_latest_assistant_text(records)
-    if latest_text is None:
-        respond("stop")
-        return
-
-    zen_started, verdict, request_index, verdict_index = review_state(records)
-    pending_review = zen_started and request_index > verdict_index
-    if pending_review:
-        respond("continue", REVIEW_PENDING)
-        return
-
-    if role == "bulldozer":
-        ready = has_line(_READY_LINE, latest_text) or has_line(_STATUS_READY_LINE, latest_text)
-        blocked = has_line(_BLOCKED_LINE, latest_text) or has_line(_STATUS_BLOCKED_LINE, latest_text)
-
-        if ready and blocked:
-            respond("continue", CONTRADICTORY)
-            return
-        if blocked or not ready:
-            respond("stop")
-            return
-        if not event.get("fullyIdle", True):
-            respond("continue", REVIEW_PENDING)
-            return
-        if not zen_started:
-            respond("continue", REVIEW_REQUIRED_BULLDOZER)
-            return
-        if verdict == "NO-GO":
-            respond("continue", REVIEW_NO_GO)
-            return
-        if verdict != "GO":
-            respond("continue", REVIEW_NO_VERDICT)
-            return
-        respond("stop")
-        return
-
-    plan_ready = has_line(_PLAN_READY_LINE, latest_text)
-    if not plan_ready:
-        respond("stop")
-        return
-    if not event.get("fullyIdle", True):
-        respond("continue", REVIEW_PENDING)
-        return
-    if not zen_started:
-        respond("continue", REVIEW_REQUIRED_PILEDRIVER)
-        return
-    if verdict == "NO-GO":
-        respond("continue", REVIEW_NO_GO)
-        return
-    if verdict != "GO":
-        respond("continue", REVIEW_NO_VERDICT)
-        return
-    respond("stop")
+    decision, reason = decide(event, records)
+    respond(decision, reason)
 
 
 if __name__ == "__main__":
