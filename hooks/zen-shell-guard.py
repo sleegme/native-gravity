@@ -62,9 +62,11 @@ def read_only_command(words):
             "--graph", "--decorate", "--no-decorate", "--all", "--pretty",
             "--format", "--abbrev-ref", "--verify", "--show-toplevel", "--",
         }
+        if args[0] == "ls-files":
+            safe_long_options.update({"--others", "--exclude-standard"})
         return all(
             (arg.split("=", 1)[0] in safe_long_options if arg.startswith("--")
-             else not arg.startswith("-o"))
+             else not arg.startswith("-o") or (args[0] == "ls-files" and arg == "-o"))
             for arg in args[1:]
         )
     if command in {"node", "python3", "python"}:
