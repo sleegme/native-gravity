@@ -134,6 +134,7 @@ This path is out of scope for the minimum P0 spine. Excavator and Instinct are r
 - No worker orchestration
 - No completion claims of any kind (neither milestone nor project)
 - Piledriver output is advisory to Steamroller; Steamroller decides whether to adopt it
+- Planning visibility is bounded to the tier-B `replan_context` projection (§4.3); prompt text, role text, and contract fragments (tier C) are never part of its packet
 
 **Rationale:** Gemini 3.1 Pro's planning and architecture intelligence is valuable precisely because it is used narrowly. When left as a long-running executor it tends to take implementation ownership. Piledriver's bounded authority prevents that drift.
 
@@ -313,6 +314,8 @@ evidence: {}
   # Candidate records persist { milestone_id, plan_version, result_ref,
   # candidate_artifact_ref }; result_ref is assigned by Steamroller (§4.2).
   # Classify entries as OBSERVED | INFERRED | UNKNOWN.
+  # Failure records carry tier-B telemetry ({ status, evidence, failed_step })
+  # with the §4.3 redaction list applied at the record boundary.
 
 verification: {}
   # Keyed by milestone ID.
@@ -403,6 +406,36 @@ The Bulldozer-to-Steamroller result packet must include at minimum:
 This is a pre-review candidate packet: `DONE` is Bulldozer's claim that acceptance criteria are met, not verified completion. Zen is mandatory for every P0 milestone; there is no `NOT_REQUIRED` path. Steamroller invokes Zen with this packet and the authoritative milestone contract. Zen returns a separate packet to Steamroller containing `milestone_id`, `plan_version`, `result_ref` (the immutable candidate artifact reference), `verdict` (`GO | NO-GO`), and `verification_evidence`. Steamroller associates that observed verdict with the candidate result; Bulldozer does not author or relay Zen authority. The accepted combined record contains the current Zen verdict.
 
 Steamroller is the sole issuer of `result_ref`: on `Receive candidate`, it assigns a unique reference to the immutable candidate packet and the delivered artifact versions that packet identifies, and persists the binding in ledger `evidence` before invoking Zen. The review request includes that same `result_ref`, which Zen must return unchanged. Steamroller persists it with the verdict in `verification` and rejects a verdict whose milestone, plan version or result reference does not match the candidate under review. Changed candidates require a new reference and review; references must not be rebound to changed contents. The physical ID/hash format and artifact storage layout remain implementation decisions for 44C/44E.
+
+### 4.3 Steamroller → Piledriver Planning Packet
+
+Steamroller invokes Piledriver for planning, replanning, and `NEEDS_DEEP` decisions with a bounded packet: the planning task plus a `replan_context` projection of authoritative ledger state. Piledriver never receives the raw ledger. The projection is fixed at **visibility tier B** (PO decision #114, 2026-10-10).
+
+**Visibility tiers (policy):**
+
+| Tier | Contents | Status |
+|---|---|---|
+| A | Failed artifact/lane id + failure class | Below selected floor |
+| **B** | Tier A + the failed step's tool name and args / command line | **Selected (#114)** |
+| C | Tier B + prompt text, role text, and contract fragments | **Not selected — must never be emitted** |
+
+`replan_context` carries `telemetry_tier: "B"` plus the ledger fields a planner needs (`goal`, `constraints`, `plan_version`, milestone graph, active/completed milestones, `blockers`, `decision_invariants`, `next_action`) and two projections:
+
+- `failure_telemetry[milestone_id][]` — `{ milestone_id, status, timestamp, escalation_needs?, failed_step?, transcript_ref? }` where `failed_step` is `{ tool, args, command? }` at argument granularity:
+  - `runner.invoke` — `args: { role, slug?, error? }`; `command` records the agy command line with the `--print` value always `(prompt withheld)`
+  - `invoke_subagent` — `args: { role, caller, slice_keys }`; delegated slice content is prompt material and never enters telemetry
+  - `zen_review` — `args: { milestone_id, plan_version, result_ref }`
+- `verification_summary[milestone_id]` — `{ verdict, plan_version, result_ref, is_stale, repair_needs, timestamp }`; never the raw verdict packet (`details`)
+
+**Stays hidden (tier C):** the raw worker candidate packet (candidate records, `changes_made`, `verification_evidence`, `unresolved_unknowns`), the Zen verdict `details` blob, error message blobs (the `transcript_ref` pointer is kept; full transcript content stays in the authoritative ledger), role bodies, and composed prompts including any `--print` value.
+
+**Redaction list** — applied at the ledger record boundary and again in the projection (`scripts/telemetry.mjs` is the single implementation):
+
+- Secret-bearing env-var assignments (`NAME=value` where `NAME` contains TOKEN, SECRET, PASSWORD, PASSWD, CREDENTIAL, KEY, or AUTH) → `NAME=<redacted>`
+- Common secret shapes — GitHub `gh[pousr]_*` / `github_pat_*`, `sk-` keys, AWS `AKIA…` access keys, Slack `xox[abprs]-`, JWTs, Bearer/Authorization values, PEM private-key blocks → `<redacted>`
+- Absolute user paths (`/home/<user>/…`, `/Users/<user>/…`) → `(local path)`; the ledger keeps the exact `transcript_ref` for audit while the packet carries the marker
+
+The list is a floor, not a guarantee: prompt text is excluded structurally by the projection, never merely pattern-matched.
 
 ---
 
