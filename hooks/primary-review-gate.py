@@ -129,14 +129,39 @@ def read_transcript(path_value: object) -> list[Any]:
     except OSError:
         return []
 
+    full_lines: list[str] | None = None
     records: list[Any] = []
-    for line in lines:
+    for index, line in enumerate(lines):
         if not line.strip():
             continue
         try:
-            records.append(json.loads(line))
+            record = json.loads(line)
         except json.JSONDecodeError:
             records.append(line)
+            continue
+        if isinstance(record, dict) and record.get("truncated_fields"):
+            if full_lines is None:
+                try:
+                    full_lines = path.with_name("transcript_full.jsonl").read_text(
+                        encoding="utf-8", errors="replace"
+                    ).splitlines()
+                except OSError:
+                    full_lines = []
+            if index < len(full_lines):
+                try:
+                    full_record = json.loads(full_lines[index])
+                except json.JSONDecodeError:
+                    full_record = None
+                if (
+                    isinstance(full_record, dict)
+                    and not full_record.get("truncated_fields")
+                    and all(
+                        full_record.get(key) == record.get(key)
+                        for key in ("step_index", "source", "type", "created_at")
+                    )
+                ):
+                    record = full_record
+        records.append(record)
     return records
 
 
@@ -244,7 +269,17 @@ def get_latest_assistant_text(records: list[Any]) -> Optional[str]:
 def is_zen_invocation(call: dict[str, Any]) -> bool:
     if tool_name(call) != "invoke_subagent":
         return False
+    raw_args = text_content(call.get("args"))
+    truncated_zen = "<truncated " in raw_args and bool(
+        re.search(
+            r'"type[_-]?name"\s*:\s*"zen"\s*[,}]',
+            raw_args.replace('\\"', '"'),
+            re.IGNORECASE,
+        )
+    )
     args = parse_args(call)
+    if not args:
+        return truncated_zen
     subagents = args.get("Subagents")
     if subagents is None:
         subagents = args.get("subagents")
@@ -253,8 +288,8 @@ def is_zen_invocation(call: dict[str, Any]) -> bool:
     if isinstance(subagents, str):
         try:
             parsed = json.loads(subagents)
-        except Exception:
-            parsed = None
+        except json.JSONDecodeError:
+            return truncated_zen
         if isinstance(parsed, list):
             items = parsed
         elif isinstance(parsed, dict):
