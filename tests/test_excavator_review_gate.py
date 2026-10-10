@@ -13,13 +13,18 @@ ROOT = Path(__file__).resolve().parents[1]
 GATE = ROOT / "hooks" / "excavator-review-gate.py"
 
 
-def run_gate(records, *, fully_idle=True, termination_reason="NO_TOOL_CALL", error=""):
+def run_gate(records, *, fully_idle=True, termination_reason="NO_TOOL_CALL", error="", full_records=None):
     with tempfile.TemporaryDirectory() as tmp:
         transcript = Path(tmp) / "transcript.jsonl"
         transcript.write_text(
             "".join(json.dumps(record) + "\n" for record in records),
             encoding="utf-8",
         )
+        if full_records is not None:
+            transcript.with_name("transcript_full.jsonl").write_text(
+                "".join(json.dumps(record) + "\n" for record in full_records),
+                encoding="utf-8",
+            )
         event = {
             "executionNum": 0,
             "terminationReason": termination_reason,
@@ -372,6 +377,83 @@ def wire_user_input_request():
 
 
 class ExcavatorReviewGateTests(unittest.TestCase):
+    def test_truncated_zen_invocation_resolved_from_full_transcript(self):
+        full_call = wire_zen_call()
+        full_call["tool_calls"][0]["args"] = json.dumps({
+            "Subagents": [{"Prompt": "x" * 4096, "TypeName": "zen"}],
+        })
+        short_call = {
+            **full_call, "truncated_fields": ["tool_calls"],
+            "tool_calls": [{
+                "name": "invoke_subagent",
+                "args": full_call["tool_calls"][0]["args"][:2048] + "<truncated 2099 bytes>",
+            }],
+        }
+        records = [
+            {"agentName": "excavator"}, short_call, wire_zen_created(),
+            wire_system_verdict(), ready_report(),
+        ]
+        result = run_gate(records, full_records=[records[0], full_call, *records[2:]])
+        self.assertEqual(result["decision"], "stop")
+
+    def test_unresolved_truncated_invocation_preserves_review_requirement(self):
+        short_call = wire_zen_call()
+        short_call["truncated_fields"] = ["tool_calls"]
+        short_call["tool_calls"][0]["args"] = "<truncated 4096 bytes>"
+        records = [
+            {"agentName": "excavator"}, short_call, wire_zen_created(),
+            wire_system_verdict(), ready_report(),
+        ]
+        mismatched_call = {**wire_zen_call(), "step_index": 99}
+        for full_records in (
+            None, [], [records[0], "invalid record"],
+            [records[0], mismatched_call, *records[2:]],
+        ):
+            with self.subTest(full_records=full_records):
+                result = run_gate(records, full_records=full_records)
+                self.assertEqual(result["decision"], "continue")
+
+    def test_truncated_stringified_zen_typename_allows_correlated_go(self):
+        for outer_args in (False, True):
+            with self.subTest(outer_args=outer_args):
+                call = wire_zen_call()
+                args = call["tool_calls"][0]["args"]
+                args["Subagents"] = '[{"TypeName": "zen", "Prompt": "<truncated 4096 bytes>'
+                if outer_args:
+                    call["tool_calls"][0]["args"] = json.dumps(args)[:-2]
+                result = run_gate([
+                    {"agentName": "excavator"}, call, wire_zen_created(),
+                    wire_system_verdict(), ready_report(),
+                ])
+                self.assertEqual(result["decision"], "stop")
+
+    def test_truncated_zen_invocation_without_verdict_still_blocks(self):
+        call = wire_zen_call()
+        call["tool_calls"][0]["args"] = '{"TypeName": "zen", "Prompt": "<truncated 4096 bytes>'
+        result = run_gate([
+            {"agentName": "excavator"}, call, wire_zen_created(), ready_report(),
+        ])
+        self.assertEqual(result["decision"], "continue")
+
+    def test_truncated_non_zen_typename_is_not_review_evidence(self):
+        call = wire_zen_call()
+        call["tool_calls"][0]["args"] = '{"TypeName": "advisor", "Role": "zen", "<truncated 4096 bytes>'
+        result = run_gate([
+            {"agentName": "excavator"}, call, wire_zen_created(),
+            wire_system_verdict(), ready_report(),
+        ])
+        self.assertEqual(result["decision"], "continue")
+
+    def test_full_transcript_does_not_replace_untruncated_invocation(self):
+        call = wire_zen_call()
+        call["tool_calls"][0]["args"] = {"TypeName": "advisor"}
+        records = [
+            {"agentName": "excavator"}, call, wire_zen_created(),
+            wire_system_verdict(), ready_report(),
+        ]
+        result = run_gate(records, full_records=[records[0], wire_zen_call(), *records[2:]])
+        self.assertEqual(result["decision"], "continue")
+
     def test_non_excavator_session_is_unaffected(self):
         result = run_gate([{"agentName": "bulldozer"}, ready_report()])
         self.assertEqual(result["decision"], "stop")
