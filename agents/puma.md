@@ -3,6 +3,8 @@ name: puma
 description: Low-risk writing, formatting, and mechanical text or configuration edits within Bulldozer's bounded assignment; no delegation or advisor ceremony.
 tools:
   - view_file
+  - list_dir
+  - find_by_name
   - grep_search
   - write_to_file
   - replace_file_content
