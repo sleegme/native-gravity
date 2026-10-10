@@ -1,59 +1,74 @@
 # Usage
 
-> v0.4 alpha
+> vNext draft — non-activated; isolated validation only.
 
-Install or reinstall the plugin from the checked-out repository:
+Normal npm/repository installation loads the released root-level agents,
+rules and hooks, not this draft tree. Do not copy these drafts into active
+paths as part of documentation reconciliation. See the
+[installation boundary](../README.md#installation-boundary).
 
-```bash
-agy plugin uninstall native-gravity
-agy plugin install .
-```
+## Isolated vNext workflow
 
-Use a clean reinstall when switching from v0.3.x so removed legacy agent and hook files cannot remain staged.
+1. Steamroller establishes or resumes the authoritative ledger: goal,
+   constraints, adopted plan version, milestones, evidence and next action.
+2. When planning, architecture or a difficult decision is needed, Steamroller
+   requests bounded Piledriver advice and decides whether to adopt it.
+   Piledriver does not execute, delegate, review delivered work or claim readiness.
+3. Steamroller sends Bulldozer exactly one current-version milestone packet:
+   identity/version, objective, bounded scope, non-goals, acceptance criteria,
+   constraints, relevant evidence and settled decision invariants.
+4. Bulldozer directly inspects known context and packet-named files; Jaguar
+   handles discovery/unknown targets. Puma handles low-risk mechanical work;
+   Bobcat handles implementation. Bulldozer has no shell or direct source-edit
+   authority.
+5. Bulldozer returns the complete `DONE | BLOCKED | NEEDS_DEEP` result packet
+   with changes, criterion-linked evidence, unknowns, deviations, blockers and
+   escalation needs. NEEDS_DEEP goes to Steamroller for optional Piledriver
+   routing, not directly to Piledriver.
+6. For DONE, Steamroller persists the immutable candidate/result reference,
+   requests independent Zen review and observes GO matching milestone, current
+   plan version and result reference before promotion. NO-GO leaves the
+   milestone incomplete for bounded repair or replan.
 
-## Choose a primary mode
-
-### Bulldozer
-
-Use for normal multi-step work where you want orchestration and specialist routing.
-
-Expected routing:
-
-- discovery -> Jaguar
-- quick/writing -> Puma
-- implementation -> Bobcat
-- difficult decision -> Steamroller
-- independent final review -> Zen
-
-### Piledriver
-
-Use when you want a plan before execution. It should inspect enough current state to ground the plan, but must not implement project source.
-
-Expected output: GOAL, ACCEPTANCE, TASK_GRAPH, OWNERSHIP_SUGGESTION, RISKS_AND_UNCERTAINTY, RECOMMENDED_VERIFICATION, PLAN_STATUS.
-
-### Excavator
-
-Use when the task is essentially "this is broken; dig until you find the cause and fix it." Excavator is allowed to edit directly and should complete a bounded diagnose -> repair -> verify loop.
+Machine runner invocations require one bare JSON object; no `READY`,
+`PLAN READY`, verdict prose or trailing summary replaces the requested packet.
+Bulldozer's first response byte must be `{`. Interactive released-agent
+terminal protocols do not authorize completion in this isolated workflow.
 
 ## Bobcat vs Puma
 
-Use Bobcat for ordinary behavior-bearing implementation. Bulldozer chooses `ADVISOR_GATE: REQUIRED | NONE`.
+Bulldozer selects `ADVISOR_GATE: REQUIRED | NONE` for Bobcat. REQUIRED applies
+to substantive code/behavior/API/state/lifecycle/test work; NONE only to clearly
+low-risk mechanical work.
 
-When REQUIRED, Bobcat consults **Strix Halo** (`strix-halo`) as its read-only local advice/CHECK gate.
+With REQUIRED, Bobcat invokes only **Strix Halo** (`strix-halo`) for its
+read-only local CHECK gate: ACCEPT permits local READY, REVISE requires repair
+and a fresh check, NEEDS_DEEP returns through Bulldozer to Steamroller.
+Strix ACCEPT and worker READY are not milestone completion.
 
-Use Puma for clearly small, explicit, low-risk work such as straightforward writing, formatting, presentation-only edits, or mechanical text changes. Puma has no Advisor gate and no nested delegation.
+Puma handles explicit low-risk writing, formatting and mechanical text/config
+changes without delegation or advisor ceremony. Work kind, not line count,
+determines the route.
 
-## Alpha validation
+## Validation before activation
 
-This checklist passed on AGY 1.1.21. Re-run it after an AGY runtime change:
+Use an isolated context and inspect actual results, not launch acknowledgements:
 
-Before trusting v0.4 for real work, confirm the current AGY runtime can:
+- Verify runner exact-model/effort resolution, injected vNext role bodies,
+  bounded JSON packets, timeout/failure behavior and customization isolation.
+- Exercise Steamroller -> Piledriver/Bulldozer, Bulldozer -> Jaguar/Puma/Bobcat,
+  Bobcat -> Strix Halo and independent Steamroller -> Zen paths.
+- Confirm current candidate binding, NO-GO repair, stale/mismatched verdict
+  rejection, material replanning and fresh-context ledger resume.
+- Verify live tool/authority boundaries and registered marker-scoped guards.
+  Static frontmatter or plugin validation alone is insufficient.
+- Confirm global completion only after all current milestones are verified,
+  no blockers or active execution/review remain and Steamroller observes evidence.
 
-1. select all three primary agents;
-2. let Bulldozer invoke Bobcat/Puma/Jaguar/Steamroller/Zen;
-3. let Bobcat invoke strix-halo — and observe that Bobcat attempts no other subagent (negative delegation case);
-4. let Piledriver stop at plan status instead of editing project source;
-5. let Excavator edit project source;
-6. return actual subagent/Zen results instead of only launch acknowledgements.
+See [status](./status.md) for recorded receipts and remaining boundaries.
+Issue #56 still decides always-on strict orchestration versus explicit `$loop`;
+`$loop` is a **candidate pending #56 live validation**, not an activation
+instruction to use today.
 
-If Excavator ends a task as `BLOCKED`, start a separate Bulldozer task for the open decision so Bulldozer can consult Steamroller. Do not treat Excavator as a Bulldozer child.
+Excavator remains a separate troubleshooting primary outside P0, not
+Bulldozer's child or an automatic recovery route. Instinct/Sonnet is future work.

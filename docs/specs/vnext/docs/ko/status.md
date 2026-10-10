@@ -1,57 +1,66 @@
 # 상태
 
-릴리스 트랙: `v0.4 alpha`
+## 트랙
 
-상태: **v0.4 alpha — AGY 1.1.21 핵심 런타임 검증 통과, alpha 사용 준비 완료**
+**vNext 구현/초안 정합성 반영 — 비활성.**
 
-완료:
+Merge된 #44 작업과 격리된 검증 evidence는 활성화나 미해결 결정의 확정을
+뜻하지 않습니다. 이전 v0.4 / AGY 1.1.21 alpha checklist는 과거 릴리스 런타임
+검증이며 현재 vNext readiness가 아닙니다.
 
-- Bulldozer / Piledriver / Excavator Primary 3종
-- Worker -> Bobcat
-- Explorer -> Jaguar
-- Deep -> Steamroller
-- Reviewer -> Zen
-- Puma quick/writing 경로 추가
-- Bobcat -> Strix Halo gate 유지
-- Piledriver planning child를 Jaguar(read-only discovery)와 Zen(final plan-readiness review)로 제한
-- Piledriver가 authoritative target grounding 없이 task graph를 닫지 않도록 하고, 실제 현재 Zen `VERDICT: GO` 전에는 `PLAN READY`를 금지
-- v0.3.3 Gemini 3.1 Pro 전역 mutation guard 제거
-- v0.4 라우팅/문서 반영
-- Zen verification-only `run_command` + marker-scoped `PreToolUse` guard 추가
-- Excavator 일반 sudo는 유지하면서 stdin-password 권한 획득, 우회 privilege path, shell-history credential mining, 전체 시스템 업그레이드를 막는 marker-scoped shell guard 추가
-- `tests/test_excavator_shell_guard.py`에 Excavator guard 회귀 테스트 추가
+## 구현된 #44 작업
 
-AGY 1.1.21 검증 완료:
+| Slice | 반영 범위 |
+| --- | --- |
+| 44B | 좁은 exact-model/effort runner, 설치 model 해석, bounded packet, timeout/재귀 방지, 구조화된 결과/실패 |
+| 44C | Steamroller 소유 authoritative ledger와 완료 state machine, candidate/result binding, 현재 version review gate, replan 무효화 |
+| 44D | 비활성 core-role/rule 초안: Steamroller supervisor, bounded Piledriver planner, Bulldozer milestone orchestrator |
+| 44E | 최소 runner/ledger spine과 독립 Zen candidate 검수 |
+| 44F | 권한 확대 없는 Jaguar/Puma/Strix Halo specialist 재연결 |
 
-- Bulldozer custom primary delegation
-- Piledriver planning-only 행동
-- Excavator direct edit + end-to-end verify
-- Puma quick/writing 효율
-- Bobcat -> Strix Halo CHECK 수렴
-- Bobcat이 strix-halo 외 subagent를 호출하지 않음 (negative case)
-- Zen 실제 verdict 관측
+후속 merge된 수정에는 runner role-body injection과 strict machine response 처리,
+specialist packet 검증, ledger ownership lock, blocker 정규화,
+failure-prompt growth 제한, delegation-boundary check가 포함됩니다.
+최근 역할 수정은 실행/검수 intake에서도 Piledriver를 planning-only로 유지하고
+(#108), Bulldozer가 알려진 context는 직접 확인하되 discovery는 Jaguar로
+라우팅하도록 합니다 (#109).
 
-실제 AGY 검증 대기:
+Ledger 전이와 전역 완료는 Steamroller만 소유합니다.
+Worker READY, Strix ACCEPT, Bulldozer DONE은 milestone 승격 전 필요한
+독립 candidate-matching Zen GO를 대체하지 않습니다.
 
-- clean/current plugin install에서 Piledriver -> Jaguar / Zen 호출이 실제 동작하는지
-- Piledriver가 구현 worker를 호출하지 않는지
-- 요청 target identity가 로컬 checkout과 다를 때 이를 추측하지 않고 UNKNOWN / NEEDS_DISCOVERY로 남기는지
-- Jaguar가 read-only 경계를 지키고 mutation이 필요한 evidence는 unresolved requirement로 반환하는지
-- Zen `VERDICT: NO-GO` 후 계획만 수정하고 fresh review를 받는지
-- material plan revision 뒤 과거 GO를 재사용하지 않는지
-- 실제 현재 Zen `VERDICT: GO`를 관측한 뒤에만 `PLAN READY`를 출력하는지
-- Zen이 `NTG_ZEN_VERIFY=1` marker로 독립 verification command를 실행하는지
-- Zen-marked source mutation 시도는 막고 정상 검증 command는 허용하는지
-- Excavator-marked 일반 sudo 진단/수리는 정상 동작하는지
-- Excavator-marked `sudo -S`, `sudo su`, `pkexec`, localhost root SSH, shell-history credential mining, full-system upgrade는 거부되는지
-- `env pkexec`, `command ssh root@localhost`, `bash -c 'sudo apt upgrade'` 같은 wrapper 형태도 거부되는지
-- `sudo somecmd -S value`처럼 sudo 뒤 실행 명령의 `-S` 인자는 오탐하지 않는지
-- Bulldozer 등 다른 agent의 unmarked shell call에는 영향이 없는지
+## 기록된 검증
 
-Piledriver 변경은 prompt-level 우선입니다. 실제 반복 실행에서 plan-readiness 경계가 무너지는 증거가 나오기 전에는 별도 Stop hook이나 custom coordination runtime을 추가하지 않습니다.
+아래는 과거 검증 기록이며 이 문서 변경에서 새로 실행한 check가 아닙니다.
 
-Zen/Excavator guard는 완전한 shell 또는 privilege sandbox가 아니라 역할 이탈에 대한 behavioral backstop입니다. AGY 1.1.21의 `PreToolUse` payload에는 아직 신뢰할 수 있는 custom-agent identity가 없고 agent별 read-only shell policy도 없습니다.
+- [44B runner spike](../../../44b-runner-spike.md): 설치 model 해석과
+  bounded Piledriver/Bulldozer live invocation.
+- [Role-contract 검증](../../../../../.omo/evidence/2026-10-03-44g-role-contract-findings.md):
+  격리된 role-body 구성과 machine packet parsing.
+  Customization 격리나 활성화의 증거는 아닙니다.
+- [44G 통합 실행과 solo 재실행](../../../../../.omo/evidence/2026-10-07-44g-e2e-validation-run4.md):
+  multi-milestone 실행, fresh-context resume, plan revision, advisory Piledriver.
+  처음 timeout된 case는 더 큰 budget에서 DONE + Zen GO로 완료되었습니다.
+  Case 이름만으로 NO-GO 검증이 되는 것은 아닙니다.
+- [별도 Zen NO-GO case](../../../../../.omo/evidence/2026-10-07-44g-case5-zen-no-go.md):
+  mutable artifact reference를 가진 고정 candidate를 live Zen이 독립적으로
+  거부했고 production ledger는 승격과 전역 완료를 거부했습니다.
+  Candidate 생성은 fixture이며 live Bulldozer 작업이 아닙니다.
 
-이름 확정:
+## 남은 활성화 경계
 
-- Bobcat advisor: **Strix Halo** (`strix-halo`)
+- 의도된 host에서 live 권한 인코딩과 OQ-6 customization/inheritance 격리를
+  포함한 활성화/검증 경계를 완료해야 합니다. Plugin validation, agent discovery,
+  `--agent` 생략만으로는 증명되지 않습니다.
+- #56의 strict orchestration 상시 적용 대 명시적 `$loop` 활성화를 live
+  validation으로 결정해야 합니다. `$loop`는 **#56 live validation 대기 중인 후보**이며
+  구현되거나 확정된 contract가 아닙니다.
+- Live evidence가 변경을 정당화하기 전까지 네이티브 specialist 역할 정책을
+  유지합니다. Zen의 optional exact-model 선택은 여기서 확정하지 않습니다.
+- 활성화와 #34 license closure 전에 필요한 migration/provenance closure를
+  완료해야 합니다. Merge된 slice나 과거 활성화 주장은 현재 경계 evidence를
+  대체하지 않습니다.
+
+Excavator는 P0 밖의 별도 역할이며 recovery 재연결/최종 권한은 44G 이후입니다.
+Instinct/Sonnet은 후속 작업입니다. 어느 쪽도 현재 spine의 미지원 capability를
+우회하는 fallback이 아닙니다.
