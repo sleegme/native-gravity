@@ -46,3 +46,18 @@ Puma는 writing, formatting, presentation-only, mechanical text/config 같은 qu
 7. Zen launch가 아니라 실제 verdict를 받은 뒤 완료하는지
 
 Excavator가 `BLOCKED`로 끝나면, 열린 결정 질문을 위한 별도 Bulldozer 작업을 시작해 Steamroller 검토를 받습니다. Excavator를 Bulldozer의 child로 취급하지 않습니다.
+
+## ntg-dag
+
+vNext spine이 쓰는 ledger 스냅샷의 마일스톤 의존 그래프를 터미널에 Unicode 박스로 그립니다. 읽기 전용이며 ledger를 수정하지 않습니다.
+
+```bash
+node scripts/dag-view.mjs --ledger tests/fixtures/dag-view/all-states.ledger.json --width 80 --no-color
+```
+
+- `--ledger PATH`: ledger JSON 경로 (`NTG_LEDGER` env로도 지정 가능)
+- `--watch`: ledger 파일 변경 시 전체 화면 다시 그림 (herdr/tmux 옆 pane에 띄우면 라이브)
+- `--width N`: 폭 고정 (기본: TTY 컬럼)
+- `--no-color`: ANSI 색 비활성화
+
+설치 후 `ntg-dag` 이름으로도 실행 가능합니다.

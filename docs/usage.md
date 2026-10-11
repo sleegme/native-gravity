@@ -86,3 +86,18 @@ python3 scripts/gate_panel.py --transcript a.jsonl --json
 The layout is a fixed-width single-line-per-gate table so it fits horizontal-only panes; `--json` gives the same state to programmatic embedders.
 
 Limit (per the #112 decision's escape clause): the AGY plugin surface offers agents / hooks / commands / skills / mcpServers but no Settings-tabs host for a plugin panel, and no such surface exists in this repository. This module is therefore the smallest useful version — a renderer a Settings tab (or any pane) can host — not a plugin-integrated Settings tab. When a host surface for plugin panels lands, it can consume this output directly.
+
+## `ntg-dag` (ledger milestone graph)
+
+`ntg-dag` renders the milestone dependency graph from a vNext ledger snapshot as Unicode boxes. It is read-only and does not modify the ledger.
+
+```bash
+node scripts/dag-view.mjs --ledger tests/fixtures/dag-view/all-states.ledger.json --width 80 --no-color
+```
+
+- `--ledger PATH`: ledger JSON path (or `NTG_LEDGER` env var)
+- `--watch`: redraw in place when the ledger file changes (use in a herdr/tmux side pane for a live view)
+- `--width N`: fixed width (default: TTY columns)
+- `--no-color`: disable ANSI colors
+
+After installation the `ntg-dag` bin also invokes the same script.
