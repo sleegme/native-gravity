@@ -21,11 +21,17 @@
  * 2 on a NO-GO/BLOCKED/NEEDS_DEEP outcome, 1 on errors.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, realpathSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync, unlinkSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { MinimalSpine } from './spine.mjs';
+import { parseResponseEnvelope } from './runner.mjs';
+
+/** Executor provenance markers inherited by every runner/Zen child (#135 B2). */
+export const SUPERVISOR_PID_ENV = 'NTG_SUPERVISOR_PID';
+export const SUPERVISOR_LEDGER_ENV = 'NTG_SUPERVISOR_LEDGER';
+const EXECUTOR_EXIT_WAIT_MS = 10000;
 
 export const DEFAULT_RUNNER_TIMEOUT_S = 600;
 const USAGE = 'usage: ntg-vnext <init|plan|run|replan|recover|status> --ledger PATH [options]';
@@ -49,13 +55,23 @@ function parseArgs(argv) {
   return opts;
 }
 
-function unwrapJson(stdout) {
-  let parsed;
-  try { parsed = JSON.parse(stdout); } catch { parsed = undefined; }
-  let inner = parsed?.message ?? parsed?.result ?? parsed?.response ?? stdout;
-  if (typeof inner !== 'string') return inner;
-  inner = inner.trim().replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/, '');
-  return JSON.parse(inner);
+/**
+ * Fail closed (#135 B3): a Zen packet is authority only when the AGY envelope
+ * passes the runner's authoritative check (SUCCESS, no denied actions, string
+ * response) and the inner packet carries an explicit GO or NO-GO verdict.
+ */
+export function parseZenEnvelope(stdout) {
+  const envelope = parseResponseEnvelope(stdout, { role: 'zen' });
+  if (!envelope.ok) {
+    throw new Error(`zen envelope rejected: ${envelope.error}${envelope.denied_actions ? ` ${JSON.stringify(envelope.denied_actions)}` : ''}`);
+  }
+  const inner = envelope.response.trim().replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/, '');
+  let packet;
+  try { packet = JSON.parse(inner); } catch (error) { throw new Error(`zen response is not a JSON packet: ${error.message}`); }
+  if (!packet || typeof packet !== 'object' || (packet.verdict !== 'GO' && packet.verdict !== 'NO-GO')) {
+    throw new Error('zen packet has no explicit GO or NO-GO verdict');
+  }
+  return packet;
 }
 
 /** Native, independent Zen review through the installed `zen` agent. */
@@ -70,7 +86,7 @@ export function nativeZen(request, { agyPath = process.env.AGY_PATH || 'agy', cw
   const r = spawnSync(agyPath, args, { cwd, encoding: 'utf8', timeout, killSignal: 'SIGKILL', maxBuffer: 20 * 1024 * 1024 });
   if (r.error) throw r.error;
   if (r.status !== 0) throw new Error(`zen invocation exited ${r.status}: ${(r.stderr || '').slice(-500)}`);
-  return unwrapJson(r.stdout);
+  return parseZenEnvelope(r.stdout);
 }
 
 function nextEligible(state) {
@@ -97,12 +113,89 @@ export function breakStaleLedgerLock(ledgerPath) {
   } catch (error) {
     if (error.code !== 'ESRCH') throw error;
   }
+  // The dead supervisor's detached executors (agy and its children) can
+  // outlive it. Terminate them and observe their exit before the lock and the
+  // active milestone are released, so no replacement can overlap (#135 B2).
+  const executors = terminateOrphanedExecutors(pid, realLedgerPath(path));
   unlinkSync(lockPath);
-  return { lock: lockPath, dead_owner_pid: pid };
+  return { lock: lockPath, dead_owner_pid: pid, terminated_executors: executors };
+}
+
+function realLedgerPath(path) {
+  return join(realpathSync(dirname(path)), basename(path));
+}
+
+function processEnviron(pid) {
+  try {
+    return readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0');
+  } catch {
+    return null; // exited, zombie, or not ours
+  }
+}
+
+function processGroup(pid) {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    return Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[2]);
+  } catch {
+    return null;
+  }
+}
+
+/** Blocks until `pid` has terminated (zombie or reaped) or the bound elapses, via pidfd. */
+function awaitExit(pid, ms) {
+  const r = spawnSync('python3', ['-c', [
+    'import os, select, sys',
+    'try:',
+    '    fd = os.pidfd_open(int(sys.argv[1]))',
+    'except ProcessLookupError:',
+    '    sys.exit(0)',
+    'p = select.poll()',
+    'p.register(fd, select.POLLIN)',
+    'sys.exit(0 if p.poll(int(sys.argv[2])) else 1)',
+  ].join('\n'), String(pid), String(ms)], { encoding: 'utf8', timeout: ms + 5000 });
+  return !r.error && r.status === 0;
+}
+
+/**
+ * Finds every process that inherited this ledger's dead supervisor markers,
+ * SIGKILLs it and its process group, and waits for each to terminate.
+ * Throws (leaving the lock in place) when termination cannot be observed.
+ */
+export function terminateOrphanedExecutors(deadPid, ledgerPath) {
+  if (!existsSync('/proc/self/environ')) {
+    throw new Error('cannot verify executor termination without /proc; refusing stale-lock recovery');
+  }
+  const want = [`${SUPERVISOR_PID_ENV}=${deadPid}`, `${SUPERVISOR_LEDGER_ENV}=${ledgerPath}`];
+  const found = [];
+  for (const name of readdirSync('/proc')) {
+    if (!/^\d+$/.test(name) || Number(name) === process.pid) continue;
+    const env = processEnviron(name);
+    if (env && want.every(entry => env.includes(entry))) found.push({ pid: Number(name), pgid: processGroup(name) });
+  }
+  const kill = (target) => {
+    try { process.kill(target, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
+  };
+  for (const { pid, pgid } of found) {
+    if (pgid && pgid > 1 && pgid !== process.pid) kill(-pgid);
+    kill(pid);
+  }
+  const survivors = found.filter(({ pid }) => !awaitExit(pid, EXECUTOR_EXIT_WAIT_MS));
+  if (survivors.length) {
+    throw new Error(`executors ${survivors.map(s => s.pid).join(', ')} of dead supervisor ${deadPid} did not exit; refusing stale-lock recovery`);
+  }
+  return found.map(({ pid }) => pid);
 }
 
 export async function main(argv, deps = {}) {
   const opts = parseArgs(argv);
+  if (opts.command !== 'recover') {
+    // Mark every executor this supervisor spawns so a later recover can find
+    // and terminate it if this process dies (inherited via the runner's env).
+    const path = resolve(opts.ledger);
+    process.env[SUPERVISOR_PID_ENV] = String(process.pid);
+    process.env[SUPERVISOR_LEDGER_ENV] = existsSync(dirname(path)) ? realLedgerPath(path) : path;
+  }
   const staleLock = opts.command === 'recover' ? breakStaleLedgerLock(opts.ledger) : null;
   const readJson = path => JSON.parse(readFileSync(path, 'utf8'));
   const spine = new MinimalSpine({
@@ -150,7 +243,17 @@ export async function main(argv, deps = {}) {
   }
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+/** npm bin shims invoke this file through a symlink; compare real paths (#135 B1). */
+function invokedDirectly() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (invokedDirectly()) {
   main(process.argv.slice(2)).then(({ code, out }) => {
     process.stdout.write(JSON.stringify(out, null, 2) + '\n');
     process.exitCode = code;

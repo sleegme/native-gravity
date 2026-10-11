@@ -5,7 +5,11 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
-import { main } from '../scripts/ntg-vnext.mjs';
+import { main, nativeZen } from '../scripts/ntg-vnext.mjs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { symlinkSync } from 'node:fs';
+
+const CLI = new URL('../scripts/ntg-vnext.mjs', import.meta.url).pathname;
 import { parseResponseEnvelope } from '../scripts/runner.mjs';
 
 const observed = [{ classification: 'OBSERVED', criterion: 'content', result: 'inspected' }];
@@ -99,34 +103,47 @@ test('material replan increments plan_version, clears completion, and requires f
   assert.ok(rerun.out.global_completion);
 });
 
-// A real supervisor process takes the ledger lock and marks a milestone active,
-// then is SIGKILLed (no exit handlers run), leaving the lock behind.
+// A real supervisor (ntg-vnext main) takes the ledger lock, marks a milestone
+// active and spawns a detached executor the way the runner does (own process
+// group, inherited env). The supervisor is then SIGKILLed; the executor survives.
 async function killedSupervisor(h, t) {
-  const lockHolder = join(mkdtempSync(join(tmpdir(), 'ntg-vnext-holder-')), 'holder.mjs');
-  t.after(() => rmSync(dirname(lockHolder), { recursive: true, force: true }));
-  writeFileSync(lockHolder, `import { MinimalSpine } from ${JSON.stringify(new URL('../scripts/spine.mjs', import.meta.url).pathname)};
-const spine = new MinimalSpine({ ledgerPath: process.argv[2], invokeZen: () => {}, handleSignals: false,
-  invokeRole: () => new Promise(() => process.send('in-flight')) });
-spine.runMilestone('one');
-// A pending promise does not keep the event loop alive; hold it open until killed.
-setInterval(() => {}, 1 << 30);
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-vnext-holder-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const holder = join(dir, 'holder.mjs');
+  writeFileSync(holder, `import { spawn } from 'node:child_process';
+import { main } from ${JSON.stringify(CLI)};
+const invokeRole = () => {
+  const executor = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1 << 30)'], { detached: true, stdio: 'ignore' });
+  process.send({ executor: executor.pid });
+  return new Promise(() => {});
+};
+main(['run', '--ledger', process.argv[2]], { invokeRole, invokeZen: () => {}, handleSignals: false });
+setInterval(() => {}, 1 << 30); // a pending promise alone does not keep the loop alive
 `);
-  const child = fork(lockHolder, [h.ledger], { stdio: 'ignore' });
-  const timer = AbortSignal.timeout(10000);
-  await once(child, 'message', { signal: timer });
-  return child;
+  const child = fork(holder, [h.ledger], { stdio: 'ignore' });
+  const [message] = await once(child, 'message', { signal: AbortSignal.timeout(10000) });
+  t.after(() => { try { process.kill(message.executor, 'SIGKILL'); } catch {} });
+  return { child, executor: message.executor };
 }
+
+const terminated = pid => {
+  try { process.kill(pid, 0); } catch (error) { if (error.code === 'ESRCH') return true; throw error; }
+  try { return readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].startsWith('Z'); } catch { return true; }
+};
 
 test('recover removes a lock whose owner was killed, then resume completes from the ledger', async t => {
   const h = harness(t);
   await h.cli('init', '--plan', h.write('plan.json', plan('v1', ['one'])));
-  const child = await killedSupervisor(h, t);
+  const { child, executor } = await killedSupervisor(h, t);
   child.kill('SIGKILL');
   await once(child, 'exit', { signal: AbortSignal.timeout(10000) });
   assert.ok(existsSync(`${h.ledger}.lock`));
+  assert.equal(terminated(executor), false, 'executor outlives its killed supervisor');
   await assert.rejects(h.cli('status'), /already exists/);
   const recovered = await h.cli('recover', '--evidence', 'supervisor SIGKILLed mid-invocation');
   assert.equal(recovered.out.stale_lock_removed.dead_owner_pid, child.pid);
+  assert.deepEqual(recovered.out.stale_lock_removed.terminated_executors, [executor]);
+  assert.ok(terminated(executor), 'recover must end the old executor before releasing the milestone');
   assert.equal(recovered.out.state.current_milestone, null);
   const resumed = await h.cli('run');
   assert.equal(resumed.code, 0);
@@ -136,7 +153,7 @@ test('recover removes a lock whose owner was killed, then resume completes from 
 test('recover refuses to remove a lock held by a live supervisor', async t => {
   const h = harness(t);
   await h.cli('init', '--plan', h.write('plan.json', plan('v1', ['one'])));
-  const child = await killedSupervisor(h, t);
+  const { child } = await killedSupervisor(h, t);
   t.after(() => child.kill('SIGKILL'));
   await assert.rejects(h.cli('recover', '--evidence', 'x'), /held by live process/);
   assert.ok(existsSync(`${h.ledger}.lock`));
@@ -159,4 +176,39 @@ test('plan returns Piledriver advice without adopting it', async t => {
   assert.equal(out.adopted, false);
   assert.deepEqual(h.calls, ['piledriver']);
   assert.equal(JSON.parse(readFileSync(h.ledger, 'utf8')).plan_version, JSON.parse(before).plan_version);
+});
+
+test('the npm-style bin symlink executes the CLI (#135 B1)', t => {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-vnext-bin-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const bin = join(dir, 'ntg-vnext');
+  symlinkSync(CLI, bin);
+  const missing = spawnSync(bin, ['status', '--ledger', join(dir, 'missing.json')], { encoding: 'utf8' });
+  assert.equal(missing.status, 1);
+  assert.match(missing.stderr, /ENOENT/);
+  writeFileSync(join(dir, 'plan.json'), JSON.stringify(plan('v1', ['one'])));
+  const init = JSON.parse(execFileSync(bin, ['init', '--ledger', join(dir, 'l.json'), '--plan', join(dir, 'plan.json')], { encoding: 'utf8' }));
+  assert.equal(init.next_milestone, 'one');
+});
+
+function fakeZen(t, envelope) {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-vnext-zen-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const agy = join(dir, 'agy');
+  writeFileSync(join(dir, 'out.json'), JSON.stringify(envelope));
+  writeFileSync(agy, `#!/bin/sh\ncat ${JSON.stringify(join(dir, 'out.json'))}\n`);
+  spawnSync('chmod', ['+x', agy]);
+  return agy;
+}
+const zenGo = JSON.stringify({ milestone_id: 'one', plan_version: 'v1', result_ref: 'r', verdict: 'GO', verification_evidence: observed });
+
+test('native Zen GO is accepted only from a SUCCESS envelope with an explicit verdict (#135 B3)', t => {
+  const ok = nativeZen({}, { agyPath: fakeZen(t, { status: 'SUCCESS', response: zenGo }) });
+  assert.equal(ok.verdict, 'GO');
+  assert.throws(() => nativeZen({}, { agyPath: fakeZen(t, { status: 'ERROR', response: zenGo }) }), /MODEL_ERROR/);
+  assert.throws(() => nativeZen({}, { agyPath: fakeZen(t, {
+    status: 'SUCCESS', response: zenGo, denied_actions: [{ action: 'command', display_name: 'RunCommand' }],
+  }) }), /TOOL_PERMISSION_DENIED/);
+  assert.throws(() => nativeZen({}, { agyPath: fakeZen(t, { status: 'SUCCESS', response: JSON.stringify({ milestone_id: 'one' }) }) }), /explicit GO or NO-GO/);
+  assert.throws(() => nativeZen({}, { agyPath: fakeZen(t, { message: zenGo }) }), /INVALID_OUTPUT/);
 });

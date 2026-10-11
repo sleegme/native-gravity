@@ -28,6 +28,13 @@ console.log("=== Native Gravity 44B Exact-Model Runner Spike Tests ===");
 let passed = 0;
 let failed = 0;
 
+/** Shipped body as the runner sends it: the native-only INTERACTIVE MODE tail removed. */
+function machineBody(role) {
+  const file = readFileSync(new URL(`../agents/${role}.md`, import.meta.url), "utf8");
+  const cut = file.indexOf("\n## INTERACTIVE MODE\n");
+  return (cut === -1 ? file : file.slice(0, cut)).trim();
+}
+
 function runTest(name, fn) {
   try {
     fn();
@@ -701,7 +708,7 @@ process.exit(0);
 
 runTest("3.1: Deterministic prompt construction with minimal packet", () => {
   const prompt = composeBoundedPrompt("piledriver", { task: "Implement feature X" });
-  const body = readFileSync(new URL("../agents/piledriver.md", import.meta.url), "utf8").trim();
+  const body = machineBody("piledriver");
   assert.strictEqual(prompt, `## Role\npiledriver\n\n## Role Body\n${body}\n\n## Task\nImplement feature X`);
 });
 
@@ -717,7 +724,7 @@ runTest("3.2: Deterministic prompt construction with complete structured packet"
 
   const expectedPrompt = [
     "## Role\nbulldozer",
-    `## Role Body\n${readFileSync(new URL("../agents/bulldozer.md", import.meta.url), "utf8").trim()}`,
+    `## Role Body\n${machineBody("bulldozer")}`,
     "## Task\nRefactor database migrations",
     "## Context Files\n- db/schema.sql\n- db/migrate.js",
     "## Evidence\n- Migration 004 failed on test DB\n- Disk usage at 80%",
@@ -828,6 +835,22 @@ runTest("4.2: Multi-role chain detection blocks re-entrant role (RECURSION_DETEC
 
 // =============================================================================
 // Section 5: Live Piledriver & Bulldozer Invocations (Handoff Packets)
+// =============================================================================
+
+runTest("3.7: Runner prompts exclude the native-only INTERACTIVE MODE section (#135 B4)", () => {
+  for (const role of ["piledriver", "bulldozer"]) {
+    const file = readFileSync(new URL(`../agents/${role}.md`, import.meta.url), "utf8");
+    assert.ok(file.includes("\n## INTERACTIVE MODE\n"), `${role} ships an interactive section`);
+    const prompt = composeBoundedPrompt(role, { task: "T" });
+    assert.ok(!prompt.includes("## INTERACTIVE MODE"), `${role} runner prompt leaks the interactive section`);
+    assert.ok(prompt.includes("MACHINE-INVOCATION MODE"), `${role} runner prompt keeps machine mode`);
+  }
+  // The released target-grounding rule (which drove `git status` probes) stays native-only.
+  assert.ok(!composeBoundedPrompt("piledriver", { task: "T" }).includes("establish that the planning target"));
+});
+
+// =============================================================================
+// (live section)
 // =============================================================================
 
 const skipLive = process.env.SKIP_LIVE_TESTS === "1" || process.env.SKIP_LIVE_TESTS === "true";
@@ -1010,7 +1033,7 @@ runTest("6.6: Neutral process cwd needs no customization for explicit or module-
         const explicit = invoke(role, packet, opts);
         assert.strictEqual(explicit.ok, true, JSON.stringify(explicit));
         assert.ok(JSON.parse(explicit.response).prompt.includes(`BODY_MARKER_${role}`));
-        const shipped = readFileSync(new URL(`../agents/${role}.md`, import.meta.url), "utf8").trim();
+        const shipped = machineBody(role);
         const defaultPrompt = composeBoundedPrompt(role, packet);
         assert.ok(defaultPrompt.includes(`## Role Body\n${shipped}\n\n## Task\nTASK_MARKER`));
         const runnerDir = dirname(fileURLToPath(new URL("../scripts/runner.mjs", import.meta.url)));
