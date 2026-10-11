@@ -17,7 +17,7 @@ Correct these claims, then measure the **actual NTG/AGY route**: record version/
 ## Open questions
 
 1. **AGY user controls:** unresolved. Reported strings and missing help flags prove neither a supported control nor “internal-only.” `agy` was not on this review environment's PATH; no live cache behavior was verified.
-2. **Oh My Pi compaction:** borrow stable tool/system serialization and preservation of unchanged history, not a new NTG compactor. In `/home/sleeg/work/oh-my-pi/packages/agent/src/append-only-context.ts:347-376`, shorter history clears/replays the log; other rewrites preserve the longest matching prefix. Compaction is not cache-transparent. `StablePrefix.build():139-160` also rebuilds when the fingerprint changes, rather than freezing configuration forever.
+2. **Oh My Pi compaction:** borrow stable tool/system serialization and preservation of unchanged history, not a new NTG compactor. In `oh-my-pi: packages/agent/src/append-only-context.ts:347-376`, shorter history clears/replays the log; other rewrites preserve the longest matching prefix. Compaction is not cache-transparent. `StablePrefix.build():139-160` also rebuilds when the fingerprint changes, rather than freezing configuration forever.
 3. **Ledger digest tool:** potentially useful for context size, not required for cache correctness. First measure existing bounded milestone packets (`scripts/spine.mjs:150,221`). If needed, expose a bounded, versioned read-only summary with references to authoritative details; do not truncate authoritative persistence or claim a tool guarantees agents never inline state.
 
 Review only: source inspection and primary documentation; no implementation changes or runtime tests.

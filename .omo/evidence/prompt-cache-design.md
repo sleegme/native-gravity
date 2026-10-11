@@ -110,7 +110,7 @@ Sessions `60dafc66`, `5183dd39` (Claude Opus 5.5 Low), `caf582c2` (Pro),
 
 ### A. What is already true (measured)
 
-- On AGY's **default agent**, Claude reads a ~13k globally-cached prefix
+- On AGY's **default agent**, Claude reads a ~13k prefix already cached in the provider cache scope of the account AGY's backend uses (who wrote it: UNKNOWN)
   even on cold turns, and 97.6% of the warm-turn prompt from cache.
 - On **custom agents** (bulldozer measured), the shared prefix shrinks
   to ~7.7k — agent content is per-conversation, cached only within a
