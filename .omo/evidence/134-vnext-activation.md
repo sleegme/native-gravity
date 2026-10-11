@@ -3,43 +3,43 @@
 Date: 2026-10-12 (KST). Branch `feat/134-vnext-activate` off `origin/main` @ `4b45987`. Host binary `agy 1.3.3`.
 PO decision **A** (activate now); lead scope **A1 + A2** (runner is the default entry, merged agent bodies, native Bulldozer/Piledriver/Excavator kept with Zen gates, missing 44G live validations run here, OQ-6 left to the PO).
 
-## 1. Installed plugin re-import (activated default)
+## 1. Installed plugin snapshot (provenance, corrected after gate review B5)
 
-- Backup of the pre-activation install: `<HOME>/.gemini/config/plugins-backup-134-20261011215304`.
-- From the lane worktree at `128222e`: `agy plugin validate .` (9 agents, 4 hooks) → `agy plugin uninstall native-gravity` → `agy plugin install .`; `importedAt: 2026-10-11T21:53:04Z` (UTC).
-- `diff -rq` worktree vs `<HOME>/.gemini/config/plugins/native-gravity`: `agents/`, `hooks/`, `rules/`, `plugin.json`, `hooks.json` — all identical.
-- Later commits on the branch touch only `scripts/`, `tests/` and evidence; the runner and `ntg-vnext` run from the repo, so the install stayed current for every probe.
+- Pre-activation backup: `<HOME>/.gemini/config/plugins-backup-134-20261011215304`.
+- **First probe run (superseded)**: plugin installed from `128222e` (importedAt `2026-10-11T21:53:04Z`). The earlier claim that later commits "touch only scripts/, tests/ and evidence" was **false**: `b38da0d` added three no-shell lines to `agents/piledriver.md`, so the installed native snapshot no longer matched HEAD for the P2a reruns. The runner itself always loads role bodies from the repository (`agents/`), so runner results reflected the repo body, not the installed snapshot. Those records are kept as `134-live-probe/results-pre-gate.jsonl`.
+- **Final probe run (this report)**: plugin reinstalled from the final code commit `474a881` (`agy plugin validate .` 9 agents / 4 hooks → uninstall → install; importedAt `2026-10-11T22:43:06Z`). `diff -rq` of `agents/`, `hooks/`, `rules/`, `plugin.json`, `hooks.json` against the install: all identical. Commits after `474a881` change only evidence files, so the installed snapshot, the repository bodies the runner loads, and the tested code are the same artifact for every probe below.
+- After the probes the installed plugin was restored to `origin/main` `4b45987` (diff identical).
 
-## 2. Live 44G validation (real `ntg-vnext` CLI, real agy)
+## 2. Live 44G validation — final run (real `ntg-vnext` CLI, real agy 1.3.3)
 
-Harness: `134-live-probe/probe.mjs` (`node probe.mjs all`, then `node probe.mjs p2a`), `TMPDIR=$HOME/.cache/ntg134-tmp`. Raw records: `134-live-probe/results.jsonl` (home paths sanitized to `<HOME>`). Session IDs are the AGY brain sessions created during each step.
+Harness: `134-live-probe/probe.mjs` (`node probe.mjs all`, then `node probe.mjs p2a`), `TMPDIR=$HOME/.cache/ntg134-tmp`. Raw records: `134-live-probe/results.jsonl` (sanitized). Sessions are now attributed by **creation time** (directory birth time ≥ step start) instead of modification time, so a pre-existing session that keeps writing is not credited to a later step (gate review B2 note).
 
-| Step | What it proves | Result | Sessions |
+| Step | What it proves | Result | Sessions created in the step |
 |---|---|---|---|
-| P1b `run` (m1) | Steamroller → Bulldozer → independent native Zen → promotion | exit 0; m1 `DONE`, Zen `GO` (v1), `verified: true` | `62b10e77-e773-45a3-bb61-92ad38ddb21d`, `7f19e5c4-fdf1-4d61-9b39-c0bbc3ecb436`, `ca09ea46-732d-4c8d-9c74-c1c446eec150` |
-| P1c `run` (m2), SIGKILL at 25s | supervisor killed mid-Bulldozer invocation | killed; lock left behind | `b13ddd6a-57ad-4cf5-b58b-91c1cc6dc540` |
-| P1d `status` | killed owner's lock blocks other supervisors | exit 1 `…lock already exists; verify its owner…` | — |
-| P1e `recover` | owner-verified stale-lock recovery + observed interruption recorded | exit 0; `dead_owner_pid` removed, `current_milestone: null`, completed `[m1]` | — |
-| P1f `run --all` (fresh process) | **fresh-context resume** from the ledger; **multi-milestone** in dependency order; global completion | exit 0; m2 `DONE`, Zen `GO` (v1); completed `[m1, m2]`; `global_completion` declared | `396749c4-8222-4dd5-8ad2-5d41991e222f`, `3a26ed89-8b90-4c74-a00b-6d2a69bcf458`, `3c3dd4cf-552f-4b7d-aeac-27624ce6790b`, `540a69cf-e60b-4ee8-a9f9-be1163e4c2b9` |
-| P2a `plan` | live Piledriver advice (not adopted) | run 1: exit 1 `TIMEOUT` at the runner's 90s default; runs 2–3 after the timeout fix: exit 1 `TOOL_PERMISSION_DENIED` (Piledriver tried `git grep` via RunCommand; runner failed closed); run 4 after the no-shell instruction fix: **exit 0**, advisory plan (`plan_version: v3`, milestones, replan_analysis, evidence, unknowns, recommended_verification) returned with `adopted: false` (see §4) | run 1 `1077cedb-3be4-49dd-b326-57000852ffe4`; run 2 `cedee484-f8e9-4658-ba90-6b8a2e2c6875`; run 3 `c167dd8c-edee-42db-a6fa-f240f833b8fe`; run 4 `0b2b0f84-ffb5-42cf-90e8-ea2a7e0e6b9d` |
-| P2b `replan` v2 | **plan revision**: material replan | exit 0; `plan_version: v2`, completed cleared `[]` | — |
-| P2c `run --all` | retained milestone revalidated under v2 with a fresh GO | exit 0; m1 `DONE`, Zen `GO` with `plan_version: v2`; global completion | `48bba551-481c-4a08-8aaf-73e96e20143d`, `5d3040be-8470-49b0-b399-82df6282b167`, `d12c0210-2575-408f-88c2-0065d022c2ae` |
-| P3b `run`, artifact tampered before Zen | **live Zen NO-GO** | exit 2; w1 `DONE` candidate, Zen `NO-GO`, `verified: false`, repair_needs "Update …/ntg134-nogo.txt to contain exactly … 'alpha' instead of 'tampered'"; completed `[]` | `4a5d8754-33d7-45c1-b56c-cae7553791d9`, `c3b26152-71d8-4584-ba85-1a7eaaf22d1e`, `e9456cbb-17a1-497d-a36e-71169d1e86ba` |
-| P3c `run` (repair) | repaired candidate needs and gets a **fresh GO** | exit 0; w1 `DONE`, Zen `GO`; artifact `alpha\n`; global completion | `595f3647-9e4d-4d92-901f-c71f3c5b554b`, `5cffdd45-c341-4d86-ad5d-0f0e53656927`, `826e0477-4296-4104-90dc-c24e2b621d7d` |
+| P1b `run` (m1) | runner fails closed on a malformed Bulldozer packet | exit 1: Bulldozer prefixed Jaguar's prose and `* * *` before its JSON DONE packet → invalid response format → INVOCATION_FAILURE recorded, **nothing promoted**. Filed as #136 (not caused by the gate fixes; 1 of 8 live Bulldozer runner calls) | `0fcfffeb-14b7-4686-8dbd-78fdb5c16afc`, `651dfdcd-183a-406d-8d5b-e732984e8148` (Jaguar) |
+| P1c `run` (m1 retry), SIGKILL at 25s | supervisor killed while its executor is in flight | killed; lock and detached executor left behind | `0ebdf96a-2218-4554-a7a7-a5ca54f8022f` |
+| P1d `status` | a dead owner's lock blocks other supervisors | exit 1 `…lock already exists; verify its owner…` | — |
+| P1e `recover` | **B2**: old executor proven dead before release | exit 0 in 88 ms; `dead_owner_pid 1485161`, `terminated_executors: [1485203]` (found via inherited supervisor markers, group-SIGKILLed, exit observed via pidfd); `current_milestone: null` | — |
+| P1f `run --all` (fresh process) | **fresh-context resume**, **multi-milestone** in dependency order, no overlap | exit 0; m1 `GO` (v1), m2 `GO` (v1); completed `[m1, m2]`; global completion. Killed session `0ebdf96a` transcript last written 07:45:45.007 KST and never after; first P1f session created 07:45:51.748 — **no overlap** | `786e2188-38b8-4ee5-8a59-617f975fa2ff`, `e19cefcf-5439-4da4-93c7-847149a722d5`, `95a4a75a-575f-4a45-870f-f53e78ab4b42`, `8b8103bd-4d92-49b1-819a-87ee4a54cbc4`, `418a449f-f222-48e6-a351-4ee71a8cfe75`, `715fa73a-b728-405a-b3b1-ed1b0e6bc30e` |
+| P2a `plan` (twice) | live Piledriver advice through the runner (B4), not adopted | exit 0 both times, `adopted: false`; no TOOL_PERMISSION_DENIED | `76e1e079-dcc8-462c-827d-194325e6f192`, `a0ba7f27-0270-470d-9876-d75f46482de1` |
+| P2b `replan` v2 | **plan revision** | exit 0; `plan_version: v2`, completed cleared `[]` | — |
+| P2c `run --all` | retained milestone revalidated with a fresh v2 GO | exit 0; m1 `GO` with `plan_version: v2`; global completion | `5d545a3e-f9cf-414c-8cca-dbce8cf1eca0`, `9b4b54a9-358e-48c8-9bd6-5698cad6ad27`, `e86d4e8a-0788-49ec-b29f-4e9f8d529109` |
+| P3b `run`, artifact tampered before Zen | **live Zen NO-GO** | exit 2; w1 DONE candidate, Zen `NO-GO`, repair_needs "…contains exactly the single line \"alpha\""; completed `[]`; file `tampered\n` | `25b97273-4f42-4c89-bc3f-836f9e7cfdf2`, `a02ec514-a1ad-47d8-8e97-d70288424bd1`, `f4ff1ce6-7e97-4faf-8d36-3ac6be193a70` |
+| P3c `run` (repair) | repaired candidate gets a **fresh GO** | exit 0; w1 `GO`; file `alpha\n`; global completion | `18fa01b1-fc73-4788-b6aa-c294486c6cb1`, `81e7d8b6-afe9-4b84-97de-16dace0924cd`, `caff0671-5ac9-4024-9ba4-44bf7f440d25` |
 
-P3 tampering is fault injection in the probe driver only (a wrapper around the shipped `nativeZen` adapter overwrites the artifact once, after Bulldozer's DONE and before Zen). Everything else is the shipped CLI.
+P3 tampering is fault injection in the probe driver only. The 25 s kill point in P1c is a harness timing assumption; P1e's `terminated_executors` is the observed proof that an executor was in flight when the supervisor died.
 
 ## 3. Test suite
 
-Final run at `b38da0d`, sequential, from the repo root. Every command is prefixed `TMPDIR=$HOME/.cache/ntg134-tmp` (host /tmp quota).
+Final run at `474a881`, sequential, from the repo root, every command prefixed `TMPDIR=$HOME/.cache/ntg134-tmp`; live runner tests included.
 
 | Command | Exit | Summary |
 |---|---|---|
 | `node tests/test_dag_view.mjs` | 0 | `tests 10 ; pass 9 ; fail 0 ; skipped 1` |
 | `node tests/test_ledger.mjs` | 0 | `Summary: 39 passed, 0 failed (Total: 39)` |
 | `node tests/test_ntg_run.mjs` | 0 | `tests 12 ; pass 12 ; fail 0 ; skipped 0` |
-| `node tests/test_ntg_vnext.mjs` | 0 | `tests 8 ; pass 8 ; fail 0 ; skipped 0` |
-| `node tests/test_runner_spike.mjs` | 0 | `Summary: 46 passed, 0 failed (Total: 46)` |
+| `node tests/test_ntg_vnext.mjs` | 0 | `tests 10 ; pass 10 ; fail 0 ; skipped 0` |
+| `node tests/test_runner_spike.mjs` | 0 | `Summary: 47 passed, 0 failed (Total: 47)` (incl. live 5.1 Piledriver, 5.2 Bulldozer) |
 | `node tests/test_spine.mjs` | 0 | `tests 96 ; pass 96 ; fail 0 ; skipped 0` |
 | `node tests/test_studio_runner.mjs` | 0 | `tests 10 ; pass 10 ; fail 0 ; skipped 0` |
 | `node tests/test_telemetry.mjs` | 0 | `tests 7 ; pass 7 ; fail 0 ; skipped 0` |
@@ -49,7 +49,7 @@ Final run at `b38da0d`, sequential, from the repo root. Every command is prefixe
 | `python3 tests/test_primary_review_gate.py` | 0 | `Ran 41 tests ; OK` |
 | `python3 tests/test_zen_shell_guard.py` | 0 | `Ran 7 tests ; OK` |
 
-**Total: 351 tests — 350 pass, 0 fail, 1 skipped** (node 228 incl. 1 skipped; python 123). New: `test_ntg_vnext.mjs` (8), 2 gate cases in `test_primary_review_gate.py`. Baseline on `4b45987` before any change: all 12 files rc=0.
+**Total: 354 tests — 353 pass, 0 fail, 1 skipped.** The gate reviewer's earlier reproduction (349/1/1 at `e9a3d22`) failed live 5.1; see §4 item 4.
 
 ## 4. Defects found and fixed in this PR
 
@@ -57,8 +57,15 @@ Final run at `b38da0d`, sequential, from the repo root. Every command is prefixe
 2. **Piledriver timeout and shell attempts** (P2a). The CLI passed no runner timeout, so Pro/High planning hit the runner's 90s default. Fix: `--timeout SECONDS` (default 600, `NTG_RUNNER_TIMEOUT_S`); test asserts the forwarded timeout. Next, Piledriver tried `git grep` via RunCommand, which headless agy denies and the runner reports as `TOOL_PERMISSION_DENIED` (fail closed, correct). A role-body sentence alone did not stop it (run 3); stating the no-shell rule with the read-only tool names in the runner's planning instruction (`spine.mjs requestPlan`) did (run 4).
 3. **`runner_spike` 2.7a flake** — a test bug that predates this PR (from #100), not runner code. The test sampled `ps` once right after the runner's asynchronous process-group SIGKILL; under load the descendant was still in its exit path (state `R`, the failure message). Fix: wait for the descendant's exit through a pidfd (`os.pidfd_open` + `poll`) with a 5s bound. Verified 46/46; mutation check (runner group kill removed) fails with "descendant … still alive 5s after group SIGKILL".
 
+4. **Gate review B1 — bin symlink no-op.** The main-module check compared `argv[1]` (the npm symlink) with the resolved module path. Fix: compare real paths. Test runs the CLI through a symlink (missing ledger → exit 1 ENOENT; init → JSON). Mutation (old comparison) fails it.
+5. **Gate review B2 — overlapping executor after recover.** Recovery only checked the dead supervisor PID while its detached agy executor kept running (pre-gate run: `b13ddd6a` kept working after recover). Fix: `ntg-vnext` marks itself in `NTG_SUPERVISOR_PID` / `NTG_SUPERVISOR_LEDGER`, which every runner/Zen child inherits; `recover` finds processes carrying the dead owner's markers in `/proc`, SIGKILLs their process groups, waits for exit via pidfd (10 s bound) and only then releases the lock; it refuses (lock kept) if anything survives or `/proc` is unavailable. Test: a real supervisor process spawns a detached executor and is SIGKILLed; recover must report and terminate it. Mutation (skip termination) fails it. Live: P1e above.
+6. **Gate review B3 — Zen GO from bad envelopes.** `nativeZen` now parses through the runner's `parseResponseEnvelope` (ERROR → MODEL_ERROR, denied actions → TOOL_PERMISSION_DENIED, missing response → INVALID_OUTPUT) and requires an explicit `GO`/`NO-GO`. Negative tests for each; mutation (bypass envelope) fails them.
+7. **Gate review B4 — live Piledriver TOOL_PERMISSION_DENIED in runner_spike 5.1.** Cause (from the reviewer's failing session `bb778fac-19c1-4d1b-bc34-f2954637ba87`, which ran `git status; git log`): the activation merged the released interactive Planning discipline ("establish that the planning target is the requested target…") into `agents/piledriver.md`, and the runner sent the whole file, so headless runner invocations were told to ground the target by inspection. The 44D draft the runner used before activation had no such section. Fix: the runner drops the native-only `## INTERACTIVE MODE` section from bodies it loads (test 3.7 + updated 3.1/3.2/6.x expectations; mutation fails 3.1/3.2). Live 5.1 passed in the final suite, and P2a passed twice.
+
 ## 5. Remaining risks
 
 - Single host, `agy 1.3.3`, one day.
 - Natively selected Bulldozer/Piledriver/Excavator flows were not re-exercised live in this PR (their bodies kept the released gate semantics; #56 covered Bulldozer routing on the prior bodies).
+- #136: Bulldozer occasionally prefixes prose before its runner JSON packet (fails closed; observed 1 of 8).
+- Executor termination on recover relies on Linux `/proc` and `pidfd`; elsewhere recover refuses rather than guessing.
 - OQ-6 (`inheritCustomizations`) is unresolved by design — PO decision in the PR body.

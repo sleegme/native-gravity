@@ -18,7 +18,9 @@ mkdirSync(WORK, { recursive: true });
 function sessionsSince(t0) {
   let names = [];
   try { names = readdirSync(BRAIN); } catch { return []; }
-  return names.filter(n => { try { return statSync(join(BRAIN, n)).mtimeMs >= t0 - 2000; } catch { return false; } });
+  // Sessions CREATED during the step (birth time), not merely modified: a
+  // pre-existing session that keeps writing must not be credited to a later step.
+  return names.filter(n => { try { return statSync(join(BRAIN, n)).birthtimeMs >= t0 - 1000; } catch { return false; } });
 }
 
 function record(rec) {
