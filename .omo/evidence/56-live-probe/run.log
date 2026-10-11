@@ -1,0 +1,27 @@
+PHASE sanity
+{"label":"A0-simple-print","exit":0,"ms":10358,"dispatched":[],"verdict":null,"interrupted":false}
+PHASE_DONE sanity
+PHASE sweep
+{"label":"S1-live-tool-inventory","exit":0,"ms":10703,"dispatched":[],"verdict":null,"interrupted":false}
+sweep.json written
+PHASE_DONE sweep
+PHASE jaguar
+{"label":"B1a-bulldozer-jaguar","exit":0,"ms":78123,"dispatched":["jaguar"],"verdict":null,"interrupted":false}
+PHASE_DONE jaguar
+PHASE puma
+{"label":"B1b-bulldozer-puma","exit":0,"ms":73674,"dispatched":["puma"],"verdict":null,"interrupted":false}
+PHASE_DONE puma
+PHASE bobcat
+{"label":"B1c-bulldozer-bobcat-strix","exit":0,"ms":300828,"dispatched":["bobcat","strix-halo"],"verdict":null,"interrupted":false}
+PHASE_DONE bobcat
+PHASE steamroller
+      at acquireLedgerLock (<REPO>/scripts/ledger-lock.mjs:26:5)
+      at new MinimalSpine (<REPO>/scripts/spine.mjs:43:25)
+      at <anonymous> (<REPO>/.omo/evidence/56-live-probe/probe.mjs:222:19)
+
+Bun v1.4.2 (Linux x64)
+PHASE runner
+{"label":"B3-slug-resolution-v2","exit":0,"ms":0}
+{"label":"B3-live-piledriver","exit":0,"ms":12576,"dispatched":[],"verdict":null}
+{"label":"B3-live-bulldozer","exit":0,"ms":10423,"dispatched":[],"verdict":null}
+PHASE_DONE runner
