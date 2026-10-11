@@ -34,7 +34,7 @@ Sessions `60dafc66`, `5183dd39` (Claude Opus 5.5 Low), `caf582c2` (Pro),
 | `0ffb7c58` Claude **bulldozer** | turn 1 cold | 8,144 | 7,700 | 15,844 |
 | `0ffb7c58` Claude **bulldozer** | turn 2 warm | 586 | 15,559 | 16,145 |
 | `94dd6723` Pro | calls 1-2 cold | 14,564 / 17,069 | 0 / 0 | - |
-| `94dd6723` Pro | calls 7-31 warm | ~2-4k each | **17,081→34,855** | ~90-95% hit |
+| `94dd6723` Pro | calls 7-31 warm | ~2-4k each | **17,081→34,855** | ~81-94% hit |
 
 - **Claude lane**: a ~13k-token prefix was already cached before these
   conversations started — both fresh conversations read exactly 13,083.
@@ -51,7 +51,7 @@ Sessions `60dafc66`, `5183dd39` (Claude Opus 5.5 Low), `caf582c2` (Pro),
   step 13 on; `68a9cb5b` reads 11,688 at step 9.
 - **Gemini Pro caches too — OBSERVED** (`94dd6723`, 2026-10-11): first
   two calls miss (14,564 + 17,069 input, 0 cached), then steps 7–31 read
-  17,081→34,855 tokens from cache (~90-95% of each prompt). Pro warm-up
+  17,081→34,855 tokens from cache (~81-94% of each prompt). Pro warm-up
   is ~2 calls, Flash's is ~6.
 
 ### 3. What NTG puts in the prompt
@@ -159,7 +159,7 @@ prefix and is written per-conversation.
   (OBSERVED: no — bulldozer's cold read is 7,700 vs 13,083, so agent
   content shrinks the shared portion.)
 - Does Gemini Pro cache after warm-up like Flash? (OBSERVED: yes —
-  `94dd6723` steps 7-31 read ~90-95% from cache after 2 cold calls.)
+  `94dd6723` steps 7-31 read ~81-94% from cache after 2 cold calls.)
 - Does AGY expose `PromptCacheOptions`/`ContextCacheConfig` to users?
 - Is a bounded `ledger digest` worth building for context size
   (independent of cache hits)?
