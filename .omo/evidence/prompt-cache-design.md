@@ -34,7 +34,7 @@ Sessions `60dafc66`, `5183dd39` (Claude Opus 5.5 Low), `caf582c2` (Pro),
 | `0ffb7c58` Claude **bulldozer** | turn 1 cold | 8,144 | 7,700 | 15,844 |
 | `0ffb7c58` Claude **bulldozer** | turn 2 warm | 586 | 15,559 | 16,145 |
 | `94dd6723` Pro | calls 1-2 cold | 14,564 / 17,069 | 0 / 0 | - |
-| `94dd6723` Pro | calls 7-31 warm | ~2-4k each | **17,081→34,855** | ~81-94% hit |
+| `94dd6723` Pro | steps 7-31 warm | ~2-4k each | **17,081→34,855** | ~81-94% hit |
 
 - **Claude lane**: a ~13k-token prefix was already cached before these
   conversations started — both fresh conversations read exactly 13,083.
