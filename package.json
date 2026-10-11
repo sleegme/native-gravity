@@ -5,7 +5,8 @@
     "type": "module",
     "bin": {
         "native-gravity": "scripts/npm-install.mjs",
-        "ntg-run": "scripts/ntg-run.mjs"
+        "ntg-run": "scripts/ntg-run.mjs",
+        "ntg-dag": "scripts/dag-view.mjs"
     },
     "files": [
         "agents/",
@@ -18,7 +19,9 @@
         "docs/ko/README.md",
         "scripts/ntg-run.mjs",
         "scripts/ledger-lock.mjs",
-        "scripts/gate_panel.py"
+        "scripts/gate_panel.py",
+        "scripts/dag-view.mjs",
+        "tests/test_dag_view.mjs"
     ],
     "engines": {
         "node": ">=18"
