@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { fork } from 'node:child_process';
+import { once } from 'node:events';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { main } from '../scripts/ntg-vnext.mjs';
 import { parseResponseEnvelope } from '../scripts/runner.mjs';
@@ -93,6 +95,49 @@ test('material replan increments plan_version, clears completion, and requires f
   const rerun = await h.cli('run');
   assert.equal(rerun.out.results[0].verdict.plan_version, 'v2');
   assert.ok(rerun.out.global_completion);
+});
+
+// A real supervisor process takes the ledger lock and marks a milestone active,
+// then is SIGKILLed (no exit handlers run), leaving the lock behind.
+async function killedSupervisor(h, t) {
+  const lockHolder = join(mkdtempSync(join(tmpdir(), 'ntg-vnext-holder-')), 'holder.mjs');
+  t.after(() => rmSync(dirname(lockHolder), { recursive: true, force: true }));
+  writeFileSync(lockHolder, `import { MinimalSpine } from ${JSON.stringify(new URL('../scripts/spine.mjs', import.meta.url).pathname)};
+const spine = new MinimalSpine({ ledgerPath: process.argv[2], invokeZen: () => {}, handleSignals: false,
+  invokeRole: () => new Promise(() => process.send('in-flight')) });
+spine.runMilestone('one');
+// A pending promise does not keep the event loop alive; hold it open until killed.
+setInterval(() => {}, 1 << 30);
+`);
+  const child = fork(lockHolder, [h.ledger], { stdio: 'ignore' });
+  const timer = AbortSignal.timeout(10000);
+  await once(child, 'message', { signal: timer });
+  return child;
+}
+
+test('recover removes a lock whose owner was killed, then resume completes from the ledger', async t => {
+  const h = harness(t);
+  await h.cli('init', '--plan', h.write('plan.json', plan('v1', ['one'])));
+  const child = await killedSupervisor(h, t);
+  child.kill('SIGKILL');
+  await once(child, 'exit', { signal: AbortSignal.timeout(10000) });
+  assert.ok(existsSync(`${h.ledger}.lock`));
+  await assert.rejects(h.cli('status'), /already exists/);
+  const recovered = await h.cli('recover', '--evidence', 'supervisor SIGKILLed mid-invocation');
+  assert.equal(recovered.out.stale_lock_removed.dead_owner_pid, child.pid);
+  assert.equal(recovered.out.state.current_milestone, null);
+  const resumed = await h.cli('run');
+  assert.equal(resumed.code, 0);
+  assert.ok(resumed.out.global_completion);
+});
+
+test('recover refuses to remove a lock held by a live supervisor', async t => {
+  const h = harness(t);
+  await h.cli('init', '--plan', h.write('plan.json', plan('v1', ['one'])));
+  const child = await killedSupervisor(h, t);
+  t.after(() => child.kill('SIGKILL'));
+  await assert.rejects(h.cli('recover', '--evidence', 'x'), /held by live process/);
+  assert.ok(existsSync(`${h.ledger}.lock`));
 });
 
 test('plan returns Piledriver advice without adopting it', async t => {

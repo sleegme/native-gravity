@@ -17,7 +17,8 @@
  * 2 on a NO-GO/BLOCKED/NEEDS_DEEP outcome, 1 on errors.
  */
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, unlinkSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { MinimalSpine } from './spine.mjs';
@@ -70,8 +71,31 @@ function nextEligible(state) {
     && (m.dependencies || []).every(dep => done.has(dep)))?.id ?? null;
 }
 
+/**
+ * Owner-verified stale-lock recovery for `recover`: a lock left by a killed
+ * supervisor is removed only when the PID it records is no longer alive.
+ * A live owner (or an unreadable lock) is refused, never overridden.
+ */
+export function breakStaleLedgerLock(ledgerPath) {
+  const path = resolve(ledgerPath);
+  if (!existsSync(dirname(path))) return null;
+  const lockPath = join(realpathSync(dirname(path)), `${basename(path)}.lock`);
+  if (!existsSync(lockPath)) return null;
+  const pid = Number(readFileSync(lockPath, 'utf8').trim());
+  if (!Number.isInteger(pid) || pid <= 0) throw new Error(`${lockPath} has no owner PID; refusing stale-lock recovery`);
+  try {
+    process.kill(pid, 0);
+    throw new Error(`${lockPath} is held by live process ${pid}; refusing stale-lock recovery`);
+  } catch (error) {
+    if (error.code !== 'ESRCH') throw error;
+  }
+  unlinkSync(lockPath);
+  return { lock: lockPath, dead_owner_pid: pid };
+}
+
 export async function main(argv, deps = {}) {
   const opts = parseArgs(argv);
+  const staleLock = opts.command === 'recover' ? breakStaleLedgerLock(opts.ledger) : null;
   const readJson = path => JSON.parse(readFileSync(path, 'utf8'));
   const spine = new MinimalSpine({
     ledgerPath: opts.ledger,
@@ -93,8 +117,8 @@ export async function main(argv, deps = {}) {
         return { code: 0, out: { state: spine.adoptReplan(readJson(opts.plan)) } };
       case 'recover':
         if (!opts.evidence) throw new Error('--evidence is required');
-        spine.endInterruptedInvocation({ classification: 'OBSERVED', detail: opts.evidence });
-        return { code: 0, out: { state: spine.state } };
+        spine.endInterruptedInvocation({ classification: 'OBSERVED', detail: opts.evidence, stale_lock: staleLock });
+        return { code: 0, out: { stale_lock_removed: staleLock, state: spine.state } };
       case 'run': {
         const results = [];
         let id = opts.milestone ?? nextEligible(spine.state);

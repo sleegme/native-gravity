@@ -610,12 +610,22 @@ if (process.platform === "win32") {
     assert.match(result.stderr, /partial diagnostic/);
     if (process.platform !== "win32") {
       assert.ok(childPid > 0, "Child readiness must precede timeout");
-      // A killed orphan can remain a zombie until its system reaper runs.
-      const status = spawnSync("ps", ["-o", "stat=", "-p", String(childPid)], {
-        encoding: "utf8", timeout: 3000,
-      });
-      assert.ifError(status.error);
-      assert.ok(status.status === 1 || /^Z/.test(status.stdout.trim()), status.stdout);
+      // SIGKILL delivery is asynchronous: the orphan may still be in its exit
+      // path (ps state R) when invokeTransport returns. Await the kernel's exit
+      // signal through a pidfd (readable once the process has terminated, zombie
+      // or reaped) with a bounded timeout instead of sampling state once.
+      const exited = spawnSync("python3", ["-c", [
+        "import os, select, sys",
+        "try:",
+        "    fd = os.pidfd_open(int(sys.argv[1]))",
+        "except ProcessLookupError:",
+        "    sys.exit(0)",
+        "p = select.poll()",
+        "p.register(fd, select.POLLIN)",
+        "sys.exit(0 if p.poll(5000) else 1)",
+      ].join("\n"), String(childPid)], { encoding: "utf8", timeout: 10000 });
+      assert.ifError(exited.error);
+      assert.strictEqual(exited.status, 0, `descendant ${childPid} still alive 5s after group SIGKILL: ${exited.stderr}`);
     }
   } finally {
     if (childPid) {
