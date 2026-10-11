@@ -12,6 +12,10 @@
  *   ntg-vnext recover --ledger L --evidence "..."     (end an observed interrupted invocation)
  *   ntg-vnext status  --ledger L
  *
+ * --timeout SECONDS bounds each runner invocation (default 600; the runner's own
+ * 90s default is too short for Piledriver on Pro / High). NTG_RUNNER_TIMEOUT_S
+ * overrides the default.
+ *
  * Every invocation is a fresh context: state is reloaded from the ledger, never
  * from conversation. Output is one JSON object on stdout; exit 0 on success,
  * 2 on a NO-GO/BLOCKED/NEEDS_DEEP outcome, 1 on errors.
@@ -23,6 +27,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { MinimalSpine } from './spine.mjs';
 
+export const DEFAULT_RUNNER_TIMEOUT_S = 600;
 const USAGE = 'usage: ntg-vnext <init|plan|run|replan|recover|status> --ledger PATH [options]';
 
 function parseArgs(argv) {
@@ -31,13 +36,16 @@ function parseArgs(argv) {
   for (let i = 0; i < rest.length; i += 1) {
     const arg = rest[i];
     if (arg === '--all') { opts.all = true; continue; }
-    const key = { '--ledger': 'ledger', '--plan': 'plan', '--task': 'task', '--milestone': 'milestone', '--evidence': 'evidence' }[arg];
+    const key = { '--ledger': 'ledger', '--plan': 'plan', '--task': 'task', '--milestone': 'milestone', '--evidence': 'evidence', '--timeout': 'timeout' }[arg];
     if (!key || rest[i + 1] === undefined) throw new Error(`Unknown or incomplete option: ${arg}\n${USAGE}`);
     opts[key] = rest[i + 1];
     i += 1;
   }
   if (!['init', 'plan', 'run', 'replan', 'recover', 'status'].includes(command)) throw new Error(USAGE);
   if (!opts.ledger) throw new Error(`--ledger is required\n${USAGE}`);
+  const seconds = Number(opts.timeout ?? process.env.NTG_RUNNER_TIMEOUT_S ?? DEFAULT_RUNNER_TIMEOUT_S);
+  if (!Number.isFinite(seconds) || seconds <= 0) throw new Error(`--timeout must be a positive number of seconds\n${USAGE}`);
+  opts.timeoutMs = Math.round(seconds * 1000);
   return opts;
 }
 
@@ -102,7 +110,7 @@ export async function main(argv, deps = {}) {
     plan: opts.command === 'init' ? readJson(opts.plan) : undefined,
     invokeZen: deps.invokeZen ?? (request => nativeZen(request)),
     ...(deps.invokeRole ? { invokeRole: deps.invokeRole } : {}),
-    runnerOptions: deps.runnerOptions ?? {},
+    runnerOptions: { timeout: opts.timeoutMs, ...deps.runnerOptions },
     handleSignals: deps.handleSignals ?? true,
   });
   try {

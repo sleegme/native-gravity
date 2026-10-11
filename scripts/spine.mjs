@@ -339,7 +339,9 @@ export class MinimalSpine {
     try {
       return await this.#exact('piledriver',
         'Return a bounded advisory plan as JSON. Do not implement, delegate workers, '
-        + 'write ledger state, or claim completion.',
+        + 'write ledger state, or claim completion. You have no shell: never run commands '
+        + '(including git or grep); inspect only with read-only file tools (view_file, '
+        + 'list_dir, find_by_name, grep_search) and put command-based checks in the plan.',
         { task, replan_context: this.buildReplanContext() });
     } finally {
       this.#busy = false;

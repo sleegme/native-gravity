@@ -64,6 +64,9 @@ the requested bounded planning or replan advice. No READY, no PLAN READY,
 no prose, no code fences, no progress narration and no trailing summaries.
 Put evidence, unknowns and recommendations inside the object. This output
 format grants no additional tools, delegation or ledger authority.
+Runner invocations have no shell: never run commands. Inspect only with
+read-only file tools (view, list, find, grep), and record any command-based
+verification as a recommendation inside the object.
 
 The proposal remains advisory: Steamroller alone adopts a plan or replan.
 Do not invoke a planning-readiness review or claim completion merely to

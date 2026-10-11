@@ -23,10 +23,12 @@ function harness(t, { zen = () => 'GO' } = {}) {
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const ledger = join(dir, 'ledger.json');
   const calls = [];
+  const timeouts = [];
   const deps = {
     handleSignals: false,
-    invokeRole: async (role, packet) => {
+    invokeRole: async (role, packet, runnerOptions = {}) => {
       calls.push(role);
+      timeouts.push(runnerOptions.timeout);
       if (role === 'piledriver') return envelope({ recommendation: 'advisory only' });
       const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
       return envelope({
@@ -47,7 +49,7 @@ function harness(t, { zen = () => 'GO' } = {}) {
   const write = (name, value) => { const p = join(dir, name); writeFileSync(p, JSON.stringify(value)); return p; };
   // Each call is a fresh process-equivalent context: state comes only from the ledger file.
   const cli = (...argv) => main([argv[0], '--ledger', ledger, ...argv.slice(1)], deps);
-  return { cli, calls, write, ledger };
+  return { cli, calls, timeouts, write, ledger };
 }
 
 test('run --all promotes milestones in dependency order and declares completion only after each Zen GO', async t => {
@@ -138,6 +140,15 @@ test('recover refuses to remove a lock held by a live supervisor', async t => {
   t.after(() => child.kill('SIGKILL'));
   await assert.rejects(h.cli('recover', '--evidence', 'x'), /held by live process/);
   assert.ok(existsSync(`${h.ledger}.lock`));
+});
+
+test('runner invocations get a 600s default timeout, overridable with --timeout', async t => {
+  const h = harness(t);
+  await h.cli('init', '--plan', h.write('plan.json', plan('v1', ['one'])));
+  await h.cli('plan', '--task', 'advise');
+  await h.cli('plan', '--task', 'advise', '--timeout', '30');
+  assert.deepEqual(h.timeouts, [600000, 30000]);
+  await assert.rejects(h.cli('status', '--timeout', '0'), /positive number/);
 });
 
 test('plan returns Piledriver advice without adopting it', async t => {
