@@ -141,7 +141,7 @@ function render(ledger, width, color) {
           const lines3 = [titleLine, depLine, noteLine].filter(Boolean);
           const h = Math.max(3, lines3.length + 2);
           const idLen = dispW(m.id), stLen = dispW(st);
-          const fill = Math.max(1, inner - idLen - stLen - 3);
+          const fill = Math.max(1, inner - idLen - stLen - 4);
           const top = `┌ ${m.id} ${"─".repeat(fill)} ${st} ┐`;
           const mids = [];
           if (titleLine) mids.push(`│${pad(titleLine, inner)}│`);
@@ -214,8 +214,8 @@ function draw(err) {
   const r = err ? { ok: false, err } : load();
   if (r.ok) {
     try {
-      lastGood = r.ledger;
       const lines = render(r.ledger, w, color);
+      lastGood = r.ledger;
       if (isTTY) process.stdout.write(lines.join("\n") + "\n");
       else console.log(lines.join("\n"));
       return;
