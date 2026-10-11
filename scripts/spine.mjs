@@ -7,8 +7,8 @@ import { InvalidHandoffPacketError, InvalidResponseFormatError, invoke, parseRes
 import { projectFailureTelemetry, redactTelemetryValue } from './telemetry.mjs';
 
 /**
- * Isolated 44F coordinator owned by Steamroller; not a default runtime entry or
- * 44G activation. The exact-role adapter uses invoke(role, packet, options) and
+ * Steamroller's coordinator and the default vNext runtime (44G, #134), driven
+ * by `scripts/ntg-vnext.mjs`. The exact-role adapter uses invoke(role, packet, options) and
  * returns {ok, response}. Bulldozer milestone packets may invoke specialists:
  * Jaguar (retrieval), Puma (mechanical), Bobcat (implementation). Strix Halo
  * advises Bobcat locally. invokeZen is a required independent host-native call
@@ -339,7 +339,9 @@ export class MinimalSpine {
     try {
       return await this.#exact('piledriver',
         'Return a bounded advisory plan as JSON. Do not implement, delegate workers, '
-        + 'write ledger state, or claim completion.',
+        + 'write ledger state, or claim completion. You have no shell: never run commands '
+        + '(including git or grep); inspect only with read-only file tools (view_file, '
+        + 'list_dir, find_by_name, grep_search) and put command-based checks in the plan.',
         { task, replan_context: this.buildReplanContext() });
     } finally {
       this.#busy = false;

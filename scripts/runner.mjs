@@ -7,6 +7,8 @@ import { TextDecoder } from "node:util";
 
 // Explicitly bounded to the three runner roles; native specialists stay native.
 const ROLE_BODY_ROLES = Object.freeze(["steamroller", "piledriver", "bulldozer"]);
+/** Native-only trailing section of a released role body; never sent by the runner. */
+export const INTERACTIVE_SECTION_HEADING = "\n## INTERACTIVE MODE\n";
 const RUNNER_DIR = dirname(fileURLToPath(import.meta.url));
 
 /**
@@ -85,7 +87,7 @@ export class RoleBodyError extends Error {
 /**
  * Loads the role file as Markdown content, without interpreting AGY frontmatter.
  * Directory precedence: roleBodyDir, opts.env.NTG_ROLE_BODY_DIR, process env,
- * then ../docs/specs/vnext/agents relative to this module. Relative overrides also use RUNNER_DIR,
+ * then ../agents relative to this module. Relative overrides also use RUNNER_DIR,
  * never the invocation cwd. Missing/invalid files never fall back to defaults.
  */
 function loadRoleBody(role, opts) {
@@ -96,7 +98,7 @@ function loadRoleBody(role, opts) {
 
   try {
     const directory = opts.roleBodyDir ?? opts.env?.NTG_ROLE_BODY_DIR ??
-      process.env.NTG_ROLE_BODY_DIR ?? "../docs/specs/vnext/agents";
+      process.env.NTG_ROLE_BODY_DIR ?? "../agents";
     if (typeof directory !== "string" || !directory.trim()) {
       throw new Error("Role body directory must be a non-empty path string");
     }
@@ -105,7 +107,11 @@ function loadRoleBody(role, opts) {
     if (!body.trim() || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(body)) {
       throw new Error("Role body must contain non-empty UTF-8 Markdown without non-text control characters");
     }
-    return body.trim();
+    // Released bodies serve both runner and native selection. The trailing
+    // INTERACTIVE MODE section (delegation, PLAN READY, target grounding via
+    // inspection) is for native sessions only; under the runner it invites
+    // shell use that headless agy denies (TOOL_PERMISSION_DENIED, #135 B4).
+    return body.split(INTERACTIVE_SECTION_HEADING)[0].trim();
   } catch (err) {
     throw new RoleBodyError(
       role,

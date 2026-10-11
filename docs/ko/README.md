@@ -1,5 +1,7 @@
 # Native Gravity
 
+> **안내:** 44G 활성화(#134)로 vNext가 기본 런타임이 되었습니다. 이 한국어 문서는 아직 v0.4 기준이며, 최신 내용은 영어 문서([README](../../README.md), [usage](../usage.md), [status](../status.md))를 따릅니다.
+
 Native Gravity는 Google Antigravity의 네이티브 실행 구조를 유지하면서 역할별 하네스를 제공하는 소형 오케스트레이션 플러그인입니다.
 
 > - **Native Gravity**: 0.4.0

@@ -6,7 +6,8 @@
     "bin": {
         "native-gravity": "scripts/npm-install.mjs",
         "ntg-run": "scripts/ntg-run.mjs",
-        "ntg-dag": "scripts/dag-view.mjs"
+        "ntg-dag": "scripts/dag-view.mjs",
+        "ntg-vnext": "scripts/ntg-vnext.mjs"
     },
     "files": [
         "agents/",
@@ -21,7 +22,12 @@
         "scripts/ledger-lock.mjs",
         "scripts/gate_panel.py",
         "scripts/dag-view.mjs",
-        "tests/test_dag_view.mjs"
+        "tests/test_dag_view.mjs",
+        "scripts/ntg-vnext.mjs",
+        "scripts/spine.mjs",
+        "scripts/runner.mjs",
+        "scripts/ledger.mjs",
+        "scripts/telemetry.mjs"
     ],
     "engines": {
         "node": ">=18"

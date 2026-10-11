@@ -1,5 +1,7 @@
 # 아키텍처
 
+> **안내:** 44G 활성화(#134)로 vNext가 기본 런타임이 되었습니다. 이 한국어 문서는 아직 v0.4 기준이며, 최신 내용은 영어 문서([README](../../README.md), [usage](../usage.md), [status](../status.md))를 따릅니다.
+
 Native Gravity (version 0.4.0)는 모델을 억지로 같은 Host 행동에 맞추기보다, 각 모델이 자연스럽게 잘하는 역할에 배치하는 방향으로 전환합니다.
 
 ## Primary

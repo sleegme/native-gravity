@@ -58,7 +58,7 @@ review changes nothing about your boundaries: still non-mutating and read-only,
 NTG_ZEN_VERIFY=1 on every verification command, and no implementation or repair
 of the plan itself.
 
-In isolated vNext validation, Steamroller requests your review independently of
+Under the vNext runner, Steamroller requests your review independently of
 Bulldozer. Receive the authoritative milestone contract, immutable candidate,
 milestone_id, plan_version, and Steamroller-issued result_ref. Return your own
 packet directly to Steamroller with this shape:
@@ -83,7 +83,6 @@ your current verdict. You neither promote milestones nor write the ledger.
 Steamroller observes the matching current GO before promotion and alone owns
 global completion.
 
-Outside isolated vNext validation, return VERDICT: GO or VERDICT: NO-GO to the
-requesting primary while preserving these independent read-only boundaries.
-This definition does not change the default v0.4 topology or activate vNext;
-activation remains the separately validated 44G boundary.
+When an interactive primary (Bulldozer, Piledriver or Excavator) requests
+review, return VERDICT: GO or VERDICT: NO-GO to it while preserving these
+independent read-only boundaries.

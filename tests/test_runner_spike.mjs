@@ -28,6 +28,13 @@ console.log("=== Native Gravity 44B Exact-Model Runner Spike Tests ===");
 let passed = 0;
 let failed = 0;
 
+/** Shipped body as the runner sends it: the native-only INTERACTIVE MODE tail removed. */
+function machineBody(role) {
+  const file = readFileSync(new URL(`../agents/${role}.md`, import.meta.url), "utf8");
+  const cut = file.indexOf("\n## INTERACTIVE MODE\n");
+  return (cut === -1 ? file : file.slice(0, cut)).trim();
+}
+
 function runTest(name, fn) {
   try {
     fn();
@@ -610,12 +617,22 @@ if (process.platform === "win32") {
     assert.match(result.stderr, /partial diagnostic/);
     if (process.platform !== "win32") {
       assert.ok(childPid > 0, "Child readiness must precede timeout");
-      // A killed orphan can remain a zombie until its system reaper runs.
-      const status = spawnSync("ps", ["-o", "stat=", "-p", String(childPid)], {
-        encoding: "utf8", timeout: 3000,
-      });
-      assert.ifError(status.error);
-      assert.ok(status.status === 1 || /^Z/.test(status.stdout.trim()), status.stdout);
+      // SIGKILL delivery is asynchronous: the orphan may still be in its exit
+      // path (ps state R) when invokeTransport returns. Await the kernel's exit
+      // signal through a pidfd (readable once the process has terminated, zombie
+      // or reaped) with a bounded timeout instead of sampling state once.
+      const exited = spawnSync("python3", ["-c", [
+        "import os, select, sys",
+        "try:",
+        "    fd = os.pidfd_open(int(sys.argv[1]))",
+        "except ProcessLookupError:",
+        "    sys.exit(0)",
+        "p = select.poll()",
+        "p.register(fd, select.POLLIN)",
+        "sys.exit(0 if p.poll(5000) else 1)",
+      ].join("\n"), String(childPid)], { encoding: "utf8", timeout: 10000 });
+      assert.ifError(exited.error);
+      assert.strictEqual(exited.status, 0, `descendant ${childPid} still alive 5s after group SIGKILL: ${exited.stderr}`);
     }
   } finally {
     if (childPid) {
@@ -691,7 +708,7 @@ process.exit(0);
 
 runTest("3.1: Deterministic prompt construction with minimal packet", () => {
   const prompt = composeBoundedPrompt("piledriver", { task: "Implement feature X" });
-  const body = readFileSync(new URL("../docs/specs/vnext/agents/piledriver.md", import.meta.url), "utf8").trim();
+  const body = machineBody("piledriver");
   assert.strictEqual(prompt, `## Role\npiledriver\n\n## Role Body\n${body}\n\n## Task\nImplement feature X`);
 });
 
@@ -707,7 +724,7 @@ runTest("3.2: Deterministic prompt construction with complete structured packet"
 
   const expectedPrompt = [
     "## Role\nbulldozer",
-    `## Role Body\n${readFileSync(new URL("../docs/specs/vnext/agents/bulldozer.md", import.meta.url), "utf8").trim()}`,
+    `## Role Body\n${machineBody("bulldozer")}`,
     "## Task\nRefactor database migrations",
     "## Context Files\n- db/schema.sql\n- db/migrate.js",
     "## Evidence\n- Migration 004 failed on test DB\n- Disk usage at 80%",
@@ -720,7 +737,7 @@ runTest("3.2: Deterministic prompt construction with complete structured packet"
 
 runTest("3.3: Task alias 'objective' is accepted when 'task' is omitted", () => {
   const prompt = composeBoundedPrompt("steamroller", { objective: "Analyze trade-offs" });
-  const body = readFileSync(new URL("../docs/specs/vnext/agents/steamroller.md", import.meta.url), "utf8").trim();
+  const body = readFileSync(new URL("../agents/steamroller.md", import.meta.url), "utf8").trim();
   assert.strictEqual(prompt, `## Role\nsteamroller\n\n## Role Body\n${body}\n\n## Task\nAnalyze trade-offs`);
 });
 
@@ -818,6 +835,22 @@ runTest("4.2: Multi-role chain detection blocks re-entrant role (RECURSION_DETEC
 
 // =============================================================================
 // Section 5: Live Piledriver & Bulldozer Invocations (Handoff Packets)
+// =============================================================================
+
+runTest("3.7: Runner prompts exclude the native-only INTERACTIVE MODE section (#135 B4)", () => {
+  for (const role of ["piledriver", "bulldozer"]) {
+    const file = readFileSync(new URL(`../agents/${role}.md`, import.meta.url), "utf8");
+    assert.ok(file.includes("\n## INTERACTIVE MODE\n"), `${role} ships an interactive section`);
+    const prompt = composeBoundedPrompt(role, { task: "T" });
+    assert.ok(!prompt.includes("## INTERACTIVE MODE"), `${role} runner prompt leaks the interactive section`);
+    assert.ok(prompt.includes("MACHINE-INVOCATION MODE"), `${role} runner prompt keeps machine mode`);
+  }
+  // The released target-grounding rule (which drove `git status` probes) stays native-only.
+  assert.ok(!composeBoundedPrompt("piledriver", { task: "T" }).includes("establish that the planning target"));
+});
+
+// =============================================================================
+// (live section)
 // =============================================================================
 
 const skipLive = process.env.SKIP_LIVE_TESTS === "1" || process.env.SKIP_LIVE_TESTS === "true";
@@ -1000,7 +1033,7 @@ runTest("6.6: Neutral process cwd needs no customization for explicit or module-
         const explicit = invoke(role, packet, opts);
         assert.strictEqual(explicit.ok, true, JSON.stringify(explicit));
         assert.ok(JSON.parse(explicit.response).prompt.includes(`BODY_MARKER_${role}`));
-        const shipped = readFileSync(new URL(`../docs/specs/vnext/agents/${role}.md`, import.meta.url), "utf8").trim();
+        const shipped = machineBody(role);
         const defaultPrompt = composeBoundedPrompt(role, packet);
         assert.ok(defaultPrompt.includes(`## Role Body\n${shipped}\n\n## Task\nTASK_MARKER`));
         const runnerDir = dirname(fileURLToPath(new URL("../scripts/runner.mjs", import.meta.url)));
