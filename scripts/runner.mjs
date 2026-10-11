@@ -85,7 +85,7 @@ export class RoleBodyError extends Error {
 /**
  * Loads the role file as Markdown content, without interpreting AGY frontmatter.
  * Directory precedence: roleBodyDir, opts.env.NTG_ROLE_BODY_DIR, process env,
- * then ../docs/specs/vnext/agents relative to this module. Relative overrides also use RUNNER_DIR,
+ * then ../agents relative to this module. Relative overrides also use RUNNER_DIR,
  * never the invocation cwd. Missing/invalid files never fall back to defaults.
  */
 function loadRoleBody(role, opts) {
@@ -96,7 +96,7 @@ function loadRoleBody(role, opts) {
 
   try {
     const directory = opts.roleBodyDir ?? opts.env?.NTG_ROLE_BODY_DIR ??
-      process.env.NTG_ROLE_BODY_DIR ?? "../docs/specs/vnext/agents";
+      process.env.NTG_ROLE_BODY_DIR ?? "../agents";
     if (typeof directory !== "string" || !directory.trim()) {
       throw new Error("Role body directory must be a non-empty path string");
     }

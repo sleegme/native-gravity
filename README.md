@@ -11,38 +11,39 @@ Native Gravity is a small orchestration plugin for Google Antigravity. It keeps 
 >   - AGY 1.1.24 — validated
 >   - AGY 1.2.12 — validated w/ regression ([#64](https://github.com/sleegme/native-gravity/issues/64))
 
-## Primary modes
+## vNext runtime (default)
+
+vNext is the default runtime ([#134](https://github.com/sleegme/native-gravity/issues/134)). The `ntg-vnext` runner drives multi-milestone work:
 
 ```text
-User
-├─ Bulldozer  — general Host / orchestrator
-├─ Piledriver — planner
-└─ Excavator  — autonomous troubleshooter / repair owner
+User -> ntg-vnext
+  Steamroller — supervisor / authoritative ledger owner
+    Piledriver — bounded planning, architecture, difficult decisions / Pro
+    Bulldozer  — exactly one bounded milestone / Flash
+      Jaguar / Puma / Bobcat (-> Strix Halo)
+    Zen        — independent milestone verification / Pro
 ```
 
-The three primary agents are peers. Piledriver and Excavator are not children of Bulldozer.
+Steamroller alone writes the ledger, promotes a milestone only after an observed matching Zen GO, and declares global completion. See [Usage](docs/usage.md#ntg-vnext-default-vnext-runner) for the commands.
 
-## Bulldozer internal team
+## Natively selectable primaries
 
 ```text
-Bulldozer
-├─ Bobcat      — ordinary implementation / Flash
-│  └─ Strix Halo — local advice + CHECK gate / Pro
-├─ Puma        — quick + writing / Flash
-├─ Jaguar      — codebase exploration / Flash
-├─ Steamroller — deep decisions / Pro
-└─ Zen         — independent final review / Pro
+User (agent selection)
+├─ Bulldozer  — one bounded request, Zen completion gate
+├─ Piledriver — plan-first packet, Zen plan-readiness gate
+└─ Excavator  — autonomous troubleshooter / repair owner, Zen completion gate
 ```
 
 Routing is based on the kind of work:
 
 - find/inspect -> Jaguar
 - small + clear + low-risk / writing -> Puma
-- ordinary implementation -> Bobcat
-- architecture / ambiguity / trade-off -> Steamroller
+- ordinary implementation -> Bobcat (-> Strix Halo)
+- planning / architecture / trade-off -> Piledriver
 - independent verification -> Zen
 
-Piledriver is for users who want a plan-first workflow. Excavator is for users who want one autonomous agent to dig into a difficult failure, find root cause, repair it, and verify the bounded result end-to-end.
+The v0.4 peer-primary topology (Steamroller as a Bulldozer deep-decision specialist) is superseded; it is preserved for reference in [the v0.4 baseline](docs/specs/pre-vnext-v0.4-behavior-baseline.md).
 
 ## Why v0.4 changes direction
 
@@ -52,7 +53,7 @@ That also invalidates the v0.3.3 global Gemini 3.1 Pro mutation deny: Excavator 
 
 ## Native-first boundary
 
-Native Gravity does not ship a replacement runtime. The npm entrypoint is installation-only: it locates the packaged plugin directory and delegates installation back to `agy plugin install`. It does not intercept or wrap Antigravity runtime execution. Antigravity owns primary/subagent execution, lifecycle, sessions, workspaces, model resolution, and tool permissions. Native Gravity supplies role contracts, routing policy, model-adaptive behavioral guidance, and `ntg-run` — a thin invocation helper that prepends the `NTG_ROLE` attribution marker to gated-role prompts so the review gate can see which role ran under AGY 1.2.x, and optionally holds exclusive ledger ownership via `--ledger`. It does not replace Antigravity runtime behavior.
+Native Gravity does not ship a replacement runtime. The npm entrypoint is installation-only: it locates the packaged plugin directory and delegates installation back to `agy plugin install`. It does not intercept or wrap Antigravity runtime execution. Antigravity owns primary/subagent execution, lifecycle, sessions, workspaces, model resolution, and tool permissions. Native Gravity supplies role contracts, routing policy, model-adaptive behavioral guidance, and `ntg-run` — a thin invocation helper that prepends the `NTG_ROLE` attribution marker to gated-role prompts so the review gate can see which role ran under AGY 1.2.x, and optionally holds exclusive ledger ownership via `--ledger`. It does not replace Antigravity runtime behavior. The vNext runner (`ntg-vnext`) is a narrow exact-model coordinator over `agy` that owns only the authoritative ledger, milestone sequencing and the independent Zen gate; it is not a general workflow platform.
 
 ## Ledger ownership
 

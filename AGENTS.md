@@ -4,50 +4,54 @@
 
 Native Gravity is a thin Antigravity-native orchestration plugin. Prefer Antigravity's native agent lifecycle, model tiers, workspaces, rules, and delegation primitives over custom runtime machinery.
 
-## v0.4 architecture
+## vNext architecture (default runtime)
 
-v0.4 separates **user-selectable primary modes** from **internal specialists** and maps models to roles that fit their observed behavior instead of forcing every model through one Host shape.
+vNext is the default runtime (44G, #134). The authoritative contract is `docs/specs/vnext-architecture-contract.md`; `docs/specs/pre-vnext-v0.4-behavior-baseline.md` records the superseded v0.4 behavior.
 
-### User-selectable primary agents
+### Runner topology
+
+The narrow exact-model runner (`scripts/spine.mjs`, role bodies loaded from `agents/`) is the default entry for multi-milestone work:
 
 ```text
 User
-├─ Bulldozer  — general Host / orchestrator
-├─ Piledriver — plan-first strategist
-└─ Excavator  — autonomous troubleshooter / deep repair owner
+  Steamroller — supervisor / authoritative ledger owner
+    Piledriver — bounded planning, architecture and difficult decisions
+    Bulldozer — exactly one bounded milestone
+      Jaguar / Puma / Bobcat
+                       Strix Halo — Bobcat-local gate
+    Zen — independent milestone verification
+    Steamroller ledger transition
 ```
 
-These three are peers. Piledriver and Excavator are not children of Bulldozer.
+- **Steamroller** is the sole supervisor, authoritative ledger writer and global completion authority. It does not implement project source or directly orchestrate workers. Ledger state, not conversation, is authoritative. It is runner-invoked, not natively selectable.
+- **Piledriver** is advisory planning/architecture/deep decision only: no implementation, worker orchestration, project-state ownership or completion claims. Steamroller alone decides whether to adopt its proposal.
+- **Bulldozer** receives one current-version milestone packet, delegates within that boundary and returns a pre-review candidate. It neither directly edits project source nor writes the ledger or claims project completion.
+- NEEDS_DEEP goes through Bulldozer to Steamroller for possible Piledriver invocation. Bulldozer does not invoke Piledriver.
+- **Zen** reviews every P0 milestone candidate independently for Steamroller, never as Bulldozer's child. Steamroller persists an immutable candidate/`result_ref` binding, then observes Zen's matching milestone, `plan_version` and `result_ref` before promotion.
+- Worker READY and Strix ACCEPT are local signals. Bulldozer DONE is a pre-review candidate, not verified or global completion.
+- Material replanning ends active execution/review, increments `plan_version`, marks old verdicts STALE and clears active/completed milestone state; retained milestones need fresh current-version review in dependency order.
+- Global completion requires all current milestones verified, no blockers, no active execution/review and Steamroller's direct observation of evidence.
 
-- **Bulldozer** owns general orchestration, routing, integration, verification, and final completion.
-- **Piledriver** owns planning only: requirements, acceptance, task graph, dependencies, risks, and verification strategy. It may use Jaguar for read-only planning discovery and Zen for final plan-readiness review, but it does not implement project source.
-- **Excavator** owns a bounded difficult problem end-to-end: investigate, reproduce, diagnose, repair, verify, then obtain independent Zen review before READY. It is intentionally allowed to implement directly.
+The runner owns exact model resolution and effort (Steamroller/Bulldozer: Gemini 3.8 Flash High; Piledriver: Gemini 3.1 Pro High); frontmatter does not guess exact slugs.
 
-### Internal specialists
+### Natively selectable primaries
 
 ```text
-Bulldozer
-├─ Bobcat
-│  └─ Strix Halo
-├─ Puma
-├─ Jaguar
-├─ Steamroller
-└─ Zen
-
-Piledriver
-├─ Jaguar  — planning discovery only
-└─ Zen     — final plan-readiness review only
-
-Excavator
-└─ Zen  — completion review only
+User (native agent selection)
+├─ Bulldozer  — one bounded request: Jaguar / Puma / Bobcat (-> Strix Halo), Zen completion gate
+├─ Piledriver — plan-first packet: Jaguar discovery, Zen plan-readiness gate
+└─ Excavator  — autonomous troubleshooter / deep repair owner, Zen completion gate
 ```
 
-- **Bobcat** — ordinary implementation worker; Flash tier; may consult `strix-halo` when the Host-selected gate requires it.
+Natively selected primaries own only their bounded work. Multi-milestone work, durable ledger state, replanning and global project completion belong to Steamroller through the runner. Excavator remains outside the P0 spine; its recovery reconnection is post-44G.
+
+### Specialists
+
+- **Bobcat** — ordinary implementation worker; Flash tier; may consult `strix-halo` when the parent-selected gate requires it.
 - **Puma** — quick/writing worker for small, explicit, low-risk mechanical work; Flash tier; no nested delegation.
 - **Jaguar** — read-only codebase discovery; Flash tier.
-- **Steamroller** — read-only deep reasoning for architecture, ambiguity, trade-offs, and difficult decisions; Pro tier.
 - **Strix Halo** — read-only Bobcat-local advice/check gate; Pro tier.
-- **Zen** — shared independent non-mutating final review gate; Pro tier; may run verification commands to gather its own evidence. Bulldozer uses it for orchestrated completion review, Piledriver uses it for plan-readiness review, and Excavator may invoke it only as its final completion reviewer.
+- **Zen** — shared independent non-mutating review gate; Pro tier; may run verification commands to gather its own evidence. Steamroller uses it for milestone verification, natively selected Bulldozer for completion review, Piledriver for plan-readiness review, and Excavator only as its final completion reviewer.
 
 ## Routing principle
 
@@ -56,19 +60,10 @@ Choose by **kind of work**, not by apparent task size alone.
 - factual discovery / locate existing behavior -> Jaguar
 - small + clear + low-risk / writing / formatting / mechanical text/config -> Puma
 - ordinary implementation -> Bobcat
-- architecture / ambiguity / trade-off -> Steamroller
-- independent completion review -> Zen
-- plan-first user workflow -> Piledriver primary
+- planning / architecture / ambiguity / trade-off -> Piledriver (via Steamroller under the runner)
+- milestone verification / independent completion review -> Zen
+- multi-milestone project work -> runner (Steamroller)
 - difficult autonomous diagnosis + repair user workflow -> Excavator primary
-
-## Primary-mode boundaries
-
-Bulldozer, Piledriver, and Excavator are independent entry points.
-
-- Do not make Bulldozer spawn Piledriver or Excavator merely because their specialty is relevant.
-- Piledriver returns a plan packet; it does not claim implementation completion. Its only children are Jaguar for bounded read-only planning discovery and Zen for final plan-readiness review.
-- Excavator may edit because direct autonomous repair is the point of the role. Its only child is Zen, used after local verification as an independent completion gate.
-- Bulldozer remains the normal orchestration mode and delegates project edits to Bobcat or Puma.
 
 ## Bobcat Advisor gate
 
@@ -89,8 +84,9 @@ Across all roles:
 - do not treat a launched subagent, started test, or plausible patch as a completed transition
 - keep handoffs compact and acceptance-linked
 - converge or escalate instead of repeating materially similar loops
+- artifact-specific verification procedures live in reusable QA skills (`skills/`); task packets reference rather than re-derive them
 
-Bulldozer alone owns global completion in orchestrated mode. Piledriver owns only plan readiness and requires an observed current Zen `VERDICT: GO` before `PLAN READY`. Excavator owns completion of its explicitly bounded autonomous task only after its own verification and an observed Zen `VERDICT: GO` for the current artifact. A genuinely BLOCKED Excavator task may terminate without Zen when the generic BLOCKED gate is satisfied.
+Only Steamroller declares global project completion. Natively selected Bulldozer requires an observed current Zen `VERDICT: GO` before `READY` for its bounded request. Piledriver owns only plan readiness and requires an observed current Zen `VERDICT: GO` before `PLAN READY`. Excavator owns completion of its explicitly bounded autonomous task only after its own verification and an observed Zen `VERDICT: GO` for the current artifact. A genuinely BLOCKED task may terminate without Zen when the generic BLOCKED gate is satisfied.
 
 ## Model-adaptive policy
 
@@ -131,33 +127,31 @@ Zen prefixes every verification command with `NTG_ZEN_VERIFY=1 `. The plugin's `
 
 This is a behavioral backstop for a known role-boundary failure, not a complete read-only shell sandbox. Do not generalize it into a model-wide mutation deny.
 
-## Compatibility validation required
+## Validation required
 
-Earlier Native Gravity testing found that an Antigravity custom primary agent could fail to invoke subagents even when the Default agent could. v0.4 therefore treats **custom-primary delegation paths** as explicit runtime validation gates, not assumed capabilities.
+Custom-primary and runner delegation paths are explicit runtime validation gates, not assumed capabilities. Before a release, verify:
 
-Before calling 0.4.0 stable, verify:
-
-1. Bulldozer is selectable as a primary agent.
-2. Bulldozer can invoke Bobcat, Puma, Jaguar, Steamroller, and Zen.
-3. Bobcat can invoke strix-halo and no other child.
-4. Piledriver is selectable, remains planning-only, can invoke Jaguar and Zen but no implementation worker, and observes the current Zen verdict before `PLAN READY`.
-5. Excavator is selectable, can edit, and is not blocked by a model-wide mutation guard.
-6. Excavator can invoke Zen and cannot complete READY without observing the current Zen verdict.
-7. A Zen `VERDICT: NO-GO` or a post-GO Excavator write/marked shell call causes correction plus a fresh review before READY.
-8. Puma handles quick/writing work without ritual Advisor use.
-9. Zen completion is based on an actually observed verdict.
-10. Zen can run independent verification commands while common intentional source-mutation shell attempts are denied by the Zen marker guard.
-11. Excavator-marked shell calls allow ordinary sudo diagnostics while rejecting the reproduced privilege-drift and full-upgrade paths without affecting other agents.
+1. The runner drives Steamroller -> Piledriver -> Bulldozer -> Zen end to end, promoting a milestone only on an observed matching Zen GO.
+2. Multi-milestone runs promote milestones in dependency order; material replanning increments `plan_version` and revalidates retained milestones.
+3. A Zen NO-GO leaves the milestone incomplete and a repaired candidate needs a fresh GO.
+4. A fresh-context resume continues from the ledger, not conversation.
+5. Bulldozer is natively selectable, invokes Jaguar, Puma, Bobcat and Zen, and cannot READY without an observed current Zen GO.
+6. Bobcat can invoke strix-halo and no other child.
+7. Piledriver is selectable, remains planning-only, can invoke Jaguar and Zen but no implementation worker, and observes the current Zen verdict before `PLAN READY`.
+8. Excavator is selectable, can edit, invokes Zen, and cannot complete READY without the current Zen verdict.
+9. Zen can run verification commands while common intentional source-mutation shell attempts are denied by the Zen marker guard.
+10. Excavator-marked shell calls allow ordinary sudo diagnostics while rejecting the reproduced privilege-drift and full-upgrade paths without affecting other agents.
 
 ## Design rules
 
-1. Native-first.
-2. Primary modes are peers, not a hierarchy.
+1. Native-first; keep the runner and ledger narrow, not a general workflow platform.
+2. Explicit two-level hierarchy under the runner: Steamroller -> (Piledriver | Bulldozer).
 3. Keep the internal graph shallow.
 4. Fit roles to model behavior before adding corrective harness weight.
 5. Use Puma for quick/writing work instead of burdening Bobcat with unnecessary review ceremony.
-6. Keep Jaguar factual and Steamroller decisional.
+6. Keep Jaguar factual and Piledriver advisory.
 7. Keep Strix Halo read-only and Zen non-mutating.
 8. Do not reintroduce a model-wide 3.1 Pro mutation deny while Excavator uses that model family for implementation.
 9. Guard Excavator by effect and privilege-acquisition behavior, not by banning sudo itself.
 10. Keep Excavator autonomous through diagnosis and repair, but require an independent Zen gate before READY.
+11. Open question OQ-6 (`inheritCustomizations` semantics) is a PO decision; do not treat omitted or inherited customizations as grants.

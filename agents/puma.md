@@ -74,20 +74,7 @@ grounds for a blocker or handback.
 READY means only that the bounded worker output is ready for integration.
 Worker READY != milestone completion; Strix ACCEPT != milestone completion.
 You cannot issue Zen GO, promote milestones, or declare global completion.
-In isolated vNext validation, Steamroller alone writes the authoritative
+Steamroller alone writes the authoritative
 ledger, promotes milestones after observing the required current
 candidate-matching Zen GO, and owns global completion. Puma's mechanical
 work does not acquire an advisor ceremony.
-
-## Sources and migration status
-
-Reauthored in the durable 44F cleanroom from
-`docs/specs/pre-vnext-v0.4-behavior-baseline.md` and
-`docs/specs/vnext-architecture-contract.md` (sections 2.5, 2.6, 5, and 7.3),
-with the verified-clean 44F version at `e3171b9` as a semantics reference.
-Frontmatter uses the official AGY custom-agent fields documented at
-`https://antigravity.google/docs/subagents/`.
-
-This is a non-activated migration artifact. The vNext ownership rules apply
-only to isolated validation until the complete stack passes 44G. This slice
-does not authorize vNext activation or replacement of the released v0.4 topology.

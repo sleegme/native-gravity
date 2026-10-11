@@ -691,7 +691,7 @@ process.exit(0);
 
 runTest("3.1: Deterministic prompt construction with minimal packet", () => {
   const prompt = composeBoundedPrompt("piledriver", { task: "Implement feature X" });
-  const body = readFileSync(new URL("../docs/specs/vnext/agents/piledriver.md", import.meta.url), "utf8").trim();
+  const body = readFileSync(new URL("../agents/piledriver.md", import.meta.url), "utf8").trim();
   assert.strictEqual(prompt, `## Role\npiledriver\n\n## Role Body\n${body}\n\n## Task\nImplement feature X`);
 });
 
@@ -707,7 +707,7 @@ runTest("3.2: Deterministic prompt construction with complete structured packet"
 
   const expectedPrompt = [
     "## Role\nbulldozer",
-    `## Role Body\n${readFileSync(new URL("../docs/specs/vnext/agents/bulldozer.md", import.meta.url), "utf8").trim()}`,
+    `## Role Body\n${readFileSync(new URL("../agents/bulldozer.md", import.meta.url), "utf8").trim()}`,
     "## Task\nRefactor database migrations",
     "## Context Files\n- db/schema.sql\n- db/migrate.js",
     "## Evidence\n- Migration 004 failed on test DB\n- Disk usage at 80%",
@@ -720,7 +720,7 @@ runTest("3.2: Deterministic prompt construction with complete structured packet"
 
 runTest("3.3: Task alias 'objective' is accepted when 'task' is omitted", () => {
   const prompt = composeBoundedPrompt("steamroller", { objective: "Analyze trade-offs" });
-  const body = readFileSync(new URL("../docs/specs/vnext/agents/steamroller.md", import.meta.url), "utf8").trim();
+  const body = readFileSync(new URL("../agents/steamroller.md", import.meta.url), "utf8").trim();
   assert.strictEqual(prompt, `## Role\nsteamroller\n\n## Role Body\n${body}\n\n## Task\nAnalyze trade-offs`);
 });
 
@@ -1000,7 +1000,7 @@ runTest("6.6: Neutral process cwd needs no customization for explicit or module-
         const explicit = invoke(role, packet, opts);
         assert.strictEqual(explicit.ok, true, JSON.stringify(explicit));
         assert.ok(JSON.parse(explicit.response).prompt.includes(`BODY_MARKER_${role}`));
-        const shipped = readFileSync(new URL(`../docs/specs/vnext/agents/${role}.md`, import.meta.url), "utf8").trim();
+        const shipped = readFileSync(new URL(`../agents/${role}.md`, import.meta.url), "utf8").trim();
         const defaultPrompt = composeBoundedPrompt(role, packet);
         assert.ok(defaultPrompt.includes(`## Role Body\n${shipped}\n\n## Task\nTASK_MARKER`));
         const runnerDir = dirname(fileURLToPath(new URL("../scripts/runner.mjs", import.meta.url)));

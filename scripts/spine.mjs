@@ -7,8 +7,8 @@ import { InvalidHandoffPacketError, InvalidResponseFormatError, invoke, parseRes
 import { projectFailureTelemetry, redactTelemetryValue } from './telemetry.mjs';
 
 /**
- * Isolated 44F coordinator owned by Steamroller; not a default runtime entry or
- * 44G activation. The exact-role adapter uses invoke(role, packet, options) and
+ * Steamroller's coordinator and the default vNext runtime (44G, #134), driven
+ * by `scripts/ntg-vnext.mjs`. The exact-role adapter uses invoke(role, packet, options) and
  * returns {ok, response}. Bulldozer milestone packets may invoke specialists:
  * Jaguar (retrieval), Puma (mechanical), Bobcat (implementation). Strix Halo
  * advises Bobcat locally. invokeZen is a required independent host-native call

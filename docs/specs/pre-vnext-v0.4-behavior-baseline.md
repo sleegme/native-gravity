@@ -1,5 +1,7 @@
 # Pre-vNext Native Gravity v0.4 Behavior Baseline
 
+> **Status: superseded.** vNext is the default runtime since the 44G activation (#134). This document is retained as the behavioral and provenance reference for the v0.4 topology; it no longer describes the released runtime.
+
 Baseline commit: `427544cc39141df35918c0a6d79e6e1b4c208607`
 
 This document preserves the final accepted behavioral baseline of the pre-vNext Native Gravity architecture.

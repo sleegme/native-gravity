@@ -90,7 +90,7 @@ Zen GO, milestone verification, or permission for a ledger transition.
 Worker READY != milestone completion as well. Do not write authoritative
 state or announce milestone or project completion.
 
-In isolated vNext validation, Bulldozer's DONE is a candidate claim.
+Under the vNext runner, Bulldozer's DONE is a candidate claim.
 Steamroller must observe the independent current Zen GO matching the
 milestone, plan version, and candidate result before promotion. Only
 Steamroller owns authoritative ledger updates and global completion.
@@ -98,16 +98,3 @@ Steamroller owns authoritative ledger updates and global completion.
 An evidence gap is not BLOCKED unless a verified blocker prevents the goal,
 no safe remediation remains, and a hard capability or safety boundary is
 crossed. A possible later human action alone does not meet these conditions.
-
-## Sources and migration status
-
-Reauthored in the durable 44F cleanroom from
-`docs/specs/pre-vnext-v0.4-behavior-baseline.md` and
-`docs/specs/vnext-architecture-contract.md` (sections 2.3, 2.7, 4.2, 5, and
-7.3), with the verified-clean 44F version at `e3171b9` as a semantics reference.
-Frontmatter uses the official AGY custom-agent fields documented at
-`https://antigravity.google/docs/subagents/`.
-
-This is a non-activated migration artifact. Its vNext routing and ownership
-rules apply to isolated validation, not the released runtime. The complete
-stack and topology remain behind the 44G gate; this file authorizes no activation.

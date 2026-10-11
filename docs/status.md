@@ -12,6 +12,14 @@ See [Versioning Policy](versioning.md) for versioning rules and lifecycle defini
 
 ## State
 
+### vNext activation (44G, #134)
+
+vNext is the default runtime. Released `agents/` and `rules/` carry the vNext contracts; the runner loads role bodies from `agents/` and `ntg-vnext` is the default multi-milestone entry. Bulldozer, Piledriver and Excavator remain natively selectable with their Zen gates; Steamroller is runner-only. The primary review gate is keyed to the vNext role sentences. Activation evidence: `.omo/evidence/134-vnext-activation.md`.
+
+Open: OQ-6 (`inheritCustomizations` semantics) is a PO decision recorded in the activation PR; Excavator recovery reconnection and Instinct remain post-44G.
+
+### v0.4 history
+
 Core runtime validation passed on AGY 1.1.21 and AGY 1.1.24; ready for alpha use.
 
 Implemented:

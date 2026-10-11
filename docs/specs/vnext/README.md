@@ -1,4 +1,6 @@
-# vNext drafts — NOT INSTALLED, NOT ACTIVATED
+# vNext drafts — historical (superseded by activation)
+
+> vNext was activated in 44G (#134). The released `agents/`, `rules/` and `AGENTS.md` are now authoritative and the runner no longer reads this tree. These files are kept as the 44D–44F drafting record only.
 
 This tree holds the non-activated vNext agent/rule drafts and explanatory docs
 for issue #44. Merged implementation slices do not make this draft tree an

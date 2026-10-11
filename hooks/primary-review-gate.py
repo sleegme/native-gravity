@@ -17,8 +17,8 @@ from pathlib import Path
 from typing import Any, Iterable, Optional
 
 ROLE_SIGNATURES = {
-    "bulldozer": "You are Bulldozer, Native Gravity's general Host and orchestrator.",
-    "piledriver": "You are Piledriver, Native Gravity's plan-first primary agent.",
+    "bulldozer": "You are Bulldozer, Native Gravity's vNext milestone orchestrator.",
+    "piledriver": "You are Piledriver, Native Gravity's vNext bounded planner.",
 }
 IDENTITY_KEYS = {
     "agentname",

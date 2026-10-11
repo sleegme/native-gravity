@@ -1,5 +1,5 @@
 {
   "$schema": "https://antigravity.google/schemas/v1/plugin.json",
   "name": "native-gravity",
-  "description": "A thin Antigravity-native orchestration layer with Bulldozer, Piledriver, Excavator, Bobcat, Puma, Jaguar, Steamroller, Advisor, and Zen roles."
+  "description": "A thin Antigravity-native orchestration layer. vNext default: Steamroller supervises Piledriver planning and Bulldozer milestones with independent Zen review; Jaguar, Puma, Bobcat, Strix Halo, and Excavator roles."
 }

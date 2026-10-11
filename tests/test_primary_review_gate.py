@@ -278,14 +278,34 @@ class PrimaryReviewGateTests(unittest.TestCase):
 
     def test_system_prompt_can_scope_bulldozer(self):
         result = run_gate([
-            {'role': 'system', 'content': "You are Bulldozer, Native Gravity's general Host and orchestrator."},
+            {'role': 'system', 'content': "You are Bulldozer, Native Gravity's vNext milestone orchestrator."},
             assistant('READY'),
         ])
         self.assertEqual(result['decision'], 'continue')
 
+    def test_role_signatures_match_shipped_agent_bodies(self):
+        # The gate keys on the role sentence; it must appear verbatim in the
+        # shipped agent body or the gate silently stops scoping that role.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('primary_review_gate', GATE)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        signatures = module.ROLE_SIGNATURES
+        agents_dir = ROOT / 'agents'
+        for role in ('bulldozer', 'piledriver'):
+            body = (agents_dir / f'{role}.md').read_text(encoding='utf-8')
+            self.assertIn(signatures[role], body, role)
+
+    def test_legacy_v04_signature_no_longer_scopes_role(self):
+        result = run_gate([
+            {'role': 'system', 'content': "You are Bulldozer, Native Gravity's general Host and orchestrator."},
+            assistant('READY'),
+        ])
+        self.assertEqual(result['decision'], 'stop')
+
     def test_system_prompt_can_scope_piledriver(self):
         result = run_gate([
-            {'role': 'system', 'content': "You are Piledriver, Native Gravity's plan-first primary agent."},
+            {'role': 'system', 'content': "You are Piledriver, Native Gravity's vNext bounded planner."},
             assistant('PLAN READY'),
         ])
         self.assertEqual(result['decision'], 'continue')
