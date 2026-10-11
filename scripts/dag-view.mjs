@@ -141,8 +141,8 @@ function render(ledger, width, color) {
           const lines3 = [titleLine, depLine, noteLine].filter(Boolean);
           const h = Math.max(3, lines3.length + 2);
           const idLen = dispW(m.id), stLen = dispW(st);
-          const fill = Math.max(1, inner - idLen - stLen - 1);
-          const top = `┌ ${m.id}${"─".repeat(fill)}${st} ┐`;
+          const fill = Math.max(1, inner - idLen - stLen - 3);
+          const top = `┌ ${m.id} ${"─".repeat(fill)} ${st} ┐`;
           const mids = [];
           if (titleLine) mids.push(`│${pad(titleLine, inner)}│`);
           if (depLine) mids.push(`│${pad(depLine, inner)}│`);
@@ -213,10 +213,26 @@ function draw(err) {
   const hdr = [`watching ${ledgerPath} · updated ${new Date().toTimeString().slice(0, 8)}`];
   const r = err ? { ok: false, err } : load();
   if (r.ok) {
-    lastGood = r.ledger;
-    const lines = render(r.ledger, w, color);
-    if (isTTY) process.stdout.write(lines.join("\n") + "\n");
-    else console.log(lines.join("\n"));
+    try {
+      lastGood = r.ledger;
+      const lines = render(r.ledger, w, color);
+      if (isTTY) process.stdout.write(lines.join("\n") + "\n");
+      else console.log(lines.join("\n"));
+      return;
+    } catch (e) {
+      // render threw (bad graph) — show last good if we have it
+      const msg = lastGood ? `! ${e.message} (showing last good frame)` : `waiting for ${ledgerPath}: ${e.message}`;
+      if (lastGood) {
+        const lines = hdr.concat([msg], render(lastGood, w, color));
+        if (isTTY) process.stdout.write(lines.join("\n") + "\n");
+        else console.log(lines.join("\n"));
+      } else {
+        const lines = hdr.concat([msg]);
+        if (isTTY) process.stdout.write(lines.join("\n") + "\n");
+        else console.log(lines.join("\n"));
+      }
+      return;
+    }
   } else {
     const msg = lastGood ? `! ${r.err} (showing last good frame)` : `waiting for ${ledgerPath}: ${r.err}`;
     const lines = lastGood ? hdr.concat([msg], render(lastGood, w, color)) : hdr.concat([msg]);
