@@ -8,7 +8,9 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const REPO = '/home/sleeg/work/native-gravity-vnext-56';
+const REPO = join(import.meta.dirname, '../../..'); // repo root, derived at runtime
+// Probe write targets live off /tmp (host /tmp quota was exhausted during #56); override with NTG56_ARTIFACT_DIR.
+const ARTIFACT_DIR = process.env.NTG56_ARTIFACT_DIR || join(process.env.HOME, '.cache/ntg56-tmp');
 const ART = join(REPO, '.omo/evidence/56-live-probe');
 const BRAIN = `${process.env.HOME}/.gemini/antigravity-cli/brain`;
 const AGY_NEW = `${process.env.HOME}/.local/bin/agy`; // 1.3.3
@@ -186,13 +188,13 @@ const phases = {
   puma: () => [
     run('B1b-bulldozer-puma', {
       argv: ['node', NTG_RUN, '--agent', 'bulldozer', '--model', 'gemini-3.8-flash-medium', '--dangerously-skip-permissions',
-        '-p', 'NTG_ROLE: bulldozer\nDelegate this bounded unit to the quick/writing specialist (Puma): create /home/sleeg/.cache/ntg56-tmp/ntg56-puma-note.txt containing exactly the three lines "alpha", "beta", "gamma". When the specialist reports back, reply with exactly: PUMA_LEG_DONE'],
+        '-p', `NTG_ROLE: bulldozer\nDelegate this bounded unit to the quick/writing specialist (Puma): create ${ARTIFACT_DIR}/ntg56-puma-note.txt containing exactly the three lines "alpha", "beta", "gamma". When the specialist reports back, reply with exactly: PUMA_LEG_DONE`],
     }),
   ],
   bobcat: () => [
     run('B1c-bulldozer-bobcat-strix', {
       argv: ['node', NTG_RUN, '--agent', 'bulldozer', '--model', 'gemini-3.8-flash-medium', '--dangerously-skip-permissions',
-        '-p', 'NTG_ROLE: bulldozer\nDelegate this bounded implementation unit to Bobcat with ADVISOR_GATE: REQUIRED (Strix Halo must review): create /home/sleeg/.cache/ntg56-tmp/ntg56-bobcat-marker.txt containing exactly the line "marker" and verify it exists. When the specialist reports back, reply with exactly: BOBCAT_LEG_DONE'],
+        '-p', `NTG_ROLE: bulldozer\nDelegate this bounded implementation unit to Bobcat with ADVISOR_GATE: REQUIRED (Strix Halo must review): create ${ARTIFACT_DIR}/ntg56-bobcat-marker.txt containing exactly the line "marker" and verify it exists. When the specialist reports back, reply with exactly: BOBCAT_LEG_DONE`],
       timeoutMs: 420000,
     }),
   ],

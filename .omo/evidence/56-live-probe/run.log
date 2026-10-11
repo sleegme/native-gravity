@@ -15,9 +15,9 @@ PHASE bobcat
 {"label":"B1c-bulldozer-bobcat-strix","exit":0,"ms":300828,"dispatched":["bobcat","strix-halo"],"verdict":null,"interrupted":false}
 PHASE_DONE bobcat
 PHASE steamroller
-      at acquireLedgerLock (/home/sleeg/work/native-gravity-vnext-56/scripts/ledger-lock.mjs:26:5)
-      at new MinimalSpine (/home/sleeg/work/native-gravity-vnext-56/scripts/spine.mjs:43:25)
-      at <anonymous> (/home/sleeg/work/native-gravity-vnext-56/.omo/evidence/56-live-probe/probe.mjs:222:19)
+      at acquireLedgerLock (<REPO>/scripts/ledger-lock.mjs:26:5)
+      at new MinimalSpine (<REPO>/scripts/spine.mjs:43:25)
+      at <anonymous> (<REPO>/.omo/evidence/56-live-probe/probe.mjs:222:19)
 
 Bun v1.4.2 (Linux x64)
 PHASE runner
