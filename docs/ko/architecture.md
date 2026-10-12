@@ -53,4 +53,4 @@ Specialist는 네이티브 Flash/Pro 역할 정책을 유지합니다. Exact-mod
 
 Excavator는 P0 밖의 별도 트러블슈팅 primary로 남습니다; recovery 재연결/최종 배치는 post-44G입니다. `NTG_EXCAVATOR=1` guard 효과를 보존합니다. Instinct/Sonnet은 미래 작업입니다.
 
-OQ-6(`inheritCustomizations` 의미)은 Excavator로 좁혀진 PO 결정입니다(#137); 누락되거나 상속된 customization은 절대 grant로 취급하지 않습니다.
+OQ-6은 네이티브 Excavator에 대해 해결됐습니다(#137): 작업공간 지침을 유지하기 위해 `inheritCustomizations: true`를 명시적으로 유지합니다. AGY 1.3.3 통제 실험에서 true와 생략은 작업공간 규칙을 전달했고 false는 전달하지 않았습니다. 상속된 context는 권한 grant가 아닙니다. 증거: `.omo/evidence/137-excavator-validation.md`.

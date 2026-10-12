@@ -17,7 +17,7 @@ vNext is the only structure. The pre-vNext (v0.4) topology and its compatibility
 
 vNext is the runtime. Released `agents/` and `rules/` carry the vNext contracts; the runner loads role bodies from `agents/` and `ntg-vnext` is the multi-milestone entry. Steamroller is runner-only; Bulldozer and Piledriver are invoked by the runner with exact models and bounded packets. Activation evidence: `.omo/evidence/134-vnext-activation.md`.
 
-Open: OQ-6 (`inheritCustomizations` semantics) is a PO decision narrowed to Excavator (#137); Bulldozer and Piledriver no longer carry the field. Excavator recovery reconnection and Instinct remain post-44G.
+Resolved OQ-6 (#137): keep explicit `inheritCustomizations: true` on native Excavator to preserve workspace instructions. The controlled AGY 1.3.3 probe propagated a workspace rule for true and omission, but not false. Bulldozer and Piledriver remain runner-only and do not carry the field. Excavator recovery reconnection and Instinct remain post-44G.
 
 ### Guards and boundaries in force
 
@@ -34,10 +34,10 @@ Validated on AGY 1.3.3 (evidence: `.omo/evidence/113-live-probe-results.md`, `.o
 - runner end-to-end: multi-milestone dependency-order execution with an independent Zen GO per milestone, fresh-context resume after an observed interrupted invocation, material replan with `plan_version` increment and fresh current-version review, and a live Zen NO-GO -> repair -> fresh GO cycle
 - specialist delegation: Bulldozer -> Jaguar / Puma / Bobcat and the nested Bobcat -> Strix Halo (`ACCEPT`) gate, observed with transcript-level `invoke_subagent` dispatches
 - runner exact-model resolution: piledriver `gemini-3.1-pro-high`, bulldozer/steamroller `gemini-3.8-flash-high`
+- native Excavator: actual interactive NO-GO -> repair -> fresh GO, followed in the same session by a direct write after GO -> fresh independent review -> READY. Actual terminal Stop events allowed completion after fresh GO. Stale-verdict rejection was separately replayed against the captured post-write transcript; it was not a live premature-READY attempt. Evidence: `.omo/evidence/137-excavator-validation.md`.
 
 Pending live revalidation:
 
-- Excavator's live edit -> Zen GO -> READY and NO-GO -> non-READY termination were observed on AGY 1.3.1 (`.omo/evidence/agy-1-3-1/side-probe.md`). A full NO-GO repair loop and post-GO-write re-review still need live revalidation; deterministic review-gate tests cover these conditions.
 - `multi_replace_file_content` is declared by no current agent and was not observed live (no action needed unless a future agent declares it)
 - `manage_task` is present on the live tool surface but declared by no agent
 

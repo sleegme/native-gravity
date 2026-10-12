@@ -102,6 +102,8 @@ Excavator remains a separate troubleshooting primary outside P0; its recovery
 reconnection/final placement is post-44G. Preserve `NTG_EXCAVATOR=1` guard
 effects. Instinct/Sonnet is future work.
 
-OQ-6 (`inheritCustomizations` semantics) remains a PO decision narrowed to
-Excavator (#137); omitted or inherited customizations are never treated as
-grants.
+OQ-6 is resolved for native Excavator (#137): keep explicit
+`inheritCustomizations: true` to preserve workspace instructions. The
+AGY 1.3.3 controlled probe propagated a workspace rule for true and
+omission, but not false. Inherited context is not an authority grant.
+Evidence: `.omo/evidence/137-excavator-validation.md`.

@@ -17,7 +17,7 @@ vNext가 유일한 구조입니다. pre-vNext(v0.4) 토폴로지와 호환성 �
 
 vNext가 런타임입니다. 배포된 `agents/`와 `rules/`가 vNext 계약을 담고, 러너는 `agents/`에서 역할 body를 로드하며 `ntg-vnext`가 멀티 마일스톤 진입점입니다. Steamroller는 runner 전용이고 Bulldozer와 Piledriver는 러너가 exact model과 bounded packet으로 호출합니다. 활성화 증거: `.omo/evidence/134-vnext-activation.md`.
 
-미해결: OQ-6(`inheritCustomizations` 의미)은 Excavator로 좁혀진 PO 결정입니다(#137). Bulldozer와 Piledriver는 더 이상 해당 필드를 갖지 않습니다. Excavator recovery 재연결과 Instinct는 post-44G로 남습니다.
+OQ-6 해결(#137): 작업공간 지침을 유지하기 위해 네이티브 Excavator의 `inheritCustomizations: true`를 명시적으로 유지합니다. AGY 1.3.3 통제 실험에서 true와 생략은 작업공간 규칙을 전달했고 false는 전달하지 않았습니다. Bulldozer와 Piledriver는 runner 전용이며 해당 필드를 갖지 않습니다. Excavator recovery 재연결과 Instinct는 post-44G로 남습니다.
 
 ### 적용 중인 guard와 경계
 
@@ -34,10 +34,10 @@ AGY 1.3.3에서 검증 완료 (증거: `.omo/evidence/113-live-probe-results.md`
 - 러너 end-to-end: 마일스톤별 독립 Zen GO를 가진 멀티 마일스톤 의존성 순서 실행, 관측된 중단 후 fresh-context 재개, `plan_version` 증가와 fresh current-version 재검증을 가진 material replan, 그리고 라이브 Zen NO-GO -> 수정 -> fresh GO 사이클
 - specialist 위임: Bulldozer -> Jaguar / Puma / Bobcat과 중첩 Bobcat -> Strix Halo(`ACCEPT`) gate가 transcript 수준 `invoke_subagent` dispatch로 관측됨
 - 러너 exact-model 해석: piledriver `gemini-3.1-pro-high`, bulldozer/steamroller `gemini-3.8-flash-high`
+- 네이티브 Excavator: 실제 인터랙티브 NO-GO -> 수정 -> fresh GO 이후 같은 세션에서 GO 뒤 직접 write -> fresh 독립 검수 -> READY를 관측했습니다. 실제 terminal Stop 이벤트는 fresh GO 뒤 완료를 허용했습니다. Stale verdict 거부는 캡처한 post-write transcript를 별도로 재생해 확인했으며, 조기 READY 시도의 live 관측은 아닙니다. 증거: `.omo/evidence/137-excavator-validation.md`.
 
 라이브 재검증 대기:
 
-- Excavator의 라이브 edit -> Zen GO -> READY와 NO-GO -> non-READY 종료는 AGY 1.3.1에서 관측됐습니다(`.omo/evidence/agy-1-3-1/side-probe.md`). 전체 NO-GO 수정 루프와 post-GO-write 재검수는 라이브 재검증이 필요하며, deterministic review-gate 테스트가 이 조건들을 커버합니다.
 - `multi_replace_file_content`는 현재 어떤 agent도 선언하지 않으며 라이브로 관측되지 않음 (미래 agent가 선언하지 않는 한 조치 불필요)
 - `manage_task`는 라이브 도구 표면에 있으나 어떤 agent도 선언하지 않음
 

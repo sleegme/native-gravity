@@ -150,4 +150,4 @@ Custom-primary and runner delegation paths are explicit runtime validation gates
 8. Do not reintroduce a model-wide 3.1 Pro mutation deny while Excavator uses that model family for implementation.
 9. Guard Excavator by effect and privilege-acquisition behavior, not by banning sudo itself.
 10. Keep Excavator autonomous through diagnosis and repair, but require an independent Zen gate before READY.
-11. Open question OQ-6 (`inheritCustomizations` semantics) is a PO decision; do not treat omitted or inherited customizations as grants.
+11. Keep explicit `inheritCustomizations: true` on native Excavator (#137) to preserve workspace instructions; inherited context is not an authority grant.

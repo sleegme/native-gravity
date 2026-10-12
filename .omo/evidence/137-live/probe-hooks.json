@@ -1,0 +1,53 @@
+{
+  "zen-verification-boundary": {
+    "PreToolUse": [
+      {
+        "matcher": "^run_command$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./hooks/zen-shell-guard.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "excavator-migration-boundary": {
+    "PreToolUse": [
+      {
+        "matcher": "^run_command$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./hooks/excavator-shell-guard.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "native-gravity-excavator-review-gate": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "node ./hooks/excavator-review-observer.mjs",
+        "timeout": 10
+      }
+    ]
+  },
+  "ntg137-live-invocation-observer": {
+    "PreToolUse": [
+      {
+        "matcher": "^invoke_subagent$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ./hooks/excavator-review-observer.mjs invoke",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
