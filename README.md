@@ -187,11 +187,12 @@ contracts, routing policy and the ledger. Details are in
   for you.
 - **Model usage costs.** `run`, `plan` and `alt` call real AGY models.
 - **Known failure mode.** A model occasionally echoes a worker report before
-  its JSON result packet. Plain narration around a single packet is accepted,
-  but text outside the packet that contains JSON-like tokens (double quotes,
-  backticks, braces, square brackets, or a standalone number, `true`, `false`
-  or `null`) makes the output ambiguous, and that fails closed as an
-  invocation failure
+  its JSON result packet. Plain narration and a ` ```json ` code fence around a
+  single packet are accepted, but other text outside the packet that contains
+  JSON-like tokens (double quotes, backticks, braces, square brackets, or a
+  standalone number, `true`, `false` or `null`) makes the output ambiguous,
+  and that fails closed as an invocation failure (exact rule:
+  `parseResponsePacket` in `scripts/runner.mjs`)
   ([#136](https://github.com/sleegme/native-gravity/issues/136)). Since 1.1.0
   Bulldozer is instructed to keep worker reports inside the packet; if it still
   happens, retry the milestone. Nothing is promoted on a malformed response.
