@@ -180,8 +180,9 @@ Native Gravity는 Antigravity 런타임을 대체하지 않습니다. 실행, �
 - **모델 사용 비용.** `run`, `plan`, `alt`는 실제 AGY 모델을 호출합니다.
 - **알려진 실패 모드.** 모델이 JSON 결과 패킷 앞에 worker 보고를 그대로 옮겨
   붙이는 경우가 간혹 있습니다. 패킷 하나를 감싼 평범한 설명 문장은 받아들이지만,
-  따옴표나 괄호가 들어간 문장이 섞이면 결과가 모호해져 invocation 실패로
-  fail-closed 처리됩니다([#136](https://github.com/sleegme/native-gravity/issues/136)).
+  패킷 밖의 문장에 JSON처럼 보이는 요소(큰따옴표, 백틱, 중괄호, 대괄호, 또는
+  단독으로 쓰인 숫자·`true`·`false`·`null`)가 있으면 결과가 모호해져
+  invocation 실패로 fail-closed 처리됩니다([#136](https://github.com/sleegme/native-gravity/issues/136)).
   1.1.0부터 Bulldozer는 worker 보고를 패킷 안에만 넣도록 지시받으며, 그래도
   발생하면 마일스톤을 재시도하세요. 깨진 응답에서는 아무것도 승격되지 않습니다.
 - **크래시 복구는 Linux 전용.** `recover`는 `/proc`과 `pidfd`로 죽은 소유자를
