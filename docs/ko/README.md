@@ -178,10 +178,12 @@ Native Gravity는 Antigravity 런타임을 대체하지 않습니다. 실행, �
 - **플랜은 직접 작성합니다.** 자연어 목표 → 플랜 UI는 없으며, `ntg-vnext plan`은
   계획 자문을 제공할 뿐 플랜을 대신 작성하지 않습니다.
 - **모델 사용 비용.** `run`, `plan`, `alt`는 실제 AGY 모델을 호출합니다.
-- **알려진 실패 모드.** 모델이 JSON 결과 패킷 앞에 서술을 붙이는 경우가 간혹
-  있습니다. 이 경우 invocation 실패로 fail-closed 처리됩니다
-  ([#136](https://github.com/sleegme/native-gravity/issues/136)) — 마일스톤을
-  재시도하세요. 깨진 응답에서는 아무것도 승격되지 않습니다.
+- **알려진 실패 모드.** 모델이 JSON 결과 패킷 앞에 worker 보고를 그대로 옮겨
+  붙이는 경우가 간혹 있습니다. 패킷 하나를 감싼 평범한 설명 문장은 받아들이지만,
+  따옴표나 괄호가 들어간 문장이 섞이면 결과가 모호해져 invocation 실패로
+  fail-closed 처리됩니다([#136](https://github.com/sleegme/native-gravity/issues/136)).
+  1.1.0부터 Bulldozer는 worker 보고를 패킷 안에만 넣도록 지시받으며, 그래도
+  발생하면 마일스톤을 재시도하세요. 깨진 응답에서는 아무것도 승격되지 않습니다.
 - **크래시 복구는 Linux 전용.** `recover`는 `/proc`과 `pidfd`로 죽은 소유자를
   확인하고 고아 executor를 종료합니다. 다른 플랫폼에서는 추측하지 않고 거부합니다.
 - **ledger 하나에 세션 하나.** 러너는 세션 수명 동안 ledger에 배타적 lock을

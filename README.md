@@ -186,10 +186,13 @@ contracts, routing policy and the ledger. Details are in
   `ntg-vnext plan` produces advisory planning help but never writes your plan
   for you.
 - **Model usage costs.** `run`, `plan` and `alt` call real AGY models.
-- **Known failure mode.** A model occasionally prefixes prose before its JSON
-  result packet; this fails closed as an invocation failure
-  ([#136](https://github.com/sleegme/native-gravity/issues/136)) — retry the
-  milestone. Nothing is promoted on a malformed response.
+- **Known failure mode.** A model occasionally echoes a worker report before
+  its JSON result packet. Plain narration around a single packet is accepted,
+  but text containing quotes or brackets makes the output ambiguous, and that
+  fails closed as an invocation failure
+  ([#136](https://github.com/sleegme/native-gravity/issues/136)). Since 1.1.0
+  Bulldozer is instructed to keep worker reports inside the packet; if it still
+  happens, retry the milestone. Nothing is promoted on a malformed response.
 - **Crash recovery is Linux-specific.** `recover` verifies dead owners and
   terminates orphaned executors via `/proc` and `pidfd`; on other platforms it
   refuses rather than guessing.
