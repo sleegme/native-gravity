@@ -17,7 +17,7 @@ Excavator는 더 이상 네이티브로 선택 가능한 primary가 아닙니다
 
 Instinct는 heterogeneous alternate-framing 자문입니다. runner 전용이며 advisory입니다: bare JSON 객체 하나(현재 framing, 그것이 틀릴 수 있는 이유, 각각 evidence basis와 discriminating test를 가진 materially 다른 가설/접근, 권고, unknowns)를 반환하고 구현, 오케스트레이션, ledger, completion 권한이 없습니다. `ntg-vnext alt`는 bounded NEEDS_ALT 패킷(failure class/signature, 현재 가설, 시도 횟수, evidence, tier-B replan context)으로 호출하고 결과는 advisory evidence(`adopted: false`)로만 기록됩니다. Exact-model 해석은 Claude Sonnet 5.5 / High를 목표로 하고, Claude Opus 5.5 / High는 명시적 `--escalate`에서만 선택되며 기존과 같은 fail-closed slug 해석을 사용합니다(OQ-4 해결). `status`는 같은 실패 class가 새 증거 없이 3회 이상 반복될 때 class별로 NEEDS_ALT를 추천합니다(계약 §2.9); 추천은 유료 호출을 자동 실행하지 않습니다.
 
-#136: Bulldozer의 MACHINE-INVOCATION MODE가 specialist/worker 보고를 packet 필드(`verification_evidence`, `delegations` findings) 안에서만 relay하도록 요구합니다. JSON 객체 앞뒤의 텍스트는 금지되며 엄격한 packet 파서는 그대로이며 여전히 산문을 거부합니다.
+#136: Bulldozer의 MACHINE-INVOCATION MODE가 specialist/worker 보고를 packet 필드(`verification_evidence`, `delegations` findings) 안에서만 relay하도록 요구합니다. JSON 객체 앞뒤의 텍스트는 금지되며 packet 파서는 그대로입니다: 모호하지 않은 JSON 객체 하나만 받고, 잘못된 형식·복수 객체·모호한 산문이 섞인 출력은 거부합니다.
 
 ### vNext-only (1.0.0, #138)
 

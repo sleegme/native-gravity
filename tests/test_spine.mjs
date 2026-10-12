@@ -1077,6 +1077,40 @@ test('NEEDS_ALT passes escalation only when explicitly requested', async t => {
   assert.equal(spine.state.evidence.alt_framing.length, 3);
 });
 
+test('NEEDS_ALT counts repeated identical Zen NO-GOs and ignores stale ones', () => {
+  const ledger = new AuthoritativeLedger({
+    goal: 'Repair repeated failure', constraints: [], decision_invariants: [], plan_version: 'v1',
+    milestones: [{ id: 'one', title: 'one', objective: 'Repair one', bounded_scope: ['one.txt'],
+      acceptance_criteria: ['valid content'], non_goals: [], dependencies: [] }],
+  });
+  const reject = result => {
+    ledger.delegate('one');
+    const { result_ref } = ledger.receiveCandidate({
+      milestone_id: 'one', plan_version: 'v1', status: 'DONE', changes_made: [],
+      verification_evidence: [{ classification: 'OBSERVED', result: 'unchanged candidate' }],
+      unresolved_unknowns: [], scope_deviations: [], candidate_artifact_ref: 'sha256:unchanged',
+    });
+    ledger.recordZenNoGo({
+      milestone_id: 'one', plan_version: 'v1', result_ref, verdict: 'NO-GO',
+      verification_evidence: [{ classification: 'OBSERVED', criterion: 'valid content', result }],
+      repair_needs: 'Fix invalid content',
+    });
+  };
+  for (let attempt = 0; attempt < 3; attempt++) reject('same invalid content');
+  const state = ledger.getState();
+  const [summary] = recommendNeedsAlt(state.evidence, state._verification_history);
+  assert.equal(summary.failure_class, 'one:NO-GO:zen');
+  assert.equal(summary.attempt_count, 3);
+  assert.equal(summary.needs_alt_recommended, true);
+  assert.deepEqual(state.completed_milestones, []);
+  // A different latest verdict is new evidence; stale verdicts never count.
+  reject('different invalid content');
+  const fresh = ledger.getState();
+  assert.equal(recommendNeedsAlt(fresh.evidence, fresh._verification_history)[0].needs_alt_recommended, false);
+  const stale = fresh._verification_history.map(record => ({ ...record, is_stale: true }));
+  assert.deepEqual(recommendNeedsAlt(fresh.evidence, stale), []);
+});
+
 test('Instinct invocation requires a task and a known milestone', async t => {
   const f = fixture(t);
   await assert.rejects(f.spine.requestAltFraming(''), TypeError);

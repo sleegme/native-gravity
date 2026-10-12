@@ -47,7 +47,7 @@ auto-run paid calls.
 #136: Bulldozer's MACHINE-INVOCATION MODE now requires specialist/worker
 reports to be relayed only inside packet fields (`verification_evidence`,
 `delegations` findings), never as text before or after the JSON object; the
-strict packet parser is unchanged and still rejects prose.
+strict packet parser is unchanged: it accepts only one unambiguous JSON object and rejects malformed, multiple or ambiguous-narration output.
 
 ### vNext-only (1.0.0, #138)
 

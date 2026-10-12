@@ -206,8 +206,14 @@ export function matchesPolicy(policy, model) {
   const familyText = policy.family.toLowerCase();
   const effort = policy.effort.toLowerCase();
 
-  const familyMatch = slug.includes(familySlug) || slug.includes(familySlugDashed)
-    || (desc.length > 0 && desc.includes(familyText));
+  // Match whole family tokens only, so "5.5"/"5-5" never matches a different
+  // version such as "5.50"/"5-50" (fail closed when the requested family is absent).
+  const hasToken = (hay, needle) => {
+    const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(?:^|[^a-z0-9.])${escaped}(?=$|[^a-z0-9.])`).test(hay);
+  };
+  const familyMatch = hasToken(slug, familySlug) || hasToken(slug, familySlugDashed)
+    || (desc.length > 0 && hasToken(desc, familyText));
   if (!familyMatch) return false;
 
   const effortMatch =

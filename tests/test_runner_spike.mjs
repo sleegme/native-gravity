@@ -1111,6 +1111,26 @@ const claudeSurface = [
   { slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" },
 ];
 
+runTest("7.0: a different version with a prefix-colliding slug never satisfies the instinct family", () => {
+  for (const [escalate, slug, description] of [
+    [false, "claude-sonnet-5-50-high", "Claude Sonnet 5.50 (High)"],
+    [true, "claude-opus-5-50-high", "Claude Opus 5.50 (High)"],
+  ]) {
+    for (const surface of [[slug], [{ slug, description }]]) {
+      assert.throws(
+        () => resolveSlug("instinct", { escalate, installedModels: surface }),
+        err => err instanceof UnresolvedModelSlugError && err.reason === "NOT_FOUND",
+        `${slug} must not resolve (escalate=${escalate})`,
+      );
+    }
+  }
+  // Exact families on the same surface still resolve, including Gemini roles.
+  const mixed = ["claude-sonnet-5-50-high", "claude-sonnet-5-5-high", "gemini-3.8-flash-high", "gemini-3.1-pro-high"];
+  assert.strictEqual(resolveSlug("instinct", { installedModels: mixed }), "claude-sonnet-5-5-high");
+  assert.strictEqual(resolveSlug("bulldozer", { installedModels: mixed }), "gemini-3.8-flash-high");
+  assert.strictEqual(resolveSlug("piledriver", { installedModels: mixed }), "gemini-3.1-pro-high");
+});
+
 runTest("7.1: instinct targets Claude Sonnet 5.5 High and Opus 5.5 High only on explicit escalation", () => {
   assert.strictEqual(ROLE_POLICY_TABLE.instinct.family, "Claude Sonnet 5.5");
   assert.strictEqual(ROLE_POLICY_TABLE.instinct.effort, "High");

@@ -28,18 +28,34 @@ function failureSignatureOf(entry) {
  * evidence (its failure signature repeats an earlier attempt in the class).
  * Recommendation only — a paid Instinct call is never auto-run.
  *
+ * Substantive review failures count too: each non-stale Zen NO-GO in the
+ * verification history is an attempt in the class `<milestone>:NO-GO:zen`,
+ * signed by its verification evidence and repair needs.
+ *
  * @param {object} evidence - ledger state `evidence` map
+ * @param {Array<object>} [verificationHistory] - ledger `_verification_history`
  * @returns {Array<object>} one bounded summary per failure class
  */
-export function recommendNeedsAlt(evidence) {
+export function recommendNeedsAlt(evidence, verificationHistory = []) {
   const byClass = new Map();
+  const add = (failure_class, milestoneId, entry) => {
+    if (!byClass.has(failure_class)) byClass.set(failure_class, []);
+    byClass.get(failure_class).push({ milestoneId, entry });
+  };
   for (const [milestoneId, value] of Object.entries(evidence ?? {})) {
     if (!value || typeof value !== 'object' || !Array.isArray(value.failure_evidence)) continue;
-    for (const entry of value.failure_evidence) {
-      const failure_class = failureClassOf(milestoneId, entry);
-      if (!byClass.has(failure_class)) byClass.set(failure_class, []);
-      byClass.get(failure_class).push({ milestoneId, entry });
-    }
+    for (const entry of value.failure_evidence) add(failureClassOf(milestoneId, entry), milestoneId, entry);
+  }
+  for (const record of Array.isArray(verificationHistory) ? verificationHistory : []) {
+    if (record?.verdict !== 'NO-GO' || record.is_stale || typeof record.milestone_id !== 'string') continue;
+    add(`${record.milestone_id}:NO-GO:zen`, record.milestone_id, {
+      status: 'NO-GO',
+      timestamp: record.timestamp ?? null,
+      evidence: {
+        verification_evidence: record.verification_evidence ?? null,
+        repair_needs: record.repair_needs ?? null,
+      },
+    });
   }
   const summaries = [];
   for (const [failure_class, attempts] of byClass) {
@@ -431,7 +447,8 @@ export class MinimalSpine {
     if (milestoneId !== null && !this.state.milestones.some(m => m.id === milestoneId)) {
       throw new TypeError(`Unknown milestone for NEEDS_ALT context: "${milestoneId}"`);
     }
-    const target = selectAltTarget(recommendNeedsAlt(this.state.evidence), milestoneId);
+    const target = selectAltTarget(
+      recommendNeedsAlt(this.state.evidence, this.state._verification_history), milestoneId);
     const contract = {
       task: task.trim(),
       needs_alt: {

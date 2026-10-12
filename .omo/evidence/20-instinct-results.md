@@ -8,7 +8,7 @@ Branch: `fix/136-bulldozer-relay` (base `main` @ da11485). Product version bumpe
 reports (Jaguar findings, Puma/Bobcat results, Strix Halo verdicts) are relayed
 only inside packet fields (`verification_evidence`, `delegations` findings),
 never as text before or after the JSON object. `scripts/runner.mjs`
-`parseResponsePacket` is unchanged (still fail-closed on prose), per the brief.
+`parseResponsePacket` is unchanged, per the brief. It accepts one unambiguous object (narration without JSON-like tokens may be unwrapped) and fails closed on malformed, multiple or ambiguous output.
 
 ## B. Instinct (#20)
 

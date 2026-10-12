@@ -218,7 +218,7 @@ export async function main(argv, deps = {}) {
           out: {
             state: spine.state,
             next_milestone: nextEligible(spine.state),
-            needs_alt: recommendNeedsAlt(spine.state.evidence),
+            needs_alt: recommendNeedsAlt(spine.state.evidence, spine.state._verification_history),
           },
         };
       case 'plan':
