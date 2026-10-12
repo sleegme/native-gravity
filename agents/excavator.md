@@ -1,6 +1,6 @@
 ---
 name: excavator
-description: Bulldozer worker for difficult broken-behavior work: diagnose, reproduce, root-cause, repair and verify inside one milestone, then return a worker result to Bulldozer.
+description: Bulldozer worker for difficult broken-behavior work that diagnoses, reproduces, root-causes, repairs and verifies inside one milestone, then returns a worker result to Bulldozer.
 tools:
   - view_file
   - list_dir

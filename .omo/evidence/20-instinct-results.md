@@ -344,3 +344,37 @@ Transcript observations:
 3. Excavator's model assignment stays at native `model: pro` (unchanged from
    the primary); OQ-3 is closed on authority/placement, and comparative
    model evidence remains future work.
+
+## Excavator dispatch defect: root cause and fix (lead)
+
+The worker's live run above needed `define_subagent` because the shipped
+`agents/excavator.md` could not be invoked. The lead reproduced and isolated it
+(AGY 1.3.3, branch plugin installed, main restored after every probe):
+
+- Direct `invoke_subagent TypeName=excavator` from Bulldozer, `define_subagent`
+  forbidden: `subagent "excavator" not found or not allowed to be invoked`
+  (session `eb29b13e-d941-4f14-81dd-cebf64e032ce`). Bobcat control dispatched.
+- Same failure with `model: flash` and under a new name (`digger`): not model
+  or name. Excavator frontmatter + Bobcat body failed; Bobcat frontmatter +
+  Excavator body dispatched: the frontmatter is the cause.
+- Excavator frontmatter with a plain description dispatched in every variant
+  (tool order, `invoke_subagent` added, empty mcpServers/skills/plugins).
+- A strict YAML parse of all agent frontmatter fails only for excavator.md: its
+  description was an unquoted plain scalar containing `: ` ("...work: diagnose"),
+  which is invalid YAML. AGY drops the agent silently, so the call reports
+  "not found". The pre-demotion description had no colon.
+
+Fix: description reworded without `: `. Regression test
+`tests/test_agent_frontmatter.mjs` checks every agent's top-level plain
+scalars and name/file agreement; it fails on the old description (1 of 21)
+and passes on the fix (21 of 21).
+
+Verification of the fix, shipped file, no workaround: Bulldozer session
+`a29d1b5a-6b53-47a5-a69c-1868d8c69be0` made one `invoke_subagent TypeName=excavator`
+and no `define_subagent`; zero "not found" errors. Excavator child
+`5b19f41f-9076-4aa0-a849-d3fcab252157` used view/write/run_command/send_message
+only, no `invoke_subagent` (never Zen); its shell call carried `NTG_EXCAVATOR=1 `.
+The fixture ended as `alpha`. Installed plugin restored to main and diff-verified.
+
+This supersedes unresolved issue 1 above: it was a shipped frontmatter defect,
+not an AGY registry quirk.
