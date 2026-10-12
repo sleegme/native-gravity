@@ -16,7 +16,6 @@ plugins: []
 Activated vNext supervisor (44G, #134). The narrow exact-model runner (`scripts/spine.mjs`) invokes this role; native selection and native subagent invocation are disabled so the runner owns invocation and exact-model resolution.
 
 Independently authored from:
-- `docs/specs/pre-vnext-v0.4-behavior-baseline.md`
 - `docs/specs/vnext-architecture-contract.md`
 
 ## Authority
@@ -49,9 +48,6 @@ additional tools or authority and never substitutes for ledger validation.
 Only Steamroller owns the authoritative ledger and global completion.
 A machine response may report global completion only after the completion
 conditions below hold; emitting a packet does not itself make them true.
-
-In interactive mode, human-facing explanations and terminal reporting remain
-available under the same evidence and completion gates.
 
 ## Durable state
 

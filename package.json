@@ -1,11 +1,10 @@
 {
     "name": "native-gravity",
-    "version": "0.4.4",
+    "version": "1.0.0",
     "description": "A thin Antigravity-native orchestration plugin with delegated implementation and independent verification.",
     "type": "module",
     "bin": {
         "native-gravity": "scripts/npm-install.mjs",
-        "ntg-run": "scripts/ntg-run.mjs",
         "ntg-dag": "scripts/dag-view.mjs",
         "ntg-vnext": "scripts/ntg-vnext.mjs"
     },
@@ -18,7 +17,6 @@
         "scripts/npm-install.mjs",
         "README.md",
         "docs/ko/README.md",
-        "scripts/ntg-run.mjs",
         "scripts/ledger-lock.mjs",
         "scripts/gate_panel.py",
         "scripts/dag-view.mjs",

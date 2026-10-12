@@ -10,7 +10,6 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 PANEL = ROOT / "scripts" / "gate_panel.py"
-ZEN_ID = "9fc98728-eb32-45d5-a643-2809d0e0d5f4"
 
 
 def run_panel(*cli_args, expect_ok=True):
@@ -45,58 +44,6 @@ def ready_report():
     )
 
 
-def plan_ready_report():
-    return assistant("All checks recorded.\nPLAN READY")
-
-
-def primary_zen_call():
-    return {
-        "step_index": 1,
-        "source": "MODEL",
-        "type": "PLANNER_RESPONSE",
-        "status": "DONE",
-        "tool_calls": [{
-            "name": "invoke_subagent",
-            "args": {"Subagents": json.dumps([{
-                "TypeName": "zen",
-                "Role": "independent completion reviewer",
-                "Prompt": "Review and return VERDICT: GO or VERDICT: NO-GO.",
-            }])},
-        }],
-    }
-
-
-def primary_zen_created(conv_id=ZEN_ID):
-    return {
-        "step_index": 2,
-        "source": "MODEL",
-        "type": "GENERIC",
-        "status": "DONE",
-        "content": (
-            'Created At: now\nCompleted At: now\nCreated the following subagents:\n'
-            '{\n'
-            f'  "conversationId": "{conv_id}",\n'
-            '  "logAbsoluteUri": "file:///tmp/zen.jsonl"\n'
-            "}\nThe subagents will send you a message when they have completed their task."
-        ),
-    }
-
-
-def primary_provider_verdict(value="GO", sender=ZEN_ID):
-    return {
-        "step_index": 3,
-        "source": "SYSTEM",
-        "type": "SYSTEM_MESSAGE",
-        "status": "DONE",
-        "content": (
-            "The following is a <SYSTEM_MESSAGE> not actually sent by the user.\n"
-            "<SYSTEM_MESSAGE>\n"
-            f"[Message] timestamp=now sender={sender} priority=MESSAGE_PRIORITY_HIGH content=VERDICT: {value}\n"
-            "</SYSTEM_MESSAGE>"
-        ),
-    }
-
-
 def excavator_zen_call():
     return {
         "toolCall": {
@@ -125,16 +72,6 @@ def write_call():
     }
 
 
-def bulldozer_go_records():
-    return [
-        identity("bulldozer"),
-        primary_zen_call(),
-        primary_zen_created(),
-        primary_provider_verdict("GO"),
-        ready_report(),
-    ]
-
-
 def excavator_go_records():
     return [
         identity("excavator"),
@@ -145,51 +82,6 @@ def excavator_go_records():
 
 
 class GatePanelRenderTests(unittest.TestCase):
-
-    def test_bulldozer_go_renders_stop_with_verdict(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            transcript = write_transcript(tmp, bulldozer_go_records())
-            out = run_panel("--transcript", str(transcript)).stdout
-        self.assertIn("NTG GATE PANEL", out)
-        self.assertIn("GATE", out)
-        row = next(l for l in out.splitlines() if "bulldozer" in l)
-        self.assertIn("primary", row)
-        self.assertIn("GO", row)
-        self.assertIn("stop", row)
-        self.assertIn("VERDICT: GO", row)
-        self.assertIn(transcript.name, out)
-
-    def test_bulldozer_no_go_renders_continue(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            records = bulldozer_go_records()
-            records[3] = primary_provider_verdict("NO-GO")
-            transcript = write_transcript(tmp, records)
-            out = run_panel("--transcript", str(transcript)).stdout
-        row = next(l for l in out.splitlines() if "bulldozer" in l)
-        self.assertIn("NO-GO", row)
-        self.assertIn("continue", row)
-
-    def test_bulldozer_ready_without_zen_is_blocked(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            transcript = write_transcript(tmp, [identity("bulldozer"), ready_report()])
-            out = run_panel("--transcript", str(transcript)).stdout
-            payload = json.loads(run_panel("--transcript", str(transcript), "--json").stdout)
-        row = next(l for l in out.splitlines() if "bulldozer" in l)
-        self.assertIn("none", row)
-        self.assertIn("continue", row)
-        self.assertIn("Zen", payload["rows"][0]["reason"])
-
-    def test_piledriver_plan_ready_go_renders_stop(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            transcript = write_transcript(tmp, [
-                identity("piledriver"), primary_zen_call(), primary_zen_created(),
-                primary_provider_verdict("GO"), plan_ready_report(),
-            ])
-            out = run_panel("--transcript", str(transcript)).stdout
-        row = next(l for l in out.splitlines() if "piledriver" in l)
-        self.assertIn("primary", row)
-        self.assertIn("GO", row)
-        self.assertIn("stop", row)
 
     def test_excavator_go_renders_stop(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -226,11 +118,11 @@ class GatePanelRenderTests(unittest.TestCase):
 
     def test_multiple_transcripts_render_one_row_each(self):
         with tempfile.TemporaryDirectory() as tmp:
-            a = write_transcript(tmp, bulldozer_go_records(), "a.jsonl")
-            b = write_transcript(tmp, excavator_go_records(), "b.jsonl")
+            a = write_transcript(tmp, excavator_go_records(), "a.jsonl")
+            b = write_transcript(tmp, [identity("jaguar"), assistant("done")], "b.jsonl")
             out = run_panel("--transcript", str(a), "--transcript", str(b)).stdout
-        self.assertIn("bulldozer", out)
         self.assertIn("excavator", out)
+        self.assertIn("no NTG gate", out)
 
     def test_json_output_is_machine_readable(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -243,19 +135,19 @@ class GatePanelRenderTests(unittest.TestCase):
 
     def test_event_file_supplies_transcript_path(self):
         with tempfile.TemporaryDirectory() as tmp:
-            transcript = write_transcript(tmp, bulldozer_go_records())
+            transcript = write_transcript(tmp, excavator_go_records())
             event = Path(tmp) / "event.json"
             event.write_text(json.dumps({
                 "terminationReason": "NO_TOOL_CALL", "error": "",
                 "fullyIdle": True, "transcriptPath": str(transcript),
             }), encoding="utf-8")
             out = run_panel("--event", str(event)).stdout
-        self.assertIn("bulldozer", out)
+        self.assertIn("excavator", out)
         self.assertIn("GO", out)
 
     def test_non_idle_event_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
-            transcript = write_transcript(tmp, bulldozer_go_records())
+            transcript = write_transcript(tmp, excavator_go_records())
             event = Path(tmp) / "event.json"
             event.write_text(json.dumps({
                 "terminationReason": "NO_TOOL_CALL", "error": "",
@@ -310,61 +202,15 @@ class GatePanelConsistencyTests(unittest.TestCase):
             self.assertEqual(hook["reason"], row["reason"])
         return row
 
-    def test_pending_zen_review_matches_primary_gate(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            for records in (
-                [identity("bulldozer"), primary_zen_call(), primary_zen_created(),
-                 assistant("still working on it")],
-                [identity("bulldozer"), primary_zen_call(), primary_zen_created(),
-                 ready_report()],
-                [identity("piledriver"), primary_zen_call(), primary_zen_created(),
-                 plan_ready_report()],
-            ):
-                row = self._assert_hook_parity(tmp, "primary-review-gate.py", records)
-                self.assertEqual("continue", row["decision"])
-
-    def test_role_hint_event_matches_primary_gate(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            row = self._assert_hook_parity(
-                tmp, "primary-review-gate.py", [ready_report()],
-                event={"roleHint": "bulldozer"})
-            self.assertEqual("bulldozer", row["role"])
-            self.assertEqual("continue", row["decision"])
-
-    def test_agent_name_event_matches_primary_gate(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            row = self._assert_hook_parity(
-                tmp, "primary-review-gate.py", [plan_ready_report()],
-                event={"agentName": "piledriver"})
-            self.assertEqual("piledriver", row["role"])
-            self.assertEqual("continue", row["decision"])
-
     def test_abnormal_events_match_hooks(self):
         with tempfile.TemporaryDirectory() as tmp:
-            for hook_name, records, extra in (
-                ("primary-review-gate.py",
-                 [identity("bulldozer"), ready_report()], {"error": "boom"}),
-                ("primary-review-gate.py",
-                 [identity("bulldozer"), ready_report()],
-                 {"terminationReason": "MAX_STEPS"}),
-                ("excavator-review-gate.py",
-                 [identity("excavator"), ready_report()], {"error": "boom"}),
-                ("excavator-review-gate.py",
-                 [identity("excavator"), ready_report()],
-                 {"terminationReason": "MAX_STEPS"}),
+            for records, extra in (
+                ([identity("excavator"), ready_report()], {"error": "boom"}),
+                ([identity("excavator"), ready_report()], {"terminationReason": "MAX_STEPS"}),
             ):
-                row = self._assert_hook_parity(tmp, hook_name, records, event=extra)
+                row = self._assert_hook_parity(
+                    tmp, "excavator-review-gate.py", records, event=extra)
                 self.assertEqual("stop", row["decision"])
-
-    def test_bulldozer_decision_matches_primary_gate(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            for records in (bulldozer_go_records(),
-                            [identity("bulldozer"), ready_report()]):
-                transcript = write_transcript(tmp, records)
-                hook = self._run_hook(ROOT / "hooks" / "primary-review-gate.py", transcript)
-                out = run_panel("--transcript", str(transcript)).stdout
-                row = next(l for l in out.splitlines() if "bulldozer" in l)
-                self.assertIn(f" {hook} ", f" {row} ")
 
     def test_excavator_decision_matches_excavator_gate(self):
         with tempfile.TemporaryDirectory() as tmp:

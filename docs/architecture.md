@@ -1,6 +1,6 @@
 # Architecture
 
-> vNext is the default runtime (44G, [#134](https://github.com/sleegme/native-gravity/issues/134)). The v0.4 peer-primary topology is preserved in [the v0.4 baseline](specs/pre-vnext-v0.4-behavior-baseline.md).
+> vNext is the runtime (44G, [#134](https://github.com/sleegme/native-gravity/issues/134)).
 
 Native Gravity keeps Antigravity's native lifecycle, sessions, workspaces,
 model and tool systems. vNext adds a narrow exact-model runner and authoritative
@@ -8,8 +8,8 @@ ledger, not a replacement runtime.
 
 This overview follows the [architecture contract](specs/vnext-architecture-contract.md)
 and the released [agents](../agents/) / [rules](../rules/). `ntg-vnext` is the
-default entry; Bulldozer, Piledriver and Excavator stay natively selectable
-for bounded work with their own Zen gates.
+entry for multi-milestone work; Excavator stays natively selectable for bounded
+autonomous repair with its own Zen gate.
 
 ## Supervisor and milestone execution
 
@@ -31,9 +31,8 @@ User
 - **Piledriver** proposes plans, architecture/API decisions, verification
   strategy and material replans for Steamroller. It has no implementation,
   delegation, ledger or completion authority. Steamroller decides adoption.
-  Execution/review requests remain planning requests. Under the runner it
-  returns advisory JSON; natively selected, it may claim `PLAN READY` only
-  after an observed Zen plan-review GO.
+  Execution/review requests remain planning requests. It is runner-only and
+  returns advisory JSON.
 - **Bulldozer** accepts one current-version milestone packet, delegates bounded
   work and returns `DONE | BLOCKED | NEEDS_DEEP`. It does not directly edit
   project source, run shell commands, invoke Piledriver/Zen or write the ledger.
@@ -52,8 +51,8 @@ User
 - **Strix Halo** — Bobcat-only read-only local gate; native Pro role;
   `ACCEPT | REVISE | NEEDS_DEEP`. Corrections go through Bobcat.
 - **Zen** — independent non-mutating milestone verification for Steamroller,
-  not Bulldozer's child; native Pro role; `GO | NO-GO`. Verification shell
-  commands use `NTG_ZEN_VERIFY=1`.
+  not Bulldozer's child, and Excavator's final completion reviewer; native Pro
+  role; `GO | NO-GO`. Verification shell commands use `NTG_ZEN_VERIFY=1`.
 
 Route by work kind, not size. Difficult decisions follow
 `Strix Halo -> Bobcat -> Bulldozer -> Steamroller -> optional Piledriver`;
@@ -103,5 +102,6 @@ Excavator remains a separate troubleshooting primary outside P0; its recovery
 reconnection/final placement is post-44G. Preserve `NTG_EXCAVATOR=1` guard
 effects. Instinct/Sonnet is future work.
 
-OQ-6 (`inheritCustomizations` semantics) remains a PO decision; omitted or
-inherited customizations are never treated as grants.
+OQ-6 (`inheritCustomizations` semantics) remains a PO decision narrowed to
+Excavator (#137); omitted or inherited customizations are never treated as
+grants.

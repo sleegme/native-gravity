@@ -12,14 +12,13 @@ tab/pane surface hosts it (a terminal tab, a split pane, or a future host
 Settings tab), plus a `--json` machine form for programmatic consumers.
 
 The panel reads gate state; it never owns or mutates it. Gate state derives
-from the same transcripts and rules the Stop hooks enforce:
+from the same transcripts and rules the Stop hook enforces:
 
-- hooks/primary-review-gate.py   -> bulldozer / piledriver completion gate
 - hooks/excavator-review-gate.py -> excavator completion gate
 
 Each row answers: which gate is armed for this session (or none), the latest
 observed Zen verdict, the decision the Stop hook would return for the event
-in effect, and the evidence the state was read from. Decisions come from each
+in effect, and the evidence the state was read from. Decisions come from the
 hook's own decide(event, records) function — the panel reuses the enforced
 code path instead of reimplementing it, so the two cannot drift apart.
 
@@ -51,8 +50,6 @@ HOOKS_DIR = ROOT / "hooks"
 # Column widths keep every row single-line under narrow horizontal splits.
 W_GATE, W_ROLE, W_ZEN, W_HOOK, W_WHY, W_EVID = 9, 10, 6, 8, 46, 34
 GATE_LABELS = {
-    "bulldozer": "primary",
-    "piledriver": "primary",
     "excavator": "excavator",
 }
 
@@ -65,35 +62,29 @@ def _load_hook(name: str):
 
 
 def load_hooks():
-    """Load both Stop-hook modules once. Reuse, not reimplementation."""
-    return _load_hook("primary-review-gate"), _load_hook("excavator-review-gate")
+    """Load the Stop-hook module once. Reuse, not reimplementation."""
+    return _load_hook("excavator-review-gate")
 
 
-def detect_gate(records: list[Any], event: dict[str, Any], primary_gate, excavator_gate) -> Optional[str]:
+def detect_gate(records: list[Any], event: dict[str, Any], excavator_gate) -> Optional[str]:
     if (
         excavator_gate.has_structured_excavator_identity(records)
         or excavator_gate.has_excavator_system_prompt(records)
         or excavator_gate.has_excavator_marker(records)
     ):
         return "excavator"
-    return primary_gate.detect_primary_role(
-        records, role_hint=event.get("roleHint") or event.get("agentName"))
+    return None
 
 
-def evaluate(records: list[Any], event: dict[str, Any], role: str, primary_gate, excavator_gate) -> dict[str, Any]:
+def evaluate(records: list[Any], event: dict[str, Any], role: str, excavator_gate) -> dict[str, Any]:
     """Compute the row state for one armed gate.
 
     The decision and reason come from the hook's own decide() — the exact
     chain main() enforces — so the panel can only display the real verdict.
     """
-    if role == "excavator":
-        gate = excavator_gate
-        zen_started, verdict, verdict_index, latest_change = gate.review_state(records)
-        stale = bool(verdict_index >= 0 and latest_change > verdict_index)
-    else:
-        gate = primary_gate
-        zen_started, verdict, request_index, verdict_index = gate.review_state(records)
-        stale = False
+    gate = excavator_gate
+    zen_started, verdict, verdict_index, latest_change = gate.review_state(records)
+    stale = bool(verdict_index >= 0 and latest_change > verdict_index)
 
     decision, reason = gate.decide(event, records)
 
@@ -168,7 +159,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--json", action="store_true", help="emit machine-readable rows")
     args = parser.parse_args(argv)
 
-    primary_gate, excavator_gate = load_hooks()
+    excavator_gate = load_hooks()
 
     event = read_event(args.event) if args.event else {}
     if not event.get("fullyIdle", True):
@@ -192,8 +183,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             evidence.append(f"{transcript_path} (missing)")
             continue
 
-        records = primary_gate.read_transcript(str(path))
-        role = detect_gate(records, event, primary_gate, excavator_gate)
+        records = excavator_gate.read_transcript(str(path))
+        role = detect_gate(records, event, excavator_gate)
         if role is None:
             rows.append({
                 "gate": "none", "role": "-", "zen": "n/a", "decision": "stop",
@@ -209,7 +200,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         per_transcript_event["transcriptPath"] = str(path)
         per_transcript_event.setdefault("fullyIdle", True)
 
-        state = evaluate(records, per_transcript_event, role, primary_gate, excavator_gate)
+        state = evaluate(records, per_transcript_event, role, excavator_gate)
         rows.append({
             "gate": state["gate"],
             "role": role,

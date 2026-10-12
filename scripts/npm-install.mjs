@@ -11,9 +11,9 @@ function getVersion() {
   try {
     const pkgPath = resolve(packageRoot, 'package.json');
     const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
-    return pkg.version || '0.4.3';
+    return pkg.version || '1.0.0';
   } catch {
-    return '0.4.3';
+    return '1.0.0';
   }
 }
 
