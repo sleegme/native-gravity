@@ -20,6 +20,7 @@ User
     Bulldozer — one bounded milestone
       Jaguar / Puma / Bobcat
                        Strix Halo — Bobcat-local advisor gate
+    Instinct — alternate-framing advisory on NEEDS_ALT
     Zen — independent milestone verification
     Steamroller ledger transition
 ```
@@ -38,6 +39,13 @@ User
   project source, run shell commands, invoke Piledriver/Zen or write the ledger.
   It directly inspects known context and packet-named files; discovery and
   locating unknown targets go to Jaguar.
+- **Instinct** is the heterogeneous alternate-framing advisory for NEEDS_ALT,
+  when materially similar failures repeat without new evidence or same-family
+  paths over-converge. It is runner-only and advisory: no implementation,
+  orchestration, ledger writes, plan adoption or completion/verdict claims.
+  It targets Claude Sonnet 5.5 / High, with Claude Opus 5.5 / High only on an
+  explicit escalation. Its advice is recorded as advisory evidence and never
+  promotes or adopts anything.
 
 ## Specialist routing
 
@@ -88,7 +96,9 @@ contract fragments stay out of planning packets.
 ## Invocation and migration boundaries
 
 Steamroller/Bulldozer target Gemini 3.8 Flash / High; Piledriver targets
-Gemini 3.1 Pro / High. The runner resolves installed model slugs without silent
+Gemini 3.1 Pro / High; Instinct targets Claude Sonnet 5.5 / High, with Claude
+Opus 5.5 / High only on explicit escalation. The runner resolves installed
+model slugs without silent
 fallback and owns effort, cwd/context, bounded prompt construction, timeout,
 recursion protection, structured result capture and failure reporting.
 Machine invocations request one bare JSON object, not interactive terminal
@@ -100,7 +110,10 @@ comparative live evidence, not a policy assumption.
 
 Excavator remains a separate troubleshooting primary outside P0; its recovery
 reconnection/final placement is post-44G. Preserve `NTG_EXCAVATOR=1` guard
-effects. Instinct/Sonnet is future work.
+effects. Instinct is implemented (#20): the same exact-model runner resolves
+its Sonnet/Opus slugs fail-closed (OQ-4 resolved), and its NEEDS_ALT packet
+carries the tier-B failure context (failure class/signature, current hypothesis,
+attempt count, evidence).
 
 OQ-6 is resolved for native Excavator (#137): keep explicit
 `inheritCustomizations: true` to preserve workspace instructions. The

@@ -887,11 +887,11 @@ function withRoleBodies(fn) {
   const cwd = join(root, "neutral");
   const capture = join(root, "transport-called");
   const agyPath = join(root, "agy.mjs");
-  const installedModels = ["gemini-3.1-pro-high", "gemini-3.8-flash-high"];
+  const installedModels = ["gemini-3.1-pro-high", "gemini-3.8-flash-high", "claude-sonnet-5-5-high", "claude-opus-5-5-high"];
   try {
     mkdirSync(roleBodyDir);
     mkdirSync(cwd);
-    for (const role of ["steamroller", "piledriver", "bulldozer"]) {
+    for (const role of ["steamroller", "piledriver", "bulldozer", "instinct"]) {
       writeFileSync(join(roleBodyDir, `${role}.md`), `BODY_MARKER_${role}\n`);
     }
     // Exercise the real process boundary: echo the actual --print argument.
@@ -924,7 +924,7 @@ runTest("6.1: All three role bodies reach transport deterministically with hando
       constraints: ["CONSTRAINT_MARKER"],
       expectedOutput: "OUTPUT_MARKER",
     };
-    for (const role of ["steamroller", "piledriver", "bulldozer"]) {
+    for (const role of ["steamroller", "piledriver", "bulldozer", "instinct"]) {
       const prompt = composeBoundedPrompt(role, packet, opts);
       assert.strictEqual(composeBoundedPrompt(role, packet, opts), prompt);
       const sections = prompt.split("\n\n");
@@ -990,7 +990,7 @@ runTest("6.4: Unreadable role path and invalid directory options fail closed", (
 
 runTest("6.5: Native specialists, inherited object keys and path traversal are not runner roles", () => {
   withRoleBodies(opts => {
-    for (const role of ["jaguar", "puma", "bobcat", "strix-halo", "zen", "excavator", "instinct", "constructor", "__proto__", "../piledriver"]) {
+    for (const role of ["jaguar", "puma", "bobcat", "strix-halo", "zen", "excavator", "constructor", "__proto__", "../piledriver"]) {
       writeFileSync(join(opts.roleBodyDir, `${role.replaceAll("/", "_")}.md`), "DISALLOWED_MARKER");
       assert.throws(() => composeBoundedPrompt(role, { task: "TASK_MARKER" }, opts), UnresolvedModelSlugError);
       const res = invoke(role, { task: "TASK_MARKER" }, opts);
@@ -1094,6 +1094,147 @@ runTest("6.9: CLI injects env-selected role body from neutral cwd and reports mi
     assert.strictEqual(JSON.parse(failure.stderr).error, "ROLE_BODY_MISSING");
     assert.strictEqual(existsSync(opts.capture), false);
   });
+});
+
+// =============================================================================
+// Section 7: Instinct Runner Role & Explicit Escalation (#20)
+// =============================================================================
+
+const claudeSurface = [
+  { slug: "claude-sonnet-5-5-low", description: "Claude Sonnet 5.5 (Low)" },
+  { slug: "claude-sonnet-5-5-medium", description: "Claude Sonnet 5.5 (Medium)" },
+  { slug: "claude-sonnet-5-5-high", description: "Claude Sonnet 5.5 (High)" },
+  { slug: "claude-opus-5-5-low", description: "Claude Opus 5.5 (Low)" },
+  { slug: "claude-opus-5-5-medium", description: "Claude Opus 5.5 (Medium)" },
+  { slug: "claude-opus-5-5-high", description: "Claude Opus 5.5 (High)" },
+  { slug: "gemini-3.1-pro-high", description: "Gemini 3.1 Pro (High)" },
+  { slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" },
+];
+
+runTest("7.1: instinct targets Claude Sonnet 5.5 High and Opus 5.5 High only on explicit escalation", () => {
+  assert.strictEqual(ROLE_POLICY_TABLE.instinct.family, "Claude Sonnet 5.5");
+  assert.strictEqual(ROLE_POLICY_TABLE.instinct.effort, "High");
+  assert.strictEqual(ROLE_POLICY_TABLE.instinct.escalated.family, "Claude Opus 5.5");
+  assert.strictEqual(ROLE_POLICY_TABLE.instinct.escalated.effort, "High");
+
+  assert.strictEqual(resolveSlug("instinct", { installedModels: claudeSurface }), "claude-sonnet-5-5-high");
+  assert.strictEqual(resolveSlug("instinct", { installedModels: claudeSurface, escalate: false }), "claude-sonnet-5-5-high");
+  assert.strictEqual(resolveSlug(" InStinct ", { installedModels: claudeSurface, escalate: true }), "claude-opus-5-5-high");
+
+  // Escalation is instinct-scoped; other roles keep their policy models.
+  assert.strictEqual(resolveSlug("piledriver", { installedModels: claudeSurface, escalate: true }), "gemini-3.1-pro-high");
+  assert.strictEqual(resolveSlug("bulldozer", { installedModels: claudeSurface, escalate: true }), "gemini-3.8-flash-high");
+  assert.strictEqual(resolveSlug("steamroller", { installedModels: claudeSurface, escalate: true }), "gemini-3.8-flash-high");
+});
+
+runTest("7.2: missing or ambiguous Claude surface fails closed without silent fallback", () => {
+  for (const escalate of [false, true]) {
+    let caught = null;
+    try {
+      resolveSlug("instinct", {
+        installedModels: [{ slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" }],
+        escalate,
+      });
+    } catch (err) {
+      caught = err;
+    }
+    assert.ok(caught instanceof UnresolvedModelSlugError, `escalate=${escalate}`);
+    assert.strictEqual(caught.error, "UNRESOLVED_MODEL_SLUG");
+    assert.strictEqual(caught.reason, "NOT_FOUND");
+    assert.strictEqual(caught.role, "instinct");
+
+    const res = invoke("instinct", { task: "Reframe the stall" }, { installedModels: [], escalate });
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.error, "UNRESOLVED_MODEL_SLUG");
+    assert.strictEqual(res.role, "instinct");
+  }
+
+  const ambiguousCases = [
+    [
+      { slug: "claude-sonnet-5-5-high", description: "Claude Sonnet 5.5 (High)" },
+      { slug: "claude-sonnet-5-5-high-v2", description: "Claude Sonnet 5.5 (High) v2" },
+    ],
+  ];
+  for (const installedModels of ambiguousCases) {
+    let caught = null;
+    try {
+      resolveSlug("instinct", { installedModels });
+    } catch (err) {
+      caught = err;
+    }
+    assert.ok(caught instanceof UnresolvedModelSlugError);
+    assert.strictEqual(caught.reason, "AMBIGUOUS");
+    assert.deepStrictEqual(caught.matches, ["claude-sonnet-5-5-high", "claude-sonnet-5-5-high-v2"]);
+  }
+
+  let opusCaught = null;
+  try {
+    resolveSlug("instinct", {
+      escalate: true,
+      installedModels: [
+        { slug: "claude-opus-5-5-high", description: "Claude Opus 5.5 (High)" },
+        { slug: "claude-opus-5-5-high-v2", description: "Claude Opus 5.5 (High) v2" },
+      ],
+    });
+  } catch (err) {
+    opusCaught = err;
+  }
+  assert.ok(opusCaught instanceof UnresolvedModelSlugError);
+  assert.strictEqual(opusCaught.reason, "AMBIGUOUS");
+});
+
+runTest("7.3: transport selects Opus only when escalation is explicitly requested", () => {
+  const root = mkdtempSync(join(tmpdir(), "mock-agy-escalate-"));
+  const mockScript = join(root, "agy.mjs");
+  const callsFile = join(root, "calls");
+  writeFileSync(mockScript, `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+const value = flag => process.argv[process.argv.indexOf(flag) + 1];
+appendFileSync(process.env.MOCK_CALLS_FILE,
+  value("--model") + " skipPermissions=" + process.argv.includes("--dangerously-skip-permissions") + "\\n");
+console.log(JSON.stringify({ status: "SUCCESS", response: '{"current_framing":"x"}' }));
+`);
+  chmodSync(mockScript, 0o755);
+  const opts = {
+    agyPath: mockScript,
+    installedModels: claudeSurface,
+    env: { MOCK_CALLS_FILE: callsFile },
+  };
+  try {
+    const sonnet = invoke("instinct", { task: "Reframe the stall" }, opts);
+    assert.strictEqual(sonnet.ok, true, JSON.stringify(sonnet));
+    assert.strictEqual(sonnet.slug, "claude-sonnet-5-5-high");
+    const opus = invoke("instinct", { task: "Reframe the stall" }, { ...opts, escalate: true });
+    assert.strictEqual(opus.ok, true, JSON.stringify(opus));
+    assert.strictEqual(opus.slug, "claude-opus-5-5-high");
+    // Instinct is not Bulldozer: no skip-permissions grant rides along.
+    assert.strictEqual(
+      readFileSync(callsFile, "utf8"),
+      "claude-sonnet-5-5-high skipPermissions=false\nclaude-opus-5-5-high skipPermissions=false\n"
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+runTest("7.4: instinct handoff packets fail closed like the other runner roles", () => {
+  const body = machineBody("instinct");
+  const prompt = composeBoundedPrompt("instinct", { task: "Reframe the stall", evidence: ["3 same-class failures"] });
+  assert.ok(prompt.includes(`## Role Body\n${body}`));
+  assert.ok(prompt.includes("## Task\nReframe the stall"));
+  for (const badPacket of [null, undefined, "raw string", 42, [], {}, { task: "" }, { task: "  " }]) {
+    assert.throws(() => composeBoundedPrompt("instinct", badPacket), InvalidHandoffPacketError);
+  }
+  for (const field of ["messages", "conversation", "history", "transcript"]) {
+    let caught = null;
+    try {
+      composeBoundedPrompt("instinct", { task: "Valid task", [field]: ["raw history"] });
+    } catch (err) {
+      caught = err;
+    }
+    assert.ok(caught instanceof InvalidHandoffPacketError, `Expected rejection for '${field}'`);
+    assert.ok(caught.message.includes(`Forbidden conversational state field in handoff packet: "${field}"`));
+  }
 });
 
 console.log("=========================================================");

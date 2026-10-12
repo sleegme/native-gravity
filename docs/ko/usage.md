@@ -1,6 +1,6 @@
 # 사용법
 
-> - **Native Gravity**: 1.0.0
+> - **Native Gravity**: 1.1.0
 > - **상태**: alpha
 > - **호환성**:
 >   - AGY 1.3.3 — validated
@@ -24,10 +24,13 @@ ntg-vnext plan    --ledger .ntg/ledger.json --task "..."   # Piledriver 자문; 
 ntg-vnext run     --ledger .ntg/ledger.json [--milestone ID] [--all]
 ntg-vnext replan  --ledger .ntg/ledger.json --plan plan-v2.json
 ntg-vnext recover --ledger .ntg/ledger.json --evidence "observed interruption"
+ntg-vnext alt     --ledger .ntg/ledger.json --task "..." [--milestone ID] [--escalate]   # Instinct 자문; 자동 채택 없음
 ntg-vnext status  --ledger .ntg/ledger.json
 ```
 
 호출마다 ledger를 다시 로드하므로 fresh context는 ledger가 가리키는 지점에서 재개됩니다. `run`은 다음 대상 마일스톤을 Bulldozer로 실행하고, 독립적인 네이티브 Zen verdict를 받아 matching GO일 때만 승격합니다. `--all`은 의존성 순서로 계속합니다. 종료 코드 2는 NO-GO, BLOCKED, NEEDS_DEEP을 의미합니다(출력된 `results` 참고). Global completion은 현재 plan의 모든 마일스톤이 current GO를 가질 때만 선언됩니다. `NTG_ZEN_MODEL`로 Zen의 모델을 지정할 수 있습니다.
+
+`alt`는 Instinct alternate-framing 자문(NEEDS_ALT)을 요청하고 advisory JSON을 `adopted: false`와 함께 출력합니다. 자문은 advisory evidence로만 기록되며 plan 채택이나 completion 상태 변경이 없습니다. `status`는 실패 class별 `needs_alt` 추천을 보여줍니다: 같은 실패 class가 새 증거 없이 3회 이상 반복되면 NEEDS_ALT를 추천합니다. `--escalate`만 Opus tier로 가며, 없으면 Instinct는 Sonnet에서 실행됩니다.
 
 ## 네이티브로 선택 가능한 primary
 
@@ -35,7 +38,7 @@ ntg-vnext status  --ledger .ntg/ledger.json
 
 "고장났으니 원인을 파서 고쳐" 유형에 사용합니다. Excavator는 직접 수정이 허용되며 bounded 조사 -> 수정 -> 검증 루프를 수행합니다. 현재 artifact에 대한 Zen `VERDICT: GO`를 관측한 뒤에만 `READY`로 끝납니다.
 
-Bulldozer와 Piledriver는 runner 전용 역할입니다. 멀티 마일스톤 작업, durable ledger 상태, replanning, global completion은 `ntg-vnext`에 속하며, Piledriver 자문은 `ntg-vnext plan`으로 요청합니다.
+Bulldozer, Piledriver, Instinct는 runner 전용 역할입니다. 멀티 마일스톤 작업, durable ledger 상태, replanning, global completion은 `ntg-vnext`에 속하며, Piledriver 자문은 `ntg-vnext plan`으로, Instinct 자문은 `ntg-vnext alt`로 요청합니다.
 
 ## Bobcat / Puma
 

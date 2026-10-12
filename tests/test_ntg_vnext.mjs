@@ -28,13 +28,26 @@ function harness(t, { zen = () => 'GO' } = {}) {
   const ledger = join(dir, 'ledger.json');
   const calls = [];
   const timeouts = [];
+  const escalations = [];
+  const contracts = [];
   const deps = {
     handleSignals: false,
     invokeRole: async (role, packet, runnerOptions = {}) => {
       calls.push(role);
       timeouts.push(runnerOptions.timeout);
+      escalations.push(runnerOptions.escalate === true);
       if (role === 'piledriver') return envelope({ recommendation: 'advisory only' });
       const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+      contracts.push(contract);
+      if (role === 'instinct') {
+        return envelope({
+          current_framing: 'stalled framing',
+          why_current_framing_may_be_wrong: 'untested assumption',
+          alternate_hypotheses: [{ hypothesis: 'alt', evidence_basis: 'OBSERVED', discriminating_test: 'run X' }],
+          recommendation: 'run X',
+          unknowns: [],
+        });
+      }
       return envelope({
         milestone_id: contract.milestone_id, plan_version: contract.plan_version, status: 'DONE',
         changes_made: contract.bounded_scope, verification_evidence: observed, unresolved_unknowns: [],
@@ -53,7 +66,7 @@ function harness(t, { zen = () => 'GO' } = {}) {
   const write = (name, value) => { const p = join(dir, name); writeFileSync(p, JSON.stringify(value)); return p; };
   // Each call is a fresh process-equivalent context: state comes only from the ledger file.
   const cli = (...argv) => main([argv[0], '--ledger', ledger, ...argv.slice(1)], deps);
-  return { cli, calls, timeouts, write, ledger };
+  return { cli, calls, timeouts, escalations, contracts, write, ledger };
 }
 
 test('run --all promotes milestones in dependency order and declares completion only after each Zen GO', async t => {
@@ -176,6 +189,57 @@ test('plan returns Piledriver advice without adopting it', async t => {
   assert.equal(out.adopted, false);
   assert.deepEqual(h.calls, ['piledriver']);
   assert.equal(JSON.parse(readFileSync(h.ledger, 'utf8')).plan_version, JSON.parse(before).plan_version);
+});
+
+test('alt returns Instinct advisory JSON without adoption and escalates only explicitly', async t => {
+  const h = harness(t);
+  await h.cli('init', '--plan', h.write('plan.json', plan('v1', ['one'])));
+  await assert.rejects(h.cli('alt'), /--task is required/);
+  await assert.rejects(h.cli('alt', '--task', 'x', '--bogus', 'y'), /Unknown or incomplete option/);
+  const { code, out } = await h.cli('alt', '--task', 'why is this stuck?');
+  assert.equal(code, 0);
+  assert.equal(out.adopted, false);
+  assert.equal(out.advisory_alt.recommendation, 'run X');
+  assert.deepEqual(h.calls, ['instinct']);
+  assert.deepEqual(h.escalations, [false]);
+  assert.equal(h.contracts[0].task, 'why is this stuck?');
+  assert.equal(h.contracts[0].needs_alt.attempt_count, 0);
+  assert.equal(h.contracts[0].replan_context.telemetry_tier, 'B');
+
+  const escalated = await h.cli('alt', '--task', 'why is this stuck?', '--milestone', 'one', '--escalate');
+  assert.equal(escalated.code, 0);
+  assert.deepEqual(h.calls, ['instinct', 'instinct']);
+  assert.deepEqual(h.escalations, [false, true]);
+  assert.equal(h.contracts[1].needs_alt.milestone_id, 'one');
+  // Advisory only: the ledger records the advice but adopts nothing.
+  const disk = JSON.parse(readFileSync(h.ledger, 'utf8'));
+  assert.deepEqual(disk.completed_milestones, []);
+  assert.equal(disk.plan_version, 'v1');
+  assert.equal(disk.evidence.alt_framing.length, 2);
+  assert.deepEqual(disk.evidence.alt_framing.map(a => a.adopted), [false, false]);
+});
+
+test('status surfaces NEEDS_ALT recommendations derived from durable failure history', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-vnext-alt-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const ledger = join(dir, 'ledger.json');
+  const deps = {
+    handleSignals: false,
+    invokeZen: async () => { throw new Error('zen must not run'); },
+    invokeRole: async () => ({ ok: false, error: 'TIMEOUT', role: 'bulldozer', slug: 'gemini-3.8-flash-high' }),
+  };
+  writeFileSync(join(dir, 'plan.json'), JSON.stringify(plan('v1', ['one'])));
+  await main(['init', '--ledger', ledger, '--plan', join(dir, 'plan.json')], deps);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await assert.rejects(main(['run', '--ledger', ledger], deps), /TIMEOUT/);
+  }
+  const { code, out } = await main(['status', '--ledger', ledger], deps);
+  assert.equal(code, 0);
+  assert.equal(out.needs_alt.length, 1);
+  assert.equal(out.needs_alt[0].failure_class, 'one:INVOCATION_FAILURE:runner.invoke');
+  assert.equal(out.needs_alt[0].attempt_count, 3);
+  assert.equal(out.needs_alt[0].needs_alt_recommended, true);
+  assert.deepEqual(out.state.completed_milestones, []);
 });
 
 test('the npm-style bin symlink executes the CLI (#135 B1)', t => {

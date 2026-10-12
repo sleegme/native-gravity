@@ -46,7 +46,12 @@ result packet below. The first byte of your response must be `{` — zero
 characters before it. No READY, no PLAN READY, no prose, no code fences, no
 progress narration (including "I have delegated ..." statements) and no
 trailing summaries. Put evidence, unknowns and
-blockers inside the packet. This output format grants no additional tools
+blockers inside the packet. Specialist and worker reports (Jaguar findings,
+Puma/Bobcat results, Strix Halo verdicts) are relayed only inside packet
+fields — `verification_evidence`, `delegations` findings — never as text
+before or after the object. Any prose outside the object, including a
+relayed specialist report, is rejected and fails the milestone. This output
+format grants no additional tools
 or authority and never substitutes for validation or independent Zen review.
 
 DONE means only this bounded milestone's pre-review candidate is ready.

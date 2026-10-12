@@ -4,7 +4,73 @@ import { join } from 'node:path';
 import { AuthoritativeLedger, deepClone, deepFreeze } from './ledger.mjs';
 import { acquireLedgerLock } from './ledger-lock.mjs';
 import { InvalidHandoffPacketError, InvalidResponseFormatError, invoke, parseResponsePacket } from './runner.mjs';
-import { projectFailureTelemetry, redactTelemetryValue } from './telemetry.mjs';
+import { projectFailureRecord, projectFailureTelemetry, redactTelemetryValue } from './telemetry.mjs';
+
+const NEEDS_ALT_MIN_ATTEMPTS = 3;
+
+/**
+ * A failure class is the materially-similar failure identity (contract §2.9);
+ * the failure signature is the digest of the exact recorded evidence, used to
+ * tell whether an attempt contributed anything new.
+ */
+function failureClassOf(milestoneId, entry) {
+  return `${milestoneId}:${entry?.status ?? 'unknown'}:${entry?.evidence?.failed_step?.tool ?? 'unknown'}`;
+}
+
+function failureSignatureOf(entry) {
+  return `sha256:${createHash('sha256').update(JSON.stringify(entry?.evidence ?? null)).digest('hex')}`;
+}
+
+/**
+ * Contract §2.9 escalation policy, derived from the durable failure history:
+ * NEEDS_ALT is recommended when the same failure class has at least
+ * NEEDS_ALT_MIN_ATTEMPTS attempts and the latest attempt recorded no new
+ * evidence (its failure signature repeats an earlier attempt in the class).
+ * Recommendation only — a paid Instinct call is never auto-run.
+ *
+ * @param {object} evidence - ledger state `evidence` map
+ * @returns {Array<object>} one bounded summary per failure class
+ */
+export function recommendNeedsAlt(evidence) {
+  const byClass = new Map();
+  for (const [milestoneId, value] of Object.entries(evidence ?? {})) {
+    if (!value || typeof value !== 'object' || !Array.isArray(value.failure_evidence)) continue;
+    for (const entry of value.failure_evidence) {
+      const failure_class = failureClassOf(milestoneId, entry);
+      if (!byClass.has(failure_class)) byClass.set(failure_class, []);
+      byClass.get(failure_class).push({ milestoneId, entry });
+    }
+  }
+  const summaries = [];
+  for (const [failure_class, attempts] of byClass) {
+    const signatures = attempts.map(({ entry }) => failureSignatureOf(entry));
+    const latest = signatures[signatures.length - 1];
+    const latest_attempt_new_evidence = !signatures.slice(0, -1).includes(latest);
+    const last = attempts[attempts.length - 1];
+    summaries.push({
+      failure_class,
+      failure_signature: latest,
+      milestone_id: last.milestoneId,
+      status: last.entry?.status ?? null,
+      tool: last.entry?.evidence?.failed_step?.tool ?? null,
+      attempt_count: attempts.length,
+      latest_attempt_new_evidence,
+      needs_alt_recommended: attempts.length >= NEEDS_ALT_MIN_ATTEMPTS && !latest_attempt_new_evidence,
+      attempts: attempts.map(({ milestoneId, entry }) => projectFailureRecord(entry, milestoneId)),
+    });
+  }
+  return summaries;
+}
+
+/** Most recent recommended class, else the most recent failing class. */
+function selectAltTarget(summaries, milestoneId) {
+  const scoped = (milestoneId ? summaries.filter(s => s.milestone_id === milestoneId) : summaries)
+    .slice()
+    .sort((a, b) => String(a.attempts.at(-1)?.timestamp ?? '')
+      .localeCompare(String(b.attempts.at(-1)?.timestamp ?? '')));
+  const recommended = scoped.filter(s => s.needs_alt_recommended);
+  return recommended[recommended.length - 1] ?? scoped[scoped.length - 1] ?? null;
+}
 
 /**
  * Steamroller's coordinator and the default vNext runtime (44G, #134), driven
@@ -106,7 +172,7 @@ export class MinimalSpine {
     return parts.join(' ');
   }
 
-  async #exact(role, instruction, contract) {
+  async #exact(role, instruction, contract, invokeOptions = {}) {
     // The runner retains task text, not arbitrary packet fields. Serialize the
     // whole contract into task so bounded prompt construction keeps its fields.
     const output = await this.#step(
@@ -115,6 +181,7 @@ export class MinimalSpine {
         task: instruction + '\n' + JSON.stringify(contract),
       }, {
         ...this.#runnerOptions,
+        ...invokeOptions,
         invokeSpecialist: (r, s, o) => this.invokeSpecialist(r, s, o),
       })
     );
@@ -343,6 +410,58 @@ export class MinimalSpine {
         + '(including git or grep); inspect only with read-only file tools (view_file, '
         + 'list_dir, find_by_name, grep_search) and put command-based checks in the plan.',
         { task, replan_context: this.buildReplanContext() });
+    } finally {
+      this.#busy = false;
+    }
+  }
+
+  /**
+   * NEEDS_ALT (contract §2.9, §2.10): invokes Instinct with a bounded packet
+   * derived from the durable failure history and records the returned framing
+   * as advisory evidence. Advisory only — it never promotes, adopts or changes
+   * completion state. `escalate` is the only path to the Opus tier.
+   */
+  async requestAltFraming(task, options = {}) {
+    this.#idle();
+    if (typeof task !== 'string' || !task.trim()) throw new TypeError('Alternate-framing task required');
+    const milestoneId = options.milestone ?? null;
+    if (milestoneId !== null && !this.state.milestones.some(m => m.id === milestoneId)) {
+      throw new TypeError(`Unknown milestone for NEEDS_ALT context: "${milestoneId}"`);
+    }
+    const target = selectAltTarget(recommendNeedsAlt(this.state.evidence), milestoneId);
+    const contract = {
+      task: task.trim(),
+      needs_alt: {
+        milestone_id: milestoneId,
+        failure_class: target?.failure_class ?? 'unknown',
+        failure_signature: target?.failure_signature ?? 'unknown',
+        current_hypothesis:
+          typeof options.current_hypothesis === 'string' && options.current_hypothesis.trim()
+            ? options.current_hypothesis.trim()
+            : 'UNKNOWN',
+        attempt_count: target?.attempt_count ?? 0,
+        evidence: target?.attempts ?? [],
+      },
+      replan_context: this.buildReplanContext(),
+    };
+    this.#busy = true;
+    try {
+      const advice = await this.#exact('instinct',
+        'Return a bounded alternate-framing advisory as JSON: current framing, why it '
+        + 'may be wrong, materially different hypotheses (each with evidence basis '
+        + 'OBSERVED/INFERRED/UNKNOWN and a discriminating test), recommendation and '
+        + 'unknowns. Advisory only: do not implement, delegate workers, write ledger '
+        + 'state, adopt a plan or claim completion or a verdict. You have no shell: '
+        + 'never run commands; inspect only with read-only file tools (view_file, '
+        + 'list_dir, find_by_name, grep_search) and put command-based checks in the '
+        + 'advice.',
+        contract,
+        { escalate: options.escalate === true });
+      this.#ledger.recordAltAdvice({
+        milestone_id: milestoneId, task: task.trim(), needs_alt: contract.needs_alt, advice,
+      });
+      this.#ledger.save(this.#path);
+      return deepFreeze(deepClone(advice));
     } finally {
       this.#busy = false;
     }

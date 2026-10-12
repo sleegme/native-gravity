@@ -1126,6 +1126,30 @@ export class AuthoritativeLedger {
   }
 
   /**
+   * Records Instinct's alternate-framing output (NEEDS_ALT) as advisory
+   * evidence only. The entry is appended to the evidence map with
+   * `adopted: false`; completion, plan and candidate state are never touched.
+   *
+   * @param {object} record - { milestone_id, task, needs_alt, advice }
+   * @returns {object} The recorded advisory evidence entry
+   */
+  recordAltAdvice(record = {}) {
+    const entry = {
+      milestone_id: record.milestone_id ?? null,
+      task: redactTelemetryValue(record.task ?? ""),
+      needs_alt: redactTelemetryValue(record.needs_alt ?? null),
+      advice: redactTelemetryValue(record.advice ?? null),
+      adopted: false,
+      timestamp: new Date().toISOString(),
+    };
+    if (!Array.isArray(this.evidence.alt_framing)) {
+      this.evidence.alt_framing = [];
+    }
+    this.evidence.alt_framing.push(entry);
+    return entry;
+  }
+
+  /**
    * Records Zen NO-GO verdict for the active candidate.
    * Validates milestoneId matches current_milestone, plan_version matches current plan_version,
    * and result_ref matches active candidate's result_ref.

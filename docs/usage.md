@@ -1,6 +1,6 @@
 # Usage
 
-> - **Native Gravity**: 1.0.0
+> - **Native Gravity**: 1.1.0
 > - **Status**: alpha
 > - **Compatibility**:
 >   - AGY 1.3.3 — validated
@@ -24,10 +24,13 @@ ntg-vnext plan    --ledger .ntg/ledger.json --task "..."   # Piledriver advice; 
 ntg-vnext run     --ledger .ntg/ledger.json [--milestone ID] [--all]
 ntg-vnext replan  --ledger .ntg/ledger.json --plan plan-v2.json
 ntg-vnext recover --ledger .ntg/ledger.json --evidence "observed interruption"
+ntg-vnext alt     --ledger .ntg/ledger.json --task "..." [--milestone ID] [--escalate]   # Instinct advice; never auto-adopted
 ntg-vnext status  --ledger .ntg/ledger.json
 ```
 
 Each call reloads the ledger, so a fresh context resumes where the ledger says. `run` executes the next eligible milestone through Bulldozer, obtains an independent native Zen verdict, and promotes only on a matching GO; `--all` continues in dependency order. Exit code 2 means NO-GO, BLOCKED or NEEDS_DEEP (see the printed `results`). Global completion is declared only when every current-plan milestone has a current GO. `NTG_ZEN_MODEL` optionally pins Zen's model.
+
+`alt` requests an Instinct alternate-framing advisory (NEEDS_ALT) and prints its advisory JSON with `adopted: false`. The advice is recorded as advisory evidence only — it never adopts a plan or changes completion state. `status` reports per-failure-class `needs_alt` recommendations: NEEDS_ALT is recommended when the same failure class has at least 3 attempts without new evidence. `--escalate` is the only path to the Opus tier; without it Instinct runs on Sonnet.
 
 ## Natively selectable primary
 
@@ -35,7 +38,7 @@ Each call reloads the ledger, so a fresh context resumes where the ledger says. 
 
 Use when the task is essentially "this is broken; dig until you find the cause and fix it." Excavator is allowed to edit directly and should complete a bounded diagnose -> repair -> verify loop. It ends with `READY` only after an observed Zen `VERDICT: GO` for the current artifact.
 
-Bulldozer and Piledriver are runner-only roles. Multi-milestone work, durable ledger state, replanning and global completion belong to `ntg-vnext`; Piledriver advice is requested with `ntg-vnext plan`.
+Bulldozer, Piledriver and Instinct are runner-only roles. Multi-milestone work, durable ledger state, replanning and global completion belong to `ntg-vnext`; Piledriver advice is requested with `ntg-vnext plan`, Instinct advice with `ntg-vnext alt`.
 
 ## Bobcat vs Puma
 

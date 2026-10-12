@@ -5,8 +5,8 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { TextDecoder } from "node:util";
 
-// Explicitly bounded to the three runner roles; native specialists stay native.
-const ROLE_BODY_ROLES = Object.freeze(["steamroller", "piledriver", "bulldozer"]);
+// Explicitly bounded to the runner roles; native specialists stay native.
+const ROLE_BODY_ROLES = Object.freeze(["steamroller", "piledriver", "bulldozer", "instinct"]);
 const RUNNER_DIR = dirname(fileURLToPath(import.meta.url));
 
 /**
@@ -28,6 +28,16 @@ export const ROLE_POLICY_TABLE = Object.freeze({
     role: "steamroller",
     family: "Gemini 3.8 Flash",
     effort: "High",
+  }),
+  instinct: Object.freeze({
+    role: "instinct",
+    family: "Claude Sonnet 5.5",
+    effort: "High",
+    // Opus is used only when the caller explicitly escalates; never by default.
+    escalated: Object.freeze({
+      family: "Claude Opus 5.5",
+      effort: "High",
+    }),
   }),
 });
 
@@ -191,10 +201,13 @@ export function matchesPolicy(policy, model) {
   const desc = (typeof model === "object" && model && model.description ? model.description : "").trim().toLowerCase();
 
   const familySlug = policy.family.toLowerCase().replace(/[^a-z0-9.]+/g, "-");
+  // Slugs may render version dots as dashes ("Claude Sonnet 5.5" -> claude-sonnet-5-5).
+  const familySlugDashed = familySlug.replace(/\./g, "-");
   const familyText = policy.family.toLowerCase();
   const effort = policy.effort.toLowerCase();
 
-  const familyMatch = slug.includes(familySlug) || (desc.length > 0 && desc.includes(familyText));
+  const familyMatch = slug.includes(familySlug) || slug.includes(familySlugDashed)
+    || (desc.length > 0 && desc.includes(familyText));
   if (!familyMatch) return false;
 
   const effortMatch =
@@ -219,13 +232,22 @@ export function matchesPolicy(policy, model) {
  */
 export function resolveSlug(role, opts = {}) {
   const normalized = typeof role === "string" ? role.trim().toLowerCase() : "";
-  const policy = ROLE_POLICY_TABLE[normalized];
+  const basePolicy = ROLE_POLICY_TABLE[normalized];
   if (!ROLE_BODY_ROLES.includes(normalized)) {
     throw new UnresolvedModelSlugError(
       role,
       `Unknown role: "${role}". No role policy defined.`
     );
   }
+  // Escalation is explicit and role-scoped: only a policy defining an escalated
+  // family (instinct) changes target models, and only on an explicit request.
+  const policy = basePolicy?.escalated && opts?.escalate
+    ? Object.freeze({
+      ...basePolicy,
+      family: basePolicy.escalated.family,
+      effort: basePolicy.escalated.effort,
+    })
+    : basePolicy;
 
   let installed = opts.installedModels;
   if (!installed) {

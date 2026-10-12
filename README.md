@@ -4,7 +4,7 @@
 
 Native Gravity is a small orchestration plugin for Google Antigravity. It keeps the runtime native and specializes agent roles around the behavior each model is naturally good at.
 
-> - **Native Gravity**: 1.0.0
+> - **Native Gravity**: 1.1.0
 > - **Status**: alpha
 > - **Compatibility**:
 >   - AGY 1.3.3 — validated
@@ -19,10 +19,11 @@ User -> ntg-vnext
     Piledriver — bounded planning, architecture, difficult decisions / Pro
     Bulldozer  — exactly one bounded milestone / Flash
       Jaguar / Puma / Bobcat (-> Strix Halo)
+    Instinct   — alternate-framing advisory on NEEDS_ALT / Sonnet (Opus on explicit escalation)
     Zen        — independent milestone verification / Pro
 ```
 
-Steamroller alone writes the ledger, promotes a milestone only after an observed matching Zen GO, and declares global completion. See [Usage](docs/usage.md#ntg-vnext-runner) for the commands.
+Steamroller alone writes the ledger, promotes a milestone only after an observed matching Zen GO, and declares global completion. Instinct's NEEDS_ALT advice is recorded as advisory evidence and never auto-adopted. See [Usage](docs/usage.md#ntg-vnext-runner) for the commands.
 
 ## Natively selectable primary
 
@@ -31,7 +32,7 @@ User (agent selection)
 └─ Excavator  — autonomous troubleshooter / repair owner, Zen completion gate
 ```
 
-Bulldozer and Piledriver are runner-only roles: Bulldozer executes exactly one bounded milestone per invocation, Piledriver returns advisory plans to Steamroller. Neither is natively selectable.
+Bulldozer, Piledriver and Instinct are runner-only roles: Bulldozer executes exactly one bounded milestone per invocation, Piledriver returns advisory plans to Steamroller, and Instinct returns alternate-framing advice on NEEDS_ALT. None is natively selectable.
 
 Routing is based on the kind of work:
 
@@ -39,6 +40,7 @@ Routing is based on the kind of work:
 - small + clear + low-risk / writing -> Puma
 - ordinary implementation -> Bobcat (-> Strix Halo)
 - planning / architecture / trade-off -> Piledriver (via Steamroller under the runner)
+- stalled same-class failures / a different framing -> Instinct (NEEDS_ALT, via Steamroller under the runner)
 - independent verification -> Zen
 
 Roles fit the behavior each model is naturally good at; correction is added only where a specific role/model pairing actually fails. Excavator is intentionally an editing role, so there is no model-wide mutation deny.

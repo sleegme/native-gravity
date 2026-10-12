@@ -10,6 +10,8 @@
  *   ntg-vnext run     --ledger L [--milestone ID] [--all]
  *   ntg-vnext replan  --ledger L --plan plan.json     (material replan adoption)
  *   ntg-vnext recover --ledger L --evidence "..."     (end an observed interrupted invocation)
+ *   ntg-vnext alt     --ledger L --task "..." [--milestone ID] [--escalate]
+ *                                                 (Instinct NEEDS_ALT advice; not adopted)
  *   ntg-vnext status  --ledger L
  *
  * --timeout SECONDS bounds each runner invocation (default 600; the runner's own
@@ -25,7 +27,7 @@ import { existsSync, readFileSync, readdirSync, realpathSync, unlinkSync } from 
 import { basename, dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { MinimalSpine } from './spine.mjs';
+import { MinimalSpine, recommendNeedsAlt } from './spine.mjs';
 import { parseResponseEnvelope } from './runner.mjs';
 
 /** Executor provenance markers inherited by every runner/Zen child (#135 B2). */
@@ -34,20 +36,21 @@ export const SUPERVISOR_LEDGER_ENV = 'NTG_SUPERVISOR_LEDGER';
 const EXECUTOR_EXIT_WAIT_MS = 10000;
 
 export const DEFAULT_RUNNER_TIMEOUT_S = 600;
-const USAGE = 'usage: ntg-vnext <init|plan|run|replan|recover|status> --ledger PATH [options]';
+const USAGE = 'usage: ntg-vnext <init|plan|run|replan|recover|alt|status> --ledger PATH [options]';
 
 function parseArgs(argv) {
   const [command, ...rest] = argv;
-  const opts = { command, all: false };
+  const opts = { command, all: false, escalate: false };
   for (let i = 0; i < rest.length; i += 1) {
     const arg = rest[i];
     if (arg === '--all') { opts.all = true; continue; }
+    if (arg === '--escalate') { opts.escalate = true; continue; }
     const key = { '--ledger': 'ledger', '--plan': 'plan', '--task': 'task', '--milestone': 'milestone', '--evidence': 'evidence', '--timeout': 'timeout' }[arg];
     if (!key || rest[i + 1] === undefined) throw new Error(`Unknown or incomplete option: ${arg}\n${USAGE}`);
     opts[key] = rest[i + 1];
     i += 1;
   }
-  if (!['init', 'plan', 'run', 'replan', 'recover', 'status'].includes(command)) throw new Error(USAGE);
+  if (!['init', 'plan', 'run', 'replan', 'recover', 'alt', 'status'].includes(command)) throw new Error(USAGE);
   if (!opts.ledger) throw new Error(`--ledger is required\n${USAGE}`);
   const seconds = Number(opts.timeout ?? process.env.NTG_RUNNER_TIMEOUT_S ?? DEFAULT_RUNNER_TIMEOUT_S);
   if (!Number.isFinite(seconds) || seconds <= 0) throw new Error(`--timeout must be a positive number of seconds\n${USAGE}`);
@@ -210,10 +213,28 @@ export async function main(argv, deps = {}) {
     switch (opts.command) {
       case 'init':
       case 'status':
-        return { code: 0, out: { state: spine.state, next_milestone: nextEligible(spine.state) } };
+        return {
+          code: 0,
+          out: {
+            state: spine.state,
+            next_milestone: nextEligible(spine.state),
+            needs_alt: recommendNeedsAlt(spine.state.evidence),
+          },
+        };
       case 'plan':
         if (!opts.task) throw new Error('--task is required');
         return { code: 0, out: { advisory_plan: await spine.requestPlan(opts.task), adopted: false } };
+      case 'alt':
+        if (!opts.task) throw new Error('--task is required');
+        return {
+          code: 0,
+          out: {
+            advisory_alt: await spine.requestAltFraming(opts.task, {
+              milestone: opts.milestone, escalate: opts.escalate,
+            }),
+            adopted: false,
+          },
+        };
       case 'replan':
         return { code: 0, out: { state: spine.adoptReplan(readJson(opts.plan)) } };
       case 'recover':

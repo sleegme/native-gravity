@@ -19,6 +19,7 @@ User
     Bulldozer — exactly one bounded milestone
       Jaguar / Puma / Bobcat
                        Strix Halo — Bobcat-local gate
+    Instinct — alternate-framing advisory on NEEDS_ALT
     Zen — independent milestone verification
     Steamroller ledger transition
 ```
@@ -26,13 +27,14 @@ User
 - **Steamroller** is the sole supervisor, authoritative ledger writer and global completion authority. It does not implement project source or directly orchestrate workers. Ledger state, not conversation, is authoritative. It is runner-invoked, not natively selectable.
 - **Piledriver** is advisory planning/architecture/deep decision only: no implementation, worker orchestration, project-state ownership or completion claims. Steamroller alone decides whether to adopt its proposal.
 - **Bulldozer** receives one current-version milestone packet, delegates within that boundary and returns a pre-review candidate. It neither directly edits project source nor writes the ledger or claims project completion.
+- **Instinct** is the heterogeneous alternate-framing advisory for NEEDS_ALT: advisory only — no implementation, worker orchestration, ledger writes, plan adoption or completion/verdict claims. Its output is recorded as advisory evidence; Steamroller decides whether to act on it.
 - NEEDS_DEEP goes through Bulldozer to Steamroller for possible Piledriver invocation. Bulldozer does not invoke Piledriver.
 - **Zen** reviews every P0 milestone candidate independently for Steamroller, never as Bulldozer's child. Steamroller persists an immutable candidate/`result_ref` binding, then observes Zen's matching milestone, `plan_version` and `result_ref` before promotion.
 - Worker READY and Strix ACCEPT are local signals. Bulldozer DONE is a pre-review candidate, not verified or global completion.
 - Material replanning ends active execution/review, increments `plan_version`, marks old verdicts STALE and clears active/completed milestone state; retained milestones need fresh current-version review in dependency order.
 - Global completion requires all current milestones verified, no blockers, no active execution/review and Steamroller's direct observation of evidence.
 
-The runner owns exact model resolution and effort (Steamroller/Bulldozer: Gemini 3.8 Flash High; Piledriver: Gemini 3.1 Pro High); frontmatter does not guess exact slugs.
+The runner owns exact model resolution and effort (Steamroller/Bulldozer: Gemini 3.8 Flash High; Piledriver: Gemini 3.1 Pro High; Instinct: Claude Sonnet 5.5 High, Claude Opus 5.5 High only on explicit escalation); frontmatter does not guess exact slugs.
 
 ### Natively selectable primary
 
@@ -50,6 +52,7 @@ Natively selected primaries own only their bounded work. Multi-milestone work, d
 - **Jaguar** — read-only codebase discovery; Flash tier.
 - **Strix Halo** — read-only Bobcat-local advice/check gate; Pro tier.
 - **Zen** — shared independent non-mutating review gate; Pro tier; may run verification commands to gather its own evidence. Steamroller uses it for milestone verification, and Excavator only as its final completion reviewer.
+- **Instinct** — heterogeneous alternate-framing advisory for NEEDS_ALT; runner-only; advisory only, never a ritual reviewer, implementer or completion authority.
 
 ## Routing principle
 
@@ -59,6 +62,7 @@ Choose by **kind of work**, not by apparent task size alone.
 - small + clear + low-risk / writing / formatting / mechanical text/config -> Puma
 - ordinary implementation -> Bobcat
 - planning / architecture / ambiguity / trade-off -> Piledriver (via Steamroller under the runner)
+- stalled same-class failures / a materially different framing needed -> Instinct (NEEDS_ALT via Steamroller under the runner)
 - milestone verification / independent completion review -> Zen
 - multi-milestone project work -> runner (Steamroller)
 - difficult autonomous diagnosis + repair user workflow -> Excavator primary
@@ -145,7 +149,7 @@ Custom-primary and runner delegation paths are explicit runtime validation gates
 3. Keep the internal graph shallow.
 4. Fit roles to model behavior before adding corrective harness weight.
 5. Use Puma for quick/writing work instead of burdening Bobcat with unnecessary review ceremony.
-6. Keep Jaguar factual and Piledriver advisory.
+6. Keep Jaguar factual and Piledriver and Instinct advisory.
 7. Keep Strix Halo read-only and Zen non-mutating.
 8. Do not reintroduce a model-wide 3.1 Pro mutation deny while Excavator uses that model family for implementation.
 9. Guard Excavator by effect and privilege-acquisition behavior, not by banning sudo itself.

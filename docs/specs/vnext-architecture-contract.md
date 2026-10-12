@@ -56,7 +56,7 @@ USER
 - Bulldozer receives exactly one milestone packet per invocation. It operates within that bounded scope only.
 - Zen is an independent gate, not a child of Bulldozer. Its verdict is delivered to Steamroller.
 - Excavator is outside the normal spine — see §2.9 and §7.
-- Instinct is future work and is NOT part of the minimum P0 implementation — see §2.10.
+- Instinct is implemented as the runner-only NEEDS_ALT advisory (#20) — see §2.10.
 
 ### 1.2 Failure / Recovery Path (post-P0)
 
@@ -66,10 +66,10 @@ Normal execution → material failure
           │
           ├─► success → return result
           └─► stalled repeated failure (same class, no new evidence)
-                  └─► NEEDS_ALT → INSTINCT  (future: Sonnet via exact-model runner)
+                  └─► NEEDS_ALT → INSTINCT  (Sonnet via exact-model runner, #20)
 ```
 
-This path is out of scope for the minimum P0 spine. Excavator and Instinct are reconnected in later slices.
+This path is out of scope for the minimum P0 spine. Excavator is reconnected in later slices; Instinct is connected to the validated runner in #20.
 
 ---
 
@@ -246,19 +246,21 @@ This is not a raw retry count. Track failure class/signature, current hypothesis
 
 **OPEN QUESTION / SPEC GAP:** Excavator's final authority, placement in the orchestration graph, and exact model assignment are unresolved. Validate against real AGY failure cases before finalizing. Do not invent from role aesthetics.
 
-### 2.10 Instinct — Future Work (NOT P0)
+### 2.10 Instinct — Alternate-Framing Specialist (#20)
 
-Instinct is the heterogeneous alternate-framing specialist, targeting Sonnet via an exact-model AGY invocation path once the runner (§6) is validated.
+Instinct is the heterogeneous alternate-framing specialist, targeting Claude Sonnet 5.5 / High via the exact-model AGY invocation path, with Claude Opus 5.5 / High only on explicit escalation.
 
-**Purpose:** Challenge the current framing when Gemini-led paths have over-converged. Not a ritual review step.
+**Purpose:** Challenge the current framing when Gemini-led paths have over-converged. Not a ritual review step. Advisory only: no implementation, worker orchestration, ledger writes, plan adoption or completion/verdict claims. Its output is recorded as advisory evidence (`adopted: false`); Steamroller decides whether to act.
 
-**Trigger conditions (post-P0):**
-- Stalled same-class failures meeting the Excavator escalation threshold
-- Multiple Gemini-family agents converging on the same unsuccessful framing
+**Trigger conditions:**
+- Stalled same-class failures meeting the escalation threshold in §2.9
+- Multiple same-family agents converging on the same unsuccessful framing
 - Evidence that the current problem model cannot explain observed behavior
 - Explicit request for a heterogeneous alternate perspective
 
-**OPEN QUESTION / SPEC GAP:** Exact AGY invocation path for Sonnet (Instinct backend) is not yet validated. The exact-model runner (§6) must make this path possible without requiring another orchestration redesign. Implement Instinct only after the runner is validated (slice 44B).
+The runner invokes Instinct with a bounded NEEDS_ALT packet (failure class/signature, current hypothesis, attempt count, evidence, tier-B replan context) and receives one bare JSON object: current framing, why it may be wrong, materially different hypotheses (each with an OBSERVED / INFERRED / UNKNOWN evidence basis and a discriminating test), recommendation and unknowns.
+
+**RESOLVED (#20, OQ-4):** The exact-model runner validates the Sonnet invocation path; Instinct is a runner role with the same fail-closed slug resolution as Piledriver and Bulldozer.
 
 ---
 
@@ -519,6 +521,7 @@ Initial target policy (subject to live validation in slice 44B):
 | Steamroller | Gemini 3.8 Flash | High | via exact-model runner |
 | Piledriver | Gemini 3.1 Pro | High | via exact-model runner |
 | Bulldozer | Gemini 3.8 Flash | High | via exact-model runner |
+| Instinct | Claude Sonnet 5.5 (Claude Opus 5.5 only on explicit escalation) | High | via exact-model runner |
 | Jaguar | Flash | native | native AGY subagent |
 | Puma | Flash | native | native AGY subagent |
 | Bobcat | Flash | native | native AGY subagent |
@@ -529,15 +532,15 @@ Initial target policy (subject to live validation in slice 44B):
 
 **Do NOT turn every specialist into a separate process.** Jaguar, Puma, Bobcat, Strix Halo, and Zen remain native AGY subagents unless live validation demonstrates a concrete need to move one.
 
-### 6.4 Instinct Future Path
+### 6.4 Instinct Runner Path
 
-The runner must be designed so that adding Instinct (Sonnet via official AGY invocation path) requires no redesign of the runner interface or the orchestration graph. Instinct is a future client of the same runner, not a special case.
+Instinct is a client of the same runner, not a special case; adding it required no redesign of the runner interface or the orchestration graph.
 
 ```text
-Future: Steamroller → NEEDS_ALT → Instinct runner → Sonnet session → alternate-perspective artifact → Steamroller
+Steamroller → NEEDS_ALT → Instinct runner → Sonnet session → alternate-perspective artifact → Steamroller
 ```
 
-**OPEN QUESTION / SPEC GAP:** The exact AGY CLI path for Sonnet invocation is not yet validated. Slice 44B must validate the runner for Piledriver and Bulldozer before Instinct is attempted.
+**RESOLVED (#20, OQ-4):** The exact-model runner validates the Sonnet invocation path (fail-closed slug resolution from the installed AGY surface). Opus 5.5 / High is selected only on explicit escalation.
 
 ---
 
@@ -596,7 +599,7 @@ Steamroller
   └─► Steamroller ledger transition
 ```
 
-Jaguar, Puma, and Strix Halo reconnect in slice 44F. Excavator reconnects post-44G. Instinct follows after the runner is validated.
+Jaguar, Puma, and Strix Halo reconnect in slice 44F. Excavator reconnects post-44G. Instinct is connected to the validated runner in #20.
 
 ### 8.3 Provenance Closure
 
@@ -644,7 +647,7 @@ The following items are explicitly unresolved at the time this contract is froze
 | OQ-1 | Exact AGY model slugs for Gemini 3.8 Flash and 3.1 Pro — must be resolved from installed AGY surface, not assumed | 44B |
 | OQ-2 | Whether Zen should use exact 3.1P/High or remain on native Pro — validate with live testing | 44B / 44F |
 | OQ-3 | Exact final authority, placement, and model assignment of Excavator in the vNext graph | Post-44G / separate issue |
-| OQ-4 | Exact AGY CLI invocation path for Sonnet (Instinct backend) — must be validated before Instinct is implemented | Post-44G / issue #20 |
+| OQ-4 | Exact AGY CLI invocation path for Sonnet (Instinct backend) — must be validated before Instinct is implemented | Resolved #20 |
 | OQ-5 | Ledger persistence format and location (YAML file, sidecar artifact, etc.) — implementation decision for 44C | 44C |
 | OQ-6 | Keep explicit `inheritCustomizations: true` on native Excavator; AGY 1.3.3 workspace-rule propagation verified for true/omission, suppressed for false; inheritance is not an authority grant | Resolved #137 |
 | OQ-7 | Exact mechanism for enforcing state-machine completion rules at runtime (e.g., ledger validator function, pre-transition checks) | 44C |

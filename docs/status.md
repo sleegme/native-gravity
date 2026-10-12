@@ -1,13 +1,34 @@
 # Status
 
-- **Native Gravity**: 1.0.0
+- **Native Gravity**: 1.1.0
 - **Status**: alpha
 - **Compatibility**:
-  - AGY 1.3.3 — validated (vNext runner live probes: #134, #138; delegation probes: #113/#56)
+  - AGY 1.3.3 — validated (vNext runner live probes: #134, #138; delegation probes: #113/#56; Instinct NEEDS_ALT live call: #20)
 
 See [Versioning Policy](versioning.md) for versioning rules and lifecycle definitions.
 
 ## State
+
+### Instinct (#20) and Bulldozer relay rule (#136)
+
+Instinct is the heterogeneous alternate-framing advisory, runner-only and
+advisory: it returns one bare JSON object (current framing, why it may be
+wrong, materially different hypotheses with evidence basis and a
+discriminating test, recommendation, unknowns) and has no implementation,
+orchestration, ledger or completion authority. `ntg-vnext alt` invokes it with
+a bounded NEEDS_ALT packet (failure class/signature, current hypothesis,
+attempt count, evidence, tier-B replan context) and records the result as
+advisory evidence (`adopted: false`) only. Exact-model resolution targets
+Claude Sonnet 5.5 / High; Claude Opus 5.5 / High is selected only on explicit
+`--escalate`, with the usual fail-closed slug resolution (OQ-4 resolved).
+`status` recommends NEEDS_ALT per failure class when the same class has at
+least 3 attempts without new evidence (contract §2.9); recommendations never
+auto-run paid calls.
+
+#136: Bulldozer's MACHINE-INVOCATION MODE now requires specialist/worker
+reports to be relayed only inside packet fields (`verification_evidence`,
+`delegations` findings), never as text before or after the JSON object; the
+strict packet parser is unchanged and still rejects prose.
 
 ### vNext-only (1.0.0, #138)
 
@@ -17,7 +38,7 @@ vNext is the only structure. The pre-vNext (v0.4) topology and its compatibility
 
 vNext is the runtime. Released `agents/` and `rules/` carry the vNext contracts; the runner loads role bodies from `agents/` and `ntg-vnext` is the multi-milestone entry. Steamroller is runner-only; Bulldozer and Piledriver are invoked by the runner with exact models and bounded packets. Activation evidence: `.omo/evidence/134-vnext-activation.md`.
 
-Resolved OQ-6 (#137): keep explicit `inheritCustomizations: true` on native Excavator to preserve workspace instructions. The controlled AGY 1.3.3 probe propagated a workspace rule for true and omission, but not false. Bulldozer and Piledriver remain runner-only and do not carry the field. Excavator recovery reconnection and Instinct remain post-44G.
+Resolved OQ-6 (#137): keep explicit `inheritCustomizations: true` on native Excavator to preserve workspace instructions. The controlled AGY 1.3.3 probe propagated a workspace rule for true and omission, but not false. Bulldozer and Piledriver remain runner-only and do not carry the field. Excavator recovery reconnection remains post-44G; Instinct is implemented (#20, see above).
 
 ### Guards and boundaries in force
 
@@ -33,7 +54,8 @@ Validated on AGY 1.3.3 (evidence: `.omo/evidence/113-live-probe-results.md`, `.o
 
 - runner end-to-end: multi-milestone dependency-order execution with an independent Zen GO per milestone, fresh-context resume after an observed interrupted invocation, material replan with `plan_version` increment and fresh current-version review, and a live Zen NO-GO -> repair -> fresh GO cycle
 - specialist delegation: Bulldozer -> Jaguar / Puma / Bobcat and the nested Bobcat -> Strix Halo (`ACCEPT`) gate, observed with transcript-level `invoke_subagent` dispatches
-- runner exact-model resolution: piledriver `gemini-3.1-pro-high`, bulldozer/steamroller `gemini-3.8-flash-high`
+- runner exact-model resolution: piledriver `gemini-3.1-pro-high`, bulldozer/steamroller `gemini-3.8-flash-high`, instinct `claude-sonnet-5-5-high` (`claude-opus-5-5-high` only on explicit escalation)
+- Instinct NEEDS_ALT: one live `ntg-vnext alt` call on Sonnet against a small ledger, returning the advisory JSON with `adopted: false`; evidence: `.omo/evidence/20-instinct-results.md`
 - native Excavator: actual interactive NO-GO -> repair -> fresh GO, followed in the same session by a direct write after GO -> fresh independent review -> READY. Actual terminal Stop events allowed completion after fresh GO. Stale-verdict rejection was separately replayed against the captured post-write transcript; it was not a live premature-READY attempt. Evidence: `.omo/evidence/137-excavator-validation.md`.
 
 Pending live revalidation:

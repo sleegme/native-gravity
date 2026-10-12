@@ -46,5 +46,6 @@ Native Gravity is an Antigravity-native plugin. Because it relies directly on ho
 | `0.4.0` | alpha | AGY 1.1.24 | validated | Clean install and primary/subagent execution validated |
 | `0.4.0` | alpha | AGY 1.2.12 | validated w/ regression | All named delegation/review paths pass; Stop hooks inert in headless print mode and `--agent` role body absent from transcripts — tracked as issue #64 |
 | `1.0.0` | alpha | AGY 1.3.3 | validated | vNext-only runtime: runner end-to-end (multi-milestone GO, fresh-context resume, material replan, Zen NO-GO -> GO), specialist delegation probes and exact-model resolution; see `.omo/evidence/138-vnext-only-results.md` |
+| `1.1.0` | alpha | AGY 1.3.3 | validated | Instinct (#20) runner role: NEEDS_ALT alternate-framing advisory on Claude Sonnet 5.5 High (Claude Opus 5.5 High only on explicit escalation); Bulldozer specialist-report relay rule (#136); see `.omo/evidence/20-instinct-results.md` |
 
 When Google Antigravity updates, compatibility gates must be revalidated against the new runtime build and updated in `docs/status.md` and the compatibility matrix without altering the product version unless harness modifications are required.
