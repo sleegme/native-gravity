@@ -7,8 +7,6 @@ import { TextDecoder } from "node:util";
 
 // Explicitly bounded to the three runner roles; native specialists stay native.
 const ROLE_BODY_ROLES = Object.freeze(["steamroller", "piledriver", "bulldozer"]);
-/** Native-only trailing section of a released role body; never sent by the runner. */
-export const INTERACTIVE_SECTION_HEADING = "\n## INTERACTIVE MODE\n";
 const RUNNER_DIR = dirname(fileURLToPath(import.meta.url));
 
 /**
@@ -107,11 +105,7 @@ function loadRoleBody(role, opts) {
     if (!body.trim() || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(body)) {
       throw new Error("Role body must contain non-empty UTF-8 Markdown without non-text control characters");
     }
-    // Released bodies serve both runner and native selection. The trailing
-    // INTERACTIVE MODE section (delegation, PLAN READY, target grounding via
-    // inspection) is for native sessions only; under the runner it invites
-    // shell use that headless agy denies (TOOL_PERMISSION_DENIED, #135 B4).
-    return body.split(INTERACTIVE_SECTION_HEADING)[0].trim();
+    return body.trim();
   } catch (err) {
     throw new RoleBodyError(
       role,
@@ -549,7 +543,7 @@ export function invokeTransport(slugOrOpts, maybePrompt, maybeOpts) {
   };
 
   // The composed role body is the machine contract. Do not add --agent:
-  // installed primary agents inject the released READY / PLAN READY contracts.
+  // native agent selection would replace it with the installed agent's contract.
   const args = [
     "--model",
     slug,

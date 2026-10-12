@@ -1,0 +1,168 @@
+npm notice
+npm notice 📦  native-gravity@1.0.0
+npm notice Tarball Contents
+npm notice 6.0kB README.md
+npm notice 3.2kB agents/bobcat.md
+npm notice 5.4kB agents/bulldozer.md
+npm notice 7.5kB agents/excavator.md
+npm notice 3.3kB agents/jaguar.md
+npm notice 4.9kB agents/piledriver.md
+npm notice 3.7kB agents/puma.md
+npm notice 5.4kB agents/steamroller.md
+npm notice 4.7kB agents/strix-halo.md
+npm notice 3.0kB agents/zen.md
+npm notice 6.8kB docs/ko/README.md
+npm notice 783B hooks.json
+npm notice 18.7kB hooks/excavator-review-gate.py
+npm notice 7.7kB hooks/excavator-shell-guard.py
+npm notice 5.6kB hooks/zen-shell-guard.py
+npm notice 1.4kB package.json
+npm notice 318B plugin.json
+npm notice 14.7kB rules/harness.md
+npm notice 12.3kB rules/orchestration.md
+npm notice 10.3kB scripts/dag-view.mjs
+npm notice 9.4kB scripts/gate_panel.py
+npm notice 1.7kB scripts/ledger-lock.mjs
+npm notice 67.7kB scripts/ledger.mjs
+npm notice 4.1kB scripts/npm-install.mjs
+npm notice 12.2kB scripts/ntg-vnext.mjs
+npm notice 25.2kB scripts/runner.mjs
+npm notice 22.4kB scripts/spine.mjs
+npm notice 6.2kB scripts/telemetry.mjs
+npm notice 4.2kB tests/test_dag_view.mjs
+npm notice Tarball Details
+npm notice name: native-gravity
+npm notice version: 1.0.0
+npm notice filename: native-gravity-1.0.0.tgz
+npm notice package size: 77.3 kB
+npm notice unpacked size: 278.9 kB
+npm notice shasum: 62c6aa218bf20456adf19b086ce9aac51355f6f8
+npm notice integrity: sha512-/kXOihT6Lqd6X[...]lfx4gSbTw+63Q==
+npm notice total files: 29
+npm notice
+native-gravity-1.0.0.tgz
+1.0.0
+ntg-vnext: usage: ntg-vnext <init|plan|run|replan|recover|status> --ledger PATH [options]
+
+Supported init/status and restore comparison:
+{
+  "state": {
+    "goal": "Observe two read-only repository facts in dependency order",
+    "constraints": [
+      "Read-only inspection; no writes"
+    ],
+    "plan_version": "v1",
+    "milestones": [
+      {
+        "id": "m1",
+        "title": "m1",
+        "objective": "Delegate to Jaguar: report the \"version\" field of package.json",
+        "acceptance_criteria": [
+          "package.json version independently observed with a tool",
+          "candidate_artifact_ref names package.json and the observed version"
+        ],
+        "non_goals": [
+          "Any file modification"
+        ],
+        "dependencies": [],
+        "bounded_scope": [
+          "package.json",
+          "VERSION"
+        ]
+      },
+      {
+        "id": "m2",
+        "title": "m2",
+        "objective": "Delegate to Jaguar: report the content of the VERSION file and whether it equals the package.json version",
+        "acceptance_criteria": [
+          "VERSION content observed with a tool",
+          "equality with package.json version stated with evidence",
+          "candidate_artifact_ref names VERSION and the observed content"
+        ],
+        "non_goals": [
+          "Any file modification"
+        ],
+        "dependencies": [
+          "m1"
+        ],
+        "bounded_scope": [
+          "package.json",
+          "VERSION"
+        ]
+      }
+    ],
+    "current_milestone": null,
+    "completed_milestones": [],
+    "evidence": {},
+    "verification": {},
+    "blockers": [],
+    "next_action": "Ready to delegate initial milestone: m1",
+    "decision_invariants": [],
+    "_initialized": true,
+    "_active_candidates": {},
+    "_known_candidates_by_ref": {},
+    "_verification_history": []
+  },
+  "next_milestone": "m1"
+}
+{
+  "state": {
+    "goal": "Observe two read-only repository facts in dependency order",
+    "constraints": [
+      "Read-only inspection; no writes"
+    ],
+    "plan_version": "v1",
+    "milestones": [
+      {
+        "id": "m1",
+        "title": "m1",
+        "objective": "Delegate to Jaguar: report the \"version\" field of package.json",
+        "acceptance_criteria": [
+          "package.json version independently observed with a tool",
+          "candidate_artifact_ref names package.json and the observed version"
+        ],
+        "non_goals": [
+          "Any file modification"
+        ],
+        "dependencies": [],
+        "bounded_scope": [
+          "package.json",
+          "VERSION"
+        ]
+      },
+      {
+        "id": "m2",
+        "title": "m2",
+        "objective": "Delegate to Jaguar: report the content of the VERSION file and whether it equals the package.json version",
+        "acceptance_criteria": [
+          "VERSION content observed with a tool",
+          "equality with package.json version stated with evidence",
+          "candidate_artifact_ref names VERSION and the observed content"
+        ],
+        "non_goals": [
+          "Any file modification"
+        ],
+        "dependencies": [
+          "m1"
+        ],
+        "bounded_scope": [
+          "package.json",
+          "VERSION"
+        ]
+      }
+    ],
+    "current_milestone": null,
+    "completed_milestones": [],
+    "evidence": {},
+    "verification": {},
+    "blockers": [],
+    "next_action": "Ready to delegate initial milestone: m1",
+    "decision_invariants": [],
+    "_initialized": true,
+    "_active_candidates": {},
+    "_known_candidates_by_ref": {},
+    "_verification_history": []
+  },
+  "next_milestone": "m1"
+}
+NTG138_PACKAGE_QA_PASS

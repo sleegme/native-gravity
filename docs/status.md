@@ -1,81 +1,46 @@
 # Status
 
-- **Native Gravity**: 0.4.0
+- **Native Gravity**: 1.0.0
 - **Status**: alpha
 - **Compatibility**:
-  - AGY 1.1.21 — validated
-  - AGY 1.1.24 — validated
-  - AGY 1.2.12 — validated w/ regression (see [issue 59 report](review/issue59-12x-validation.md)); Stop hooks inert in headless print mode and `--agent` role body absent from transcripts — tracked as [#64](https://github.com/sleegme/native-gravity/issues/64)
-  - AGY 1.3.1 — command-surface probe heads match 1.2.12 (models/agents/plugins/help); headless `--print`, `--dangerously-skip-permissions`, and `--agent bulldozer` verified; Excavator→Zen `invoke_subagent` round-trip observed in transcript; full suite green (90 py + 120 mjs). See `.omo/evidence/agy-1-3-1/side-probe.md`. Same #64 transcript caveats apply; NO-GO/post-GO-rewrite re-review path not yet exercised.
+  - AGY 1.3.3 — validated (vNext runner live probes: #134, #138; delegation probes: #113/#56)
 
 See [Versioning Policy](versioning.md) for versioning rules and lifecycle definitions.
 
 ## State
 
+### vNext-only (1.0.0, #138)
+
+vNext is the only structure. The pre-vNext (v0.4) topology and its compatibility paths are removed: Bulldozer and Piledriver are runner-only (`mainAgent: false`), the Bulldozer/Piledriver Stop review gate (`hooks/primary-review-gate.py`) and the `ntg-run` role-attribution wrapper are gone, and the `docs/specs/vnext/` pre-activation mirror is deleted. Excavator remains the only natively selectable primary with its Zen completion gate. `docs/specs/plan-review-contract.md` (native Piledriver plan-readiness review) is removed with the flow it defined.
+
 ### vNext activation (44G, #134)
 
-vNext is the default runtime. Released `agents/` and `rules/` carry the vNext contracts; the runner loads role bodies from `agents/` and `ntg-vnext` is the default multi-milestone entry. Bulldozer, Piledriver and Excavator remain natively selectable with their Zen gates; Steamroller is runner-only. The primary review gate is keyed to the vNext role sentences. Activation evidence: `.omo/evidence/134-vnext-activation.md`.
+vNext is the runtime. Released `agents/` and `rules/` carry the vNext contracts; the runner loads role bodies from `agents/` and `ntg-vnext` is the multi-milestone entry. Steamroller is runner-only; Bulldozer and Piledriver are invoked by the runner with exact models and bounded packets. Activation evidence: `.omo/evidence/134-vnext-activation.md`.
 
-Open: OQ-6 (`inheritCustomizations` semantics) is a PO decision recorded in the activation PR; Excavator recovery reconnection and Instinct remain post-44G.
+Open: OQ-6 (`inheritCustomizations` semantics) is a PO decision narrowed to Excavator (#137); Bulldozer and Piledriver no longer carry the field. Excavator recovery reconnection and Instinct remain post-44G.
 
-### v0.4 history
+### Guards and boundaries in force
 
-Core runtime validation passed on AGY 1.1.21 and AGY 1.1.24; ready for alpha use.
+- Zen has verification-only `run_command` plus a marker-scoped `PreToolUse` guard (`NTG_ZEN_VERIFY=1`) for common intentional shell mutation paths.
+- Excavator has a marker-scoped shell guard (`NTG_EXCAVATOR=1`) that preserves ordinary sudo while rejecting stdin-password privilege acquisition, alternate local privilege paths, shell-history credential mining, and broad system upgrades.
+- Excavator invokes Zen only as its independent final completion reviewer. A plugin `Stop` hook blocks normal Excavator completion when Zen review is missing, pending, NO-GO, or stale after a later direct write/marked Excavator shell call. Verified BLOCKED and abnormal runtime termination remain allowed so the gate does not manufacture a completion loop.
+- Deterministic coverage: `tests/test_excavator_shell_guard.py`, `tests/test_excavator_review_gate.py`, `tests/test_zen_shell_guard.py`, `tests/test_gate_panel.py`.
+- The Zen and Excavator shell guards are behavioral backstops, not complete shell or privilege sandboxes. AGY runtimes do not expose reliable custom-agent identity in `PreToolUse` payloads; the Excavator review gate scopes itself from structured transcript identity/system-prompt evidence and the `NTG_EXCAVATOR=1` shell marker.
 
-Implemented:
+### Live validation status
 
-- peer primary modes: Bulldozer / Piledriver / Excavator
-- internal renames: Worker -> Bobcat, Explorer -> Jaguar, Deep -> Steamroller, Reviewer -> Zen
-- new Puma quick/writing path
-- Bobcat -> Strix Halo local gate retained
-- Piledriver now has only two planning children: Jaguar for bounded read-only discovery and Zen for final plan-readiness review
-- Piledriver requires authoritative target grounding before task-graph closure and an observed current Zen `VERDICT: GO` before `PLAN READY`
-- v0.3.3 global Gemini 3.1 Pro mutation hook removed because Excavator must edit
-- generic routing/docs updated for model-natural role allocation
-- Zen now has verification-only `run_command` plus a marker-scoped `PreToolUse` behavioral guard for common intentional shell mutation paths
-- Excavator now has a marker-scoped shell guard that preserves ordinary sudo while rejecting stdin-password privilege acquisition, alternate local privilege paths, shell-history credential mining, and broad system upgrades
-- Excavator can invoke Zen only as its independent final completion reviewer
-- a plugin `Stop` hook now blocks normal Excavator completion when Zen review is missing, pending, NO-GO, or stale after a later direct write/marked Excavator shell call
-- verified BLOCKED and abnormal runtime termination remain allowed so the review gate does not manufacture a completion loop
-- deterministic shell-guard regression coverage in `tests/test_excavator_shell_guard.py`
-- deterministic Excavator review-gate coverage in `tests/test_excavator_review_gate.py`
+Validated on AGY 1.3.3 (evidence: `.omo/evidence/113-live-probe-results.md`, `.omo/evidence/56-activation-readiness.md`, `.omo/evidence/134-live-probe/`, `.omo/evidence/138-vnext-only-results.md`):
 
-Validated on AGY 1.1.21 and AGY 1.1.24:
+- runner end-to-end: multi-milestone dependency-order execution with an independent Zen GO per milestone, fresh-context resume after an observed interrupted invocation, material replan with `plan_version` increment and fresh current-version review, and a live Zen NO-GO -> repair -> fresh GO cycle
+- specialist delegation: Bulldozer -> Jaguar / Puma / Bobcat and the nested Bobcat -> Strix Halo (`ACCEPT`) gate, observed with transcript-level `invoke_subagent` dispatches
+- runner exact-model resolution: piledriver `gemini-3.1-pro-high`, bulldozer/steamroller `gemini-3.8-flash-high`
 
-- custom-primary Bulldozer can actually invoke internal subagents on the current AGY build
-- Piledriver remains planning-only in real runs
-- Excavator can edit and verify end-to-end on Pro tier
-- Puma handles quick/writing work without unnecessary Advisor ceremony
-- Bobcat -> Strix Halo gate still converges correctly after rename
-- Bobcat attempts no subagent other than strix-halo (negative delegation case)
-- Zen verdict is observed before completion claims
+Pending live revalidation:
 
-Validated on AGY 1.1.24 (Excavator completion review gate):
+- Excavator's live edit -> Zen GO -> READY and NO-GO -> non-READY termination were observed on AGY 1.3.1 (`.omo/evidence/agy-1-3-1/side-probe.md`). A full NO-GO repair loop and post-GO-write re-review still need live revalidation; deterministic review-gate tests cover these conditions.
+- `multi_replace_file_content` is declared by no current agent and was not observed live (no action needed unless a future agent declares it)
+- `manage_task` is present on the live tool surface but declared by no agent
 
-- Excavator can invoke Zen from a custom-primary session and observe the returned verdict
-- a normal Excavator stop without Zen review is forced back into the execution loop
-- `VERDICT: GO` for the current artifact permits completion
-- `VERDICT: NO-GO`, a newer unfinished Zen invocation, or a post-GO direct write/marked Excavator shell call forces correction and a fresh review
-- a verified BLOCKED result can terminate without Zen
-- non-Excavator sessions remain unaffected by the Stop hook
-
-Pending live revalidation after the shell-guard changes:
-- Piledriver can invoke Jaguar and Zen from a clean/current plugin install — exercised live on 1.2.12 ([issue 59](review/issue59-12x-validation.md))
-- Piledriver does not invoke implementation workers
-- a target-identity mismatch remains UNKNOWN / NEEDS_DISCOVERY instead of being promoted from the local checkout
-- Jaguar discovery remains read-only and returns unresolved evidence requirements rather than crossing into mutation
-- Zen `VERDICT: NO-GO` causes plan-only revision and a fresh review
-- a materially revised plan cannot reuse an older Zen GO
-- `PLAN READY` is emitted only after the actual current Zen `VERDICT: GO` is observed
-- Zen can run independent verification commands with the required `NTG_ZEN_VERIFY=1` marker — exercised live on 1.2.12 ([issue 59](review/issue59-12x-validation.md))
-- Zen-marked common direct-mutation shell attempts are denied while ordinary verification commands still run
-- Excavator-marked ordinary sudo diagnostics and bounded repairs still run
-- Excavator-marked `sudo -S`, `sudo su`, `pkexec`, local root SSH, shell-history credential mining, and full-system upgrade paths are denied
-- wrapper forms such as `env pkexec`, `command ssh root@localhost`, and `bash -c 'sudo apt upgrade'` are denied
-- downstream command arguments such as `sudo somecmd -S value` do not produce a sudo-stdin false positive
-- Bulldozer and other agents' unmarked shell calls are unaffected
-
-The Zen and Excavator shell guards are behavioral backstops, not complete shell or privilege sandboxes. AGY runtimes (1.1.21 / 1.1.24) do not expose reliable custom-agent identity in `PreToolUse` payloads. The current Stop-hook contract likewise does not document an explicit custom-agent-name field, so the Excavator review gate scopes itself from structured transcript identity/system-prompt evidence when available and the existing `NTG_EXCAVATOR=1` shell marker. Live transcript-shape validation on AGY 1.1.24 confirmed the gate accurately scopes Excavator sessions while remaining unobtrusive to other agents.
 Naming:
 
 - Bobcat advisor codename finalized as **Strix Halo** (`strix-halo`)

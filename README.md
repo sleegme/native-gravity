@@ -4,16 +4,14 @@
 
 Native Gravity is a small orchestration plugin for Google Antigravity. It keeps the runtime native and specializes agent roles around the behavior each model is naturally good at.
 
-> - **Native Gravity**: 0.4.0
+> - **Native Gravity**: 1.0.0
 > - **Status**: alpha
 > - **Compatibility**:
->   - AGY 1.1.21 — validated
->   - AGY 1.1.24 — validated
->   - AGY 1.2.12 — validated w/ regression ([#64](https://github.com/sleegme/native-gravity/issues/64))
+>   - AGY 1.3.3 — validated
 
-## vNext runtime (default)
+## vNext runtime
 
-vNext is the default runtime ([#134](https://github.com/sleegme/native-gravity/issues/134)). The `ntg-vnext` runner drives multi-milestone work:
+vNext is the runtime ([#134](https://github.com/sleegme/native-gravity/issues/134)). The `ntg-vnext` runner drives multi-milestone work:
 
 ```text
 User -> ntg-vnext
@@ -24,61 +22,46 @@ User -> ntg-vnext
     Zen        — independent milestone verification / Pro
 ```
 
-Steamroller alone writes the ledger, promotes a milestone only after an observed matching Zen GO, and declares global completion. See [Usage](docs/usage.md#ntg-vnext-default-vnext-runner) for the commands.
+Steamroller alone writes the ledger, promotes a milestone only after an observed matching Zen GO, and declares global completion. See [Usage](docs/usage.md#ntg-vnext-runner) for the commands.
 
-## Natively selectable primaries
+## Natively selectable primary
 
 ```text
 User (agent selection)
-├─ Bulldozer  — one bounded request, Zen completion gate
-├─ Piledriver — plan-first packet, Zen plan-readiness gate
 └─ Excavator  — autonomous troubleshooter / repair owner, Zen completion gate
 ```
+
+Bulldozer and Piledriver are runner-only roles: Bulldozer executes exactly one bounded milestone per invocation, Piledriver returns advisory plans to Steamroller. Neither is natively selectable.
 
 Routing is based on the kind of work:
 
 - find/inspect -> Jaguar
 - small + clear + low-risk / writing -> Puma
 - ordinary implementation -> Bobcat (-> Strix Halo)
-- planning / architecture / trade-off -> Piledriver
+- planning / architecture / trade-off -> Piledriver (via Steamroller under the runner)
 - independent verification -> Zen
 
-The v0.4 peer-primary topology (Steamroller as a Bulldozer deep-decision specialist) is superseded; it is preserved for reference in [the v0.4 baseline](docs/specs/pre-vnext-v0.4-behavior-baseline.md).
-
-## Why v0.4 changes direction
-
-v0.3 experiments showed that forcing every model into the same Host behavior can add more harness weight than value. v0.4 instead assigns roles that fit observed model tendencies and adds correction only where a specific role/model pairing actually fails.
-
-That also invalidates the v0.3.3 global Gemini 3.1 Pro mutation deny: Excavator is intentionally an editing role, so the model-wide hook is removed in v0.4.
+Roles fit the behavior each model is naturally good at; correction is added only where a specific role/model pairing actually fails. Excavator is intentionally an editing role, so there is no model-wide mutation deny.
 
 ## Native-first boundary
 
-Native Gravity does not ship a replacement runtime. The npm entrypoint is installation-only: it locates the packaged plugin directory and delegates installation back to `agy plugin install`. It does not intercept or wrap Antigravity runtime execution. Antigravity owns primary/subagent execution, lifecycle, sessions, workspaces, model resolution, and tool permissions. Native Gravity supplies role contracts, routing policy, model-adaptive behavioral guidance, and `ntg-run` — a thin invocation helper that prepends the `NTG_ROLE` attribution marker to gated-role prompts so the review gate can see which role ran under AGY 1.2.x, and optionally holds exclusive ledger ownership via `--ledger`. It does not replace Antigravity runtime behavior. The vNext runner (`ntg-vnext`) is a narrow exact-model coordinator over `agy` that owns only the authoritative ledger, milestone sequencing and the independent Zen gate; it is not a general workflow platform.
+Native Gravity does not ship a replacement runtime. The npm entrypoint is installation-only: it locates the packaged plugin directory and delegates installation back to `agy plugin install`. It does not intercept or wrap Antigravity runtime execution. Antigravity owns primary/subagent execution, lifecycle, sessions, workspaces, model resolution, and tool permissions. Native Gravity supplies role contracts, routing policy, and model-adaptive behavioral guidance. It does not replace Antigravity runtime behavior. The vNext runner (`ntg-vnext`) is a narrow exact-model coordinator over `agy` that owns only the authoritative ledger, milestone sequencing and the independent Zen gate; it is not a general workflow platform.
 
 ## Ledger ownership
 
-For invocations sharing a ledger, use `ntg-run --ledger /path/to/ledger.json
---agent bulldozer -p "..."`. The wrapper consumes `--ledger` and holds an
-exclusive `ledger.json.lock` for the lifetime of the `agy` child. Without
-`--ledger`, invocation keeps its existing marker-only behavior.
-`MinimalSpine` acquires the same lock before creating or loading the ledger,
-and holds it until `close()` or process exit. Close the previous spine before
-resuming in another instance; a closed spine cannot mutate state, and a busy
-spine cannot be closed.
+For multi-milestone work, `ntg-vnext` holds an exclusive `ledger.json.lock` for the lifetime of the session through `MinimalSpine`. The spine acquires the lock before creating or loading the ledger, and holds it until `close()` or process exit. Close the previous spine before resuming in another instance; a closed spine cannot mutate state, and a busy spine cannot be closed.
 
 The lock is created with `openSync(..., 'wx')` (exclusive creation) and contains
 the owner's decimal PID followed by a newline. An existing lock always refuses
 startup with `LEDGER_LOCKED`, even if its PID appears dead or its contents are
-empty. Normal exit, SIGINT, and SIGTERM release ownership; `ntg-run` forwards
-termination signals and waits for the child to exit before releasing the lock.
-SIGKILL, a crash, or a machine shutdown may leave a stale lock. Inspect the PID
-and confirm the owning invocation and its children are no longer running
-(PIDs can be reused), then remove only `/path/to/ledger.json.lock` and retry.
-Never remove a live owner's lock. Lock recovery does not resolve an interrupted
-ledger milestone: resume still requires observed interruption evidence.
-All writers must use the same ledger path and ownership protocol; low-level
-`AuthoritativeLedger.load()` / `save()` remain persistence primitives, not
-independent session owners.
+empty. Normal exit, SIGINT, and SIGTERM release ownership. SIGKILL, a crash, or
+a machine shutdown may leave a stale lock: `ntg-vnext recover` removes it only
+after verifying the recorded owner PID is no longer alive and terminating that
+owner's orphaned executors — never remove a live owner's lock. Lock recovery
+does not resolve an interrupted ledger milestone: resume still requires
+observed interruption evidence. All writers must use the same ledger path and
+ownership protocol; low-level `AuthoritativeLedger.load()` / `save()` remain
+persistence primitives, not independent session owners.
 
 ## Google AI Studio lane
 
@@ -104,7 +87,7 @@ orchestration".
 
 ## Alpha compatibility gate
 
-An older Native Gravity test found that a custom primary could fail to invoke subagents while the Antigravity Default agent succeeded. On AGY 1.1.21 and AGY 1.1.24, a clean install validates Bulldozer's internal delegation and the nested Bulldozer -> Bobcat -> Strix Halo gate. Revalidate this compatibility gate when the AGY runtime changes. See [Versioning Policy](docs/versioning.md) for versioning details and the compatibility matrix.
+An older Native Gravity test found that a custom primary could fail to invoke subagents while the Antigravity Default agent succeeded. On AGY 1.3.3, a clean install validates the runner's end-to-end milestone flow (Steamroller -> Piledriver -> Bulldozer -> Zen) and specialist delegation (Bulldozer -> Jaguar / Puma / Bobcat, including the nested Bobcat -> Strix Halo gate) in live probe sessions. Revalidate this compatibility gate when the AGY runtime changes. See [Versioning Policy](docs/versioning.md) for versioning details and the compatibility matrix.
 
 ## Install
 
@@ -142,4 +125,4 @@ agy plugin uninstall native-gravity
 agy plugin install .
 ```
 
-For upgrade testing, use a clean reinstall so removed v0.3 agent/hook files do not remain staged.
+For upgrade testing, use a clean reinstall so removed legacy agent and hook files do not remain staged.

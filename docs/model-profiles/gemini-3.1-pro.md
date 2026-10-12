@@ -6,8 +6,8 @@
   completion review.
 
 ## Known biases / failure modes
-- Historically drifted on long-running mutation loops (the v0.3.3 global
-  mutation deny existed for this reason); v0.4 re-scoped authority so
+- Historically drifted on long-running mutation loops (a model-wide mutation
+  deny once existed for this reason); authority is now role-scoped so
   Excavator may mutate while Zen stays read-only. Watch for overstepping a
   read-only role's intent when given a long rationale chain.
 

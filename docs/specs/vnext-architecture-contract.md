@@ -1,16 +1,11 @@
 # Native Gravity vNext Architecture Contract
 
-> **Status:** Frozen specification — issue #44A
+> **Status:** Canonical vNext specification — issue #44A
 > **Branch:** `docs/issue-44-architecture-contract`
-> **Frozen baseline reference:** [`docs/specs/pre-vnext-v0.4-behavior-baseline.md`](./pre-vnext-v0.4-behavior-baseline.md)
-> **Supersedes (conditionally):** v0.4 peer-primary topology in `AGENTS.md` — see §7
 
-This document is the canonical Native Gravity vNext architecture contract. It is the clean implementation contract for subsequent issue #44 implementation slices (44B–44G).
+This document is the canonical Native Gravity vNext architecture contract. It was the clean implementation contract for the issue #44 implementation slices (44B–44G) and is the specification of record for the released vNext runtime.
 
-Future vNext implementation sessions must author all new agent prompts, rules, hooks, and runtime code independently from:
-
-1. The frozen #32 NTG-owned behavioral/provenance baseline (`docs/specs/pre-vnext-v0.4-behavior-baseline.md`); and
-2. This vNext architecture contract.
+All vNext agent prompts, rules, hooks, and runtime code are authored independently from this vNext architecture contract.
 
 **Prohibited drafting sources:** legacy NTG implementation surfaces, abandoned rewrite branches (`feat/clean-rewrite-issue-33`, `feat/clean-rewrite-issue-33-v2`), PR #41, and any external OMO/GJC/OMP source text. This document does not perform any rewrite; it only specifies the target.
 
@@ -24,7 +19,7 @@ Future vNext implementation sessions must author all new agent prompts, rules, h
 4. [Handoff Contracts](#4-handoff-contracts)
 5. [Completion Semantics](#5-completion-semantics)
 6. [Exact-Model / Effort Invocation Boundary](#6-exact-model--effort-invocation-boundary)
-7. [Migration Mapping](#7-migration-mapping)
+7. [Preserved Invariants and Activation](#7-preserved-invariants-and-activation)
 8. [Implementation Sequence](#8-implementation-sequence)
 9. [Open Questions / Spec Gaps](#9-open-questions--spec-gaps)
 
@@ -60,7 +55,7 @@ USER
 - Piledriver is invoked by Steamroller when planning, replanning, or a high-impact architectural decision is needed. Piledriver does not orchestrate workers.
 - Bulldozer receives exactly one milestone packet per invocation. It operates within that bounded scope only.
 - Zen is an independent gate, not a child of Bulldozer. Its verdict is delivered to Steamroller.
-- Excavator is outside the normal spine during the first migration stage — see §2.9 and §7.
+- Excavator is outside the normal spine — see §2.9 and §7.
 - Instinct is future work and is NOT part of the minimum P0 implementation — see §2.10.
 
 ### 1.2 Failure / Recovery Path (post-P0)
@@ -169,7 +164,7 @@ This path is out of scope for the minimum P0 spine. Excavator and Instinct are r
 
 **Model:** native Flash tier
 
-**PRESERVE** from v0.4 baseline. Semantics unchanged in vNext.
+**vNext invariant.**
 
 - Read-only codebase and context discovery
 - No subagent delegation
@@ -180,7 +175,7 @@ This path is out of scope for the minimum P0 spine. Excavator and Instinct are r
 
 **Model:** native Flash tier
 
-**PRESERVE** from v0.4 baseline. Semantics unchanged in vNext.
+**vNext invariant.**
 
 - Small, explicit, low-risk writing, formatting, and mechanical text/config edits
 - No advisor ceremony (no Strix Halo)
@@ -191,7 +186,7 @@ This path is out of scope for the minimum P0 spine. Excavator and Instinct are r
 
 **Model:** native Flash tier
 
-**PRESERVE** from v0.4 baseline. Semantics unchanged in vNext.
+**vNext invariant.**
 
 - Ordinary bounded project-source implementation
 - Subject to `ADVISOR_GATE: REQUIRED | NONE` set by Bulldozer
@@ -203,7 +198,7 @@ This path is out of scope for the minimum P0 spine. Excavator and Instinct are r
 
 **Model:** native Pro tier
 
-**PRESERVE** from v0.4 baseline. Semantics unchanged in vNext.
+**vNext invariant.**
 
 - Read-only advisor gate, invoked by Bobcat only
 - Verdict: `ACCEPT | REVISE | NEEDS_DEEP`
@@ -217,7 +212,7 @@ This path is out of scope for the minimum P0 spine. Excavator and Instinct are r
 
 **Model:** native Pro tier (exact 3.1P/High only if live validation shows material improvement)
 
-**PRESERVE** from v0.4 baseline. Semantics unchanged in vNext.
+**vNext invariant.**
 
 - Independent, non-mutating verification
 - Must prefix all verification shell commands with `NTG_ZEN_VERIFY=1`
@@ -230,7 +225,7 @@ This path is out of scope for the minimum P0 spine. Excavator and Instinct are r
 
 ### 2.9 Excavator — Migration / Open-Design Boundary
 
-**PRESERVE** existing shell guard machinery during migration. Final authority and placement are an open design question.
+**vNext invariant:** the existing shell guard machinery is preserved. Final authority and placement are an open design question.
 
 **What is decided:**
 - Excavator remains a separate user-selectable primary agent during the first migration stage
@@ -546,50 +541,30 @@ Future: Steamroller → NEEDS_ALT → Instinct runner → Sonnet session → alt
 
 ---
 
-## 7. Migration Mapping
+## 7. Preserved Invariants and Activation
 
-### 7.1 v0.4 AGENTS.md Statements That Will Be Superseded
+### 7.1 Generic Invariants That Survive Migration
 
-The following statements from the current `AGENTS.md` describe the v0.4 peer-primary topology. They are superseded by vNext **if and only if the new behavior is validated** (see §8 implementation sequence).
-
-| v0.4 Statement | vNext Replacement |
-|---|---|
-| "Bulldozer / Piledriver / Excavator as peer primary modes" | Steamroller is the top-level supervisor; Piledriver and Bulldozer are subordinate roles |
-| "These three are peers. Piledriver and Excavator are not children of Bulldozer." | Piledriver is invoked by Steamroller; Bulldozer is the milestone executor under Steamroller |
-| "Bulldozer owns general orchestration, routing, integration, verification, and final completion." | Bulldozer owns one bounded milestone; Steamroller owns global completion |
-| "Bulldozer alone owns global completion in orchestrated mode." | Only Steamroller may declare global project completion |
-| "Steamroller — read-only deep reasoning for architecture, ambiguity, trade-offs, and difficult decisions" | Steamroller becomes long-horizon sentinel/supervisor; Piledriver takes the bounded planner/architect role |
-| "Steamroller" listed as an internal specialist below Bulldozer | Steamroller is the top-level supervisor; the old specialist role is dissolved |
-| "Primary modes are peers, not a hierarchy." | Superseded by explicit two-level hierarchy: Steamroller → (Piledriver \| Bulldozer) |
-| "Do not make Bulldozer spawn Piledriver or Excavator merely because their specialty is relevant." | Piledriver is invoked by Steamroller only; Bulldozer reports NEEDS_DEEP to Steamroller |
-| Caution against custom coordination runtimes and persistent state | vNext introduces a narrow exact-model runner and authoritative ledger — these are bounded additions, not a general platform |
-
-`AGENTS.md` must NOT be rewritten in 44A. Runtime supersession takes effect only with the validated 44G activation described below.
-
-### 7.2 Generic Invariants That Survive Migration
-
-The following invariants from the v0.4 baseline and `AGENTS.md` are preserved in vNext:
+The following generic invariants are preserved in vNext:
 
 | Invariant | Source | vNext Status |
 |---|---|---|
 | Native-first preference | AGENTS.md design rule 1 | PRESERVE — runners and ledger must be as narrow as possible |
 | Model-adaptive role design | AGENTS.md design rule 4 | PRESERVE — roles are designed for observed model behavior |
-| Evidence discipline (OBSERVED / INFERRED / UNKNOWN) | harness.md baseline | PRESERVE — applies to all roles |
-| Narrow behavioral guards (NTG_EXCAVATOR=1, NTG_ZEN_VERIFY=1) | hooks baseline | PRESERVE until a validated replacement is specified |
-| Explicit verification authority (Zen as hard gate) | orchestration.md baseline | PRESERVE — strengthened in vNext |
+| Evidence discipline (OBSERVED / INFERRED / UNKNOWN) | harness.md | PRESERVE — applies to all roles |
+| Narrow behavioral guards (NTG_EXCAVATOR=1, NTG_ZEN_VERIFY=1) | hooks | PRESERVE until a validated replacement is specified |
+| Explicit verification authority (Zen as hard gate) | orchestration.md | PRESERVE — strengthened in vNext |
 | Routing by kind of work, not task size | AGENTS.md routing principle | PRESERVE |
 | Shallow internal graph | AGENTS.md design rule 3 | PRESERVE — vNext adds one level of hierarchy, not an unbounded graph |
 | Fit roles to model behavior before adding harness weight | AGENTS.md design rule 4 | PRESERVE |
-| Handoff discipline: compact, decision-relevant packets | harness.md baseline | PRESERVE |
-| Anti-bypass safeguards | harness.md baseline | PRESERVE |
-| Actual-result verification (not static config checks) | harness.md baseline | PRESERVE |
-| Mutation effect discipline (READ_ONLY / REVERSIBLE / PERSISTENT_OR_DESTRUCTIVE) | harness.md baseline | PRESERVE |
+| Handoff discipline: compact, decision-relevant packets | harness.md | PRESERVE |
+| Anti-bypass safeguards | harness.md | PRESERVE |
+| Actual-result verification (not static config checks) | harness.md | PRESERVE |
+| Mutation effect discipline (READ_ONLY / REVERSIBLE / PERSISTENT_OR_DESTRUCTIVE) | harness.md | PRESERVE |
 
-### 7.3 Migration Preconditions
+### 7.2 Activation Record
 
-44D–44F are stacked, non-activated migration slices: they must not replace the distributed/default v0.4 runtime before 44G. Their isolated vNext validation context uses this contract, not obsolete v0.4 topology rules. The released v0.4 runtime and its `AGENTS.md` remain aligned until activation.
-
-44D prepares the corresponding `AGENTS.md` topology changes in that migration stack. 44G validates the complete stack and activates the vNext runtime and updated `AGENTS.md` together. If validation fails, neither is activated. Generic invariants in §7.2 continue to apply in both contexts.
+44D–44F were stacked migration slices kept isolated from the distributed runtime. 44G validated the complete stack and activated the vNext runtime together with the updated `AGENTS.md` (#134); vNext is now the only shipped structure (#138). The generic invariants in §7.1 continue to apply.
 
 ---
 
@@ -625,10 +600,7 @@ Jaguar, Puma, and Strix Halo reconnect in slice 44F. Excavator reconnects post-4
 
 ### 8.3 Provenance Closure
 
-Slice 44G must confirm that all vNext implementation surfaces are independently authored from:
-
-1. The frozen #32 baseline (`docs/specs/pre-vnext-v0.4-behavior-baseline.md`)
-2. This vNext architecture contract (`docs/specs/vnext-architecture-contract.md`)
+Slice 44G confirmed that all vNext implementation surfaces are independently authored from this vNext architecture contract (`docs/specs/vnext-architecture-contract.md`).
 
 And do NOT derive from:
 
@@ -637,7 +609,7 @@ And do NOT derive from:
 - PR #41 implementation
 - Any OMO/GJC/OMP external source text
 
-`PRESERVE` means preserve behavior, not reuse provenance-uncertain implementation. The following mapping covers all 13 core rewrite targets and both runtime/config preservation surfaces in #32. Each is independently re-authored from the two permitted specifications in the assigned slice; 44G verifies closure for every row before #34.
+`PRESERVE` means preserve behavior, not reuse provenance-uncertain implementation. The following mapping covers all 13 core rewrite targets and both runtime/config preservation surfaces in #32. Each is independently re-authored from the permitted specification in the assigned slice; 44G verifies closure for every row before #34.
 
 | Baseline surface | Authoring slice | Closure evidence required in 44G |
 |---|---|---|
@@ -674,5 +646,5 @@ The following items are explicitly unresolved at the time this contract is froze
 | OQ-3 | Exact final authority, placement, and model assignment of Excavator in the vNext graph | Post-44G / separate issue |
 | OQ-4 | Exact AGY CLI invocation path for Sonnet (Instinct backend) — must be validated before Instinct is implemented | Post-44G / issue #20 |
 | OQ-5 | Ledger persistence format and location (YAML file, sidecar artifact, etc.) — implementation decision for 44C | 44C |
-| OQ-6 | Whether `inheritCustomizations` behavior in agent frontmatter affects vNext role boundaries | 44D |
+| OQ-6 | Whether `inheritCustomizations` behavior in agent frontmatter affects vNext role boundaries (Excavator only since #138; tracked as #137) | Post-44G |
 | OQ-7 | Exact mechanism for enforcing state-machine completion rules at runtime (e.g., ledger validator function, pre-transition checks) | 44C |

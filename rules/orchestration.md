@@ -5,7 +5,7 @@ description: Routing and delegation policy for Native Gravity orchestration.
 
 # Native Gravity vNext orchestration contract
 
-vNext is the default runtime (44G, #134). The narrow exact-model runner
+vNext is the runtime (44G, #134). The narrow exact-model runner
 (`scripts/spine.mjs`) drives Steamroller -> Piledriver -> Bulldozer -> Zen.
 Generic contract/evidence/effect rules live in `rules/harness.md`.
 
@@ -178,18 +178,16 @@ Jaguar/Puma/Bobcat remain native Flash; Strix Halo/Zen remain native Pro.
 Moving a specialist to a separate process or using exact 3.1 Pro/High for Zen
 requires live evidence of a concrete benefit.
 
-Open questions that remain UNKNOWN: inheritCustomizations semantics (OQ-6),
-Zen's optional exact-model choice, final Excavator authority/model placement
-and Sonnet's invocation path. Frontmatter UNKNOWN is not a runtime default
+Open questions that remain UNKNOWN: inheritCustomizations semantics (OQ-6,
+Excavator only — Bulldozer and Piledriver no longer carry the field), Zen's
+optional exact-model choice, final Excavator authority/model placement and
+Sonnet's invocation path. Frontmatter UNKNOWN is not a runtime default
 or a grant.
 
-## Interactive primaries
+## Natively selectable primary
 
-Bulldozer, Piledriver and Excavator remain natively selectable. Natively
-selected Bulldozer orchestrates one bounded request with the worker graph
-above and its own Zen completion gate; Piledriver produces a plan-first packet
-with Jaguar discovery and a Zen plan-readiness gate; Excavator owns bounded
-autonomous repair with a Zen completion gate. Multi-milestone work, durable
+Excavator remains natively selectable as the autonomous troubleshooter / deep
+repair owner with its own Zen completion gate. Multi-milestone work, durable
 ledger state, replanning and global project completion belong to
 Steamroller through the runner.
 
@@ -233,7 +231,7 @@ Zen has `run_command` so it can reproduce or check verification evidence instead
 - Zen has no direct file-mutation tools.
 - Every Zen shell call must begin with `NTG_ZEN_VERIFY=1 `.
 - The plugin `PreToolUse` hook rejects common intentional mutation forms only for marked Zen verification commands.
-- Zen must not use shell to repair the implementation. A denied mutation attempt or missing required evidence remains a review result; repair returns through Bulldozer.
+- Zen must not use shell to repair the implementation. A denied mutation attempt or missing required evidence remains a review result; repair returns through the implementation role that owns the artifact.
 - Do not pre-filter evidence to only previously successful checks. Supply the task contract and current artifact context and let Zen choose the verification needed for its verdict.
 
 The marker guard is a narrow behavioral backstop, not a general shell sandbox or a model-wide policy.

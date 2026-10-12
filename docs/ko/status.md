@@ -1,74 +1,46 @@
 # 상태
 
-> **안내:** 44G 활성화(#134)로 vNext가 기본 런타임이 되었습니다. 이 한국어 문서는 아직 v0.4 기준이며, 최신 내용은 영어 문서([README](../../README.md), [usage](../usage.md), [status](../status.md))를 따릅니다.
-
-- **Native Gravity**: 0.4.0
+- **Native Gravity**: 1.0.0
 - **상태**: alpha
 - **호환성**:
-  - AGY 1.1.21 — validated
-  - AGY 1.1.24 — validated
+  - AGY 1.3.3 — validated (vNext 러너 라이브 프로브: #134, #138; 위임 프로브: #113/#56)
 
 버전 체계 및 라이프사이클 정책은 [Versioning Policy](../versioning.md)를 참고하세요.
 
-상태: AGY 1.1.21 및 AGY 1.1.24 핵심 런타임 검증 통과, alpha 사용 준비 완료.
+## 상태
 
-완료:
+### vNext-only (1.0.0, #138)
 
-- Bulldozer / Piledriver / Excavator Primary 3종
-- Worker -> Bobcat
-- Explorer -> Jaguar
-- Deep -> Steamroller
-- Reviewer -> Zen
-- Puma quick/writing 경로 추가
-- Bobcat -> Strix Halo gate 유지
-- Piledriver planning child를 Jaguar(read-only discovery)와 Zen(final plan-readiness review)로 제한
-- Piledriver가 authoritative target grounding 없이 task graph를 닫지 않도록 하고, 실제 현재 Zen `VERDICT: GO` 전에는 `PLAN READY`를 금지
-- v0.3.3 Gemini 3.1 Pro 전역 mutation guard 제거
-- v0.4 라우팅/문서 반영
-- Zen verification-only `run_command` + marker-scoped `PreToolUse` guard 추가
-- Excavator 일반 sudo는 유지하면서 stdin-password 권한 획득, 우회 privilege path, shell-history credential mining, 전체 시스템 업그레이드를 막는 marker-scoped shell guard 추가
-- Excavator 독립 최종 검수자로만 Zen 호출 허용
-- Zen 검수 누락/대기/NO-GO/stale(사후 write나 marked shell 발생) 시 일반 완료를 차단하는 `Stop` 훅 추가
-- 검증된 BLOCKED 및 비정상 런타임 종료는 허용하여 completion loop 방지
-- `tests/test_excavator_shell_guard.py`에 Excavator guard 회귀 테스트 추가
-- `tests/test_excavator_review_gate.py`에 Excavator review gate 회귀 테스트 추가
+vNext가 유일한 구조입니다. pre-vNext(v0.4) 토폴로지와 호환성 경로가 제거되었습니다: Bulldozer와 Piledriver는 runner 전용(`mainAgent: false`)이고, Bulldozer/Piledriver Stop 검수 gate(`hooks/primary-review-gate.py`)와 `ntg-run` 역할 귀속 래퍼는 삭제되었으며, `docs/specs/vnext/` pre-activation 미러도 삭제되었습니다. Excavator는 Zen completion gate를 가진 유일한 네이티브 선택 가능 primary로 남습니다. `docs/specs/plan-review-contract.md`(네이티브 Piledriver plan-readiness 검수)는 그것이 정의한 흐름과 함께 제거되었습니다.
 
-AGY 1.1.21 및 AGY 1.1.24 검증 완료:
+### vNext 활성화 (44G, #134)
 
-- Bulldozer custom primary delegation
-- Piledriver planning-only 행동
-- Excavator direct edit + end-to-end verify
-- Puma quick/writing 효율
-- Bobcat -> Strix Halo CHECK 수렴
-- Bobcat이 strix-halo 외 subagent를 호출하지 않음 (negative case)
-- Zen 실제 verdict 관측
+vNext가 런타임입니다. 배포된 `agents/`와 `rules/`가 vNext 계약을 담고, 러너는 `agents/`에서 역할 body를 로드하며 `ntg-vnext`가 멀티 마일스톤 진입점입니다. Steamroller는 runner 전용이고 Bulldozer와 Piledriver는 러너가 exact model과 bounded packet으로 호출합니다. 활성화 증거: `.omo/evidence/134-vnext-activation.md`.
 
-AGY 1.1.24 검증 완료 (Excavator 완료 검수 게이트):
+미해결: OQ-6(`inheritCustomizations` 의미)은 Excavator로 좁혀진 PO 결정입니다(#137). Bulldozer와 Piledriver는 더 이상 해당 필드를 갖지 않습니다. Excavator recovery 재연결과 Instinct는 post-44G로 남습니다.
 
-- custom-primary 세션에서 Excavator가 Zen을 호출하고 반환된 verdict를 관측하는지
-- Zen 검수 없는 일반 Excavator stop이 execution loop로 다시 강제 복귀되는지
-- 현재 artifact에 대한 `VERDICT: GO`가 정상 완료를 허용하는지
-- `VERDICT: NO-GO`, 완료되지 않은 신규 Zen 호출, 또는 GO 이후 직접 write/marked Excavator shell 발생 시 수정과 재검수를 강제하는지
-- 검증된 BLOCKED 결과는 Zen 없이도 정상 종료 가능한지
-- Excavator가 아닌 세션은 Stop 훅의 영향을 받지 않는지
+### 적용 중인 guard와 경계
 
-shell guard 변경 후 실제 AGY 재검증 대기:
-- clean/current plugin install에서 Piledriver -> Jaguar / Zen 호출이 실제 동작하는지
-- Piledriver가 구현 worker를 호출하지 않는지
-- 요청 target identity가 로컬 checkout과 다를 때 이를 추측하지 않고 UNKNOWN / NEEDS_DISCOVERY로 남기는지
-- Jaguar가 read-only 경계를 지키고 mutation이 필요한 evidence는 unresolved requirement로 반환하는지
-- Zen `VERDICT: NO-GO` 후 계획만 수정하고 fresh review를 받는지
-- material plan revision 뒤 과거 GO를 재사용하지 않는지
-- 실제 현재 Zen `VERDICT: GO`를 관측한 뒤에만 `PLAN READY`를 출력하는지
-- Zen이 `NTG_ZEN_VERIFY=1` marker로 독립 verification command를 실행하는지
-- Zen-marked source mutation 시도는 막고 정상 검증 command는 허용하는지
-- Excavator-marked 일반 sudo 진단/수리는 정상 동작하는지
-- Excavator-marked `sudo -S`, `sudo su`, `pkexec`, localhost root SSH, shell-history credential mining, full-system upgrade는 거부되는지
-- `env pkexec`, `command ssh root@localhost`, `bash -c 'sudo apt upgrade'` 같은 wrapper 형태도 거부되는지
-- `sudo somecmd -S value`처럼 sudo 뒤 실행 명령의 `-S` 인자는 오탐하지 않는지
-- Bulldozer 등 다른 agent의 unmarked shell call에는 영향이 없는지
+- Zen은 verification-only `run_command`와 일반적인 의도적 shell mutation 경로를 막는 marker-scoped `PreToolUse` guard(`NTG_ZEN_VERIFY=1`)를 가집니다.
+- Excavator는 일반 sudo는 유지하면서 stdin-password 권한 획득, 우회 privilege 경로, shell-history credential mining, 전체 시스템 업그레이드를 막는 marker-scoped shell guard(`NTG_EXCAVATOR=1`)를 가집니다.
+- Excavator는 독립 최종 완료 검수자로만 Zen을 호출합니다. Zen 검수 누락/대기/NO-GO/stale(사후 직접 write나 marked Excavator shell 발생) 시 플러그인 `Stop` 훅이 일반 완료를 차단합니다. 검증된 BLOCKED와 비정상 런타임 종료는 completion loop를 만들지 않도록 허용됩니다.
+- Deterministic 커버리지: `tests/test_excavator_shell_guard.py`, `tests/test_excavator_review_gate.py`, `tests/test_zen_shell_guard.py`, `tests/test_gate_panel.py`.
+- Zen/Excavator shell guard는 완전한 shell 또는 privilege sandbox가 아니라 behavioral backstop입니다. AGY 런타임의 `PreToolUse` payload에는 신뢰할 수 있는 custom-agent identity가 없어, Excavator review gate는 구조화된 transcript identity/system-prompt 증거와 `NTG_EXCAVATOR=1` shell marker로 세션을 식별합니다.
 
-Zen/Excavator guard는 완전한 shell 또는 privilege sandbox가 아니라 역할 이탈에 대한 behavioral backstop입니다. AGY 런타임(1.1.21 / 1.1.24)의 `PreToolUse` payload에는 아직 신뢰할 수 있는 custom-agent identity가 없고 agent별 read-only shell policy도 없습니다. Stop hook 역시 명시적인 custom-agent-name 필드가 없어 구조화된 transcript 및 `NTG_EXCAVATOR=1` shell marker를 기반으로 세션을 식별합니다. AGY 1.1.24 라이브 검증을 통해 이 게이트가 다른 에이전트에 간섭 없이 Excavator 세션을 정확히 제어함을 확인했습니다.
+### 라이브 검증 상태
+
+AGY 1.3.3에서 검증 완료 (증거: `.omo/evidence/113-live-probe-results.md`, `.omo/evidence/56-activation-readiness.md`, `.omo/evidence/134-live-probe/`, `.omo/evidence/138-vnext-only-results.md`):
+
+- 러너 end-to-end: 마일스톤별 독립 Zen GO를 가진 멀티 마일스톤 의존성 순서 실행, 관측된 중단 후 fresh-context 재개, `plan_version` 증가와 fresh current-version 재검증을 가진 material replan, 그리고 라이브 Zen NO-GO -> 수정 -> fresh GO 사이클
+- specialist 위임: Bulldozer -> Jaguar / Puma / Bobcat과 중첩 Bobcat -> Strix Halo(`ACCEPT`) gate가 transcript 수준 `invoke_subagent` dispatch로 관측됨
+- 러너 exact-model 해석: piledriver `gemini-3.1-pro-high`, bulldozer/steamroller `gemini-3.8-flash-high`
+
+라이브 재검증 대기:
+
+- Excavator의 라이브 edit -> Zen GO -> READY와 NO-GO -> non-READY 종료는 AGY 1.3.1에서 관측됐습니다(`.omo/evidence/agy-1-3-1/side-probe.md`). 전체 NO-GO 수정 루프와 post-GO-write 재검수는 라이브 재검증이 필요하며, deterministic review-gate 테스트가 이 조건들을 커버합니다.
+- `multi_replace_file_content`는 현재 어떤 agent도 선언하지 않으며 라이브로 관측되지 않음 (미래 agent가 선언하지 않는 한 조치 불필요)
+- `manage_task`는 라이브 도구 표면에 있으나 어떤 agent도 선언하지 않음
+
 이름 확정:
 
 - Bobcat advisor: **Strix Halo** (`strix-halo`)

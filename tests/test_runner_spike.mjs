@@ -28,11 +28,9 @@ console.log("=== Native Gravity 44B Exact-Model Runner Spike Tests ===");
 let passed = 0;
 let failed = 0;
 
-/** Shipped body as the runner sends it: the native-only INTERACTIVE MODE tail removed. */
+/** Shipped body as the runner sends it. */
 function machineBody(role) {
-  const file = readFileSync(new URL(`../agents/${role}.md`, import.meta.url), "utf8");
-  const cut = file.indexOf("\n## INTERACTIVE MODE\n");
-  return (cut === -1 ? file : file.slice(0, cut)).trim();
+  return readFileSync(new URL(`../agents/${role}.md`, import.meta.url), "utf8").trim();
 }
 
 function runTest(name, fn) {
@@ -835,22 +833,6 @@ runTest("4.2: Multi-role chain detection blocks re-entrant role (RECURSION_DETEC
 
 // =============================================================================
 // Section 5: Live Piledriver & Bulldozer Invocations (Handoff Packets)
-// =============================================================================
-
-runTest("3.7: Runner prompts exclude the native-only INTERACTIVE MODE section (#135 B4)", () => {
-  for (const role of ["piledriver", "bulldozer"]) {
-    const file = readFileSync(new URL(`../agents/${role}.md`, import.meta.url), "utf8");
-    assert.ok(file.includes("\n## INTERACTIVE MODE\n"), `${role} ships an interactive section`);
-    const prompt = composeBoundedPrompt(role, { task: "T" });
-    assert.ok(!prompt.includes("## INTERACTIVE MODE"), `${role} runner prompt leaks the interactive section`);
-    assert.ok(prompt.includes("MACHINE-INVOCATION MODE"), `${role} runner prompt keeps machine mode`);
-  }
-  // The released target-grounding rule (which drove `git status` probes) stays native-only.
-  assert.ok(!composeBoundedPrompt("piledriver", { task: "T" }).includes("establish that the planning target"));
-});
-
-// =============================================================================
-// (live section)
 // =============================================================================
 
 const skipLive = process.env.SKIP_LIVE_TESTS === "1" || process.env.SKIP_LIVE_TESTS === "true";
