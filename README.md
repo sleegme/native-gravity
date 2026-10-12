@@ -39,8 +39,9 @@ guarantees, not performance claims:
   explicit scope, non-goals and acceptance criteria, so one step cannot
   silently absorb the next. Work is delegated by kind of work (discovery,
   writing, implementation, diagnosis, review) to fitting specialist agents.
-- **Fail-closed, not optimistic.** Malformed, chatty or empty model responses
-  are recorded as invocation failures and never promoted; a stale lock left by
+- **Fail-closed, not optimistic.** Empty or malformed model responses, more
+  than one result packet, or prose mixed ambiguously with JSON are recorded as
+  invocation failures and never promoted; a stale lock left by
   a killed session is recovered only after its dead owner is verified.
 
 ## What works today
@@ -116,12 +117,15 @@ required fields; `title`, `objective`, `acceptance_criteria`, `non_goals` and
 `bounded_scope` make the milestone contract precise and are strongly
 recommended.
 
-Then create a ledger and start:
+Then create a ledger and start. The package is not published to npm yet, so
+there is no global `ntg-vnext` command: run the script from your Native Gravity
+checkout (below, `$NTG` is the path of that checkout). Elsewhere in these docs,
+`ntg-vnext <command>` means `node $NTG/scripts/ntg-vnext.mjs <command>`.
 
 ```bash
-ntg-vnext init   --ledger .ntg/ledger.json --plan plan.json
-ntg-vnext status --ledger .ntg/ledger.json   # shows the next milestone
-ntg-vnext run    --ledger .ntg/ledger.json --all
+node $NTG/scripts/ntg-vnext.mjs init   --ledger .ntg/ledger.json --plan plan.json
+node $NTG/scripts/ntg-vnext.mjs status --ledger .ntg/ledger.json   # shows the next milestone
+node $NTG/scripts/ntg-vnext.mjs run    --ledger .ntg/ledger.json --all
 ```
 
 `init`, `status` and `recover` are local and free. `run`, `plan` and `alt`

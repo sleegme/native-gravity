@@ -18,6 +18,8 @@ Use a clean reinstall when upgrading so removed legacy agent and hook files cann
 
 vNext is the runtime. For multi-milestone work, write a plan (goal, constraints, `plan_version`, milestones with `acceptance_criteria`, `bounded_scope`, `non_goals`, `dependencies`) and drive it with the runner. A minimal valid plan example is in the [README quick start](../README.md#quick-start).
 
+Until the package is published to npm there is no global `ntg-vnext` command; run `node <checkout>/scripts/ntg-vnext.mjs` with the same arguments.
+
 ```bash
 ntg-vnext init    --ledger .ntg/ledger.json --plan plan.json
 ntg-vnext plan    --ledger .ntg/ledger.json --task "..."   # Piledriver advice; never auto-adopted

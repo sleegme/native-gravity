@@ -37,8 +37,9 @@ AGY 1.3.3 라이브 검증에서 실제로 관측된 내용이며
 - **마일스톤마다 명시적인 범위.** 각 마일스톤은 명시적 범위, 비목표, 승인 기준을
   담은 패킷으로 실행되어, 한 단계가 다음 단계를 몰래 흡수할 수 없습니다. 작업
   성격(발견, 작성, 구현, 진단, 검증)에 맞는 전문 에이전트에 위임됩니다.
-- **실패 시 닫히는(fail-closed) 처리.** 형식이 깨졌거나 장황하거나 비어 있는
-  모델 응답은 invocation 실패로 기록되며 절대 승격되지 않고, 세션이 강제
+- **실패 시 닫히는(fail-closed) 처리.** 비어 있거나 형식이 깨진 응답, 결과
+  패킷이 둘 이상인 응답, 설명 문장과 JSON이 모호하게 섞인 응답은 invocation
+  실패로 기록되며 절대 승격되지 않고, 세션이 강제
   종료되어 남은 stale lock은 소유자가 죽은 것이 확인된 후에만 복구됩니다.
 
 ## 지금 무엇이 동작하나요?
@@ -112,12 +113,15 @@ NTG는 아직 한 문장짜리 목표를 받지 않습니다 — **작은 플랜
 배열뿐이며, `title`, `objective`, `acceptance_criteria`, `non_goals`,
 `bounded_scope`를 채우면 마일스톤 계약이 명확해지므로 강력히 권장합니다.
 
-이제 ledger를 만들고 시작합니다:
+이제 ledger를 만들고 시작합니다. 아직 npm에 배포되지 않아 전역 `ntg-vnext`
+명령은 없습니다. Native Gravity를 받아 둔 저장소의 스크립트를 직접 실행하세요
+(아래 `$NTG`는 그 저장소 경로입니다). 이 문서의 다른 곳에 나오는
+`ntg-vnext <명령>`은 `node $NTG/scripts/ntg-vnext.mjs <명령>`을 뜻합니다.
 
 ```bash
-ntg-vnext init   --ledger .ntg/ledger.json --plan plan.json
-ntg-vnext status --ledger .ntg/ledger.json   # 다음 마일스톤을 보여 줍니다
-ntg-vnext run    --ledger .ntg/ledger.json --all
+node $NTG/scripts/ntg-vnext.mjs init   --ledger .ntg/ledger.json --plan plan.json
+node $NTG/scripts/ntg-vnext.mjs status --ledger .ntg/ledger.json   # 다음 마일스톤을 보여 줍니다
+node $NTG/scripts/ntg-vnext.mjs run    --ledger .ntg/ledger.json --all
 ```
 
 `init`, `status`, `recover`는 로컬에서 동작하며 비용이 없습니다. `run`, `plan`,
