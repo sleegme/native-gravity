@@ -76,7 +76,8 @@ function selectAltTarget(summaries, milestoneId) {
  * Steamroller's coordinator and the default vNext runtime (44G, #134), driven
  * by `scripts/ntg-vnext.mjs`. The exact-role adapter uses invoke(role, packet, options) and
  * returns {ok, response}. Bulldozer milestone packets may invoke specialists:
- * Jaguar (retrieval), Puma (mechanical), Bobcat (implementation). Strix Halo
+ * Jaguar (retrieval), Puma (mechanical), Bobcat (implementation), Excavator
+ * (diagnosis/repair). Strix Halo
  * advises Bobcat locally. invokeZen is a required independent host-native call
  * returning Zen's packet, never a worker's relay. Specialists receive only
  * relevant milestone slices, never the ledger API, path, or global authority.
@@ -212,8 +213,10 @@ export class MinimalSpine {
    *   - jaguar (retrieval)
    *   - puma (mechanical worker)
    *   - bobcat (bounded implementation)
+   *   - excavator (difficult diagnosis/repair worker)
    * Bobcat may invoke:
    *   - strix-halo (Bobcat-local implementation advisor)
+   * Excavator has no nested delegation and never invokes Zen.
    * Specialists receive the milestone packet's relevant slice, never the ledger
    * or global authority. Outputs flow back without touching ledger state directly.
    */
@@ -241,7 +244,7 @@ export class MinimalSpine {
     const targetRole = normalizedRole === 'strix_halo' ? 'strix-halo' : normalizedRole;
     const callerRole = normalizedCaller === 'strix_halo' ? 'strix-halo' : normalizedCaller;
 
-    const SPECIALIST_ROLES = ['jaguar', 'puma', 'bobcat', 'strix-halo'];
+    const SPECIALIST_ROLES = ['jaguar', 'puma', 'bobcat', 'excavator', 'strix-halo'];
     if (!SPECIALIST_ROLES.includes(targetRole)) {
       throw new TypeError(`Unknown or disallowed specialist role: "${role}"`);
     }
@@ -255,14 +258,14 @@ export class MinimalSpine {
       if (targetRole === 'strix-halo') {
         throw new Error('Strix Halo is a Bobcat-local advisor gate; Bulldozer cannot invoke Strix Halo directly');
       }
-      if (!['jaguar', 'puma', 'bobcat'].includes(targetRole)) {
+      if (!['jaguar', 'puma', 'bobcat', 'excavator'].includes(targetRole)) {
         throw new Error(`Bulldozer cannot invoke "${targetRole}"`);
       }
     } else if (callerRole === 'bobcat') {
       if (targetRole !== 'strix-halo') {
         throw new Error(`Bobcat may invoke only Strix Halo; cannot invoke "${targetRole}"`);
       }
-    } else if (['jaguar', 'puma', 'strix-halo'].includes(callerRole)) {
+    } else if (['jaguar', 'puma', 'excavator', 'strix-halo'].includes(callerRole)) {
       throw new Error(`Specialist "${callerRole}" has no delegation authority and cannot invoke subagents`);
     } else {
       throw new Error(`Caller "${caller}" is not authorized to invoke specialists under a milestone`);
@@ -477,10 +480,12 @@ export class MinimalSpine {
       const candidate = await this.#exact('bulldozer',
         'Execute only this milestone. Delegate bounded work to specialists by kind: '
         + 'Jaguar for read-only factual retrieval, Puma for low-risk writing and '
-        + 'mechanical text/config edits, and Bobcat for bounded implementation. '
+        + 'mechanical text/config edits, Bobcat for bounded implementation, and '
+        + 'Excavator for difficult broken-behavior diagnosis/repair. '
         + 'For Bobcat, set ADVISOR_GATE REQUIRED for substantive work or NONE only '
         + 'for low-risk mechanical work; Bobcat may invoke only Strix Halo when required. '
         + 'Puma and Jaguar have no subagents and Puma has no advisor ceremony. '
+        + 'Excavator has no nested delegation and must not invoke Zen. '
         + 'If a required specialist is unavailable, return BLOCKED, not a gate waiver. '
         + 'Inspect specialist results and actual evidence yourself. Worker READY and '
         + 'Strix ACCEPT are not DONE. Return your own JSON result packet with '
@@ -494,8 +499,8 @@ export class MinimalSpine {
           || candidate.plan_version !== contract.plan_version) {
         throw new Error('Candidate does not match the active milestone and plan');
       }
-      // The runner loads the bounded vNext Bulldozer contract, not the released
-      // primary agent: only Jaguar, Puma and Bobcat are milestone children.
+      // The runner loads the bounded vNext Bulldozer contract, not a released
+      // primary agent: Jaguar, Puma, Bobcat and Excavator are milestone children.
       if ('delegations' in candidate) {
         if (!Array.isArray(candidate.delegations)) {
           throw new InvalidHandoffPacketError('Bulldozer delegations must be an array');
@@ -506,7 +511,7 @@ export class MinimalSpine {
             throw new InvalidHandoffPacketError('Each Bulldozer delegation must have a non-empty role');
           }
           const role = delegation.role.trim().toLowerCase();
-          if (!['jaguar', 'puma', 'bobcat'].includes(role)) {
+          if (!['jaguar', 'puma', 'bobcat', 'excavator'].includes(role)) {
             throw new InvalidHandoffPacketError(`Bulldozer cannot delegate to "${role}" within a milestone`);
           }
         }

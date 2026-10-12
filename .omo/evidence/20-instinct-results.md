@@ -196,3 +196,151 @@ Schema and boundary observations from the live run:
    (packet fields default to `unknown`/`0`); the recommendation path in
    `status` is what enforces the ≥3-attempts threshold. Live call observed
    this case (Instinct flagged it as hypothesis 5).
+
+---
+
+# Excavator demotion to Bulldozer worker (owner choice 3) — results
+
+Branch: `fix/136-bulldozer-relay`, on top of `1d938f4` (the Instinct/#136
+commit above). Owner decision (Discord 1559103837862891571): Excavator is no
+longer a natively selectable primary; it is a specialist worker that only
+Bulldozer invokes, for difficult diagnose -> reproduce -> root-cause ->
+repair -> verify work inside one milestone. Version stays 1.1.0 (same release
+as #20/#136). Home paths redacted to `<HOME>`.
+
+## Implementation
+
+- `agents/excavator.md` — worker role body: `mainAgent: false`,
+  `subagent: true`, `invoke_subagent` tool removed, no `inheritCustomizations`
+  field. Primary-only semantics are gone: no READY/BLOCKED primary completion
+  claim (STATUS is a local worker signal like other workers') and no Zen
+  invocation (Zen is Steamroller's independent milestone gate; Bulldozer and
+  its children never invoke it). Return contract: ROOT_CAUSE
+  (`CONFIRMED | LIKELY | SPECULATIVE`) / CHANGES / VERIFICATION_EVIDENCE /
+  ROLLBACK / RESIDUAL_RISK / STATUS (`READY | BLOCKED`). Investigation depth,
+  root-cause discipline, the sudo/privilege boundary and the
+  `NTG_EXCAVATOR=1 ` marker + `hooks/excavator-shell-guard.py` are preserved.
+  The body documents that #137's `inheritCustomizations: true` decision
+  applied to the native primary and is superseded.
+- `agents/bulldozer.md`, `rules/orchestration.md`, `AGENTS.md` (plus
+  `rules/harness.md`, `agents/zen.md` consistency) — routing adds Excavator
+  as Bulldozer's hard broken-behavior worker (vs Bobcat for ordinary
+  implementation); Excavator has no nested delegation and never invokes Zen;
+  return contracts list the Excavator worker result.
+- Removed the native-primary Zen completion gate with its primary:
+  `hooks/excavator-review-gate.py`, its `hooks.json` Stop entry and
+  `tests/test_excavator_review_gate.py`; and the display-only
+  `scripts/gate_panel.py` + `tests/test_gate_panel.py` (existed only to render
+  that gate) with their `package.json` and docs references. Issue #112 history
+  stays in `.omo/evidence`. No reason to keep them was found: with Excavator
+  forbidden from invoking Zen the gate would manufacture an endless-continue
+  loop on worker READY.
+- `scripts/spine.mjs` — `excavator` added to the specialist roles, to
+  Bulldozer's allowed delegation set (adapter routing and the post-hoc
+  `delegations` check in `runMilestone`), and to the no-delegation callers
+  (it can never invoke subagents). `tests/test_spine.mjs` covers:
+  `[{ role: 'excavator' }]` delegations reach independent review (would fail
+  if excavator were rejected), the reject list keeps non-worker roles (zen,
+  piledriver, steamroller, strix-halo, unknown — would fail if one were
+  accepted), Bulldozer -> excavator adapter delegation succeeds, and
+  `caller: 'excavator'` cannot delegate.
+- Docs EN+KO (README, usage, status, architecture) and contract §2.9 with the
+  OQ-3/OQ-6 rows updated: no natively selectable primary remains, entry is
+  `ntg-vnext`, OQ-3 resolved (owner decision), OQ-6 superseded by the
+  demotion. `docs/versioning.md` matrix 1.1.0 row extended (version unchanged).
+
+## Deterministic verification
+
+Environment: `TMPDIR=<HOME>/.cache/ntg-instinct-tmp`, `SKIP_LIVE_TESTS=1`,
+`set -o pipefail`, run fail-fast.
+
+| Command | Result |
+| --- | --- |
+| `python3 -m unittest discover -s tests` | Ran 11 tests — OK (4 excavator-shell-guard + 7 zen-shell-guard; review-gate/gate-panel tests removed with their subjects) |
+| `node tests/test_runner_spike.mjs` | 48 passed, 0 failed |
+| `node --test tests/test_spine.mjs` | 101 passed, 0 failed (103 before: -3 rejected-role cases with excavator removed from the reject list, +1 allowed-delegation case) |
+| `node --test tests/test_ntg_vnext.mjs` | 12 passed, 0 failed |
+| `node tests/test_ledger.mjs` | 39 passed, 0 failed |
+| `node --test tests/test_telemetry.mjs` | 7 passed, 0 failed |
+| `node --test tests/test_dag_view.mjs` | 9 passed, 0 failed, 1 skipped (pre-existing) |
+| `node --test tests/test_studio_runner.mjs` | 10 passed, 0 failed |
+| `agy plugin validate .` | 10 agents processed, 2 hooks processed — OK |
+| `npm pack --dry-run` | `native-gravity-1.1.0.tgz`, 29 files (gate_panel.py and the review-gate hook gone) |
+| `git diff --check` | clean |
+
+Totals: 227 deterministic Node cases (226 pass, 0 fail, 1 pre-existing skip)
++ 11 Python tests = 238 cases, 0 failures.
+
+## Live verification (Bulldozer -> Excavator -> Zen GO)
+
+Plugin install/restore (explicit steps only; `<HOME>/.gemini/config/plugins/native-gravity`):
+
+- Baseline before: installed snapshot identical to `main` @ da11485
+  (`diff` of `agents/`, `hooks/`, `rules/`, `hooks.json` — all identical).
+- Branch install: `agy plugin uninstall native-gravity` ->
+  `agy plugin install .` from the worktree (10 agents, 2 hooks;
+  `importedAt 2026-10-12T08:19:22Z`).
+- Restore after: uninstall -> `agy plugin install <HOME>/work/native-gravity`
+  (main; 9 agents, 3 hooks; `importedAt 2026-10-12T08:33:35Z`), `diff`-verified
+  identical to main — `NTG136_MAIN_RESTORED`.
+
+Fixture (`<HOME>/.cache/ntg-exca-live`): `check.js` requires `retries>=3` in
+`app.conf`; the fixture was broken with `retries=0` (`node check.js` ->
+`FAIL: retry budget too low: 0`). One-milestone plan `fix1` objective tells
+Bulldozer to delegate this bounded diagnose+repair to the Excavator worker.
+
+```bash
+node scripts/ntg-vnext.mjs init --ledger <HOME>/.cache/ntg-exca-live/ledger.json --plan <HOME>/.cache/ntg-exca-live/plan.json
+node scripts/ntg-vnext.mjs run --ledger <HOME>/.cache/ntg-exca-live/ledger.json
+```
+
+- Exit 0 (~8.5 min wall clock). `fix1` -> Bulldozer `DONE` -> Zen `GO`
+  (matching `result_ref ref-sha256-a92f5efc...`) -> Steamroller promotion,
+  `completed_milestones: ["fix1"]`, `global_completion.completed: true`.
+  `app.conf` repaired to `retries=3`; `node check.js` prints `ok`.
+- Session ids (new sessions created by the run; store
+  `<HOME>/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript.jsonl`):
+  - `b8fa67b3-0d3c-4d0b-b5b4-71a36afa6d90` — Bulldozer (runner invocation)
+  - `bbdfaeea-9a04-452d-b47e-5a972339f9a9` — Jaguar (discovery)
+  - `c83eca51-bb16-4206-8ee4-7b7f454de157` — Excavator (the diagnose+repair)
+  - `e420bd33-c2ab-429d-8371-d6332cd7fec7` — Zen (independent verification)
+
+Transcript observations:
+
+- `invoke_subagent` with `TypeName: "excavator"` appears twice in the
+  Bulldozer transcript (steps 13 and 35) carrying delegation packets in the
+  orchestration contract's field shape (ROLE_REASON/GOAL/SCOPE/NON_GOALS/
+  ACCEPTANCE/EVIDENCE/EDIT_POLICY/EXPECTED_OUTPUT -> worker result contract).
+- The step-13 dispatch failed: `subagent "excavator" not found or not allowed
+  to be invoked`. Bulldozer used Jaguar discovery and then `define_subagent`
+  (step 33) with the shipped `agents/excavator.md` body verbatim
+  (`enable_subagent_tools: false`, `enable_write_tools: true`); the step-35
+  `invoke_subagent TypeName=excavator` succeeded and created `c83eca51`.
+- Excavator session `c83eca51`: 0 `invoke_subagent` calls and zero mentions
+  of "zen" — Excavator did not invoke Zen. All 4 of its `run_command` calls
+  carry the `NTG_EXCAVATOR=1 ` marker. Its worker result:
+  ROOT_CAUSE CONFIRMED (`app.conf` had `retries=0` vs `check.js` enforcing
+  `retries>=3`), CHANGES (one-line fix), VERIFICATION_EVIDENCE (`node check.js`
+  exit 0 `ok` + sha256 `04065efd...`), STATUS READY.
+- Zen session `e420bd33` returned the bare JSON verdict packet with
+  `milestone_id: fix1`, `plan_version: v1`, the unchanged `result_ref`,
+  `verdict: GO` and OBSERVED evidence matching each acceptance criterion;
+  the promotion happened only after that observed GO.
+
+## Unresolved issues (Excavator demotion)
+
+1. **First `invoke_subagent TypeName=excavator` dispatch failed** in the fresh
+   runner-spawned Bulldozer session: `subagent "excavator" not found or not
+   allowed to be invoked`, even though the branch plugin was installed and
+   Jaguar dispatched normally. Recovery was observed via `define_subagent`
+   carrying the shipped role body, after which the same dispatch worked.
+   Whether this is an AGY registry/visibility quirk (e.g. the runtime still
+   classifying the pre-demotion `mainAgent: true` excavator) is UNKNOWN and
+   should be re-probed on the next AGY upgrade. The successful excavator run
+   used the exact shipped `agents/excavator.md` contract text, so the worker
+   semantics under test are the shipped ones.
+2. `tests/test_dag_view.mjs` retains its pre-existing 1 skipped test
+   (unrelated to this change).
+3. Excavator's model assignment stays at native `model: pro` (unchanged from
+   the primary); OQ-3 is closed on authority/placement, and comparative
+   model evidence remains future work.

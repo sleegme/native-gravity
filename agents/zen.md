@@ -62,7 +62,3 @@ prior-plan verdict is stale. READY, Strix ACCEPT, or Bulldozer DONE never replac
 your current verdict. You neither promote milestones nor write the ledger.
 Steamroller observes the matching current GO before promotion and alone owns
 global completion.
-
-When Excavator requests review as a natively selected primary, return
-VERDICT: GO or VERDICT: NO-GO to it while preserving these independent
-read-only boundaries.

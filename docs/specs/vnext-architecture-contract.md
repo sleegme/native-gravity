@@ -41,8 +41,9 @@ USER
                   │
                   ├─► JAGUAR   (Flash — read-only factual retrieval)
                   ├─► PUMA     (Flash — quick/writing/mechanical)
-                  └─► BOBCAT   (Flash — bounded implementation)
-                          └─► STRIX HALO  (Pro — implementation advisor/gate)
+                  ├─► BOBCAT   (Flash — bounded implementation)
+                  │      └─► STRIX HALO  (Pro — implementation advisor/gate)
+                  └─► EXCAVATOR (Pro — difficult diagnosis/repair)
 
 [After each milestone]
   BULLDOZER ──candidate packet──► STEAMROLLER ──review request──► ZEN
@@ -55,7 +56,7 @@ USER
 - Piledriver is invoked by Steamroller when planning, replanning, or a high-impact architectural decision is needed. Piledriver does not orchestrate workers.
 - Bulldozer receives exactly one milestone packet per invocation. It operates within that bounded scope only.
 - Zen is an independent gate, not a child of Bulldozer. Its verdict is delivered to Steamroller.
-- Excavator is outside the normal spine — see §2.9 and §7.
+- Excavator is a Bulldozer worker for difficult diagnosis/repair inside one milestone — see §2.9 and §7.
 - Instinct is implemented as the runner-only NEEDS_ALT advisory (#20) — see §2.10.
 
 ### 1.2 Failure / Recovery Path (post-P0)
@@ -69,7 +70,7 @@ Normal execution → material failure
                   └─► NEEDS_ALT → INSTINCT  (Sonnet via exact-model runner, #20)
 ```
 
-This path is out of scope for the minimum P0 spine. Excavator is reconnected in later slices; Instinct is connected to the validated runner in #20.
+Excavator runs this path as a Bulldozer worker inside the delegated milestone (owner decision; §2.9). Instinct is connected to the validated runner in #20.
 
 ---
 
@@ -223,15 +224,17 @@ This path is out of scope for the minimum P0 spine. Excavator is reconnected in 
 
 **Required current Zen `GO` must be observed before a milestone becomes verified.**
 
-### 2.9 Excavator — Migration / Open-Design Boundary
+### 2.9 Excavator — Diagnosis / Repair Worker under Bulldozer
 
-**vNext invariant:** the existing shell guard machinery is preserved. Final authority and placement are an open design question.
+**vNext invariant:** the existing shell guard machinery is preserved. Excavator is a Bulldozer worker, not a primary (owner decision; OQ-3 resolved).
 
 **What is decided:**
-- Excavator remains a separate user-selectable primary agent during the first migration stage
-- It is NOT forced into the normal orchestration spine for P0
+- Excavator is a specialist worker that only Bulldozer invokes, for difficult work inside one milestone: diagnose -> reproduce -> root-cause -> repair -> verify
+- It is NOT a natively selectable primary; no natively selectable primary remains and the entry is `ntg-vnext`
+- It has no nested delegation and never invokes Zen — Zen is Steamroller's independent milestone gate
+- It returns a worker result (ROOT_CAUSE `CONFIRMED | LIKELY | SPECULATIVE`, CHANGES, VERIFICATION_EVIDENCE, ROLLBACK, RESIDUAL_RISK, STATUS `READY | BLOCKED`) to Bulldozer; STATUS is a local signal like other workers'
+- The former native-primary Zen completion gate (plugin `Stop` hook) is removed with the primary
 - It is NOT assumed to be a "deep autonomous investigator" — do not assume Gemini 3.1 Pro reproduces Hephaestus-style behavior merely from a prompt
-- It serves as the **failure diagnosis / recovery specialist** when normal execution encounters material failure
 - Existing shell guard (`NTG_EXCAVATOR=1` prefix, privilege-drift prevention, broad-upgrade prevention) is preserved until a validated replacement is specified
 
 **Working escalation policy (post-P0 connection):**
@@ -244,7 +247,7 @@ AND no meaningful new evidence or causal-model progress
 
 This is not a raw retry count. Track failure class/signature, current hypothesis, attempt count within that class, and whether meaningful new evidence appeared.
 
-**OPEN QUESTION / SPEC GAP:** Excavator's final authority, placement in the orchestration graph, and exact model assignment are unresolved. Validate against real AGY failure cases before finalizing. Do not invent from role aesthetics.
+**RESOLVED (owner decision; OQ-3):** Excavator's authority and placement are fixed as a Bulldozer worker for hard diagnosis/repair on native Pro, with no nested delegation and no Zen invocation. #137's `inheritCustomizations: true` decision applied to the former native primary and is superseded by the demotion; workers carry no `inheritCustomizations` field. Continue validating behavior against real AGY failure cases inside the worker role. Do not invent from role aesthetics.
 
 ### 2.10 Instinct — Alternate-Framing Specialist (#20)
 
@@ -599,7 +602,7 @@ Steamroller
   └─► Steamroller ledger transition
 ```
 
-Jaguar, Puma, and Strix Halo reconnect in slice 44F. Excavator reconnects post-44G. Instinct is connected to the validated runner in #20.
+Jaguar, Puma, and Strix Halo reconnect in slice 44F. Excavator reconnects as a Bulldozer worker for hard diagnosis/repair (owner decision; §2.9). Instinct is connected to the validated runner in #20.
 
 ### 8.3 Provenance Closure
 
@@ -646,8 +649,8 @@ The following items are explicitly unresolved at the time this contract is froze
 |---|---|---|
 | OQ-1 | Exact AGY model slugs for Gemini 3.8 Flash and 3.1 Pro — must be resolved from installed AGY surface, not assumed | 44B |
 | OQ-2 | Whether Zen should use exact 3.1P/High or remain on native Pro — validate with live testing | 44B / 44F |
-| OQ-3 | Exact final authority, placement, and model assignment of Excavator in the vNext graph | Post-44G / separate issue |
+| OQ-3 | Exact final authority, placement, and model assignment of Excavator in the vNext graph | Resolved (owner decision): Bulldozer worker for hard diagnosis/repair, native Pro, no nested delegation, never invokes Zen — §2.9 |
 | OQ-4 | Exact AGY CLI invocation path for Sonnet (Instinct backend) — must be validated before Instinct is implemented | Resolved #20 |
 | OQ-5 | Ledger persistence format and location (YAML file, sidecar artifact, etc.) — implementation decision for 44C | 44C |
-| OQ-6 | Keep explicit `inheritCustomizations: true` on native Excavator; AGY 1.3.3 workspace-rule propagation verified for true/omission, suppressed for false; inheritance is not an authority grant | Resolved #137 |
+| OQ-6 | `inheritCustomizations: true` kept on the then-native Excavator (#137); AGY 1.3.3 workspace-rule propagation verified for true/omission, suppressed for false; inheritance is not an authority grant | Resolved #137; superseded by the Excavator worker demotion (no native primary; workers carry no `inheritCustomizations`) |
 | OQ-7 | Exact mechanism for enforcing state-machine completion rules at runtime (e.g., ledger validator function, pre-transition checks) | 44C |

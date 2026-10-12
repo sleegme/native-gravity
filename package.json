@@ -18,7 +18,6 @@
         "README.md",
         "docs/ko/README.md",
         "scripts/ledger-lock.mjs",
-        "scripts/gate_panel.py",
         "scripts/dag-view.mjs",
         "tests/test_dag_view.mjs",
         "scripts/ntg-vnext.mjs",

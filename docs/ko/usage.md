@@ -32,21 +32,21 @@ ntg-vnext status  --ledger .ntg/ledger.json
 
 `alt`는 Instinct alternate-framing 자문(NEEDS_ALT)을 요청하고 advisory JSON을 `adopted: false`와 함께 출력합니다. 자문은 advisory evidence로만 기록되며 plan 채택이나 completion 상태 변경이 없습니다. `status`는 실패 class별 `needs_alt` 추천을 보여줍니다: 같은 실패 class가 새 증거 없이 3회 이상 반복되면 NEEDS_ALT를 추천합니다. `--escalate`만 Opus tier로 가며, 없으면 Instinct는 Sonnet에서 실행됩니다.
 
-## 네이티브로 선택 가능한 primary
+## Excavator worker
 
-### Excavator
+Excavator는 Bulldozer의 worker로, "고장났는데 원인을 아는 사람이 없다"는 어려운 경우에 씁니다. 마일스톤에 어려운 고장 문제가 있을 때 Bulldozer가 bounded 진단 -> 재현 -> 근본 원인 -> 수리 -> 검증 루프를 Excavator에 위임하며, 일반 구현은 Bobcat에 남습니다. Excavator는 위임받은 범위 안에서 직접 수정하며, 중첩 위임이 없고 Zen을 호출하지 않습니다. worker 결과(ROOT_CAUSE `CONFIRMED | LIKELY | SPECULATIVE`, CHANGES, VERIFICATION_EVIDENCE, ROLLBACK, RESIDUAL_RISK, STATUS `READY | BLOCKED`)를 Bulldozer에 반환하며, STATUS는 로컬 worker 신호이지 마일스톤이나 프로젝트 완료가 아닙니다.
 
-"고장났으니 원인을 파서 고쳐" 유형에 사용합니다. Excavator는 직접 수정이 허용되며 bounded 조사 -> 수정 -> 검증 루프를 수행합니다. 현재 artifact에 대한 Zen `VERDICT: GO`를 관측한 뒤에만 `READY`로 끝납니다.
+네이티브로 선택 가능한 primary는 더 이상 없으며, 프로젝트 작업의 진입점은 `ntg-vnext`입니다. Bulldozer, Piledriver, Instinct는 runner 전용 역할입니다. 멀티 마일스톤 작업, durable ledger 상태, replanning, global completion은 `ntg-vnext`에 속하며, Piledriver 자문은 `ntg-vnext plan`으로, Instinct 자문은 `ntg-vnext alt`로 요청합니다.
 
-Bulldozer, Piledriver, Instinct는 runner 전용 역할입니다. 멀티 마일스톤 작업, durable ledger 상태, replanning, global completion은 `ntg-vnext`에 속하며, Piledriver 자문은 `ntg-vnext plan`으로, Instinct 자문은 `ntg-vnext alt`로 요청합니다.
-
-## Bobcat / Puma
+## Bobcat / Puma / Excavator
 
 Bobcat은 일반적인 behavior-bearing 구현 담당이며 Bulldozer가 `ADVISOR_GATE: REQUIRED | NONE`을 선택합니다.
 
 REQUIRED일 때 Bobcat은 read-only 로컬 조언/CHECK gate인 **Strix Halo** (`strix-halo`)를 호출합니다.
 
 Puma는 writing, formatting, presentation-only, mechanical text/config 같은 명확하고 작은 저위험 작업 전용이며 Advisor를 부르지 않고 중첩 위임도 없습니다.
+
+Excavator는 한 마일스톤 안에서 어려운 고장 진단/수리 전용입니다 — 스스로 조사하고, 재현하고, 근본 원인을 고치고, 결과를 검증합니다.
 
 ## Alpha 검증
 
@@ -57,25 +57,11 @@ Puma는 writing, formatting, presentation-only, mechanical text/config 같은 �
 3. Zen NO-GO가 마일스톤을 미완료로 남기고, 수정된 후보가 fresh GO를 필요로 하는지;
 4. fresh-context 재개가 대화가 아니라 ledger에서 이어지는지;
 5. Bobcat이 `strix-halo` 외 다른 subagent를 호출하지 않는지 (negative case);
-6. Excavator가 프로젝트 소스를 수정하고 current Zen verdict 없이 `READY`로 완료할 수 없는지;
+6. Bulldozer가 bounded 진단+수리를 Excavator에 위임할 때 Excavator가 수정을 하고, subagent(Zen 포함)를 호출하지 않으며 worker 결과를 반환하는지, 그리고 Bulldozer 위임 검증이 Excavator를 수용하고 non-worker 역할을 거부하는지;
 7. Zen이 `NTG_ZEN_VERIFY=1` marker로 독립 검증 command를 실행하면서 일반적인 의도적 source-mutation 시도는 거부되는지;
 8. Excavator-marked shell call이 일반 sudo 진단을 허용하면서 privilege-drift와 full-upgrade 경로는 거부하는지.
 
-Excavator가 `BLOCKED`로 끝나면 열린 결정 질문은 `ntg-vnext plan`으로 Piledriver에 넘깁니다. Excavator를 Bulldozer의 child로 취급하지 않습니다.
-
-## `gate_panel.py` (issue #112 gate-status panel)
-
-`scripts/gate_panel.py`는 NTG gate-status panel을 렌더링합니다: 각 transcript에 대해 어떤 gate가 무장되어 있는지(excavator 또는 없음), 관측된 최신 Zen verdict, Stop hook이 반환할 결정, 그 근거, 증거 출처를 보여줍니다. Stop hook이 강제하는 것과 동일한 transcript 레코드를 읽고 그 로직을 재생합니다. 상태를 소유하거나 변경하지 않습니다.
-
-```bash
-python3 scripts/gate_panel.py --transcript /path/to/transcript.jsonl
-python3 scripts/gate_panel.py --event stop-event.json
-python3 scripts/gate_panel.py --transcript a.jsonl --json
-```
-
-레이아웃은 가로 전용 pane에 맞는 고정 폭 한 줄-per-gate 표이며, `--json`은 같은 상태를 프로그램 소비자에게 제공합니다.
-
-제약(#112 결정의 escape clause): AGY 플러그인 표면은 agents / hooks / commands / skills / mcpServers를 제공하지만 플러그인 panel을 위한 Settings-tabs host가 없으며 이 저장소에도 그런 표면이 없습니다. 따라서 이 모듈은 가능한 가장 작은 유용한 버전 — Settings tab(또는 임의의 pane)이 호스팅할 수 있는 렌더러 — 이며 플러그인 통합 Settings tab이 아닙니다. 플러그인 panel용 host 표면이 생기면 이 출력을 그대로 소비할 수 있습니다.
+마일스톤이 열린 결정 질문으로 `BLOCKED`가 되면 `ntg-vnext plan`으로 Piledriver에 넘깁니다. Excavator는 Bulldozer의 worker입니다: `STATUS`는 마일스톤 내부의 로컬 신호이며, 승격과 완료는 오직 Steamroller만 합니다.
 
 ## `ntg-dag` (ledger 마일스톤 그래프)
 

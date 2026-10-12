@@ -18,27 +18,23 @@ User -> ntg-vnext
   Steamroller — supervisor / authoritative ledger owner
     Piledriver — bounded planning, architecture, difficult decisions / Pro
     Bulldozer  — exactly one bounded milestone / Flash
-      Jaguar / Puma / Bobcat (-> Strix Halo)
+      Jaguar / Puma / Bobcat (-> Strix Halo) / Excavator
     Instinct   — alternate-framing advisory on NEEDS_ALT / Sonnet (Opus on explicit escalation)
     Zen        — independent milestone verification / Pro
 ```
 
 Steamroller alone writes the ledger, promotes a milestone only after an observed matching Zen GO, and declares global completion. Instinct's NEEDS_ALT advice is recorded as advisory evidence and never auto-adopted. See [Usage](docs/usage.md#ntg-vnext-runner) for the commands.
 
-## Natively selectable primary
+## No natively selectable primary
 
-```text
-User (agent selection)
-└─ Excavator  — autonomous troubleshooter / repair owner, Zen completion gate
-```
-
-Bulldozer, Piledriver and Instinct are runner-only roles: Bulldozer executes exactly one bounded milestone per invocation, Piledriver returns advisory plans to Steamroller, and Instinct returns alternate-framing advice on NEEDS_ALT. None is natively selectable.
+No natively selectable primary remains; `ntg-vnext` is the entry for project work. Bulldozer, Piledriver and Instinct are runner-only roles: Bulldozer executes exactly one bounded milestone per invocation, Piledriver returns advisory plans to Steamroller, and Instinct returns alternate-framing advice on NEEDS_ALT. Excavator is a Bulldozer worker for difficult broken-behavior work — diagnose -> reproduce -> root-cause -> repair -> verify — with no nested delegation and no Zen invocation.
 
 Routing is based on the kind of work:
 
 - find/inspect -> Jaguar
 - small + clear + low-risk / writing -> Puma
 - ordinary implementation -> Bobcat (-> Strix Halo)
+- hard broken-behavior diagnosis/repair -> Excavator (Bulldozer worker)
 - planning / architecture / trade-off -> Piledriver (via Steamroller under the runner)
 - stalled same-class failures / a different framing -> Instinct (NEEDS_ALT, via Steamroller under the runner)
 - independent verification -> Zen

@@ -191,6 +191,6 @@ Review evidence freshness is parent-side: invoking or messaging a reviewer is a 
 
 Delegation and local readiness are not global completion.
 
-Only Steamroller may declare global project completion under the vNext runner. Natively selected primaries may claim completion only of the bounded work they own (Excavator for its explicitly bounded task). Subagents report local readiness, findings, diagnosis, blockers, or review verdicts according to their role contracts.
+Only Steamroller may declare global project completion under the vNext runner. Subagents report local readiness, findings, diagnosis, blockers, or review verdicts according to their role contracts; a worker STATUS (including Excavator's) is a local signal to its parent, not a completion claim for the bounded work or the project.
 
 The active primary agent must inspect current artifact/evidence before making the final completion claim and must respect any required independent review gate.

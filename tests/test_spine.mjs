@@ -71,6 +71,9 @@ function fixture(t, { output, review, initialPlan = plan(), invokeSpecialist } =
       writeFileSync(artifact, packet.milestone_id);
       return { status: 'READY', artifact };
     }
+    if (role === 'excavator') {
+      return { root_cause: 'CONFIRMED', status: 'READY', verification: [`diagnosed ${packet.milestone_id}`] };
+    }
     if (role === 'strix-halo') {
       return { verdict: 'ACCEPT', notes: 'contract verified locally' };
     }
@@ -139,7 +142,7 @@ for (const status of ['READY', undefined, null, '', 'ACCEPT', 'GO', 'done']) {
   });
 }
 
-for (const role of ['zen', 'piledriver', 'excavator', 'steamroller', 'strix-halo', 'unknown']) {
+for (const role of ['zen', 'piledriver', 'steamroller', 'strix-halo', 'unknown']) {
   for (const status of ['DONE', 'BLOCKED', 'NEEDS_DEEP']) {
     test(`native packet delegation to ${role} rejects ${status} before review`, async t => {
       const f = fixture(t, {
@@ -177,7 +180,8 @@ for (const delegations of [null, {}, 'bobcat', [{}], [null], [[]], ['bobcat'],
 }
 
 for (const delegations of [[], [{ role: 'bobcat' }, { role: 'jaguar' }],
-  [{ role: 'puma' }], [{ role: ' Bobcat ', task: 'bounded implementation' }]]) {
+  [{ role: 'puma' }], [{ role: 'excavator' }],
+  [{ role: ' Bobcat ', task: 'bounded implementation' }]]) {
   test(`allowed native delegations enter independent review: ${JSON.stringify(delegations)}`, async t => {
     const f = fixture(t, {
       output: contract => candidate(contract, { delegations }),
@@ -837,7 +841,7 @@ test('specialists receive milestone packet slice and never ledger or global auth
 test('specialist invocation is prohibited without an active milestone', async t => {
   const f = fixture(t);
   assert.equal(f.spine.state.current_milestone, null);
-  for (const role of ['jaguar', 'puma', 'bobcat', 'strix-halo']) {
+  for (const role of ['jaguar', 'puma', 'bobcat', 'excavator', 'strix-halo']) {
     await assert.rejects(
       f.spine.invokeSpecialist(role, { task: 'work' }),
       /Specialist invocation requires an active milestone/
@@ -866,8 +870,8 @@ test('specialist routing strictly enforces caller-role boundaries', async t => {
         );
       }
 
-      // 3. Jaguar, Puma, Strix Halo cannot invoke any subagents
-      for (const caller of ['jaguar', 'puma', 'strix-halo']) {
+      // 3. Jaguar, Puma, Excavator, Strix Halo cannot invoke any subagents
+      for (const caller of ['jaguar', 'puma', 'excavator', 'strix-halo']) {
         await assert.rejects(
           spine.invokeSpecialist('jaguar', { task: 'work' }, { caller }),
           new RegExp(`Specialist "${caller}" has no delegation authority and cannot invoke subagents`)
@@ -889,6 +893,11 @@ test('specialist routing strictly enforces caller-role boundaries', async t => {
           new RegExp(`Unknown or disallowed specialist role: "${role}"`)
         );
       }
+
+      // 6. Bulldozer delegates hard diagnosis/repair to the Excavator worker
+      const repaired = await spine.invokeSpecialist('excavator', { task: 'diagnose and repair' }, { caller: 'bulldozer' });
+      assert.equal(repaired.status, 'READY');
+      assert.equal(repaired.root_cause, 'CONFIRMED');
       writeFileSync(join(f.dir, `${contract.milestone_id}.txt`), contract.milestone_id);
       const hash = createHash('sha256').update(contract.milestone_id).digest('hex');
       return candidate(contract, { candidate_artifact_ref: `sha256:${hash}` });

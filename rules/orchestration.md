@@ -19,10 +19,13 @@ completion authority. Its proposals require Steamroller's adoption.
 
 Bulldozer orchestrates only its received milestone; it does not directly
 mutate project files. The target worker graph is Bulldozer -> Jaguar / Puma /
-Bobcat, with Bobcat -> Strix Halo only. Jaguar is read-only factual retrieval,
-Puma is low-risk writing/mechanical work with no advisor ceremony, and Bobcat
-is bounded implementation. Jaguar, Puma and Strix Halo have no subagents.
-Route by work kind, not size.
+Bobcat / Excavator, with Bobcat -> Strix Halo only. Jaguar is read-only
+factual retrieval, Puma is low-risk writing/mechanical work with no advisor
+ceremony, Bobcat is bounded implementation, and Excavator is difficult
+broken-behavior work: diagnose, reproduce, root-cause, repair and verify.
+Jaguar, Puma, Excavator and Strix Halo have no subagents. Route by work kind,
+not size: ordinary implementation goes to Bobcat; a hard diagnosis/repair
+problem goes to Excavator.
 
 Read-only factual discovery that can materially reduce uncertainty SHOULD be
 delegated to Jaguar before Bulldozer performs equivalent direct inspection; if
@@ -47,8 +50,10 @@ Strix ACCEPT != milestone complete.
 Bulldozer DONE != verified milestone completion or project completion.
 Only Steamroller may promote a milestone or declare project completion.
 
-Excavator remains a separate selectable primary outside the P0 spine; its
-recovery reconnection is post-44G. Instinct is the NEEDS_ALT alternate-framing
+Excavator is a Bulldozer worker for hard diagnosis/repair inside one
+milestone; it has no nested delegation and never invokes Zen. No natively
+selectable primary remains; `ntg-vnext` is the entry for project work.
+Instinct is the NEEDS_ALT alternate-framing
 advisory, not a P0 fallback or ritual reviewer.
 Do not route around a missing runner or specialist by assuming permissions.
 
@@ -203,22 +208,26 @@ Jaguar/Puma/Bobcat remain native Flash; Strix Halo/Zen remain native Pro.
 Moving a specialist to a separate process or using exact 3.1 Pro/High for Zen
 requires live evidence of a concrete benefit.
 
-OQ-6 is resolved for native Excavator (#137): keep explicit
-`inheritCustomizations: true` to preserve workspace instructions. On AGY
-1.3.3, a controlled probe showed workspace-rule propagation for true and
-omission, but not false. This does not grant authority beyond the role's
-tools, effect boundaries or user constraints.
+OQ-6 (#137) kept explicit `inheritCustomizations: true` on the then-native
+Excavator primary to preserve workspace instructions; the controlled probe on
+AGY 1.3.3 showed workspace-rule propagation for true and omission, but not
+false. Excavator's demotion to a Bulldozer worker supersedes that decision:
+no natively selectable primary remains and the worker carries no
+`inheritCustomizations` field. Inherited context is not an authority grant.
 
-Open questions that remain UNKNOWN: Zen's optional exact-model choice and
-final Excavator authority/model placement. Sonnet's invocation path is
+Open questions that remain UNKNOWN: Zen's optional exact-model choice.
+Excavator's authority and placement are resolved (OQ-3): a Bulldozer worker
+for hard diagnosis/repair on native Pro, with no nested delegation and no Zen
+invocation. Sonnet's invocation path is
 resolved (OQ-4, #20). Frontmatter UNKNOWN is not a runtime default or a grant.
 
-## Natively selectable primary
+## Delegation and review boundaries
 
-Excavator remains natively selectable as the autonomous troubleshooter / deep
-repair owner with its own Zen completion gate. Multi-milestone work, durable
-ledger state, replanning and global project completion belong to
-Steamroller through the runner.
+No natively selectable primary remains; `ntg-vnext` is the entry for project
+work. Excavator is a Bulldozer worker for difficult broken-behavior work;
+its STATUS is a local worker signal like the other workers'. Multi-milestone
+work, durable ledger state, replanning and global project completion belong
+to Steamroller through the runner.
 
 ### Delegation packet
 
@@ -245,6 +254,7 @@ Include SOURCE_OF_TRUTH, DECISION_RULE, COVERAGE, and COVERAGE_BASIS only when t
 - Jaguar -> FINDINGS / EVIDENCE / UNKNOWNS / RECOMMENDED_NEXT_STEP
 - Puma -> what changed / verification / `READY | BLOCKED`
 - Bobcat -> what changed / verification / Strix Halo result when required / `READY | BLOCKED | NEEDS_DEEP`
+- Excavator -> ROOT_CAUSE (`CONFIRMED | LIKELY | SPECULATIVE`) / CHANGES / VERIFICATION_EVIDENCE / ROLLBACK / RESIDUAL_RISK / `READY | BLOCKED`
 - Zen -> blocker findings and exactly `VERDICT: GO | VERDICT: NO-GO`
 
 ### Child-result integration
@@ -270,6 +280,8 @@ The marker guard is a narrow behavioral backstop, not a general shell sandbox or
 On NO-GO, Bulldozer classifies the correction need:
 
 - implementation defect -> Bobcat repair, normally REQUIRED
+- hard broken behavior with an unknown or disputed root cause -> Excavator
+  (diagnose/repair), not another same-shape patch loop
 - quick/mechanical defect -> Puma only if the repair remains genuinely low-risk and explicit
 - wrong decision/architecture -> return the decision question (runner: NEEDS_DEEP to Steamroller) before another materially similar patch
 - evidence gap -> obtain missing verification without redesign

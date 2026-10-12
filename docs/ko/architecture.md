@@ -4,7 +4,7 @@
 
 Native Gravity는 Antigravity의 네이티브 라이프사이클, 세션, 워크스페이스, 모델/도구 시스템을 유지합니다. vNext는 좁은 exact-model 러너와 authoritative ledger를 더할 뿐 런타임을 대체하지 않습니다.
 
-이 개요는 [architecture contract](../specs/vnext-architecture-contract.md)와 배포된 [agents](../../agents/) / [rules](../../rules/)를 따릅니다. `ntg-vnext`는 멀티 마일스톤 작업의 진입점이고, Excavator는 자체 Zen gate를 가진 bounded 자율 수리용으로 네이티브 선택 가능합니다.
+이 개요는 [architecture contract](../specs/vnext-architecture-contract.md)와 배포된 [agents](../../agents/) / [rules](../../rules/)를 따릅니다. `ntg-vnext`는 멀티 마일스톤 작업의 진입점이고, 네이티브로 선택 가능한 primary는 더 이상 없습니다. Excavator는 Bulldozer의 worker로, 한 마일스톤 안에서 어려운 고장 진단/수리를 수행합니다.
 
 ## 감독과 마일스톤 실행
 
@@ -13,7 +13,7 @@ User
   Steamroller — 감독 / authoritative ledger 소유자
     Piledriver — 계획, 아키텍처, 어려운 결정
     Bulldozer — 하나의 bounded 마일스톤
-      Jaguar / Puma / Bobcat
+      Jaguar / Puma / Bobcat / Excavator
                        Strix Halo — Bobcat 로컬 advisor gate
     Instinct — NEEDS_ALT alternate-framing 자문
     Zen — 독립 마일스톤 검증
@@ -30,8 +30,9 @@ User
 - **Jaguar** — read-only 사실 탐색; 네이티브 Flash 역할; 위임 없음.
 - **Puma** — 명시적 저위험 writing/formatting/mechanical 작업; 네이티브 Flash 역할; 위임과 advisor ceremony 없음.
 - **Bobcat** — bounded 구현; 네이티브 Flash 역할; Strix Halo만 호출 가능. Bulldozer가 `ADVISOR_GATE: REQUIRED | NONE`을 선택합니다: 실질적인 code/behavior/API/state/lifecycle/test 작업은 REQUIRED, 명확히 저위험한 mechanical 작업만 NONE.
+- **Excavator** — Bulldozer의 어려운 고장 worker: 한 마일스톤 안에서 진단, 재현, 근본 원인, 수리, 검증; 네이티브 Pro 역할; 중첩 위임과 Zen 호출 없음. `STATUS`는 다른 worker와 같은 로컬 worker 신호입니다.
 - **Strix Halo** — Bobcat 전용 read-only 로컬 gate; 네이티브 Pro 역할; `ACCEPT | REVISE | NEEDS_DEEP`. 수정은 Bobcat을 통해 이루어집니다.
-- **Zen** — Steamroller를 위한 독립적 비변경 마일스톤 검증으로 Bulldozer의 child가 아니며, Excavator의 최종 완료 검수자입니다; 네이티브 Pro 역할; `GO | NO-GO`. 검증 shell command는 `NTG_ZEN_VERIFY=1`을 사용합니다.
+- **Zen** — Steamroller를 위한 독립적 비변경 마일스톤 검증으로 Bulldozer의 child가 아닙니다; 네이티브 Pro 역할; `GO | NO-GO`. 검증 shell command는 `NTG_ZEN_VERIFY=1`을 사용합니다.
 
 작업 종류로 라우팅하며 크기로 하지 않습니다. 어려운 결정은
 `Strix Halo -> Bobcat -> Bulldozer -> Steamroller -> optional Piledriver`를 따르며,
@@ -53,6 +54,6 @@ Steamroller/Bulldozer는 Gemini 3.8 Flash / High를, Piledriver는 Gemini 3.1 Pr
 
 Specialist는 네이티브 Flash/Pro 역할 정책을 유지합니다. Exact-model Zen은 정책 가정이 아니라 비교 라이브 증거가 필요합니다.
 
-Excavator는 P0 밖의 별도 트러블슈팅 primary로 남습니다; recovery 재연결/최종 배치는 post-44G입니다. `NTG_EXCAVATOR=1` guard 효과를 보존합니다. Instinct는 구현되어 있습니다(#20): 동일한 exact-model 러너가 fail-closed slug 해석으로 Sonnet/Opus slug를 해석하며(OQ-4 해결), NEEDS_ALT 패킷은 tier-B 실패 컨텍스트(failure class/signature, 현재 가설, 시도 횟수, evidence)를 담습니다.
+Excavator는 한 마일스톤 안에서 어려운 진단/수리를 수행하는 Bulldozer의 worker입니다; 중첩 위임과 Zen 호출이 없으며, 네이티브 primary Zen completion gate는 primary와 함께 제거됩니다. `NTG_EXCAVATOR=1` guard 효과를 보존합니다. Instinct는 구현되어 있습니다(#20): 동일한 exact-model 러너가 fail-closed slug 해석으로 Sonnet/Opus slug를 해석하며(OQ-4 해결), NEEDS_ALT 패킷은 tier-B 실패 컨텍스트(failure class/signature, 현재 가설, 시도 횟수, evidence)를 담습니다.
 
-OQ-6은 네이티브 Excavator에 대해 해결됐습니다(#137): 작업공간 지침을 유지하기 위해 `inheritCustomizations: true`를 명시적으로 유지합니다. AGY 1.3.3 통제 실험에서 true와 생략은 작업공간 규칙을 전달했고 false는 전달하지 않았습니다. 상속된 context는 권한 grant가 아닙니다. 증거: `.omo/evidence/137-excavator-validation.md`.
+OQ-3은 해결됐습니다(소유자 결정): Excavator의 권한과 배치는 네이티브 Pro의 Bulldozer worker(어려운 진단/수리)로 확정됐습니다. OQ-6(#137)은 당시 네이티브 Excavator에 `inheritCustomizations: true`를 유지한 것으로, 이번 강등이 superseded 합니다 — 네이티브 primary가 더 이상 없고 worker는 `inheritCustomizations` 필드를 갖지 않습니다. AGY 1.3.3 통제 실험에서 true와 생략은 작업공간 규칙을 전달했고 false는 전달하지 않았습니다. 상속된 context는 권한 grant가 아닙니다. 증거: `.omo/evidence/137-excavator-validation.md`.
