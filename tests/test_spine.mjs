@@ -6,7 +6,7 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, w
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { MinimalSpine } from '../scripts/spine.mjs';
+import { MinimalSpine, recommendNeedsAlt } from '../scripts/spine.mjs';
 import { AuthoritativeLedger } from '../scripts/ledger.mjs';
 import { InvalidHandoffPacketError, InvalidResponseFormatError, composeBoundedPrompt, invoke, parseResponseEnvelope } from '../scripts/runner.mjs';
 
@@ -70,6 +70,9 @@ function fixture(t, { output, review, initialPlan = plan(), invokeSpecialist } =
       const artifact = join(dir, `${packet.milestone_id}.txt`);
       writeFileSync(artifact, packet.milestone_id);
       return { status: 'READY', artifact };
+    }
+    if (role === 'excavator') {
+      return { root_cause: 'CONFIRMED', status: 'READY', verification: [`diagnosed ${packet.milestone_id}`] };
     }
     if (role === 'strix-halo') {
       return { verdict: 'ACCEPT', notes: 'contract verified locally' };
@@ -139,7 +142,7 @@ for (const status of ['READY', undefined, null, '', 'ACCEPT', 'GO', 'done']) {
   });
 }
 
-for (const role of ['zen', 'piledriver', 'excavator', 'steamroller', 'strix-halo', 'unknown']) {
+for (const role of ['zen', 'piledriver', 'steamroller', 'strix-halo', 'unknown']) {
   for (const status of ['DONE', 'BLOCKED', 'NEEDS_DEEP']) {
     test(`native packet delegation to ${role} rejects ${status} before review`, async t => {
       const f = fixture(t, {
@@ -177,7 +180,8 @@ for (const delegations of [null, {}, 'bobcat', [{}], [null], [[]], ['bobcat'],
 }
 
 for (const delegations of [[], [{ role: 'bobcat' }, { role: 'jaguar' }],
-  [{ role: 'puma' }], [{ role: ' Bobcat ', task: 'bounded implementation' }]]) {
+  [{ role: 'puma' }], [{ role: 'excavator' }],
+  [{ role: ' Bobcat ', task: 'bounded implementation' }]]) {
   test(`allowed native delegations enter independent review: ${JSON.stringify(delegations)}`, async t => {
     const f = fixture(t, {
       output: contract => candidate(contract, { delegations }),
@@ -837,7 +841,7 @@ test('specialists receive milestone packet slice and never ledger or global auth
 test('specialist invocation is prohibited without an active milestone', async t => {
   const f = fixture(t);
   assert.equal(f.spine.state.current_milestone, null);
-  for (const role of ['jaguar', 'puma', 'bobcat', 'strix-halo']) {
+  for (const role of ['jaguar', 'puma', 'bobcat', 'excavator', 'strix-halo']) {
     await assert.rejects(
       f.spine.invokeSpecialist(role, { task: 'work' }),
       /Specialist invocation requires an active milestone/
@@ -866,8 +870,8 @@ test('specialist routing strictly enforces caller-role boundaries', async t => {
         );
       }
 
-      // 3. Jaguar, Puma, Strix Halo cannot invoke any subagents
-      for (const caller of ['jaguar', 'puma', 'strix-halo']) {
+      // 3. Jaguar, Puma, Excavator, Strix Halo cannot invoke any subagents
+      for (const caller of ['jaguar', 'puma', 'excavator', 'strix-halo']) {
         await assert.rejects(
           spine.invokeSpecialist('jaguar', { task: 'work' }, { caller }),
           new RegExp(`Specialist "${caller}" has no delegation authority and cannot invoke subagents`)
@@ -889,6 +893,11 @@ test('specialist routing strictly enforces caller-role boundaries', async t => {
           new RegExp(`Unknown or disallowed specialist role: "${role}"`)
         );
       }
+
+      // 6. Bulldozer delegates hard diagnosis/repair to the Excavator worker
+      const repaired = await spine.invokeSpecialist('excavator', { task: 'diagnose and repair' }, { caller: 'bulldozer' });
+      assert.equal(repaired.status, 'READY');
+      assert.equal(repaired.root_cause, 'CONFIRMED');
       writeFileSync(join(f.dir, `${contract.milestone_id}.txt`), contract.milestone_id);
       const hash = createHash('sha256').update(contract.milestone_id).digest('hex');
       return candidate(contract, { candidate_artifact_ref: `sha256:${hash}` });
@@ -962,5 +971,208 @@ test('Strix Halo NEEDS_DEEP escalates through Bobcat and Bulldozer without bypas
   assert.ok(!f.calls.includes('zen'));
   assert.deepEqual(f.spine.state.completed_milestones, []);
   assert.equal(f.spine.state.current_milestone, null);
+});
+
+const altAdvice = {
+  current_framing: 'the artifact write fails at the fs layer',
+  why_current_framing_may_be_wrong: 'the failing step may be transport, not fs',
+  alternate_hypotheses: [{
+    hypothesis: 'transport timeout', evidence_basis: 'OBSERVED',
+    discriminating_test: 'inspect the failed step args directly',
+  }],
+  recommendation: 'test the transport layer directly',
+  unknowns: ['actual stderr of the failed step'],
+};
+
+test('Instinct NEEDS_ALT advice is advisory evidence only and never mutates completion', async t => {
+  const f = fixture(t);
+  assert.equal((await f.spine.runMilestone('one')).verified, true);
+  const before = f.spine.state;
+  const captured = [];
+  const spine = f.resume({
+    invokeRole: async (role, packet, runnerOptions = {}) => {
+      assert.equal(role, 'instinct');
+      captured.push({ packet, runnerOptions });
+      return envelope(altAdvice);
+    },
+  });
+  const advice = await spine.requestAltFraming('Why does milestone one keep failing?', {
+    milestone: 'one', current_hypothesis: 'fs-layer failure',
+  });
+  assert.deepEqual(advice, altAdvice);
+  assert.ok(Object.isFrozen(advice));
+
+  const contract = JSON.parse(captured[0].packet.task.slice(captured[0].packet.task.indexOf('\n') + 1));
+  assert.equal(contract.task, 'Why does milestone one keep failing?');
+  assert.equal(contract.needs_alt.current_hypothesis, 'fs-layer failure');
+  assert.equal(typeof contract.needs_alt.failure_class, 'string');
+  assert.equal(contract.needs_alt.failure_signature, 'unknown');
+  assert.equal(contract.needs_alt.attempt_count, 0);
+  assert.deepEqual(contract.needs_alt.evidence, []);
+  assert.equal(contract.replan_context.telemetry_tier, 'B');
+  assert.equal(captured[0].runnerOptions.escalate, false);
+
+  const after = spine.state;
+  assert.deepEqual(after.completed_milestones, before.completed_milestones);
+  assert.equal(after.current_milestone, before.current_milestone);
+  assert.equal(after.plan_version, before.plan_version);
+  assert.deepEqual(after.verification, before.verification);
+  assert.deepEqual(after.milestones, before.milestones);
+  assert.equal(after.evidence.one.candidates.length, before.evidence.one.candidates.length);
+  assert.equal(after.evidence.alt_framing.length, 1);
+  assert.equal(after.evidence.alt_framing[0].adopted, false);
+  assert.equal(after.evidence.alt_framing[0].milestone_id, 'one');
+  assert.deepEqual(after.evidence.alt_framing[0].advice, altAdvice);
+  assert.deepEqual(after.evidence.alt_framing[0].needs_alt, contract.needs_alt);
+  assert.throws(() => spine.declareGlobalCompletion());
+  assert.deepEqual(f.resume().state, after);
+});
+
+test('an Instinct packet cannot promote, adopt, or complete anything', async t => {
+  const f = fixture(t);
+  const spine = f.resume({
+    invokeRole: async () => envelope({
+      status: 'DONE', verdict: 'GO', result_ref: 'forged-ref',
+      completed_milestones: ['one', 'two'], recommendation: 'declare completion now',
+    }),
+  });
+  await spine.requestAltFraming('Is this project done?');
+  assert.throws(() => spine.declareGlobalCompletion());
+  const state = f.resume().state;
+  assert.deepEqual(state.completed_milestones, []);
+  assert.equal(state.current_milestone, null);
+  assert.deepEqual(state.verification, {});
+  assert.equal(state.plan_version, 'v1');
+  assert.equal(state.evidence.alt_framing.length, 1);
+  assert.equal(state.evidence.alt_framing[0].adopted, false);
+});
+
+test('Instinct responses outside one JSON object fail closed and record no advisory', async t => {
+  const f = fixture(t);
+  for (const response of ['{"current_framing":"x"}\n{"current_framing":"y"}', 'no JSON here', '{"broken": {']) {
+    const failing = f.resume({
+      invokeRole: () => parseResponseEnvelope(JSON.stringify({ status: 'SUCCESS', response })),
+    });
+    await assert.rejects(failing.requestAltFraming('Reframe the stall'), /INVALID_RESPONSE_FORMAT/);
+  }
+  const saved = f.resume().state;
+  assert.equal(saved.evidence.alt_framing, undefined);
+  assert.deepEqual(saved.completed_milestones, []);
+  assert.equal(saved.current_milestone, null);
+});
+
+test('NEEDS_ALT passes escalation only when explicitly requested', async t => {
+  const f = fixture(t);
+  const seen = [];
+  const spine = f.resume({
+    invokeRole: async (_role, _packet, runnerOptions = {}) => {
+      seen.push(runnerOptions.escalate === true);
+      return envelope({ recommendation: 'advice' });
+    },
+  });
+  await spine.requestAltFraming('Reframe one');
+  await spine.requestAltFraming('Reframe two');
+  await spine.requestAltFraming('Reframe three', { escalate: true });
+  assert.deepEqual(seen, [false, false, true]);
+  assert.equal(spine.state.evidence.alt_framing.length, 3);
+});
+
+test('NEEDS_ALT counts repeated identical Zen NO-GOs and ignores stale ones', () => {
+  const ledger = new AuthoritativeLedger({
+    goal: 'Repair repeated failure', constraints: [], decision_invariants: [], plan_version: 'v1',
+    milestones: [{ id: 'one', title: 'one', objective: 'Repair one', bounded_scope: ['one.txt'],
+      acceptance_criteria: ['valid content'], non_goals: [], dependencies: [] }],
+  });
+  const reject = result => {
+    ledger.delegate('one');
+    const { result_ref } = ledger.receiveCandidate({
+      milestone_id: 'one', plan_version: 'v1', status: 'DONE', changes_made: [],
+      verification_evidence: [{ classification: 'OBSERVED', result: 'unchanged candidate' }],
+      unresolved_unknowns: [], scope_deviations: [], candidate_artifact_ref: 'sha256:unchanged',
+    });
+    ledger.recordZenNoGo({
+      milestone_id: 'one', plan_version: 'v1', result_ref, verdict: 'NO-GO',
+      verification_evidence: [{ classification: 'OBSERVED', criterion: 'valid content', result }],
+      repair_needs: 'Fix invalid content',
+    });
+  };
+  for (let attempt = 0; attempt < 3; attempt++) reject('same invalid content');
+  const state = ledger.getState();
+  const [summary] = recommendNeedsAlt(state.evidence, state._verification_history);
+  assert.equal(summary.failure_class, 'one:NO-GO:zen');
+  assert.equal(summary.attempt_count, 3);
+  assert.equal(summary.needs_alt_recommended, true);
+  assert.deepEqual(state.completed_milestones, []);
+  // A different latest verdict is new evidence; stale verdicts never count.
+  reject('different invalid content');
+  const fresh = ledger.getState();
+  assert.equal(recommendNeedsAlt(fresh.evidence, fresh._verification_history)[0].needs_alt_recommended, false);
+  const stale = fresh._verification_history.map(record => ({ ...record, is_stale: true }));
+  assert.deepEqual(recommendNeedsAlt(fresh.evidence, stale), []);
+});
+
+test('Instinct invocation requires a task and a known milestone', async t => {
+  const f = fixture(t);
+  await assert.rejects(f.spine.requestAltFraming(''), TypeError);
+  await assert.rejects(f.spine.requestAltFraming('rethink this', { milestone: 'nope' }), /Unknown milestone/);
+  assert.equal(f.spine.state.evidence.alt_framing, undefined);
+});
+
+test('NEEDS_ALT policy derives attempt counts from the durable failure history', async t => {
+  const f = fixture(t);
+  const spine = f.resume({
+    invokeRole: async () => ({ ok: false, error: 'TIMEOUT', role: 'bulldozer', slug: 'gemini-3.8-flash-high' }),
+  });
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await assert.rejects(spine.runMilestone('one'), /TIMEOUT/);
+  }
+  const summary = recommendNeedsAlt(spine.state.evidence);
+  assert.equal(summary.length, 1);
+  assert.equal(summary[0].failure_class, 'one:INVOCATION_FAILURE:runner.invoke');
+  assert.equal(summary[0].attempt_count, 3);
+  assert.equal(summary[0].latest_attempt_new_evidence, false);
+  assert.equal(summary[0].needs_alt_recommended, true);
+  assert.equal(summary[0].attempts.length, 3);
+
+  let captured;
+  const adviceSpine = f.resume({
+    invokeRole: async (role, packet) => {
+      assert.equal(role, 'instinct');
+      captured = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+      return envelope({ recommendation: 'change the framing' });
+    },
+  });
+  await adviceSpine.requestAltFraming('Why does this keep failing?');
+  assert.equal(captured.needs_alt.failure_class, 'one:INVOCATION_FAILURE:runner.invoke');
+  assert.equal(captured.needs_alt.attempt_count, 3);
+  assert.match(captured.needs_alt.failure_signature, /^sha256:/);
+  assert.equal(captured.needs_alt.current_hypothesis, 'UNKNOWN');
+  assert.equal(captured.needs_alt.evidence.length, 3);
+  assert.equal(captured.needs_alt.evidence[0].failed_step.tool, 'runner.invoke');
+});
+
+test('NEEDS_ALT recommends only at >=3 attempts with a repeated failure signature', () => {
+  const entry = error => ({
+    status: 'INVOCATION_FAILURE',
+    evidence: { classification: 'OBSERVED', error, failed_step: { tool: 'runner.invoke', args: { role: 'bulldozer' } } },
+    timestamp: '2026-10-12T00:00:00.000Z',
+  });
+  const history = errors => ({ one: { failure_evidence: errors.map(entry) } });
+
+  assert.deepEqual(recommendNeedsAlt({}), []);
+  assert.deepEqual(recommendNeedsAlt({ one: {} }), []);
+  assert.equal(recommendNeedsAlt(history(['a', 'a']))[0].needs_alt_recommended, false);
+  assert.equal(recommendNeedsAlt(history(['a', 'a', 'a']))[0].needs_alt_recommended, true);
+  // New evidence in the latest attempt keeps the current causal model alive.
+  assert.equal(recommendNeedsAlt(history(['a', 'b', 'c']))[0].latest_attempt_new_evidence, true);
+  assert.equal(recommendNeedsAlt(history(['a', 'b', 'c']))[0].needs_alt_recommended, false);
+  assert.equal(recommendNeedsAlt(history(['a', 'a', 'a']))[0].attempt_count, 3);
+  assert.match(recommendNeedsAlt(history(['a']))[0].failure_signature, /^sha256:/);
+  // Classes are tracked separately; a stalled class does not leak into another.
+  const summaries = recommendNeedsAlt({
+    one: { failure_evidence: [entry('a'), entry('a'), entry('a')] },
+    two: { failure_evidence: [entry('a')] },
+  });
+  assert.deepEqual(summaries.map(s => [s.milestone_id, s.needs_alt_recommended]), [['one', true], ['two', false]]);
 });
 

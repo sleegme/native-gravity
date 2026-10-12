@@ -2,7 +2,7 @@
 
 Native Gravity는 Google Antigravity의 네이티브 실행 구조를 유지하면서 역할별 하네스를 제공하는 소형 오케스트레이션 플러그인입니다. 런타임은 네이티브로 유지하고, 각 모델이 자연스럽게 잘하는 역할에 에이전트 역할을 배치합니다.
 
-> - **Native Gravity**: 1.0.0
+> - **Native Gravity**: 1.1.0
 > - **상태**: alpha
 > - **호환성**:
 >   - AGY 1.3.3 — validated
@@ -16,27 +16,25 @@ User -> ntg-vnext
   Steamroller — 감독 / authoritative ledger 소유자
     Piledriver — 계획, 아키텍처, 어려운 결정 / Pro
     Bulldozer  — 정확히 하나의 bounded 마일스톤 / Flash
-      Jaguar / Puma / Bobcat (-> Strix Halo)
+      Jaguar / Puma / Bobcat (-> Strix Halo) / Excavator
+    Instinct   — NEEDS_ALT 시 alternate-framing 자문 / Sonnet (명시적 escalation 시 Opus)
     Zen        — 독립 마일스톤 검증 / Pro
 ```
 
-ledger는 오직 Steamroller만 작성하며, 실제 관측된 matching Zen GO가 있을 때만 마일스톤을 승격하고 global completion을 선언합니다. 명령어는 [사용법](usage.md)을 참고하세요.
+ledger는 오직 Steamroller만 작성하며, 실제 관측된 matching Zen GO가 있을 때만 마일스톤을 승격하고 global completion을 선언합니다. Instinct의 NEEDS_ALT 자문은 advisory evidence로만 기록되며 자동 채택되지 않습니다. 명령어는 [사용법](usage.md)을 참고하세요.
 
-## 네이티브로 선택 가능한 primary
+## 네이티브로 선택 가능한 primary 없음
 
-```text
-User (agent selection)
-└─ Excavator  — 자율 트러블슈터 / 수리 담당, Zen completion gate
-```
-
-Bulldozer와 Piledriver는 runner 전용 역할입니다. Bulldozer는 호출당 정확히 하나의 bounded 마일스톤을 실행하고, Piledriver는 Steamroller에 자문 계획만 반환합니다. 둘 다 네이티브로 선택할 수 없습니다.
+네이티브로 선택 가능한 primary는 더 이상 없으며, 프로젝트 작업의 진입점은 `ntg-vnext`입니다. Bulldozer, Piledriver, Instinct는 runner 전용 역할입니다. Bulldozer는 호출당 정확히 하나의 bounded 마일스톤을 실행하고, Piledriver는 Steamroller에 자문 계획만 반환하며, Instinct는 NEEDS_ALT 시 alternate-framing 자문만 반환합니다. Excavator는 Bulldozer의 worker로, 어려운 고장 작업(진단 -> 재현 -> 근본 원인 -> 수리 -> 검증)을 한 마일스톤 안에서 수행하며 중첩 위임과 Zen 호출이 없습니다.
 
 라우팅 기준:
 
 - 찾기/현황 파악 -> Jaguar
 - 작고 명확하고 저위험 / writing -> Puma
 - 일반 구현 -> Bobcat (-> Strix Halo)
+- 어려운 고장 진단/수리 -> Excavator (Bulldozer worker)
 - 아키텍처/모호성/트레이드오프 -> Piledriver (runner에서는 Steamroller 경유)
+- 같은 실패 반복 / 전혀 다른 framing 필요 -> Instinct (NEEDS_ALT, runner에서는 Steamroller 경유)
 - 독립 검수 -> Zen
 
 각 모델이 자연스럽게 잘하는 역할에 역할을 맞추고, 특정 역할/모델 조합이 실제로 실패할 때만 보정을 추가합니다. Excavator는 의도적으로 수정하는 역할이므로 model-wide mutation deny는 없습니다.

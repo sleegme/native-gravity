@@ -8,8 +8,9 @@ ledger, not a replacement runtime.
 
 This overview follows the [architecture contract](specs/vnext-architecture-contract.md)
 and the released [agents](../agents/) / [rules](../rules/). `ntg-vnext` is the
-entry for multi-milestone work; Excavator stays natively selectable for bounded
-autonomous repair with its own Zen gate.
+entry for multi-milestone work; no natively selectable primary remains.
+Excavator is a Bulldozer worker for difficult broken-behavior diagnosis and
+repair inside one milestone.
 
 ## Supervisor and milestone execution
 
@@ -18,8 +19,9 @@ User
   Steamroller — supervisor / authoritative ledger owner
     Piledriver — bounded planning, architecture and difficult decisions
     Bulldozer — one bounded milestone
-      Jaguar / Puma / Bobcat
+      Jaguar / Puma / Bobcat / Excavator
                        Strix Halo — Bobcat-local advisor gate
+    Instinct — alternate-framing advisory on NEEDS_ALT
     Zen — independent milestone verification
     Steamroller ledger transition
 ```
@@ -38,6 +40,13 @@ User
   project source, run shell commands, invoke Piledriver/Zen or write the ledger.
   It directly inspects known context and packet-named files; discovery and
   locating unknown targets go to Jaguar.
+- **Instinct** is the heterogeneous alternate-framing advisory for NEEDS_ALT,
+  when materially similar failures repeat without new evidence or same-family
+  paths over-converge. It is runner-only and advisory: no implementation,
+  orchestration, ledger writes, plan adoption or completion/verdict claims.
+  It targets Claude Sonnet 5.5 / High, with Claude Opus 5.5 / High only on an
+  explicit escalation. Its advice is recorded as advisory evidence and never
+  promotes or adopts anything.
 
 ## Specialist routing
 
@@ -48,10 +57,14 @@ User
   Strix Halo. Bulldozer sets `ADVISOR_GATE: REQUIRED | NONE`: REQUIRED for
   substantive code/behavior/API/state/lifecycle/test work, NONE only for clearly
   low-risk mechanical work.
+- **Excavator** — difficult broken-behavior worker under Bulldozer: diagnose,
+  reproduce, root-cause, repair and verify inside one milestone; native Pro
+  role; no nested delegation and no Zen invocation. Its STATUS is a local
+  worker signal like the other workers'.
 - **Strix Halo** — Bobcat-only read-only local gate; native Pro role;
   `ACCEPT | REVISE | NEEDS_DEEP`. Corrections go through Bobcat.
 - **Zen** — independent non-mutating milestone verification for Steamroller,
-  not Bulldozer's child, and Excavator's final completion reviewer; native Pro
+  not Bulldozer's child; native Pro
   role; `GO | NO-GO`. Verification shell commands use `NTG_ZEN_VERIFY=1`.
 
 Route by work kind, not size. Difficult decisions follow
@@ -88,7 +101,9 @@ contract fragments stay out of planning packets.
 ## Invocation and migration boundaries
 
 Steamroller/Bulldozer target Gemini 3.8 Flash / High; Piledriver targets
-Gemini 3.1 Pro / High. The runner resolves installed model slugs without silent
+Gemini 3.1 Pro / High; Instinct targets Claude Sonnet 5.5 / High, with Claude
+Opus 5.5 / High only on explicit escalation. The runner resolves installed
+model slugs without silent
 fallback and owns effort, cwd/context, bounded prompt construction, timeout,
 recursion protection, structured result capture and failure reporting.
 Machine invocations request one bare JSON object, not interactive terminal
@@ -98,12 +113,19 @@ ledger validation or independent review.
 Specialists retain native Flash/Pro role policy. Exact-model Zen requires
 comparative live evidence, not a policy assumption.
 
-Excavator remains a separate troubleshooting primary outside P0; its recovery
-reconnection/final placement is post-44G. Preserve `NTG_EXCAVATOR=1` guard
-effects. Instinct/Sonnet is future work.
+Excavator is a Bulldozer worker for hard diagnosis/repair inside one
+milestone, with no nested delegation and no Zen invocation; the native-primary
+Zen completion gate is removed with the primary. Preserve `NTG_EXCAVATOR=1` guard
+effects. Instinct is implemented (#20): the same exact-model runner resolves
+its Sonnet/Opus slugs fail-closed (OQ-4 resolved), and its NEEDS_ALT packet
+carries the tier-B failure context (failure class/signature, current hypothesis,
+attempt count, evidence).
 
-OQ-6 is resolved for native Excavator (#137): keep explicit
-`inheritCustomizations: true` to preserve workspace instructions. The
+OQ-3 is resolved (owner decision): Excavator's authority and placement are a
+Bulldozer worker for hard diagnosis/repair on native Pro. OQ-6 (#137) kept
+explicit `inheritCustomizations: true` for the then-native Excavator; the
+demotion supersedes it — no native primary remains and the worker carries no
+`inheritCustomizations` field. The
 AGY 1.3.3 controlled probe propagated a workspace rule for true and
 omission, but not false. Inherited context is not an authority grant.
 Evidence: `.omo/evidence/137-excavator-validation.md`.

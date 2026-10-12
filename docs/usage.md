@@ -1,6 +1,6 @@
 # Usage
 
-> - **Native Gravity**: 1.0.0
+> - **Native Gravity**: 1.1.0
 > - **Status**: alpha
 > - **Compatibility**:
 >   - AGY 1.3.3 — validated
@@ -24,26 +24,29 @@ ntg-vnext plan    --ledger .ntg/ledger.json --task "..."   # Piledriver advice; 
 ntg-vnext run     --ledger .ntg/ledger.json [--milestone ID] [--all]
 ntg-vnext replan  --ledger .ntg/ledger.json --plan plan-v2.json
 ntg-vnext recover --ledger .ntg/ledger.json --evidence "observed interruption"
+ntg-vnext alt     --ledger .ntg/ledger.json --task "..." [--milestone ID] [--escalate]   # Instinct advice; never auto-adopted
 ntg-vnext status  --ledger .ntg/ledger.json
 ```
 
 Each call reloads the ledger, so a fresh context resumes where the ledger says. `run` executes the next eligible milestone through Bulldozer, obtains an independent native Zen verdict, and promotes only on a matching GO; `--all` continues in dependency order. Exit code 2 means NO-GO, BLOCKED or NEEDS_DEEP (see the printed `results`). Global completion is declared only when every current-plan milestone has a current GO. `NTG_ZEN_MODEL` optionally pins Zen's model.
 
-## Natively selectable primary
+`alt` requests an Instinct alternate-framing advisory (NEEDS_ALT) and prints its advisory JSON with `adopted: false`. The advice is recorded as advisory evidence only — it never adopts a plan or changes completion state. `status` reports per-failure-class `needs_alt` recommendations: NEEDS_ALT is recommended when the same failure class has at least 3 attempts without new evidence. `--escalate` is the only path to the Opus tier; without it Instinct runs on Sonnet.
 
-### Excavator
+## Excavator worker
 
-Use when the task is essentially "this is broken; dig until you find the cause and fix it." Excavator is allowed to edit directly and should complete a bounded diagnose -> repair -> verify loop. It ends with `READY` only after an observed Zen `VERDICT: GO` for the current artifact.
+Excavator is a Bulldozer worker for the hard case: "this is broken and nobody knows why." Bulldozer delegates a bounded diagnose -> reproduce -> root-cause -> repair -> verify loop to Excavator when the milestone carries a difficult broken-behavior problem; ordinary implementation stays with Bobcat. Excavator edits directly inside its delegated scope, has no nested delegation, and never invokes Zen. It returns a worker result (ROOT_CAUSE `CONFIRMED | LIKELY | SPECULATIVE`, CHANGES, VERIFICATION_EVIDENCE, ROLLBACK, RESIDUAL_RISK, STATUS `READY | BLOCKED`) to Bulldozer; STATUS is a local worker signal, not milestone or project completion.
 
-Bulldozer and Piledriver are runner-only roles. Multi-milestone work, durable ledger state, replanning and global completion belong to `ntg-vnext`; Piledriver advice is requested with `ntg-vnext plan`.
+No natively selectable primary remains; `ntg-vnext` is the entry for project work. Bulldozer, Piledriver and Instinct are runner-only roles. Multi-milestone work, durable ledger state, replanning and global completion belong to `ntg-vnext`; Piledriver advice is requested with `ntg-vnext plan`, Instinct advice with `ntg-vnext alt`.
 
-## Bobcat vs Puma
+## Bobcat vs Puma vs Excavator
 
 Use Bobcat for ordinary behavior-bearing implementation. Bulldozer chooses `ADVISOR_GATE: REQUIRED | NONE`.
 
 When REQUIRED, Bobcat consults **Strix Halo** (`strix-halo`) as its read-only local advice/CHECK gate.
 
 Use Puma for clearly small, explicit, low-risk work such as straightforward writing, formatting, presentation-only edits, or mechanical text changes. Puma has no Advisor gate and no nested delegation.
+
+Use Excavator for difficult broken-behavior diagnosis and repair inside one milestone — it investigates, reproduces, fixes the root cause and verifies the result itself.
 
 ## Alpha validation
 
@@ -54,25 +57,11 @@ This checklist gates a release (see `AGENTS.md`). The runner paths (items 1-4) p
 3. a Zen NO-GO leaves the milestone incomplete and a repaired candidate needs a fresh GO;
 4. a fresh-context resume continues from the ledger, not conversation;
 5. Bobcat invokes `strix-halo` and no other subagent (negative delegation case);
-6. Excavator edits project source and cannot complete `READY` without the current Zen verdict;
+6. Bulldozer delegates a bounded diagnose+repair to Excavator, which edits, invokes no subagents (never Zen) and returns a worker result, while Bulldozer delegation validation accepts Excavator and rejects non-worker roles;
 7. Zen runs verification commands with the required `NTG_ZEN_VERIFY=1` marker while common intentional source-mutation shell attempts are denied;
 8. Excavator-marked shell calls allow ordinary sudo diagnostics while rejecting privilege-drift and full-upgrade paths.
 
-If Excavator ends a task as `BLOCKED`, take the open decision to Piledriver via `ntg-vnext plan`. Do not treat Excavator as a Bulldozer child.
-
-## `gate_panel.py` (issue #112 gate-status panel)
-
-`scripts/gate_panel.py` renders the NTG gate-status panel: for each transcript it shows which gate is armed (excavator, or none), the latest observed Zen verdict, the decision the Stop hook would return, the constraint behind it, and the evidence source. It reads the same transcript records the Stop hook enforces and replays its logic; it owns and mutates no state.
-
-```bash
-python3 scripts/gate_panel.py --transcript /path/to/transcript.jsonl
-python3 scripts/gate_panel.py --event stop-event.json
-python3 scripts/gate_panel.py --transcript a.jsonl --json
-```
-
-The layout is a fixed-width single-line-per-gate table so it fits horizontal-only panes; `--json` gives the same state to programmatic embedders.
-
-Limit (per the #112 decision's escape clause): the AGY plugin surface offers agents / hooks / commands / skills / mcpServers but no Settings-tabs host for a plugin panel, and no such surface exists in this repository. This module is therefore the smallest useful version — a renderer a Settings tab (or any pane) can host — not a plugin-integrated Settings tab. When a host surface for plugin panels lands, it can consume this output directly.
+If a milestone ends `BLOCKED` on an open decision, take it to Piledriver via `ntg-vnext plan`. Excavator is a Bulldozer worker: its `STATUS` is a local signal inside the milestone, and only Steamroller promotes or completes.
 
 ## `ntg-dag` (ledger milestone graph)
 
