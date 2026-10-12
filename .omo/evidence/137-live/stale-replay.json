@@ -1,0 +1,22 @@
+{
+  "classification": "REPLAY, not an observed runtime Stop at this prefix",
+  "event": {
+    "artifactDirectoryPath": "<HOME>/.gemini/antigravity-cli/brain/463cad25-b7e6-4770-a86e-f56c8c30f6de",
+    "conversationId": "463cad25-b7e6-4770-a86e-f56c8c30f6de",
+    "error": "",
+    "executionNum": 0,
+    "fullyIdle": true,
+    "modelName": "gemini-pro-agent",
+    "terminationReason": "NO_TOOL_CALL",
+    "transcriptPath": "<HOME>/.cache/ntg137-excavator-live/post-write-prefix.jsonl",
+    "workspacePaths": [
+      "<HOME>/.cache/ntg137-excavator-live"
+    ]
+  },
+  "output": {
+    "decision": "continue",
+    "reason": "The last Zen VERDICT: GO predates a later Excavator write or marked shell call. Re-run relevant verification and obtain a fresh Zen review of the current artifact before claiming READY."
+  },
+  "stderr": "",
+  "exit": 0
+}

@@ -1,0 +1,107 @@
+{
+  "base": "bd1c6c8",
+  "runtime": "AGY 1.3.3",
+  "workspaceRule": "NTG137_WORKSPACE_RULE_6e8d14c2",
+  "decision": "Keep explicit true on native Excavator: true and omission propagate this rule; false suppresses it in the controlled probe.",
+  "runs": [
+    {
+      "variant": "true",
+      "model": "gemini-3.8-flash-low",
+      "argv": [
+        "agy",
+        "--new-project",
+        "--agent",
+        "excavator",
+        "--model",
+        "gemini-3.8-flash-low",
+        "--output-format",
+        "json",
+        "--print",
+        "Without using tools, reply with CONTEXT_CHECK and any response lines required by context already provided to you."
+      ],
+      "result": {
+        "conversation_id": "8dbc4275-59db-4da4-a170-7325f9e4f260",
+        "status": "SUCCESS",
+        "response": "CONTEXT_CHECK\nNTG137_WORKSPACE_RULE_6e8d14c2\n",
+        "duration_seconds": 3.856862108,
+        "num_turns": 1,
+        "usage": {
+          "input_tokens": 14786,
+          "output_tokens": 22,
+          "thinking_tokens": 0,
+          "cache_read_tokens": 0,
+          "total_tokens": 14808
+        }
+      },
+      "records": 2,
+      "toolCalls": [],
+      "workspaceSentinelPresent": true
+    },
+    {
+      "variant": "false",
+      "model": "gemini-3.8-flash-low",
+      "argv": [
+        "agy",
+        "--new-project",
+        "--agent",
+        "excavator",
+        "--model",
+        "gemini-3.8-flash-low",
+        "--output-format",
+        "json",
+        "--print",
+        "Without using tools, reply with CONTEXT_CHECK and any response lines required by context already provided to you."
+      ],
+      "result": {
+        "conversation_id": "0119dde0-e413-4872-9a1a-4bddb61e1bb0",
+        "status": "SUCCESS",
+        "response": "CONTEXT_CHECK\n",
+        "duration_seconds": 2.484347935,
+        "num_turns": 1,
+        "usage": {
+          "input_tokens": 8984,
+          "output_tokens": 3,
+          "thinking_tokens": 0,
+          "cache_read_tokens": 0,
+          "total_tokens": 8987
+        }
+      },
+      "records": 2,
+      "toolCalls": [],
+      "workspaceSentinelPresent": false
+    },
+    {
+      "variant": "omitted",
+      "model": "gemini-3.8-flash-low",
+      "argv": [
+        "agy",
+        "--new-project",
+        "--agent",
+        "excavator",
+        "--model",
+        "gemini-3.8-flash-low",
+        "--output-format",
+        "json",
+        "--print",
+        "Without using tools, reply with CONTEXT_CHECK and any response lines required by context already provided to you."
+      ],
+      "result": {
+        "conversation_id": "23b31ffa-99c2-41f7-b70a-7e3a38ee8cf2",
+        "status": "SUCCESS",
+        "response": "CONTEXT_CHECK\nNTG137_WORKSPACE_RULE_6e8d14c2\n",
+        "duration_seconds": 3.48523247,
+        "num_turns": 1,
+        "usage": {
+          "input_tokens": 14786,
+          "output_tokens": 22,
+          "thinking_tokens": 0,
+          "cache_read_tokens": 0,
+          "total_tokens": 14808
+        }
+      },
+      "records": 2,
+      "toolCalls": [],
+      "workspaceSentinelPresent": true
+    }
+  ]
+}

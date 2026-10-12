@@ -646,5 +646,5 @@ The following items are explicitly unresolved at the time this contract is froze
 | OQ-3 | Exact final authority, placement, and model assignment of Excavator in the vNext graph | Post-44G / separate issue |
 | OQ-4 | Exact AGY CLI invocation path for Sonnet (Instinct backend) — must be validated before Instinct is implemented | Post-44G / issue #20 |
 | OQ-5 | Ledger persistence format and location (YAML file, sidecar artifact, etc.) — implementation decision for 44C | 44C |
-| OQ-6 | Whether `inheritCustomizations` behavior in agent frontmatter affects vNext role boundaries (Excavator only since #138; tracked as #137) | Post-44G |
+| OQ-6 | Keep explicit `inheritCustomizations: true` on native Excavator; AGY 1.3.3 workspace-rule propagation verified for true/omission, suppressed for false; inheritance is not an authority grant | Resolved #137 |
 | OQ-7 | Exact mechanism for enforcing state-machine completion rules at runtime (e.g., ledger validator function, pre-transition checks) | 44C |

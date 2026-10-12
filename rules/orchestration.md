@@ -178,11 +178,15 @@ Jaguar/Puma/Bobcat remain native Flash; Strix Halo/Zen remain native Pro.
 Moving a specialist to a separate process or using exact 3.1 Pro/High for Zen
 requires live evidence of a concrete benefit.
 
-Open questions that remain UNKNOWN: inheritCustomizations semantics (OQ-6,
-Excavator only — Bulldozer and Piledriver no longer carry the field), Zen's
-optional exact-model choice, final Excavator authority/model placement and
-Sonnet's invocation path. Frontmatter UNKNOWN is not a runtime default
-or a grant.
+OQ-6 is resolved for native Excavator (#137): keep explicit
+`inheritCustomizations: true` to preserve workspace instructions. On AGY
+1.3.3, a controlled probe showed workspace-rule propagation for true and
+omission, but not false. This does not grant authority beyond the role's
+tools, effect boundaries or user constraints.
+
+Open questions that remain UNKNOWN: Zen's optional exact-model choice,
+final Excavator authority/model placement and Sonnet's invocation path.
+Frontmatter UNKNOWN is not a runtime default or a grant.
 
 ## Natively selectable primary
 
