@@ -16,7 +16,7 @@ Use a clean reinstall when upgrading so removed legacy agent and hook files cann
 
 ## `ntg-vnext` runner
 
-vNext is the runtime. For multi-milestone work, write a plan (goal, constraints, `plan_version`, milestones with `acceptance_criteria`, `bounded_scope`, `non_goals`, `dependencies`) and drive it with the runner:
+vNext is the runtime. For multi-milestone work, write a plan (goal, constraints, `plan_version`, milestones with `acceptance_criteria`, `bounded_scope`, `non_goals`, `dependencies`) and drive it with the runner. A minimal valid plan example is in the [README quick start](../README.md#quick-start).
 
 ```bash
 ntg-vnext init    --ledger .ntg/ledger.json --plan plan.json
@@ -77,3 +77,5 @@ node scripts/dag-view.mjs --ledger tests/fixtures/dag-view/all-states.ledger.jso
 - `--no-color`: disable ANSI colors
 
 After installation the `ntg-dag` bin also invokes the same script.
+
+See [Internals](internals.md) for ledger locking/recovery, role ownership detail, the Google AI Studio A/B lane, and the compatibility validation history.
