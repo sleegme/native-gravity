@@ -168,31 +168,31 @@ def is_full_upgrade(name: str, args: list[str]) -> bool:
     return any(word in actions for word in flags)
 
 
-def inline_program(args: list[str]) -> Optional[str]:
-    # Like a real shell: read every leading option, then the first operand is
-    # the command string when any short-option cluster contained `c`
-    # (`bash -ec -c 'su'` runs `su`, not `-c`).
+def inline_programs(args: list[str]) -> list[str]:
+    # Preserve the baseline's literal -c inspection, then locate clustered
+    # forms without mistaking option values or positional parameters for code.
+    scripts = [
+        args[index + 1] for index, word in enumerate(args[:-1]) if word == "-c"
+    ]
     wants_program = False
-    position = 0
-    while position < len(args):
-        word = args[position]
-        if word == "--" or word == "-":
-            position += 1
+    index = 0
+    while index < len(args):
+        word = args[index]
+        if word in {"--", "-"}:
+            index += 1
             break
-        if word[:2] == "--":
-            position += 1
+        if word.startswith("--"):
+            index += 2 if word in {"--rcfile", "--init-file"} else 1
             continue
-        if word[:1] not in ("-", "+") or len(word) < 2:
+        if len(word) < 2 or word[0] not in {"-", "+"}:
             break
         letters = word[1:]
-        if word[:1] == "-" and "c" in letters:
+        if word[0] == "-" and "c" in letters:
             wants_program = True
-        position += 1
-        if letters[-1:] in ("o", "O"):
-            position += 1
-    if not wants_program:
-        return None
-    return args[position] if position < len(args) else ""
+        index += 1 + letters.count("o") + letters.count("O")
+    if wants_program and index < len(args) and args[index] not in scripts:
+        scripts.append(args[index])
+    return scripts
 
 
 def loop_guesses_password(body: str) -> bool:
@@ -238,9 +238,10 @@ def violation_in_command(words: list[str], depth: int) -> Optional[str]:
     if is_full_upgrade(name, args):
         return UPGRADE_REASON
     if name in SHELLS:
-        script = inline_program(args)
-        if script is not None:
-            return violation_in_body(script, depth + 1)
+        for script in inline_programs(args):
+            reason = violation_in_body(script, depth + 1)
+            if reason is not None:
+                return reason
     if name == "eval":
         return violation_in_body(" ".join(args), depth + 1)
     return None

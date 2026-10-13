@@ -55,10 +55,22 @@ cases). Result on that set: 0 commands denied by the baseline were allowed.
 A later independent gate (139,359 generated bodies) found one real class the
 set missed: a shell option cluster containing `c` followed by a separate
 `-c` (`bash -ec -c 'su -'`), where the guard inspected the second `-c`
-instead of the command string. That is fixed (`inline_program` now reads all
-leading options, as a shell does) and covered in
-`test_denies_baseline_command_forms`. The gate's remaining baseline-deny /
-current-allow cases are baseline false positives that run nothing forbidden,
+instead of the command string. A follow-up gate found the same class through
+`-o`/`-O` inside a cluster (`bash -oe pipefail -c 'su -'`) and long options
+that take a value (`bash --rcfile /dev/null -c 'su -'`). The guard retains the
+baseline's inspection after literal `-c` and additionally parses leading
+options to locate clustered command strings. Every `o`/`O` in a short-option
+group consumes one value, and `--rcfile`/`--init-file` consume their file
+argument. Positional parameters are not inspected as command strings.
+These forms are covered in `test_denies_baseline_command_forms`, with benign
+option layouts and positional parameters in the corresponding allow test.
+The follow-up gate recorded 348 option layouts that real shells execute.
+Each was checked with four forbidden bodies (`su -`, `sudo apt upgrade`,
+`pkexec id`, `sudo -S id`): all 1,392 hook decisions denied. Eight benign
+commands, including `bash -c 'echo "$1"' ignored su`, were allowed. Only
+the hook was invoked for these policy checks; forbidden commands were not run.
+The earlier gate's other baseline-deny / current-allow cases were harmless
+baseline false positives,
 such as `sudo -r su`, where `su` is the role value. The 375
 commands denied now but allowed by the baseline all perform a
 baseline-denied effect through a form the baseline did not reach:
@@ -124,7 +136,7 @@ Candidate: workspace; packed files: 29; workspace guide: AGENTS.md
 | agents/zen.md | 10 | 355 | 2.817 |
 | docs/ko/README.md | 0 | 1154 | 0.000 |
 | hooks.json | 0 | 29 | 0.000 |
-| hooks/excavator-shell-guard.py | 0 | 1256 | 0.000 |
+| hooks/excavator-shell-guard.py | 0 | 1273 | 0.000 |
 | hooks/zen-shell-guard.py | 1 | 648 | 0.154 |
 | package.json | 0 | 127 | 0.000 |
 | plugin.json | 0 | 30 | 0.000 |
