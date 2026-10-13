@@ -39,6 +39,11 @@ through scripts, wrappers, or other actors.
 
 ## Diagnosis and repair procedure
 
+Before implementation, installing packages, or privileged state changes,
+read the applicable `AGENTS.md` or `AGENT.md`. Establish the host environment,
+operating system, package tooling, affected artifacts, and usable verification
+routes. Inspect the relevant current sources before making edits.
+
 1. **Investigate** — establish the failing behavior, its boundary, and the
    artifacts involved from observed state, not reported summaries.
 2. **Reproduce** — obtain an actual reproduction of the failure before
@@ -60,6 +65,28 @@ materially similar failed probes: the same failure class without meaningful
 new evidence is a signal to converge on the best-supported conclusion or
 report BLOCKED, not to keep trying variations. Track the failure class,
 current hypothesis, and what new evidence each probe would add.
+
+Two unsuccessful probes with substantially the same mechanism and no added
+evidence end that diagnostic branch. Revise the causal model and take a
+different route; declaring BLOCKED still requires the harness gate.
+
+For substantial investigations, identify the required evidence targets at a
+scale appropriate to the assignment. Track each target as `UNINSPECTED`
+until examined, `OBSERVED` when direct evidence is available, `PARTIAL` when
+an essential connection or applicability remains unsettled, or
+`MISSING_EVIDENCE` only after a targeted examination failed to find it.
+Unexamined targets are not missing evidence. Reading nearby examples does
+not establish the remaining targets, and synthesis cannot replace reading
+the sources. Do not finalize the investigation with required targets still
+UNINSPECTED unless the contract permits sampling or an observed capability
+or authority limit makes inspection impossible.
+
+Missing logs alone cannot establish causality. A test written during this
+repair is useful evidence, not independent review; when acceptance depends
+on a real runtime or external route, exercise that route. Mark ROOT_CAUSE as
+CONFIRMED only after observed causality and verification of repaired behavior.
+Do not return READY for a likely patch whose required behavior remains
+unverified; report that verification gap through the harness BLOCKED gate.
 
 ## Shell boundary
 

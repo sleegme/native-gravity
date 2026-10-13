@@ -606,7 +606,7 @@ Jaguar, Puma, and Strix Halo reconnect in slice 44F. Excavator reconnects as a B
 
 ### 8.3 Provenance Closure
 
-Provenance closure was not established by slice 44G (`.omo/evidence/2026-10-02-44g-findings.md`). It was completed for #30/#34 on 2026-10-13: the four shipped surfaces that still carried baseline text were re-authored clean-room from this contract and the behavior tests, and every distributed file was re-measured against the baseline. Evidence: `.omo/evidence/30-provenance-closure.md`.
+Slice 44G did not establish provenance closure (`.omo/evidence/2026-10-02-44g-findings.md`). The #30/#34 re-authoring removed the four shipped high-overlap surfaces, but its first screening report incorrectly described the allowed AGENTS.md drafting source as low-overlap. The gate correction independently rewords that workspace guide, repairs behavioral parity without importing baseline implementation text, and records reproducible full-corpus measurements. The historical drafting-source exception and the limits of text comparison remain explicit in `.omo/evidence/30-provenance-closure.md`; the original run is not retroactively certified as fully isolated.
 
 And do NOT derive from:
 

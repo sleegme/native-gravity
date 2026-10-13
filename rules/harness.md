@@ -62,6 +62,17 @@ criteria rather than paraphrasing governing contracts: lossy paraphrase
 chains silently drop non-goals and constraints. Missing material authority
 travels as UNKNOWN with an explicit statement of what input is missing.
 
+The parent checks capability before sending an assignment: compare the work
+against the recipient's actual tools and permitted actions. A mismatch stays
+an UNKNOWN or dependency, or is routed to an authorized capable role. Do not
+send an obviously impossible packet and ask the child to discover the mismatch.
+
+Packets contain changes specific to this task. Child definitions already
+provide identity, authority rules, policies, terminal conventions, shell
+markers, and general working principles; do not repeat those in delegation
+messages. Send the governing contract and necessary current evidence rather
+than a previous worker's persuasive self-evaluation.
+
 ## Actual-result verification
 
 Verify actual results, not launches, claims, or static configuration. Static

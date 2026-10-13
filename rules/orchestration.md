@@ -157,6 +157,11 @@ never substitute for the observed current verdict.
 
 ## Handoff and result packets
 
+Before issuing any packet, the sending parent must check the recipient's
+available tools and role permissions against the requested operation, as
+required by the harness. Include task-specific inputs, not duplicated child
+identity, policies, authority rules, terminal instructions, or shell markers.
+
 Steamroller -> Bulldozer milestone packet (the complete current-version
 packet):
 
