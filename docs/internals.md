@@ -1,10 +1,11 @@
 # Internals
 
-Implementation reference for maintainers: roles, invocation, packet validation,
-ledger locking, recovery and release checks. For normal operation use
-[Usage](usage.md); for design rationale use [Architecture](architecture.md).
-The [vNext architecture contract](specs/vnext-architecture-contract.md) is
-normative; this page maps that contract to the implementation.
+This is the implementation reference for maintainers. It covers roles,
+invocation, packet validation, ledger locking, recovery and release checks. For
+everyday use, read [Usage](usage.md); for the reasoning behind the design, read
+[Architecture](architecture.md). The
+[vNext architecture contract](specs/vnext-architecture-contract.md) is
+normative, and this page maps that contract onto the code.
 
 ## Native-first boundary
 
@@ -14,7 +15,7 @@ installation back to `agy plugin install`. It does not intercept or wrap
 Antigravity runtime execution. Antigravity owns primary/subagent execution,
 lifecycle, sessions, workspaces, model resolution, and tool permissions.
 Native Gravity supplies role contracts, routing policy, and model-adaptive
-behavioral guidance. It does not replace Antigravity runtime behavior. The
+behavioral guidance. The
 vNext runner (`ntg-vnext`) is a narrow exact-model coordinator over `agy` that
 owns only the authoritative ledger, milestone sequencing and the independent
 Zen gate; it is not a general workflow platform.
@@ -38,7 +39,7 @@ startup with `LEDGER_LOCKED`, even if its PID appears dead or its contents are
 empty. Normal exit, SIGINT, and SIGTERM release ownership. SIGKILL, a crash, or
 a machine shutdown may leave a stale lock: `ntg-vnext recover` removes it only
 after verifying the recorded owner PID is no longer alive and terminating that
-owner's orphaned executors — never remove a live owner's lock. Lock recovery
+owner's orphaned executors. Never remove a live owner's lock. Lock recovery
 does not resolve an interrupted ledger milestone: resume still requires
 observed interruption evidence. All writers must use the same ledger path and
 ownership protocol; low-level `AuthoritativeLedger.load()` / `save()` remain
@@ -64,8 +65,8 @@ No natively selectable primary remains; `ntg-vnext` is the entry for project
 work. Bulldozer, Piledriver and Instinct are runner-only roles: Bulldozer
 executes exactly one bounded milestone per invocation, Piledriver returns
 advisory plans to Steamroller, and Instinct returns alternate-framing advice on
-NEEDS_ALT. Excavator is a Bulldozer worker for difficult broken-behavior work —
-diagnose -> reproduce -> root-cause -> repair -> verify — with no nested
+NEEDS_ALT. Excavator is a Bulldozer worker for difficult broken-behavior work
+(diagnose -> reproduce -> root-cause -> repair -> verify), with no nested
 delegation and no Zen invocation.
 
 Routing is based on the kind of work:
@@ -204,7 +205,7 @@ const result = await invokeStudio('steamroller', packet, {
 });
 ```
 
-Set `GOOGLE_AI_STUDIO_API_KEY` (or `GOOGLE_API_KEY`) in the environment — the
+Set `GOOGLE_AI_STUDIO_API_KEY` (or `GOOGLE_API_KEY`) in the environment. The
 key goes only to Google in the request URL and is never written to results,
 errors, or ledger state. Results carry `provider: 'google-ai-studio'`, the
 model id, and token `usage` so comparisons stay attributable by
@@ -241,7 +242,7 @@ workflow. The canonical obligations remain in [AGENTS.md](../AGENTS.md#validatio
 Items 1–4 passed in prior AGY 1.3.3 live runner probes. Items 5–8 have deterministic
 coverage and prior live observations; the later Excavator worker probe is linked
 in [Status](status.md#live-validation). Revalidate the full gate after an AGY
-runtime change. This documentation change does not claim a new release run.
+runtime change.
 
 ## Activation and transition record
 

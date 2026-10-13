@@ -4,24 +4,26 @@
 
 ## Design intent
 
-Native Gravity makes multi-step work understandable through a plan, saved
-progress and independently checked results. Users supply goals and boundaries;
-the product hides the choice and coordination of internal agents. More internal
-roles should not mean more roles for the user to learn.
+Native Gravity makes multi-step work easy to follow by giving it three things: a
+plan, saved progress and results that someone else has checked. Users bring the
+goals and the boundaries. Choosing and coordinating internal agents is the
+product's job, and adding internal roles should never mean more roles for users
+to learn.
 
-The current design is called vNext in implementation records. It is the shipped
-runtime, not a second product mode or a future option users need to select.
-The [contract](specs/vnext-architecture-contract.md) is the normative source;
-this page explains why the structure exists rather than repeating its fields.
+Implementation records call the current design vNext. It's the runtime that
+ships today, not a second product mode or a future option you have to switch on.
+The [contract](specs/vnext-architecture-contract.md) is the normative source.
+This page explains why the structure looks the way it does instead of repeating
+the contract's fields.
 
 ## Keep Antigravity native
 
 Antigravity owns agent execution, sessions, workspaces, models and tool
-permissions. NTG supplies role contracts, work routing, milestone sequencing
-and progress ownership. A narrow coordinator invokes the critical roles with
-explicit model policies; specialists remain native Antigravity subagents.
-This preserves the host's capabilities without creating a general workflow
-platform.
+permissions. NTG brings role contracts, work routing, milestone ordering and
+ownership of progress. A narrow coordinator calls the critical roles with
+explicit model policies, while specialists stay native Antigravity subagents.
+That way the host keeps all its capabilities and NTG doesn't grow into a
+general workflow platform.
 
 ## Separate execution from completion
 
@@ -34,47 +36,49 @@ User's plan
   -> next step, or project completion
 ```
 
-The executor cannot turn its own confidence into completion. Local worker
-checks help implementation, but the independent milestone review is a separate
-authority. Keeping these responsibilities separate prevents a delegated “done”
-claim from silently becoming a project-level success.
+However confident the executor is, that confidence can't turn into completion.
+Local checks during the work help with implementation, but the independent
+milestone review is a separate authority. Keeping the two apart stops a
+delegated "done" from quietly becoming a project-level success.
 
-Each step carries its objective, permitted scope, exclusions and acceptance
-criteria. Routing depends on the kind of work, not just its apparent size:
-discovery, mechanical edits, ordinary implementation and difficult diagnosis
-need different execution behavior. The names and permissions of those roles
-are implementation detail in [Internals](internals.md#role-ownership-and-routing).
+Every step carries its objective, its allowed scope, what it excludes and its
+acceptance criteria. Work is routed by what kind of work it is, not only by how
+big it looks: discovery, mechanical edits, ordinary implementation and hard
+diagnosis each call for different execution behavior. The names and
+permissions of those roles are implementation details, covered in
+[Internals](internals.md#role-ownership-and-routing).
 
 ## Save progress outside conversation
 
 The ledger records the adopted plan, dependencies, evidence, reviews, blockers
-and next action. A fresh process resumes from that state instead of relying on
-conversation memory. Only one milestone executes or undergoes review at a
-time, and one owner writes authoritative progress.
+and the next action. A fresh process picks up from that state rather than from
+conversation memory. Only one milestone runs or is under review at a time, and a
+single owner writes the authoritative progress.
 
-Review belongs to a specific candidate and plan version. A changed candidate
-needs a new review. A material replan invalidates prior completion authority:
-retained milestones are checked again in dependency order, while old evidence
-remains history. This costs revalidation but avoids applying an old approval
-to a new contract.
+A review belongs to one specific candidate and plan version. If the candidate
+changes, it needs a new review. A material replan takes away the old completion
+authority: kept milestones are checked again in dependency order, and the old
+evidence stays as history. Revalidating costs something, but it means an old
+approval never gets applied to a new contract.
 
-Planning and alternate-framing advice remain advisory. They may help the user
-revise a plan, but advice alone neither adopts it nor completes a step.
+Planning advice and alternate-framing advice stay advisory. They can help a user
+revise the plan, but advice on its own never adopts a plan or completes a step.
 
 ## Implemented design and remaining questions
 
-Milestone execution, independent review, material replanning, fresh-context
-resume, Linux crash recovery and alternate-framing advice are implemented.
-Their validation scope and limitations are recorded in [Status](status.md);
-they are not broad reliability or performance claims.
+Milestone execution, independent review, material replanning, resuming in a
+fresh context, Linux crash recovery and alternate-framing advice are all
+implemented. [Status](status.md) records how far each was validated and where
+the limits are; none of it is a broad claim about reliability or performance.
 
-A natural-language goal-to-adopted-plan interface is not implemented. Users
-currently write a plan file. Exact-model Zen is an unresolved comparison
-question, not an announced feature or a required user setting. Model profiles
-are provisional research, not deployed routing changes.
+There's no interface yet that turns a natural-language goal into an adopted
+plan, so users write a plan file for now. Exact-model Zen is still an open
+comparison question, not an announced feature or a setting users need. Model
+profiles are provisional research and haven't changed deployed routing.
 
-For named topology, model resolution, packet validation and recovery mechanisms,
-read [Internals](internals.md). For the completed activation/transition record,
-read [Internals' migration orientation](internals.md#activation-and-transition-record)
-and [Status history](status.md#release-and-migration-history). The historical
-implementation slices in Specs are not a pending roadmap.
+For the named topology, model resolution, packet validation and recovery
+mechanisms, read [Internals](internals.md). The completed activation and
+transition record lives in
+[Internals' migration orientation](internals.md#activation-and-transition-record)
+and the [Status history](status.md#release-and-migration-history). The
+historical implementation slices in Specs aren't a pending roadmap.

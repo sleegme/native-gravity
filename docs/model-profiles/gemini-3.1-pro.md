@@ -20,7 +20,7 @@
 | planner | strong | trade-offs, acceptance design |
 | executor (excavator) | strong | bounded autonomous repair |
 | gate / reviewer (zen, strix-halo) | strong | default |
-| specialist (steamroller reasoning) | strong (hypothesis) | deep-reasoning tier; not deployed — Steamroller runs on Gemini 3.8 Flash / High |
+| specialist (steamroller reasoning) | strong (hypothesis) | deep-reasoning tier; not deployed; Steamroller runs on Gemini 3.8 Flash / High |
 
 ## Gate-checklist variants
 - On read-only roles, check that no file mutation happened even with a
