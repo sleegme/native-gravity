@@ -1,289 +1,260 @@
 ---
 trigger: always_on
-description: Routing and delegation policy for Native Gravity orchestration.
+name: orchestration
+description: "vNext routing and delegation contract — role ownership, handoff and result packets, ledger transitions, replanning, exact-model policy, and the Zen and Excavator marker boundaries"
 ---
 
-# Native Gravity vNext orchestration contract
+# vNext Orchestration Contract
 
-vNext is the runtime (44G, #134). The narrow exact-model runner
-(`scripts/spine.mjs`) drives Steamroller -> Piledriver -> Bulldozer -> Zen.
-Generic contract/evidence/effect rules live in `rules/harness.md`.
+This is the routing and delegation contract for the vNext runtime. It is
+authored independently from `docs/specs/vnext-architecture-contract.md` and
+governs how work moves between roles. Generic invariants that bind every role
+live in `rules/harness.md`; both apply together.
 
-## Ownership and routing
+## Topology
 
-Steamroller is the sole supervisor and authoritative ledger writer, from
-initialization through final completion. It invokes Piledriver for planning,
-architecture and deep decisions, and Bulldozer for exactly one milestone.
-Piledriver has no implementation, worker orchestration, ledger ownership or
-completion authority. Its proposals require Steamroller's adoption.
+```text
+User
+  Steamroller — supervisor / authoritative ledger owner
+    Piledriver — bounded planning, architecture and difficult decisions
+    Bulldozer — one bounded milestone
+      Jaguar / Puma / Bobcat / Excavator
+                       Strix Halo — Bobcat-local gate
+    Instinct — alternate-framing advisory on NEEDS_ALT
+    Zen — independent milestone verification
+    Steamroller ledger transition
+```
 
-Bulldozer orchestrates only its received milestone; it does not directly
-mutate project files. The target worker graph is Bulldozer -> Jaguar / Puma /
-Bobcat / Excavator, with Bobcat -> Strix Halo only. Jaguar is read-only
-factual retrieval, Puma is low-risk writing/mechanical work with no advisor
-ceremony, Bobcat is bounded implementation, and Excavator is difficult
-broken-behavior work: diagnose, reproduce, root-cause, repair and verify.
-Jaguar, Puma, Excavator and Strix Halo have no subagents. Route by work kind,
-not size: ordinary implementation goes to Bobcat; a hard diagnosis/repair
-problem goes to Excavator.
+The narrow exact-model runner (`scripts/spine.mjs`) invokes Steamroller,
+Piledriver, Bulldozer, and Instinct; the workers are native subagents under
+Bulldozer. The graph stays shallow: two explicit levels under Steamroller, no
+unbounded coordination runtime.
 
-Read-only factual discovery that can materially reduce uncertainty SHOULD be
-delegated to Jaguar before Bulldozer performs equivalent direct inspection; if
-discovery shows state-changing runtime observation is required, Jaguar returns
-the unresolved evidence requirement and a mutation-capable worker performs the
-bounded experiment.
+## Routing by kind of work
 
-Bulldozer sets Bobcat's ADVISOR_GATE: REQUIRED for substantive code, behavior,
-API, state, lifecycle or test work; NONE only for clearly low-risk mechanical
-work. Strix Halo is read-only and returns ACCEPT, REVISE or NEEDS_DEEP.
-Corrections go through Bobcat, not around it. NEEDS_DEEP travels from Bobcat
-through Bulldozer to Steamroller, which decides whether to invoke Piledriver.
-Bulldozer never invokes Piledriver directly.
+Choose by kind of work, not apparent task size:
 
-Zen is Steamroller's independent, non-mutating verification gate, not
-Bulldozer's child. All its verification shell commands use
-`NTG_ZEN_VERIFY=1`. Zen returns GO or NO-GO directly to Steamroller.
-Every P0 milestone requires Zen; there is no NOT_REQUIRED path.
+| Work kind | Route |
+|---|---|
+| Factual discovery, locate existing behavior | Jaguar |
+| Small, clear, low-risk writing / formatting / mechanical text or config | Puma |
+| Ordinary bounded implementation | Bobcat |
+| Planning, architecture, ambiguity, trade-off | Piledriver (via Steamroller) |
+| Stalled same-class failures, materially different framing needed | Instinct (NEEDS_ALT via Steamroller) |
+| Milestone verification, independent completion review | Zen (via Steamroller) |
+| Multi-milestone project work | Steamroller through the runner |
+| Hard broken-behavior diagnosis and repair inside a milestone | Excavator (Bulldozer worker) |
 
-Worker READY != milestone complete.
-Strix ACCEPT != milestone complete.
-Bulldozer DONE != verified milestone completion or project completion.
-Only Steamroller may promote a milestone or declare project completion.
+## Steamroller — supervision and ledger ownership
 
-Excavator is a Bulldozer worker for hard diagnosis/repair inside one
-milestone; it has no nested delegation and never invokes Zen. No natively
-selectable primary remains; `ntg-vnext` is the entry for project work.
-Instinct is the NEEDS_ALT alternate-framing
-advisory, not a P0 fallback or ritual reviewer.
-Do not route around a missing runner or specialist by assuming permissions.
+Steamroller is the sole supervisor and the only writer of the authoritative
+project ledger (`goal`, `constraints`, `decision_invariants`, `plan_version`,
+`milestones`, `current_milestone`, `completed_milestones`, `evidence`,
+`verification`, `blockers`, `next_action`). Ledger state, not conversation,
+is authoritative; a fresh context resumes from the ledger. Steamroller does
+not implement project source and does not orchestrate workers directly — it
+hands exactly one bounded milestone at a time to Bulldozer.
 
-## Steamroller -> Bulldozer
+Valid ledger transitions (all performed by Steamroller, all updating
+`next_action`):
 
-Require all fields in a single bounded packet:
+| Transition | Preconditions and effects |
+|---|---|
+| Initialize / adopt plan | Record goal, constraints, plan version, milestone graph, decision invariants before any delegation; active and completed milestone state start empty |
+| Delegate / retry | No execution or review active; select one incomplete milestone whose dependencies are completed; set `current_milestone`; issue the current-version milestone packet |
+| Receive candidate | Matching active milestone and plan version; Steamroller assigns and persists `result_ref` with the immutable candidate record in `evidence` before requesting Zen review; milestone stays active during review |
+| BLOCKED / NEEDS_DEEP / invocation failure | Record evidence, blockers or escalation needs; end the invocation and clear `current_milestone`; do not promote |
+| Zen NO-GO | Record the matching verdict and repair needs; clear `current_milestone`; leave the milestone incomplete for bounded repair or replan |
+| Zen GO / promote | Matching active milestone, current plan version, and candidate `result_ref`; observe evidence and verdict, then move the milestone to `completed_milestones`, update `evidence`, clear `current_milestone` |
+| Material replan | End active execution/review first; apply the replanning rules below; reject later old-version packets as transition authority |
+| Resolve blocker | Remove a blocker only on observed resolution evidence; removal is not completion |
 
-| Field | Contract |
-| --- | --- |
-| milestone_id | Stable ID matching the authoritative milestone |
-| plan_version | Current ledger version; stale packets do not authorize work |
-| objective | Actionable outcome for this milestone |
-| bounded_scope | Permitted files, subsystems or operations |
-| non_goals | Explicit exclusions |
-| acceptance_criteria | Objective, testable conditions |
-| constraints | Inherited hard project constraints |
-| relevant_evidence | Relevant OBSERVED ledger facts |
-| decision_invariants | Settled decisions by stable reference or exact value |
+An empty `current_milestone` means no execution or review is active. Duplicate
+or mismatched packets never authorize transitions. Global completion additionally
+requires every current-plan milestone completed with a valid non-stale Zen GO,
+no active blockers, matching plan versions, and directly observed evidence.
 
-Prefer stable references to paraphrases. Unresolved questions are not settled
-invariants. Do not require prior conversational state to interpret a packet.
+## Piledriver — advisory planning
 
-## Bulldozer -> Steamroller
+Piledriver owns proposed plans, task graphs, architecture/API decisions,
+acceptance and verification strategy, material replan proposals, and
+high-impact trade-off resolution, including `NEEDS_DEEP` questions Steamroller
+routes to it. Its output is advisory: Steamroller alone adopts a plan.
+Piledriver never implements project source, orchestrates workers, owns
+project state, or claims completion. Its planning visibility is bounded to
+the tier-B `replan_context` projection (failure lane and class plus the failed
+step's tool and redacted args); prompt text, role text, and contract fragments
+(tier C) are never part of its packet.
 
-Return all fields:
+## Bulldozer — one-milestone execution
 
-| Field | Contract |
-| --- | --- |
-| milestone_id | Received milestone identity |
-| plan_version | Version used for execution |
-| status | DONE, BLOCKED or NEEDS_DEEP |
-| changes_made | Concrete files, artifacts and state changes |
-| verification_evidence | OBSERVED evidence for each acceptance criterion |
-| unresolved_unknowns | UNKNOWN and INFERRED items requiring tracking |
-| scope_deviations | Explicit deviations, never silently absorbed |
-| blockers | Active blockers when BLOCKED |
-| escalation_needs | Specific decision/question/artifact when NEEDS_DEEP |
+Bulldozer accepts exactly one current-version milestone packet per
+invocation, executes within its bounded scope, and returns a pre-review
+candidate. It does not mutate project source directly: implementation goes to
+workers. It does not write the ledger, issue or rebind `result_ref`, author
+or relay Zen authority, adopt replans, or claim completion.
 
-DONE means all acceptance criteria are claimed met with evidence, but is
-only a pre-review candidate. BLOCKED obeys the harness's four conditions.
-NEEDS_DEEP returns to Steamroller, not directly to a planner.
+Worker routing inside the milestone:
 
-Steamroller alone issues a unique `result_ref`, binding the immutable
-candidate packet and the artifact versions it identifies. Persist
-`milestone_id`, `plan_version`, `result_ref` and `candidate_artifact_ref` in
-ledger evidence before requesting Zen review. Changed contents require a new
-reference and review; never rebind an existing reference.
-Reference format and storage layout are implemented by `scripts/ledger.mjs`.
+- **Jaguar** — read-only factual discovery and locating existing behavior.
+  Files the packet already names are inspected directly; discovery of unknown
+  targets goes to Jaguar.
+- **Puma** — small, explicit, low-risk writing, formatting, mechanical
+  text/config work. No advisor ceremony.
+- **Bobcat** — ordinary bounded implementation. Bulldozer sets
+  `ADVISOR_GATE: REQUIRED | NONE`: REQUIRED for substantive code, behavior,
+  API, state, lifecycle, or test work; NONE only for clearly low-risk
+  mechanical work when Bobcat is still the right worker. An absent or
+  inappropriate gate is not NONE. Bobcat may invoke only Strix Halo, whose
+  `ACCEPT | REVISE | NEEDS_DEEP` verdict is implementation-local: `ACCEPT` is
+  not milestone completion, `REVISE` is corrected through Bobcat, and
+  `NEEDS_DEEP` routes `Strix Halo -> Bobcat -> Bulldozer -> Steamroller ->
+  optional Piledriver` — never directly to Piledriver.
+- **Excavator** — difficult broken-behavior work: diagnose, reproduce,
+  root-cause, repair, verify (see the shell boundary below). Prefer Bobcat for
+  ordinary implementation; choose Excavator only for hard diagnosis/repair.
 
-## Zen -> Steamroller
+Bulldozer drives repair loops only inside the received scope, inspects actual
+worker results, and gathers observed evidence per acceptance criterion. Worker
+`READY` and Strix `ACCEPT` are local signals, never completion. `NEEDS_DEEP`
+goes to Steamroller, which decides whether to invoke Piledriver. Delegation
+validation accepts worker roles (Jaguar, Puma, Bobcat, Excavator) and rejects
+anything else.
 
-The separate verdict packet contains `milestone_id`, `plan_version`,
-`result_ref`, `verdict` (GO or NO-GO) and `verification_evidence`.
-The review request supplies that same result reference and authoritative
-milestone contract. Zen must return the reference unchanged.
-Steamroller records verdict context/timestamp, version and reference in
-`verification`; all three identity fields must match the candidate currently
-under review. Bulldozer neither authors nor relays Zen authority.
+## Instinct — NEEDS_ALT advisory
 
-## Steamroller -> Instinct (NEEDS_ALT)
+Instinct is the heterogeneous alternate-framing advisory, invoked by the
+runner on NEEDS_ALT: same materially-similar failure class at least three
+attempts without meaningful new evidence or causal-model progress, same-family
+over-convergence on one unsuccessful framing, or a problem model that cannot
+explain observed behavior. The NEEDS_ALT packet carries failure
+class/signature, current hypothesis, attempt count, evidence summaries, and
+the tier-B replan context. Instinct returns one bare JSON object (current
+framing, why it may be wrong, materially different hypotheses each with an
+OBSERVED/INFERRED/UNKNOWN basis and a discriminating test, recommendation,
+unknowns). Advisory only: it never implements, orchestrates, writes the
+ledger, adopts plans, or claims verdicts or completion. Its output is
+recorded as advisory evidence (`adopted: false`); Steamroller decides whether
+to act.
 
-Instinct is the heterogeneous alternate-framing advisory, invoked through the
-runner when materially similar failures repeat without new evidence,
-same-family paths over-converge on one unsuccessful framing, or the current
-problem model cannot explain observed behavior. NEEDS_ALT is recommended,
-never auto-run, when the same failure class has at least 3 attempts without
-new evidence.
+## Zen — independent milestone review
 
-The bounded NEEDS_ALT packet carries the failure class and signature, the
-current hypothesis, the attempt count, failure evidence summaries and a
-tier-B replan context. Instinct returns one bare JSON object: current
-framing, why it may be wrong, materially different hypotheses (each with an
-OBSERVED / INFERRED / UNKNOWN evidence basis and a discriminating test),
-recommendation and unknowns. It has read-only file tools and no shell.
+Zen reviews every P0 milestone candidate independently for Steamroller, never
+as Bulldozer's child. Steamroller invokes it with the governing milestone
+contract, the immutable candidate, and the `result_ref` it assigned and
+persisted before review. Zen verifies against the contract with
+non-mutating inspection and verification-only shell commands, each prefixed
+with `NTG_ZEN_VERIFY=1` (the registered `PreToolUse` guard inspects that
+marker boundary; the marker stays on every verification command). Zen returns
+its verdict packet directly to Steamroller.
 
-Instinct is advisory only: no implementation, worker orchestration, ledger
-writes, plan adoption or completion/verdict claims. Its output is recorded as
-advisory evidence (`adopted: false`) and Steamroller alone decides whether to
-act on it. It targets Claude Sonnet 5.5 / High; Claude Opus 5.5 / High is
-used only on explicit escalation.
+A verdict is valid only for its recorded milestone and `result_ref` with a
+`plan_version` matching the current ledger version. Steamroller rejects
+mismatched or rebound verdicts; changed candidates need a new `result_ref`
+and fresh review. A stale (prior-version) verdict never authorizes the
+current plan version. Worker `READY`, Strix `ACCEPT`, and Bulldozer `DONE`
+never substitute for the observed current verdict.
 
-## Ledger transition discipline
+## Handoff and result packets
 
-Only Steamroller performs these transitions; each updates `next_action`.
-The minimum state is goal, constraints, decision_invariants, plan_version,
-milestones, current_milestone, completed_milestones, evidence, verification,
-blockers and next_action.
+Steamroller -> Bulldozer milestone packet (the complete current-version
+packet):
 
-1. Initialize/adopt: record goal, constraints, plan version, milestone graph
-   and settled invariants before delegation. Active and completed sets start
-   empty.
-2. Delegate/retry: no executor or review is active. Select one incomplete
-   milestone whose dependencies are completed; set current_milestone before
-   invoking Bulldozer with the current-version packet.
-3. Receive candidate: require the active milestone and current plan version.
-   Persist the immutable candidate binding before review; keep the milestone
-   active while Zen reviews it.
-4. BLOCKED/NEEDS_DEEP/invocation failure: record evidence and blockers or
-   escalation needs; end the invocation, clear current_milestone and do not
-   promote.
-5. NO-GO: record the matching verdict and repair needs, clear current_milestone
-   and leave the milestone incomplete for bounded repair or replan.
-6. GO/promote: observe matching current GO and actual evidence after the DONE
-   candidate and review request. Add the milestone to completed_milestones,
-   update evidence, clear current_milestone and choose the next action.
-7. Resolve blocker: remove it only on observed resolution evidence; removal
-   does not itself complete a milestone.
+- `milestone_id` — stable identifier matching the ledger entry
+- `plan_version` — current ledger plan version; stale versions are not acted on
+- `objective` — what the milestone must accomplish
+- `bounded_scope` — permitted files, subsystems, or operations
+- `non_goals` — explicit exclusions that might seem related
+- `acceptance_criteria` — objective, testable completion criteria
+- `constraints` — hard constraints inherited from the ledger
+- `relevant_evidence` — OBSERVED facts from the ledger relevant here
+- `decision_invariants` — relevant settled decisions by stable ID or exact value
 
-An empty current_milestone means no executor or review is active.
-Duplicate, late or mismatched packets do not authorize transitions.
-Elapsed time, parent confidence, worker READY and prior-session GO do not
-replace the candidate -> independent Zen review -> observed current GO ->
-Steamroller promotion sequence.
+Bulldozer -> Steamroller result packet (the complete result packet):
 
-## Material replanning
+- `milestone_id` — matching the received packet
+- `plan_version` — plan version the work was executed against
+- `status` — `DONE` (all acceptance criteria met) | `BLOCKED` (genuine blocker) | `NEEDS_DEEP` (requires Piledriver)
+- `changes_made` — concrete changes: files created/modified, state transitions, artifacts produced
+- `verification_evidence` — OBSERVED evidence for each acceptance criterion
+- `unresolved_unknowns` — UNKNOWN or INFERRED items Steamroller must track
+- `scope_deviations` — any deviation from bounded scope, explicit not absorbed
+- `blockers` — active blockers preventing `DONE`, when status is `BLOCKED`
+- `escalation_needs` — the bounded question or artifact for Piledriver when status is `NEEDS_DEEP`
 
-End active execution and review before adopting the new plan.
-Material changes to the goal or decision invariants require a monotonically
-increasing plan_version. Mark every prior-version verdict STALE, including
-verdicts for completed milestones. Clear completed_milestones and
-current_milestone; preserve prior evidence and verdicts as history.
-Reject subsequent old-version packets as authority.
+`DONE` is a pre-review candidate claim, never verified or global completion.
+Worker and specialist reports travel only inside packet fields, never as text
+around the packet.
 
-Every retained milestone must pass candidate submission, new current-version
-Zen review and promotion again, in dependency order. Existing artifacts may
-be submitted with fresh evidence against the new criteria; unchanged code
-need not be rewritten. Never relabel an old verdict as current or carry
-forward completion without revalidation. Removed milestones remain history,
-not members of the new plan's completion set.
+Zen -> Steamroller verdict packet: `milestone_id`, `plan_version`,
+`result_ref` (echoed unchanged), `verdict` (`GO | NO-GO`),
+`verification_evidence` (criterion-linked, classified OBSERVED/INFERRED/UNKNOWN).
 
-## Global completion
+Excavator -> Bulldozer worker result: `ROOT_CAUSE` (`CONFIRMED | LIKELY |
+SPECULATIVE`), `CHANGES`, `VERIFICATION_EVIDENCE`, `ROLLBACK` (when
+persistent changes were made), `RESIDUAL_RISK` (residual risk and remaining
+UNKNOWNs), `STATUS` (`READY | BLOCKED`) — a local signal after its own
+verification, never a completion claim.
 
-Steamroller may declare completion only when every current-plan milestone
-is completed with a valid current-version, matching-candidate Zen GO, no
-blockers remain, current_milestone is empty, and Steamroller has directly
-observed the evidence satisfying the governing contract.
-All conditions are required; a subordinate status cannot satisfy them alone.
+## Replanning and plan_version
 
-## Invocation and unresolved runtime configuration
+A material replan — one that changes the goal or decision invariants so the
+current plan cannot accommodate observed reality — ends active execution and
+review, increments `plan_version`, marks all prior-version verdicts STALE
+(including completed milestones'), clears `current_milestone` and
+`completed_milestones`, and preserves prior evidence and verdicts as history,
+not current authority. Old-version packets arriving afterward are rejected as
+transition authority. Every milestone retained in the new plan is revalidated
+in dependency order: it needs a fresh current-version candidate and a fresh
+Zen verdict against that version. Unchanged implementation may be resubmitted
+with fresh evidence against the new acceptance criteria; an old GO is never
+carried forward or relabeled. Milestones dropped by the adopted replan remain
+historical records outside the new completion set.
 
-Steamroller/Bulldozer target Gemini 3.8 Flash / High; Piledriver targets
-Gemini 3.1 Pro / High; Instinct targets Claude Sonnet 5.5 / High, with
-Claude Opus 5.5 / High only on explicit escalation — all through the narrow
-exact-model runner. Resolve exact
-stable slugs from the installed AGY model surface, never guess or silently
-fall back. The runner owns effort, cwd/context, deterministic bounded prompt
-construction, timeout, recursion/nested-invocation protection, structured
-result capture and timeout/error/invalid-output reporting.
-Do not pass raw conversation as invocation state.
+## Exact-model policy
 
-Jaguar/Puma/Bobcat remain native Flash; Strix Halo/Zen remain native Pro.
-Moving a specialist to a separate process or using exact 3.1 Pro/High for Zen
-requires live evidence of a concrete benefit.
+The runner owns exact model resolution (fail-closed against the installed
+model surface) and effort for the runner roles; native subagents use native
+tiers. Model policy, not hard-coded slugs:
 
-OQ-6 (#137) kept explicit `inheritCustomizations: true` on the then-native
-Excavator primary to preserve workspace instructions; the controlled probe on
-AGY 1.3.3 showed workspace-rule propagation for true and omission, but not
-false. Excavator's demotion to a Bulldozer worker supersedes that decision:
-no natively selectable primary remains and the worker carries no
-`inheritCustomizations` field. Inherited context is not an authority grant.
+| Role | Model family | Effort | Invocation |
+|---|---|---|---|
+| Steamroller | Gemini 3.8 Flash | High | exact-model runner |
+| Piledriver | Gemini 3.1 Pro | High | exact-model runner |
+| Bulldozer | Gemini 3.8 Flash | High | exact-model runner |
+| Instinct | Claude Sonnet 5.5 (Claude Opus 5.5 only on explicit escalation) | High | exact-model runner |
+| Jaguar | Flash | native | native subagent |
+| Puma | Flash | native | native subagent |
+| Bobcat | Flash | native | native subagent |
+| Excavator | Pro | native | native subagent |
+| Strix Halo | Pro | native | native subagent |
+| Zen | Pro | native | native subagent (exact 3.1 Pro / High only if validation shows material improvement) |
 
-Open questions that remain UNKNOWN: Zen's optional exact-model choice.
-Excavator's authority and placement are resolved (OQ-3): a Bulldozer worker
-for hard diagnosis/repair on native Pro, with no nested delegation and no Zen
-invocation. Sonnet's invocation path is
-resolved (OQ-4, #20). Frontmatter UNKNOWN is not a runtime default or a grant.
+## Excavator shell boundary
 
-## Delegation and review boundaries
+Excavator prefixes every shell command with `NTG_EXCAVATOR=1 `. The registered
+`PreToolUse` hook scopes on that marker and leaves unmarked commands from
+other roles untouched. Marked commands allow ordinary sudo diagnostics and
+task-relevant privileged repair, and deny a narrow set of reproduced failure
+modes: non-interactive sudo password injection or guessing, alternate
+privilege acquisition (`su`, `pkexec`, root SSH to localhost, including via
+wrappers like `env`, `command`, `bash -c`), mining interactive shell history
+as an authentication source, and full-system upgrades as exploratory
+troubleshooting. The guard is a role-scoped behavioral backstop, not a
+general privilege sandbox: Excavator still honors user prohibitions, keeps
+conclusions proportional to evidence, classifies effects READ_ONLY /
+REVERSIBLE / PERSISTENT_OR_DESTRUCTIVE, and requires an exact change
+description, backup where applicable, rollback path, and evidence-backed
+justification before any persistent or destructive change.
 
-No natively selectable primary remains; `ntg-vnext` is the entry for project
-work. Excavator is a Bulldozer worker for difficult broken-behavior work;
-its STATUS is a local worker signal like the other workers'. Multi-milestone
-work, durable ledger state, replanning and global project completion belong
-to Steamroller through the runner.
+## Completion semantics
 
-### Delegation packet
-
-When invoking an internal specialist, include relevant fields:
-
-- ROLE_REASON
-- GOAL
-- SCOPE
-- NON_GOALS
-- ACCEPTANCE
-- SOURCE_OF_TRUTH
-- DECISION_RULE
-- COVERAGE
-- COVERAGE_BASIS
-- EVIDENCE
-- EDIT_POLICY
-- ADVISOR_GATE (Bobcat only)
-- EXPECTED_OUTPUT
-
-Include SOURCE_OF_TRUTH, DECISION_RULE, COVERAGE, and COVERAGE_BASIS only when they are material to the delegated unit. Do not prescribe unnecessary low-level edits to Bobcat or Puma.
-
-### Return contracts
-
-- Jaguar -> FINDINGS / EVIDENCE / UNKNOWNS / RECOMMENDED_NEXT_STEP
-- Puma -> what changed / verification / `READY | BLOCKED`
-- Bobcat -> what changed / verification / Strix Halo result when required / `READY | BLOCKED | NEEDS_DEEP`
-- Excavator -> ROOT_CAUSE (`CONFIRMED | LIKELY | SPECULATIVE`) / CHANGES / VERIFICATION_EVIDENCE / ROLLBACK / RESIDUAL_RISK / `READY | BLOCKED`
-- Zen -> blocker findings and exactly `VERDICT: GO | VERDICT: NO-GO`
-
-### Child-result integration
-
-Child results inform the Host; they do not own the global plan. When a child result would create a consequential prerequisite, blocker, readiness state, or other plan-changing claim, apply the generic consequential-claim discipline from `harness.md` against current authoritative evidence before integrating it.
-
-Capability-aware rerouting preserves already established evidence. Correction should target the defective or blocked portion rather than discarding unaffected findings or restarting unrelated work.
-
-### Zen independent verification
-
-Zen has `run_command` so it can reproduce or check verification evidence instead of trusting the implementation path's claims.
-
-- Zen has no direct file-mutation tools.
-- Every Zen shell call must begin with `NTG_ZEN_VERIFY=1 `.
-- The plugin `PreToolUse` hook rejects common intentional mutation forms only for marked Zen verification commands.
-- Zen must not use shell to repair the implementation. A denied mutation attempt or missing required evidence remains a review result; repair returns through the implementation role that owns the artifact.
-- Do not pre-filter evidence to only previously successful checks. Supply the task contract and current artifact context and let Zen choose the verification needed for its verdict.
-
-The marker guard is a narrow behavioral backstop, not a general shell sandbox or a model-wide policy.
-
-### Correction routing
-
-On NO-GO, Bulldozer classifies the correction need:
-
-- implementation defect -> Bobcat repair, normally REQUIRED
-- hard broken behavior with an unknown or disputed root cause -> Excavator
-  (diagnose/repair), not another same-shape patch loop
-- quick/mechanical defect -> Puma only if the repair remains genuinely low-risk and explicit
-- wrong decision/architecture -> return the decision question (runner: NEEDS_DEEP to Steamroller) before another materially similar patch
-- evidence gap -> obtain missing verification without redesign
-
-Do not create Bobcat <-> Zen or Strix Halo <-> Zen loops.
+Worker `READY` (including Excavator's) is a local signal. Strix `ACCEPT` is
+implementation-local. Bulldozer `DONE` is a pre-review candidate. Promotion
+to `completed_milestones` requires the full sequence: DONE result packet,
+Steamroller's Zen review request with its assigned `result_ref`, a current
+matching Zen `GO`, Steamroller's observed acceptance, then the ledger
+transition. Only Steamroller may declare global project completion, and only
+with every current-plan milestone completed, a valid non-stale Zen GO per
+candidate, no active blockers, no active execution or review, and directly
+observed evidence satisfying the goal.

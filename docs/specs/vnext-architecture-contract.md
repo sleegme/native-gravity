@@ -606,7 +606,7 @@ Jaguar, Puma, and Strix Halo reconnect in slice 44F. Excavator reconnects as a B
 
 ### 8.3 Provenance Closure
 
-Slice 44G confirmed that all vNext implementation surfaces are independently authored from this vNext architecture contract (`docs/specs/vnext-architecture-contract.md`).
+Provenance closure was not established by slice 44G (`.omo/evidence/2026-10-02-44g-findings.md`). It was completed for #30/#34 on 2026-10-13: the four shipped surfaces that still carried baseline text were re-authored clean-room from this contract and the behavior tests, and every distributed file was re-measured against the baseline. Evidence: `.omo/evidence/30-provenance-closure.md`.
 
 And do NOT derive from:
 

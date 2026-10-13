@@ -2,6 +2,7 @@
     "name": "native-gravity",
     "version": "1.1.0",
     "description": "A thin Antigravity-native orchestration plugin with delegated implementation and independent verification.",
+    "license": "MIT",
     "type": "module",
     "bin": {
         "native-gravity": "scripts/npm-install.mjs",
@@ -24,7 +25,8 @@
         "scripts/spine.mjs",
         "scripts/runner.mjs",
         "scripts/ledger.mjs",
-        "scripts/telemetry.mjs"
+        "scripts/telemetry.mjs",
+        "LICENSE"
     ],
     "engines": {
         "node": ">=18"
