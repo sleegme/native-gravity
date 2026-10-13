@@ -195,7 +195,7 @@ Swap the evidence text for what you actually saw. Recovery from a killed owner
 is covered by `tests/test_ntg_vnext.mjs`. Recovery closes out the interrupted
 invocation, but it doesn't mark any work complete; afterwards, check `status`
 and run again. It's not a general "unlock" command either. If no milestone was
-interrupted, it says so instead of claiming it recovered something.
+interrupted, it returns an error instead of claiming it recovered something.
 
 `init`, `status`, `replan` and `recover` never call models. `run`, `plan` and
 `alt` do. Each model call times out after 600 seconds by default. To change

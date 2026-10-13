@@ -189,7 +189,7 @@ node "$NTG/scripts/ntg-vnext.mjs" recover --ledger .ntg/ledger.json --evidence "
 경우의 복구는 `tests/test_ntg_vnext.mjs`가 검증합니다. 복구는 끊긴 호출을 정리할
 뿐 작업을 완료로 만들지 않으니, 복구한 뒤에는 `status`를 확인하고 다시 실행하세요.
 잠금을 푸는 범용 명령도 아닙니다. 중단된 마일스톤이 없으면 복구했다고 하지 않고
-그렇다고 알려 줍니다.
+오류를 반환합니다.
 
 `init`, `status`, `replan`, `recover`는 모델을 호출하지 않고, `run`, `plan`,
 `alt`는 호출합니다. 모델 호출은 기본적으로 600초가 지나면 시간 초과됩니다.
