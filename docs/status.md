@@ -5,39 +5,40 @@
 - **Native Gravity**: 1.1.0
 - **Status**: alpha
 - **Compatibility**:
-  - AGY 1.3.3 — validated (runner live probes: #134, #138; delegation probes: #113/#56; Instinct NEEDS_ALT live call: #20)
+  - AGY 1.3.3: validated (runner live probes: #134, #138; delegation probes: #113/#56; Instinct NEEDS_ALT live call: #20)
 
-See [Versioning Policy](versioning.md) for versioning rules and lifecycle definitions.
+The [Versioning Policy](versioning.md) defines the version rules and lifecycle
+stages.
 
 ## What works today
 
-- Run a plan file milestone by milestone in dependency order; a milestone counts
-  as done only after an independent review accepts it (GO).
+- Run a plan file one milestone at a time, in dependency order. A milestone only
+  counts as done once an independent review accepts it (GO).
 - A rejected milestone (NO-GO) stays unfinished until a repaired result earns a
   fresh GO.
-- Revise the plan with `replan`; retained milestones are reviewed again under the
-  new plan version.
-- Resume from the saved ledger in a fresh process, without the earlier
+- Revise the plan with `replan`. Milestones you keep are reviewed again under
+  the new plan version.
+- Resume from the saved ledger in a fresh process, with no need for the earlier
   conversation.
 - Recover after a crash on Linux.
-- Ask for planning advice (`plan`) or a different framing of a repeated failure
-  (`alt`); advice is recorded but never adopted automatically.
-- View the milestone graph read-only (`scripts/dag-view.mjs`).
+- Ask for planning advice (`plan`) or a fresh take on a failure that keeps
+  repeating (`alt`). Advice is recorded, never adopted automatically.
+- View the milestone graph without changing anything (`scripts/dag-view.mjs`).
 
-How to use each of these is in [Usage](usage.md).
+[Usage](usage.md) shows how to use each of these.
 
 ## Limits and not yet available
 
-- **Alpha:** validated on one host with AGY 1.3.3; this is not a broad
-  reliability or performance claim.
-- **You write the plan file.** Turning a natural-language goal directly into an
-  adopted plan is not implemented.
+- **Alpha:** validated on one host with AGY 1.3.3. That's not a broad claim
+  about reliability or performance.
+- **You write the plan file.** There's no way yet to turn a natural-language
+  goal straight into an adopted plan.
 - **Model usage:** `run`, `plan` and `alt` call real models.
-- **Crash recovery is Linux-only** and refuses when it cannot verify safe
-  termination. One session owns a ledger at a time.
-- **Not published to npm:** install from the repository; no global command is
-  created by the plugin install.
-- Exact-model selection for the independent reviewer is an open comparison
+- **Crash recovery is Linux-only,** and it refuses to run when it can't confirm
+  a safe shutdown. Only one session owns a ledger at a time.
+- **Not published to npm:** install from the repository. Installing the plugin
+  doesn't create a global command.
+- Picking an exact model for the independent reviewer is an open comparison
   question, not a planned feature. [Model profiles](model-profiles/README.md)
   are provisional research, not deployed routing.
 
@@ -63,10 +64,10 @@ Pending live revalidation:
 
 ## Release and migration history
 
-Maintainer history, kept for traceability. None of it is a mode users choose;
-current role mechanics are in [Internals](internals.md).
+This is maintainer history, kept so changes stay traceable. None of it is a mode
+users pick. For how the roles work today, see [Internals](internals.md).
 
-### 1.1.0 — Excavator demotion to Bulldozer worker
+### 1.1.0: Excavator demotion to Bulldozer worker
 
 Excavator is no longer a natively selectable primary. It is a specialist
 worker that only Bulldozer invokes, for difficult diagnose -> reproduce ->
@@ -77,7 +78,7 @@ CHANGES, VERIFICATION_EVIDENCE, ROLLBACK, RESIDUAL_RISK, STATUS
 `READY | BLOCKED`) to Bulldozer; STATUS is a local signal like other workers'.
 It keeps its investigation depth, root-cause discipline and
 `NTG_EXCAVATOR=1` shell guard, has no nested delegation and never invokes
-Zen — the native-primary Zen completion gate (`hooks/excavator-review-gate.py`
+Zen. The native-primary Zen completion gate (`hooks/excavator-review-gate.py`
 Stop hook) is removed with the primary, along with its display-only
 `scripts/gate_panel.py` (issue #112 history stays in `.omo/evidence`).
 Bulldozer delegation validation accepts Excavator as a milestone worker and
@@ -85,7 +86,7 @@ rejects non-worker roles. #137's `inheritCustomizations: true` decision
 applied to the native primary and is superseded; the worker carries no
 `inheritCustomizations` field. OQ-3 is resolved by this placement.
 
-### 1.1.0 — Instinct (#20) and Bulldozer relay rule (#136)
+### 1.1.0: Instinct (#20) and Bulldozer relay rule (#136)
 
 Instinct is the heterogeneous alternate-framing advisory, runner-only and
 advisory: it returns one bare JSON object (current framing, why it may be
@@ -107,7 +108,7 @@ reports to be relayed only inside packet fields (`verification_evidence`,
 strict packet parser is unchanged: it accepts only one unambiguous JSON object
 and rejects malformed, multiple or ambiguous-narration output.
 
-### 1.0.0 — single runtime structure (#138)
+### 1.0.0: single runtime structure (#138)
 
 The current runtime (called vNext in implementation records) became the only
 structure. The pre-vNext (v0.4) topology and its compatibility paths are
