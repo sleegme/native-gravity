@@ -124,7 +124,7 @@ Candidate: workspace; packed files: 29; workspace guide: AGENTS.md
 | agents/zen.md | 10 | 355 | 2.817 |
 | docs/ko/README.md | 0 | 1154 | 0.000 |
 | hooks.json | 0 | 29 | 0.000 |
-| hooks/excavator-shell-guard.py | 0 | 1187 | 0.000 |
+| hooks/excavator-shell-guard.py | 0 | 1256 | 0.000 |
 | hooks/zen-shell-guard.py | 1 | 648 | 0.154 |
 | package.json | 0 | 127 | 0.000 |
 | plugin.json | 0 | 30 | 0.000 |
