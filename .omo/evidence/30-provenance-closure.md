@@ -51,7 +51,15 @@ Parity was checked differentially by loading the baseline guard and the
 current guard in one Python process and comparing decisions on 4,379
 generated marked bodies (45 wrapper/sudo/env prefixes x 59 core commands,
 5 leading commands x 5 separators x 59 core commands, plus targeted edge
-cases). Result: 0 commands denied by the baseline are allowed now. The 375
+cases). Result on that set: 0 commands denied by the baseline were allowed.
+A later independent gate (139,359 generated bodies) found one real class the
+set missed: a shell option cluster containing `c` followed by a separate
+`-c` (`bash -ec -c 'su -'`), where the guard inspected the second `-c`
+instead of the command string. That is fixed (`inline_program` now reads all
+leading options, as a shell does) and covered in
+`test_denies_baseline_command_forms`. The gate's remaining baseline-deny /
+current-allow cases are baseline false positives that run nothing forbidden,
+such as `sudo -r su`, where `su` is the role value. The 375
 commands denied now but allowed by the baseline all perform a
 baseline-denied effect through a form the baseline did not reach:
 `eval`, `ksh -c`, `bash -lc`, `exec`, `while ... do`, unknown `env`

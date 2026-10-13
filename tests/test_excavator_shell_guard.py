@@ -88,6 +88,12 @@ class ExcavatorShellGuardTests(unittest.TestCase):
         commands = [
             "bash -c true; sudo apt upgrade",
             "sudo bash -c true && su -",
+            "bash -ec -c 'su -'",
+            "bash -ec -c 'sudo apt upgrade'",
+            "sh -xc -c 'pkexec id'",
+            "bash -ce -c 'su'",
+            "bash -lc -c 'su -'",
+            "bash -o pipefail -c 'su -'",
             "/usr/bin/sudo -S id",
             "FOO=bar sudo -S id",
             "env -u FOO sudo -S id",

@@ -169,11 +169,30 @@ def is_full_upgrade(name: str, args: list[str]) -> bool:
 
 
 def inline_program(args: list[str]) -> Optional[str]:
-    for position, word in enumerate(args):
-        if word[:1] == "-" and word[:2] != "--" and "c" in word[1:]:
-            following = args[position + 1:position + 2]
-            return following[0] if following else ""
-    return None
+    # Like a real shell: read every leading option, then the first operand is
+    # the command string when any short-option cluster contained `c`
+    # (`bash -ec -c 'su'` runs `su`, not `-c`).
+    wants_program = False
+    position = 0
+    while position < len(args):
+        word = args[position]
+        if word == "--" or word == "-":
+            position += 1
+            break
+        if word[:2] == "--":
+            position += 1
+            continue
+        if word[:1] not in ("-", "+") or len(word) < 2:
+            break
+        letters = word[1:]
+        if word[:1] == "-" and "c" in letters:
+            wants_program = True
+        position += 1
+        if letters[-1:] in ("o", "O"):
+            position += 1
+    if not wants_program:
+        return None
+    return args[position] if position < len(args) else ""
 
 
 def loop_guesses_password(body: str) -> bool:
