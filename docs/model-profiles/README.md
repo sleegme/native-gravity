@@ -5,13 +5,19 @@ different reasoning styles, failure modes, and stability. This directory
 holds per-model profiles so role definitions can map a `model:` tier to a
 concrete behavioral contract instead of a name.
 
+> **Provisional research.** Profiles record hypotheses and partial observations;
+> they do not change deployed routing (see [Internals](../internals.md#invocation-policy)).
+> Statuses are `stub` (no evidence), `draft` (some observations), `partial` or
+> `calibrated`. The collection pipeline below is a maintainer-local tool, not a
+> shipped product feature.
+
 ## Schema
 
 Each profile is one Markdown file (`<model>.md`) with this shape:
 
 ```markdown
 # <model id> — profile
-**Status:** stub | partial | calibrated   **Last evidence:** <date or "none">
+**Status:** stub | draft | partial | calibrated   **Last evidence:** <date or "none">
 
 ## Strengths
 - <observed pattern>

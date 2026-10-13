@@ -12,12 +12,15 @@
   read-only role's intent when given a long rationale chain.
 
 ## Recommended role mapping
+> Fit ratings are unmeasured hypotheses, not deployed routing; current
+> assignments are in [Internals](../internals.md#invocation-policy).
+
 | Role tier | Fit | Reason |
 |---|---|---|
 | planner | strong | trade-offs, acceptance design |
 | executor (excavator) | strong | bounded autonomous repair |
 | gate / reviewer (zen, strix-halo) | strong | default |
-| specialist (steamroller reasoning) | strong | deep-reasoning tier |
+| specialist (steamroller reasoning) | strong (hypothesis) | deep-reasoning tier; not deployed — Steamroller runs on Gemini 3.8 Flash / High |
 
 ## Gate-checklist variants
 - On read-only roles, check that no file mutation happened even with a

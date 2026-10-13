@@ -10,6 +10,9 @@
   long tasks, shallow diagnosis loops.
 
 ## Recommended role mapping
+> Fit ratings are unmeasured hypotheses, not deployed routing; current
+> assignments are in [Internals](../internals.md#invocation-policy).
+
 | Role tier | Fit | Reason |
 |---|---|---|
 | planner | medium | fast at outlining; may under-specify edge cases |
