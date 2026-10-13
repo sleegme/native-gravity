@@ -1,59 +1,73 @@
 # 아키텍처
 
-> vNext가 유일한 런타임입니다 (44G, [#134](https://github.com/sleegme/native-gravity/issues/134)).
+[English](../architecture.md) · [사용법](usage.md) · [내부 동작](../internals.md)
 
-Native Gravity는 Antigravity의 네이티브 라이프사이클, 세션, 워크스페이스, 모델/도구 시스템을 유지합니다. vNext는 좁은 exact-model 러너와 authoritative ledger를 더할 뿐 런타임을 대체하지 않습니다.
+## 설계 의도
 
-이 개요는 [architecture contract](../specs/vnext-architecture-contract.md)와 배포된 [agents](../../agents/) / [rules](../../rules/)를 따릅니다. `ntg-vnext`는 멀티 마일스톤 작업의 진입점이고, 네이티브로 선택 가능한 primary는 더 이상 없습니다. Excavator는 Bulldozer의 worker로, 한 마일스톤 안에서 어려운 고장 진단/수리를 수행합니다.
+Native Gravity는 플랜, 진행 기록과 독립 검수를 통해 여러 단계의 작업을 이해하기
+쉽게 만듭니다. 사용자는 목표와 범위를 제공하고, 제품이 내부 에이전트 선택과
+조율을 맡습니다. 내부 역할이 늘어난다고 사용자가 배울 역할도 늘어나서는 안 됩니다.
 
-## 감독과 마일스톤 실행
+구현 기록에서는 현재 설계를 vNext라고 부릅니다. 이미 배포된 런타임이며 사용자가
+선택해야 할 별도 모드나 미래 옵션이 아닙니다.
+[기술 계약](../specs/vnext-architecture-contract.md)이 권위 있는 명세이고,
+이 문서는 필드를 반복하기보다 구조를 둔 이유를 설명합니다.
+
+## Antigravity의 네이티브 기능 유지
+
+에이전트 실행, 세션, 워크스페이스, 모델과 도구 권한은 Antigravity가 소유합니다.
+NTG는 역할 계약, 작업 라우팅, 마일스톤 순서와 진행 기록의 소유권을 제공합니다.
+좁은 범위의 실행 조율기가 핵심 역할에 명시적 모델 정책을 적용하고, 전문가 역할은
+Antigravity의 네이티브 subagent로 유지합니다. 호스트 기능을 활용하되 범용
+워크플로 플랫폼을 새로 만들지 않는다는 원칙입니다.
+
+## 실행과 완료 판정을 분리
 
 ```text
-User
-  Steamroller — 감독 / authoritative ledger 소유자
-    Piledriver — 계획, 아키텍처, 어려운 결정
-    Bulldozer — 하나의 bounded 마일스톤
-      Jaguar / Puma / Bobcat / Excavator
-                       Strix Halo — Bobcat 로컬 advisor gate
-    Instinct — NEEDS_ALT alternate-framing 자문
-    Zen — 독립 마일스톤 검증
-    Steamroller ledger transition
+사용자의 플랜
+  -> 진행 기록 소유자가 실행 가능한 단계 하나를 선택
+  -> 범위 안에서 실행하여 후보 결과 생성
+  -> 독립 검수가 결과와 완료 기준을 대조
+  -> 진행 기록 소유자가 검증 또는 수정 요구를 기록
+  -> 다음 단계 또는 프로젝트 완료
 ```
 
-- **Steamroller**는 goal, constraints, 채택된 plan version, 마일스톤 그래프, 증거, blocker, next action, global completion을 소유합니다. authoritative ledger 상태는 혼자 작성합니다. 프로젝트 소스를 구현하지 않고 worker를 직접 오케스트레이션하지도 않습니다.
-- **Piledriver**는 Steamroller를 위한 계획, 아키텍처/API 결정, 검증 전략, material replan을 제안합니다. 구현, 위임, ledger, completion 권한이 없습니다. 채택 여부는 Steamroller가 결정합니다. 실행/검수 요청도 계획 요청으로 남습니다. runner 전용이며 advisory JSON을 반환합니다.
-- **Bulldozer**는 current-version 마일스톤 패킷 하나를 받아 bounded 작업을 위임하고 `DONE | BLOCKED | NEEDS_DEEP`을 반환합니다. 프로젝트 소스를 직접 수정하지 않고, shell command를 실행하지 않으며, Piledriver/Zen을 호출하지 않고, ledger를 작성하지 않습니다. 알려진 컨텍스트와 패킷에 명시된 파일은 직접 검사하지만, discovery와 미지 탐색은 Jaguar에 맡깁니다.
-- **Instinct**는 NEEDS_ALT용 heterogeneous alternate-framing 자문입니다 — 같은 실패가 새 증거 없이 반복되거나 같은 계열 경로가 하나의 실패한 framing에 수렴할 때 호출됩니다. runner 전용이며 advisory입니다: 구현, 오케스트레이션, ledger 작성, plan 채택, completion/verdict 주장이 없습니다. Claude Sonnet 5.5 / High를 목표로 하며 Claude Opus 5.5 / High는 명시적 escalation에서만 사용합니다. 자문은 advisory evidence로 기록되고 어떤 것도 승격하거나 채택하지 않습니다.
+실행자의 자신감만으로는 완료가 되지 않습니다. 작업 중 로컬 점검은 구현을 돕지만,
+마일스톤의 독립 검수는 별도의 권한입니다. 이 책임을 분리해야 위임받은 작업자의
+완료 주장이 프로젝트 전체 성공으로 바뀌지 않습니다.
 
-## Specialist 라우팅
+각 단계는 목표, 허용 범위, 하지 않을 일과 완료 기준을 담습니다. 작업 크기보다
+종류로 라우팅합니다. 탐색, 단순 편집, 일반 구현과 어려운 고장 진단에는 서로 다른
+실행 방식이 필요합니다. 내부 역할 이름과 권한은
+[내부 동작](../internals.md#role-ownership-and-routing)에 모았습니다.
 
-- **Jaguar** — read-only 사실 탐색; 네이티브 Flash 역할; 위임 없음.
-- **Puma** — 명시적 저위험 writing/formatting/mechanical 작업; 네이티브 Flash 역할; 위임과 advisor ceremony 없음.
-- **Bobcat** — bounded 구현; 네이티브 Flash 역할; Strix Halo만 호출 가능. Bulldozer가 `ADVISOR_GATE: REQUIRED | NONE`을 선택합니다: 실질적인 code/behavior/API/state/lifecycle/test 작업은 REQUIRED, 명확히 저위험한 mechanical 작업만 NONE.
-- **Excavator** — Bulldozer의 어려운 고장 worker: 한 마일스톤 안에서 진단, 재현, 근본 원인, 수리, 검증; 네이티브 Pro 역할; 중첩 위임과 Zen 호출 없음. `STATUS`는 다른 worker와 같은 로컬 worker 신호입니다.
-- **Strix Halo** — Bobcat 전용 read-only 로컬 gate; 네이티브 Pro 역할; `ACCEPT | REVISE | NEEDS_DEEP`. 수정은 Bobcat을 통해 이루어집니다.
-- **Zen** — Steamroller를 위한 독립적 비변경 마일스톤 검증으로 Bulldozer의 child가 아닙니다; 네이티브 Pro 역할; `GO | NO-GO`. 검증 shell command는 `NTG_ZEN_VERIFY=1`을 사용합니다.
+## 대화 밖에 진행 상황 저장
 
-작업 종류로 라우팅하며 크기로 하지 않습니다. 어려운 결정은
-`Strix Halo -> Bobcat -> Bulldozer -> Steamroller -> optional Piledriver`를 따르며,
-worker나 Bulldozer가 Piledriver를 직접 호출하지 않습니다.
+Ledger에는 채택된 플랜, 의존성, 증거, 검수, 블로커와 다음 작업을 기록합니다.
+새 프로세스는 대화 기억이 아니라 이 상태에서 재개합니다. 한 번에 마일스톤 하나만
+실행하거나 검수하며 권위 있는 진행 기록은 한 소유자만 작성합니다.
 
-## Ledger와 완료
+검수는 특정 후보와 플랜 버전에 속합니다. 후보가 바뀌면 새 검수가 필요합니다.
+계획을 실질적으로 바꾸면 이전 완료 권한을 무효화하고, 유지한 단계도 의존성
+순서로 다시 검증합니다. 이전 증거는 이력으로 남깁니다. 재검증 비용을 감수하는
+이유는 새로운 계약에 과거 승인을 잘못 적용하지 않기 위해서입니다.
 
-대화 기억이 아니라 ledger가 권위를 가집니다. Steamroller는 goal, constraints, decision invariants, plan version, 마일스톤 그래프, active/completed 마일스톤, 증거, 검증, blocker, next action을 기록합니다. 한 번에 하나의 마일스톤만 실행되거나 검수를 받습니다.
+계획 자문과 대안 자문은 조언으로 남습니다. 사용자의 계획 수정을 도울 수 있지만
+조언만으로 플랜을 채택하거나 단계를 완료하지 않습니다.
 
-Worker `READY`와 Strix `ACCEPT`는 로컬 신호입니다. Bulldozer `DONE`은 검증된 마일스톤이나 프로젝트 완료가 아니라 pre-review 후보입니다. Steamroller는 Zen 검수를 요청하기 전에 불변 후보와 고유 `result_ref`를 지속화합니다. 모든 P0 마일스톤은 `milestone_id`, 현재 `plan_version`, `result_ref`에 matching되는 독립 Zen GO를 요구합니다. 그 GO와 실제 증거를 관측한 뒤에만 마일스톤을 승격합니다. 변경된 후보는 새 reference와 검수를 요구합니다.
+## 구현된 설계와 남은 질문
 
-Material replanning은 active 실행/검수를 끝내고 `plan_version`을 증가시키며 이전 verdict를 STALE로 표시하고 active/completed 마일스톤 상태를 비웁니다. Retained 마일스톤은 의존성 순서로 fresh current-version 검수가 필요합니다; 이전 증거는 history로 남을 뿐 completion 권한이 아닙니다. Global completion은 모든 현재 마일스톤이 검증되고, blocker가 없으며, active 실행/검수가 없고, Steamroller가 증거를 직접 관측했음을 요구합니다.
+마일스톤 실행, 독립 검수, 계획 변경, 새 컨텍스트 재개, Linux 크래시 복구와
+대안 자문은 구현되어 있습니다. 검증 범위와 한계는 [상태](status.md)에 있으며,
+광범위한 신뢰성이나 성능을 증명했다는 뜻은 아닙니다.
 
-Piledriver의 replanning view는 원시 ledger가 아니라 bounded tier-B 투영입니다: 어떤 artifact/lane이 실패했는지와 실패한 단계의 redacted tool args 또는 command line을 기록합니다(NTG #114). Prompt 텍스트, 역할 텍스트, 계약 조각은 planning packet에 들어가지 않습니다.
+자연어 목표에서 자동으로 플랜을 채택하는 인터페이스는 구현되지 않았습니다.
+현재는 사용자가 플랜 파일을 작성합니다. Zen의 exact-model 선택은 아직 비교
+검증 질문이며 발표된 기능이나 필수 사용자 설정이 아닙니다. 모델 프로필도
+잠정적인 연구 자료이지 배포된 라우팅 변경이 아닙니다.
 
-## 호출과 마이그레이션 경계
-
-Steamroller/Bulldozer는 Gemini 3.8 Flash / High를, Piledriver는 Gemini 3.1 Pro / High를, Instinct는 Claude Sonnet 5.5 / High를 목표로 하며 Claude Opus 5.5 / High는 명시적 escalation에서만 사용합니다. 러너는 설치된 모델 slug를 silent fallback 없이 해석하고 effort, cwd/context, bounded prompt 구성, timeout, 재귀 보호, 구조화된 결과 수집, 실패 보고를 소유합니다. Machine 호출은 대화형 terminal 산문이 아니라 bare JSON 객체 하나를 요청합니다. Packet 파싱은 ledger 검증이나 독립 검수를 대체하지 않습니다.
-
-Specialist는 네이티브 Flash/Pro 역할 정책을 유지합니다. Exact-model Zen은 정책 가정이 아니라 비교 라이브 증거가 필요합니다.
-
-Excavator는 한 마일스톤 안에서 어려운 진단/수리를 수행하는 Bulldozer의 worker입니다; 중첩 위임과 Zen 호출이 없으며, 네이티브 primary Zen completion gate는 primary와 함께 제거됩니다. `NTG_EXCAVATOR=1` guard 효과를 보존합니다. Instinct는 구현되어 있습니다(#20): 동일한 exact-model 러너가 fail-closed slug 해석으로 Sonnet/Opus slug를 해석하며(OQ-4 해결), NEEDS_ALT 패킷은 tier-B 실패 컨텍스트(failure class/signature, 현재 가설, 시도 횟수, evidence)를 담습니다.
-
-OQ-3은 해결됐습니다(소유자 결정): Excavator의 권한과 배치는 네이티브 Pro의 Bulldozer worker(어려운 진단/수리)로 확정됐습니다. OQ-6(#137)은 당시 네이티브 Excavator에 `inheritCustomizations: true`를 유지한 것으로, 이번 강등이 superseded 합니다 — 네이티브 primary가 더 이상 없고 worker는 `inheritCustomizations` 필드를 갖지 않습니다. AGY 1.3.3 통제 실험에서 true와 생략은 작업공간 규칙을 전달했고 false는 전달하지 않았습니다. 상속된 context는 권한 grant가 아닙니다. 증거: `.omo/evidence/137-excavator-validation.md`.
+역할 그래프, 모델 해석, 응답 검증과 복구 방식은 [내부 동작](../internals.md)을
+참고하세요. 완료된 활성화/전환 기록은
+[전환 안내](../internals.md#activation-and-transition-record)와
+[상태 이력](status.md#릴리스와-전환-이력)에 있습니다.
+명세의 과거 구현 단계는 미완료 로드맵이 아닙니다.

@@ -2,214 +2,85 @@
 
 [한국어](docs/ko/README.md)
 
-> - **Native Gravity**: 1.1.0
-> - **Status**: alpha
-> - **Validated runtime**: AGY 1.3.3
+> **Version:** 1.1.0 · **Maturity:** alpha · **Validated runtime:** AGY 1.3.3
 
-## What is Native Gravity?
+Native Gravity (NTG) helps you carry multi-step coding work through Google
+Antigravity (AGY) without losing track of what is actually finished. You write
+a plan with small steps and acceptance criteria. NTG runs those steps, has a
+separate reviewer check the result, and saves the verified progress so you can
+continue later.
 
-Native Gravity (NTG) is a thin orchestration plugin for Google Antigravity.
-You describe your work as a small plan file, and the `ntg-vnext` CLI executes
-it milestone by milestone using Antigravity's own agents — with one hard rule:
-**no milestone counts as done until an independent reviewer agent has checked
-the delivered artifact against your acceptance criteria.** The concrete
-benefit on multi-step coding work: durable, honest state. You can stop a
-session, resume later from a fresh context, and the ledger says exactly what
-is verified, what was rejected, and what comes next.
+**A step is not done just because the agent says it is.** It must pass
+independent review against your criteria.
 
-## Why use it over plain AGY?
+## Why add NTG to Antigravity?
 
-Plain AGY agents are already good at coding. On multi-step work, though, the
-conversation *is* the state: completion is self-reported and resuming depends
-on chat history. NTG adds a small, verified layer on top. The behaviors below
-were observed in live validation on AGY 1.3.3
-([evidence](.omo/evidence/134-vnext-activation.md)) — they are behavioral
-guarantees, not performance claims:
+Use plain AGY when a direct coding conversation is enough. NTG adds an explicit
+workflow for work that spans several steps or sessions:
 
-- **Independent verification instead of self-certification.** A separate
-  reviewer agent (Zen) checks every milestone's artifact against the plan's
-  acceptance criteria and returns GO or NO-GO. A deliberately tampered
-  artifact was rejected with NO-GO in live testing, and the repaired
-  candidate needed a fresh GO.
-- **Durable state instead of conversation.** An authoritative JSON ledger —
-  not the chat transcript — records the plan version, milestone states,
-  evidence and blockers. A fresh process resumed work from the ledger alone,
-  and a material replan invalidated old verdicts and forced re-review.
-- **Bounded scope per milestone.** Each milestone runs as a packet with
-  explicit scope, non-goals and acceptance criteria, so one step cannot
-  silently absorb the next. Work is delegated by kind of work (discovery,
-  writing, implementation, diagnosis, review) to fitting specialist agents.
-- **Fail-closed, not optimistic.** Empty or malformed model responses, more
-  than one result packet, or prose mixed ambiguously with JSON are recorded as
-  invocation failures and never promoted; a stale lock left by
-  a killed session is recovered only after its dead owner is verified.
+- **Know what is finished.** Completed steps have an independent review;
+  rejected results remain unfinished.
+- **Pick up where you left off.** A saved progress file, called a ledger,
+  records the plan, results, blockers and next step.
+- **Keep each step focused.** Your plan states the allowed files, what to
+  deliver and what not to change.
+- **Revise the plan without trusting stale reviews.** Changed plans require
+  fresh verification, even for retained steps.
 
-## What works today
-
-- Multi-milestone execution in dependency order (`ntg-vnext run --all`), with
-  promotion only on an observed matching Zen GO.
-- Plan revision (`ntg-vnext replan`) with `plan_version` increment and
-  revalidation of retained milestones.
-- NO-GO repair cycles: a rejected candidate stays incomplete until a repaired
-  one earns a fresh GO.
-- Fresh-context resume and crash recovery (`ntg-vnext recover`).
-- Advisory planning (`ntg-vnext plan`) and alternate-framing advice
-  (`ntg-vnext alt`) — recorded as evidence, never auto-adopted.
-- A read-only ledger graph viewer (`ntg-dag`).
-
-Known limitations are listed [below](#requirements-and-known-limitations).
+You do not choose or coordinate internal agents. Antigravity still provides
+the models, tools, sessions and permissions. NTG adds planning boundaries,
+saved progress and independent review, not a replacement coding environment.
+See [Status](docs/status.md) for the observed behavior and its evidence.
 
 ## Install
 
-Prerequisites:
-
-- Node.js 18+
-- Antigravity CLI (`agy`) 1.3.3 on `PATH`, with working model access
-
-Native Gravity 1.1.0 is **not published to npm**. Install from the repository:
+You need **Node.js 18+**, **Antigravity CLI (`agy`) 1.3.3** on `PATH`, and
+working model access. Version 1.1.0 is not published to npm; use the repository:
 
 ```bash
 git clone https://github.com/sleegme/native-gravity.git
 cd native-gravity
-agy plugin uninstall native-gravity  # safe if it was not installed
+agy plugin uninstall native-gravity
 agy plugin install .
+export NTG="$PWD"
 ```
 
-When upgrading, use a clean reinstall (uninstall, then install) so files
-removed from the repository do not remain staged.
+The uninstall/install pair also handles upgrades, removing files that no longer
+belong to the plugin. Uninstall is safe when the plugin was not installed.
+`NTG` points to this checkout, so you can run its scripts from your own project.
+Plugin installation does not create a global CLI command.
 
-## Quick start
+Installation was verified in the [existing release evidence](.omo/evidence/20-instinct-results.md).
+For this documentation change, plugin validation passed; uninstall/install were
+not rerun against the shared installation.
 
-NTG does not accept a one-sentence goal yet — **you write a small plan file**,
-and the CLI runs it. A minimal valid `plan.json`:
+## Start your first task
 
-```json
-{
-  "goal": "Add a health-check endpoint to the example service",
-  "constraints": ["No new dependencies"],
-  "plan_version": "v1",
-  "milestones": [
-    {
-      "id": "m1",
-      "title": "Implement the endpoint",
-      "objective": "Serve GET /health with {\"status\": \"ok\"}",
-      "acceptance_criteria": ["GET /health returns 200 and a status field"],
-      "non_goals": ["Metrics or readiness probes"],
-      "dependencies": [],
-      "bounded_scope": ["src/server.js"]
-    },
-    {
-      "id": "m2",
-      "title": "Cover it with a test",
-      "objective": "Add one automated test for GET /health",
-      "acceptance_criteria": ["A test asserts the 200 response and status field"],
-      "non_goals": ["Full coverage of other routes"],
-      "dependencies": ["m1"],
-      "bounded_scope": ["tests/server.test.js"]
-    }
-  ]
-}
-```
-
-Each milestone needs a unique `id`; `dependencies` must reference existing
-ids and form no cycles. `goal` and a non-empty `milestones` array are the only
-required fields; `title`, `objective`, `acceptance_criteria`, `non_goals` and
-`bounded_scope` make the milestone contract precise and are strongly
-recommended.
-
-Then create a ledger and start. The package is not published to npm yet, so
-there is no global `ntg-vnext` command: run the script from your Native Gravity
-checkout (below, `$NTG` is the path of that checkout). Elsewhere in these docs,
-`ntg-vnext <command>` means `node $NTG/scripts/ntg-vnext.mjs <command>`.
+Open your project directory and follow the [worked example in Usage](docs/usage.md#first-task).
+It shows how to write `plan.json`, create the progress file and run the work:
 
 ```bash
-node $NTG/scripts/ntg-vnext.mjs init   --ledger .ntg/ledger.json --plan plan.json
-node $NTG/scripts/ntg-vnext.mjs status --ledger .ntg/ledger.json   # shows the next milestone
-node $NTG/scripts/ntg-vnext.mjs run    --ledger .ntg/ledger.json --all
+node "$NTG/scripts/ntg-vnext.mjs" init --ledger .ntg/ledger.json --plan plan.json
+node "$NTG/scripts/ntg-vnext.mjs" status --ledger .ntg/ledger.json
+node "$NTG/scripts/ntg-vnext.mjs" run --ledger .ntg/ledger.json --all
 ```
 
-`init`, `status` and `recover` are local and free. `run`, `plan` and `alt`
-invoke real AGY models and consume model usage.
+`init` and `status` were checked locally with that example. `run` invokes real
+models and consumes model usage; it was not rerun for this documentation change.
+The existing [live validation](docs/status.md#live-validation) covers execution,
+rejection, repair and resume.
 
-## Example: an ordinary coding task
+NTG currently needs a plan file; it does not turn a one-sentence goal directly
+into an adopted plan. Planning advice is available in [Usage](docs/usage.md#ask-for-advice).
+The product is alpha and has been validated on one host with AGY 1.3.3.
+Crash recovery is Linux-specific, and only one session may own a progress file
+at a time. See [Usage](docs/usage.md#when-work-stops) for the practical steps.
 
-Using the plan above, `init` accepts the plan and reports what is next:
+## Documentation
 
-```json
-{
-  "state": {
-    "goal": "Add a health-check endpoint to the example service",
-    "plan_version": "v1",
-    "next_action": "Ready to delegate initial milestone: m1",
-    "completed_milestones": []
-  },
-  "next_milestone": "m1",
-  "needs_alt": []
-}
-```
-
-`ntg-vnext run --all` then executes `m1`, has the independent reviewer check
-it against "GET /health returns 200 and a status field", promotes it only on a
-GO, does the same for `m2`, and declares global completion when both are
-verified. If review rejects a milestone (exit code 2), the printed `results`
-say what was missing; repair and `run` again to earn a fresh GO. The full
-command reference is in [Usage](docs/usage.md).
-
-## How it works
-
-```text
-You -> ntg-vnext -> one bounded milestone at a time
-                      -> implementation through specialist agents
-                      -> independent verification of the artifact
-                      -> ledger promotion only on GO
-                 -> global completion when every milestone is verified
-```
-
-The ledger is the single source of truth; every call reloads it, so any new
-process picks up exactly where the ledger says. Internally NTG composes
-Antigravity agents (a supervisor, a planner, milestone executors, specialists
-and an independent reviewer) with exact model assignments — you never select
-them yourself. The full graph and role boundaries are in
-[Architecture](docs/architecture.md).
-
-Native Gravity does not replace the Antigravity runtime: Antigravity owns
-execution, sessions, models and permissions, while NTG supplies role
-contracts, routing policy and the ledger. Details are in
-[Internals](docs/internals.md).
-
-## Requirements and known limitations
-
-- **Alpha software.** Validated on one host with AGY 1.3.3; revalidate the
-  compatibility gate when the AGY runtime changes (see
-  [Internals](docs/internals.md)).
-- **You author the plan.** There is no natural-language goal-to-plan UI;
-  `ntg-vnext plan` produces advisory planning help but never writes your plan
-  for you.
-- **Model usage costs.** `run`, `plan` and `alt` call real AGY models.
-- **Known failure mode.** A model occasionally echoes a worker report before
-  its JSON result packet. Plain narration and a ` ```json ` code fence around a
-  single packet are accepted, but other text outside the packet that contains
-  JSON-like tokens (double quotes, backticks, braces, square brackets, or a
-  standalone number, `true`, `false` or `null`) makes the output ambiguous,
-  and that fails closed as an invocation failure (exact rule:
-  `parseResponsePacket` in `scripts/runner.mjs`)
-  ([#136](https://github.com/sleegme/native-gravity/issues/136)). Since 1.1.0
-  Bulldozer is instructed to keep worker reports inside the packet; if it still
-  happens, retry the milestone. Nothing is promoted on a malformed response.
-- **Crash recovery is Linux-specific.** `recover` verifies dead owners and
-  terminates orphaned executors via `/proc` and `pidfd`; on other platforms it
-  refuses rather than guessing.
-- **One session per ledger.** The runner holds an exclusive lock per ledger
-  for the session lifetime; close the previous session before resuming
-  elsewhere ([Internals](docs/internals.md)).
-
-## Further reading
-
-- [Usage](docs/usage.md) — full command reference, Excavator worker, `ntg-dag`
-- [Architecture](docs/architecture.md) — roles, ledger and completion semantics
-- [Internals](docs/internals.md) — ledger locking/recovery, role ownership
-  detail, AI Studio A/B lane, compatibility history
-- [Status](docs/status.md) — current runtime state and validation evidence
-- [Versioning](docs/versioning.md) — versioning policy and compatibility matrix
-- [vNext architecture contract](docs/specs/vnext-architecture-contract.md) —
-  the authoritative specification
+- [Usage](docs/usage.md) — real workflows, examples and troubleshooting.
+- [Architecture](docs/architecture.md) — design choices and overall structure.
+- [Internals](docs/internals.md) — implementation and maintainer details.
+- [Specs](docs/specs/) — technical contracts.
+- [Status](docs/status.md) — implemented capabilities, limits and evidence.
+- [Versioning](docs/versioning.md) — release policy and compatibility history.

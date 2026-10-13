@@ -1,79 +1,220 @@
 # 사용법
 
-> - **Native Gravity**: 1.1.0
-> - **상태**: alpha
-> - **호환성**:
->   - AGY 1.3.3 — validated
+[English](../usage.md) · [제품과 설치](README.md#설치) · [현재 상태](status.md)
 
-체크아웃한 저장소에서 플러그인을 설치/재설치합니다:
+수정할 프로젝트 디렉터리에서 NTG를 사용합니다. 사용자는 목표, 플랜과 완료 기준을
+제공하며 내부 에이전트를 고르지 않습니다. **마일스톤**은 범위가 정해진 작업
+단계이고, **ledger**는 대화 기록이 아닌 진행 파일입니다.
 
-```bash
-agy plugin uninstall native-gravity
-agy plugin install .
-```
+## 프로젝트 준비
 
-업그레이드 시에는 제거된 legacy agent/hook 파일이 남지 않도록 clean reinstall을 권장합니다.
-
-## `ntg-vnext` 러너
-
-vNext가 유일한 런타임입니다. 멀티 마일스톤 작업은 plan(goal, constraints, `plan_version`, `acceptance_criteria`/`bounded_scope`/`non_goals`/`dependencies`를 가진 milestones)을 작성하고 러너로 실행합니다:
+[README의 설치 절차](README.md#설치)를 따르세요. 같은 터미널의 `NTG` 변수를
+유지하거나 Native Gravity 저장소의 실제 절대 경로를 지정합니다.
 
 ```bash
-ntg-vnext init    --ledger .ntg/ledger.json --plan plan.json
-ntg-vnext plan    --ledger .ntg/ledger.json --task "..."   # Piledriver 자문; 자동 채택 없음
-ntg-vnext run     --ledger .ntg/ledger.json [--milestone ID] [--all]
-ntg-vnext replan  --ledger .ntg/ledger.json --plan plan-v2.json
-ntg-vnext recover --ledger .ntg/ledger.json --evidence "observed interruption"
-ntg-vnext alt     --ledger .ntg/ledger.json --task "..." [--milestone ID] [--escalate]   # Instinct 자문; 자동 채택 없음
-ntg-vnext status  --ledger .ntg/ledger.json
+export NTG="$HOME/work/native-gravity"
 ```
 
-호출마다 ledger를 다시 로드하므로 fresh context는 ledger가 가리키는 지점에서 재개됩니다. `run`은 다음 대상 마일스톤을 Bulldozer로 실행하고, 독립적인 네이티브 Zen verdict를 받아 matching GO일 때만 승격합니다. `--all`은 의존성 순서로 계속합니다. 종료 코드 2는 NO-GO, BLOCKED, NEEDS_DEEP을 의미합니다(출력된 `results` 참고). Global completion은 현재 plan의 모든 마일스톤이 current GO를 가질 때만 선언됩니다. `NTG_ZEN_MODEL`로 Zen의 모델을 지정할 수 있습니다.
+위 경로는 예시이므로 자신의 저장소 경로로 바꾸세요. 평소 터미널 사용 방식으로
+수정할 프로젝트 디렉터리에 들어갑니다. 아래 `.ntg/`와 플랜 경로는 그 프로젝트
+기준입니다. `"$NTG/..."`처럼 따옴표로 감싸면 저장소 경로에 공백이 있어도 됩니다.
+플러그인 설치만으로 전역 `ntg-vnext`나 `ntg-dag` 명령이 생기지는 않습니다.
 
-`alt`는 Instinct alternate-framing 자문(NEEDS_ALT)을 요청하고 advisory JSON을 `adopted: false`와 함께 출력합니다. 자문은 advisory evidence로만 기록되며 plan 채택이나 completion 상태 변경이 없습니다. `status`는 실패 class별 `needs_alt` 추천을 보여줍니다: 같은 실패 class가 새 증거 없이 3회 이상 반복되면 NEEDS_ALT를 추천합니다. `--escalate`만 Opus tier로 가며, 없으면 Instinct는 Sonnet에서 실행됩니다.
+## 첫 작업
 
-## Excavator worker
+프로젝트에 `src/server.js` 서비스와 `tests/server.test.js` 테스트가 있다고
+가정합니다. 아래 내용을 그 프로젝트의 `plan.json`으로 저장하세요. 이 파일
+경로들은 NTG가 제공하는 파일이 아니라 예시입니다. 자신의 서비스와 테스트
+프레임워크에 맞게 경로와 완료 기준을 바꾸세요.
 
-Excavator는 Bulldozer의 worker로, "고장났는데 원인을 아는 사람이 없다"는 어려운 경우에 씁니다. 마일스톤에 어려운 고장 문제가 있을 때 Bulldozer가 bounded 진단 -> 재현 -> 근본 원인 -> 수리 -> 검증 루프를 Excavator에 위임하며, 일반 구현은 Bobcat에 남습니다. Excavator는 위임받은 범위 안에서 직접 수정하며, 중첩 위임이 없고 Zen을 호출하지 않습니다. worker 결과(ROOT_CAUSE `CONFIRMED | LIKELY | SPECULATIVE`, CHANGES, VERIFICATION_EVIDENCE, ROLLBACK, RESIDUAL_RISK, STATUS `READY | BLOCKED`)를 Bulldozer에 반환하며, STATUS는 로컬 worker 신호이지 마일스톤이나 프로젝트 완료가 아닙니다.
+```json
+{
+  "goal": "Add a health-check endpoint to the example service",
+  "constraints": ["No new dependencies"],
+  "plan_version": "v1",
+  "milestones": [
+    {
+      "id": "m1",
+      "title": "Implement the endpoint",
+      "objective": "Serve GET /health with {\"status\": \"ok\"}",
+      "acceptance_criteria": ["GET /health returns 200 and a status field"],
+      "non_goals": ["Metrics or readiness probes"],
+      "dependencies": [],
+      "bounded_scope": ["src/server.js"]
+    },
+    {
+      "id": "m2",
+      "title": "Cover it with a test",
+      "objective": "Add one automated test for GET /health",
+      "acceptance_criteria": ["A test asserts the 200 response and status field"],
+      "non_goals": ["Full coverage of other routes"],
+      "dependencies": ["m1"],
+      "bounded_scope": ["tests/server.test.js"]
+    }
+  ]
+}
+```
 
-네이티브로 선택 가능한 primary는 더 이상 없으며, 프로젝트 작업의 진입점은 `ntg-vnext`입니다. Bulldozer, Piledriver, Instinct는 runner 전용 역할입니다. 멀티 마일스톤 작업, durable ledger 상태, replanning, global completion은 `ntg-vnext`에 속하며, Piledriver 자문은 `ntg-vnext plan`으로, Instinct 자문은 `ntg-vnext alt`로 요청합니다.
+필수 입력은 비어 있지 않은 `goal`, 비어 있지 않은 `milestones` 배열, 각
+마일스톤의 고유하고 비어 있지 않은 `id`입니다. 의존성은 존재하는 ID를 가리켜야
+하고 순환하면 안 됩니다. `objective`, `acceptance_criteria`, `non_goals`,
+`bounded_scope`는 초기화 시 생략할 수 있지만, 실행과 검수의 기준이 되므로
+작성하세요. `title`, `constraints`, `plan_version`도 계획을 이해하고 바꾸는 데
+도움이 됩니다.
 
-## Bobcat / Puma / Excavator
-
-Bobcat은 일반적인 behavior-bearing 구현 담당이며 Bulldozer가 `ADVISOR_GATE: REQUIRED | NONE`을 선택합니다.
-
-REQUIRED일 때 Bobcat은 read-only 로컬 조언/CHECK gate인 **Strix Halo** (`strix-halo`)를 호출합니다.
-
-Puma는 writing, formatting, presentation-only, mechanical text/config 같은 명확하고 작은 저위험 작업 전용이며 Advisor를 부르지 않고 중첩 위임도 없습니다.
-
-Excavator는 한 마일스톤 안에서 어려운 고장 진단/수리 전용입니다 — 스스로 조사하고, 재현하고, 근본 원인을 고치고, 결과를 검증합니다.
-
-## Alpha 검증
-
-이 checklist는 릴리스 gate입니다(`AGENTS.md` 참고). 러너 경로(1-4번)는 AGY 1.3.3에서 라이브로 통과했습니다 — `.omo/evidence/138-vnext-only-results.md` 참고. 5-8번은 deterministic 테스트로 강제되며 이전 라이브 관측이 있습니다. AGY 런타임이 바뀌면 전체 checklist를 다시 실행합니다:
-
-1. 러너가 Steamroller -> Piledriver -> Bulldozer -> Zen을 end-to-end로 실행하고, matching Zen GO를 관측한 경우에만 마일스톤을 승격하는지;
-2. 멀티 마일스톤 실행이 의존성 순서로 승격하고, material replan이 `plan_version`을 증가시키며 retained 마일스톤을 재검증하는지;
-3. Zen NO-GO가 마일스톤을 미완료로 남기고, 수정된 후보가 fresh GO를 필요로 하는지;
-4. fresh-context 재개가 대화가 아니라 ledger에서 이어지는지;
-5. Bobcat이 `strix-halo` 외 다른 subagent를 호출하지 않는지 (negative case);
-6. Bulldozer가 bounded 진단+수리를 Excavator에 위임할 때 Excavator가 수정을 하고, subagent(Zen 포함)를 호출하지 않으며 worker 결과를 반환하는지, 그리고 Bulldozer 위임 검증이 Excavator를 수용하고 non-worker 역할을 거부하는지;
-7. Zen이 `NTG_ZEN_VERIFY=1` marker로 독립 검증 command를 실행하면서 일반적인 의도적 source-mutation 시도는 거부되는지;
-8. Excavator-marked shell call이 일반 sudo 진단을 허용하면서 privilege-drift와 full-upgrade 경로는 거부하는지.
-
-마일스톤이 열린 결정 질문으로 `BLOCKED`가 되면 `ntg-vnext plan`으로 Piledriver에 넘깁니다. Excavator는 Bulldozer의 worker입니다: `STATUS`는 마일스톤 내부의 로컬 신호이며, 승격과 완료는 오직 Steamroller만 합니다.
-
-## `ntg-dag` (ledger 마일스톤 그래프)
-
-`ntg-dag`는 vNext ledger 스냅샷의 마일스톤 의존 그래프를 터미널에 Unicode 박스로 그립니다. 읽기 전용이며 ledger를 수정하지 않습니다.
+진행 파일을 만들고 다음 단계를 확인합니다.
 
 ```bash
-node scripts/dag-view.mjs --ledger tests/fixtures/dag-view/all-states.ledger.json --width 80 --no-color
+node "$NTG/scripts/ntg-vnext.mjs" init --ledger .ntg/ledger.json --plan plan.json
+node "$NTG/scripts/ntg-vnext.mjs" status --ledger .ntg/ledger.json
 ```
 
-- `--ledger PATH`: ledger JSON 경로 (`NTG_LEDGER` env로도 지정 가능)
-- `--watch`: ledger 파일 변경 시 전체 화면 다시 그림 (herdr/tmux 옆 pane에 띄우면 라이브)
-- `--width N`: 폭 고정 (기본: TTY 컬럼)
-- `--no-color`: ANSI 색 비활성화
+두 명령은 위 플랜으로 로컬 실행했습니다. 출력 중 관련 필드만 발췌하면 다음과
+같습니다. 전체 응답은 아닙니다.
 
-설치 후 `ntg-dag` 이름으로도 실행 가능합니다.
+```json
+{
+  "state": {
+    "goal": "Add a health-check endpoint to the example service",
+    "plan_version": "v1",
+    "next_action": "Ready to delegate initial milestone: m1",
+    "completed_milestones": []
+  },
+  "next_milestone": "m1",
+  "needs_alt": []
+}
+```
+
+이제 플랜을 실행합니다.
+
+```bash
+node "$NTG/scripts/ntg-vnext.mjs" run --ledger .ntg/ledger.json --all
+```
+
+실제 AGY 모델을 호출하고 모델 사용량을 소비합니다. 이번 문서 변경에서는
+다시 실행하지 않았으며, 실행/검수 흐름은 [기존 라이브 증거](status.md#라이브-검증)를
+참고하세요. health-check 구현 자체는 설명용 과제이며 라이브 성공을 주장하는
+예제가 아닙니다.
+
+NTG가 `m1`을 실행하고 완료 기준에 맞는지 독립 검수한 뒤, 통과했을 때만 `m2`를
+진행합니다. 검수 결과는 `GO`(통과) 또는 `NO-GO`(수정 필요)입니다. 현재 플랜이
+모두 검증되고 블로커가 없어야 최종 응답에 `global_completion`이 포함됩니다.
+모델의 자체 완료 주장만으로는 끝나지 않습니다.
+
+## 한 단계 실행과 나중에 재개
+
+다음에 실행할 수 있는 마일스톤 하나만 진행하려면:
+
+```bash
+node "$NTG/scripts/ntg-vnext.mjs" run --ledger .ntg/ledger.json
+```
+
+의존성이 이미 완료된 마일스톤을 지정하려면:
+
+```bash
+node "$NTG/scripts/ntg-vnext.mjs" run --ledger .ntg/ledger.json --milestone m1
+```
+
+두 모델 호출 방식은 소스로 확인했으며 여기서 라이브로 다시 실행하지 않았습니다.
+`--all`은 의존성 순서로 계속 진행합니다. `--milestone`을 함께 주면 그 마일스톤
+하나만 실행합니다.
+
+정상 종료 후 같은 프로젝트에서 새 터미널을 열고 `NTG`를 다시 지정하세요.
+`status`로 확인한 뒤 `run` 또는 `run --all`을 반복하면 됩니다. 매번 저장된
+진행 상황을 읽으므로 이전 대화가 필요하지 않습니다. 기존 ledger에 `init`을
+다시 실행하지 마세요.
+
+## 계획 변경
+
+같은 형식의 수정된 플랜을 `plan-v2.json`으로 저장하고 `plan_version`을 `"v2"`로
+설정합니다.
+
+```bash
+node "$NTG/scripts/ntg-vnext.mjs" replan --ledger .ntg/ledger.json --plan plan-v2.json
+```
+
+이 로컬 명령은 예제의 v2 복사본으로 확인했습니다. 새 플랜을 채택하면서 기존
+완료 상태를 비우고 이전 검수는 stale로 표시합니다. 유지한 단계도 의존성 순서로
+새 검수를 받아야 하지만, 바뀌지 않은 코드를 다시 작성할 필요는 없습니다.
+이전 증거는 이력으로 남습니다. 실행 중인 호출은 종료하거나 복구한 뒤 계획을
+바꾸세요.
+
+## 자문 받기
+
+아직 결정하지 못한 설계 질문에는:
+
+```bash
+node "$NTG/scripts/ntg-vnext.mjs" plan --ledger .ntg/ledger.json --task "How should we test the health endpoint?"
+```
+
+같은 실패가 반복되어 다른 접근이 필요하다면:
+
+```bash
+node "$NTG/scripts/ntg-vnext.mjs" alt --ledger .ntg/ledger.json --milestone m1 --task "Challenge our current diagnosis of the failing health endpoint"
+```
+
+둘 다 모델을 호출합니다. 문법은 소스로 확인했으며 여기서 다시 실행하지
+않았습니다. 출력의 `adopted: false`는 자문이 기록될 뿐 플랜을 바꾸거나 작업을
+완료하지 않는다는 뜻입니다. 사용할 내용을 결정하고 플랜 파일을 수정한 뒤
+`replan`으로 채택하세요.
+
+`status`는 같은 실패 유형이 새 증거 없이 세 번 이상 반복되면 `needs_alt`를
+추천합니다. 자동 모델 호출은 없습니다. `alt`의 기본 모델은 Sonnet이며
+`--escalate`를 추가하면 명시적으로 Opus를 선택하므로 사용 비용이 달라질 수
+있습니다. 어느 쪽도 자문이라는 경계는 같습니다.
+
+## 작업이 멈췄을 때
+
+JSON 출력의 `results`, `state.blockers`, `state.next_action`을 확인하세요.
+
+| 결과 | 다음 행동 |
+|---|---|
+| 종료 코드 0 | 명령 성공입니다. 프로젝트 전체 완료 여부는 `global_completion`을 확인하세요 |
+| 종료 코드 2: `NO-GO` | 수정 요구를 읽고 `run`을 반복하여 새 후보와 새 검수를 받으세요 |
+| 종료 코드 2: `BLOCKED` / `NEEDS_DEEP` | 블로커를 해결하거나 계획 자문을 받고 필요하면 플랜을 바꾸세요 |
+| 종료 코드 1: 잘못된 모델 응답 | 오류를 읽고 적절하면 재시도하세요. 잘못된 응답으로는 승격하지 않습니다 |
+| Ledger 잠금 | 이전 세션을 정상 종료하세요. 살아 있는 소유자의 lock을 지우지 마세요 |
+| 작업 중 프로세스 크래시 | 아래 복구 절차 후 재개하세요 |
+
+크래시 복구에는 `/proc`이 있는 Linux, `os.pidfd_open`을 제공하는 Python 3,
+pidfd를 지원하는 커널이 필요합니다. 고아 실행기의 종료를 확인할 수 없으면
+복구를 거부합니다. 이전 호출의 중단을 실제로 관측했다면 그 사실을 설명합니다.
+
+```bash
+node "$NTG/scripts/ntg-vnext.mjs" recover --ledger .ntg/ledger.json --evidence "Observed the previous supervisor exit during milestone execution"
+```
+
+증거 문장은 실제 관측으로 바꾸세요. 종료된 소유자 복구는 `tests/test_ntg_vnext.mjs`가
+검증하며, 중단이 없을 때의 거부 동작은 로컬에서 실행했습니다. 공유 세션은
+중단하지 않았습니다. 복구는 중단된 호출을
+종료할 뿐 작업을 완료하지 않습니다. 이후 `status`를 확인하고 다시 실행하세요.
+일반적인 잠금 해제 명령은 아닙니다. 중단된 마일스톤이 없으면 복구 성공을
+주장하지 않고 오류를 반환합니다.
+
+`init`, `status`, `replan`, `recover`는 모델을 호출하지 않습니다.
+`run`, `plan`, `alt`는 모델을 호출합니다. 모델 호출의 기본 제한 시간은 600초이며
+`--timeout` 또는 `NTG_RUNNER_TIMEOUT_S`로 양수 초 값을 지정할 수 있습니다.
+
+## 그래프로 진행 상황 보기
+
+```bash
+node "$NTG/scripts/dag-view.mjs" --ledger .ntg/ledger.json --width 80 --no-color
+```
+
+예제 ledger로 로컬 실행했습니다. 진행 상태를 바꾸지 않고 의존성과 상태를
+그리는 읽기 전용 명령입니다.
+
+- `--ledger PATH`: ledger 경로. `NTG_LEDGER` 환경 변수로도 지정할 수 있습니다.
+- `--width N`: 고정 폭. 생략하면 터미널 폭을 사용합니다.
+- `--no-color`: ANSI 색 비활성화.
+- `--watch`: 파일 변경 시 다시 그립니다. 옆 터미널 창에 띄워 두기 좋습니다. 이번 문서 변경에서는 watch 방식을
+  다시 실행하지 않았습니다.
+
+자신의 프로젝트 대신 NTG가 제공하는 표시용 fixture를 보려면:
+
+```bash
+node "$NTG/scripts/dag-view.mjs" --ledger "$NTG/tests/fixtures/dag-view/all-states.ledger.json" --width 80 --no-color
+```
+
+이 fixture 명령도 로컬 실행했습니다. 내부 역할 선택, 모델 재정의와 릴리스 검증은
+[내부 동작](../internals.md)을 참고하세요.

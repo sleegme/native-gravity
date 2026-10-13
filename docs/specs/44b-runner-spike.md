@@ -1,5 +1,10 @@
 # Native Gravity vNext 44B Exact-Model Runner Spike
 
+> **Historical record.** This spike predates activation (44G, #134) and later
+> releases. Its receipts and deferred-at-the-time questions are kept as
+> evidence; the current implementation is described in
+> [Internals](../internals.md) and the current status in [Status](../status.md).
+
 ## 1. Overview & Purpose
 
 Implementation slice **44B** validates the minimal exact-model and reasoning-effort runner spike for Native Gravity vNext, as defined in `docs/specs/vnext-architecture-contract.md` (§6, §8, §9).

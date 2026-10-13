@@ -1,10 +1,10 @@
 # Internals
 
-Dense implementation detail behind the README: ownership boundaries, ledger
-locking and recovery, the AI Studio A/B lane, role ownership/routing detail,
-and the compatibility validation history. For the role graph and completion
-semantics see [Architecture](architecture.md); the authoritative specification
-is the [vNext architecture contract](specs/vnext-architecture-contract.md).
+Implementation reference for maintainers: roles, invocation, packet validation,
+ledger locking, recovery and release checks. For normal operation use
+[Usage](usage.md); for design rationale use [Architecture](architecture.md).
+The [vNext architecture contract](specs/vnext-architecture-contract.md) is
+normative; this page maps that contract to the implementation.
 
 ## Native-first boundary
 
@@ -18,6 +18,11 @@ behavioral guidance. It does not replace Antigravity runtime behavior. The
 vNext runner (`ntg-vnext`) is a narrow exact-model coordinator over `agy` that
 owns only the authoritative ledger, milestone sequencing and the independent
 Zen gate; it is not a general workflow platform.
+
+`package.json` declares `ntg-vnext`, `ntg-dag` and `native-gravity` bins. They
+become commands only through an npm-installed package, which 1.1.0 is not;
+plugin installation does not create them, so user docs run
+`node <checkout>/scripts/<name>.mjs` instead.
 
 ## Ledger ownership
 
@@ -40,6 +45,20 @@ ownership protocol; low-level `AuthoritativeLedger.load()` / `save()` remain
 persistence primitives, not independent session owners.
 
 ## Role ownership and routing
+
+The named topology is internal, not a user configuration interface:
+
+```text
+User
+  Steamroller — supervisor / authoritative ledger owner
+    Piledriver — bounded planning, architecture and difficult decisions
+    Bulldozer — one bounded milestone
+      Jaguar / Puma / Bobcat / Excavator
+                       Strix Halo — Bobcat-local advisor gate
+    Instinct — alternate-framing advisory on NEEDS_ALT
+    Zen — independent milestone verification
+    Steamroller ledger transition
+```
 
 No natively selectable primary remains; `ntg-vnext` is the entry for project
 work. Bulldozer, Piledriver and Instinct are runner-only roles: Bulldozer
@@ -64,7 +83,112 @@ only where a specific role/model pairing actually fails. Excavator is
 intentionally an editing role, so there is no model-wide mutation deny. The
 Zen and Excavator shell guards are behavioral backstops scoped from the
 explicit `NTG_ZEN_VERIFY=1` / `NTG_EXCAVATOR=1` shell markers, not complete
-shell or privilege sandboxes (see [Status](status.md)).
+shell or privilege sandboxes.
+
+| Role | Implementation boundary |
+|---|---|
+| Steamroller | Sole authoritative ledger writer and global completion authority; owns goal, constraints, decision invariants, plan version, graph, evidence, blockers and next action; neither implements source nor directly orchestrates workers |
+| Piledriver | Advisory planning, architecture/API decisions, verification strategy and material replans; no implementation, delegation, ledger or completion authority; Steamroller decides adoption; execution/review requests remain planning requests |
+| Bulldozer | One current-version milestone; delegates rather than editing source or running shell; directly inspects known context and packet-named files, delegates discovery to Jaguar; returns `DONE \| BLOCKED \| NEEDS_DEEP`; never invokes Piledriver/Zen or writes the ledger |
+| Jaguar | Read-only factual discovery; no delegation |
+| Puma | Small, explicit, low-risk writing/formatting/presentation/mechanical text or config; no delegation or advisor ceremony |
+| Bobcat | Ordinary bounded implementation; may invoke only Strix Halo; parent chooses `ADVISOR_GATE: REQUIRED \| NONE`, REQUIRED for substantive code/behavior/API/state/lifecycle/test work or uncertainty, NONE only for clearly low-risk mechanical work |
+| Excavator | Native Pro difficult diagnose/reproduce/root-cause/repair/verify worker under Bulldozer; edits inside its scope, no nested delegation, never invokes Zen |
+| Strix Halo (`strix-halo`) | Bobcat-only read-only advice/CHECK gate; `ACCEPT \| REVISE \| NEEDS_DEEP`; corrections go through Bobcat |
+| Zen | Independent non-mutating milestone review for Steamroller, not Bulldozer's child; `GO \| NO-GO`; may run verification commands |
+| Instinct | Runner-only heterogeneous alternate-framing advice, not a ritual reviewer; no implementation, orchestration, ledger, adoption or verdict/completion authority |
+
+Difficult decisions propagate through
+`Strix Halo -> Bobcat -> Bulldozer -> Steamroller -> optional Piledriver`.
+Workers and Bulldozer never invoke Piledriver directly. Excavator returns
+ROOT_CAUSE (`CONFIRMED | LIKELY | SPECULATIVE`), CHANGES,
+VERIFICATION_EVIDENCE, ROLLBACK, RESIDUAL_RISK and STATUS (`READY | BLOCKED`).
+That STATUS, worker READY and Strix ACCEPT are local signals, not completion.
+
+## Candidate verification
+
+Bulldozer DONE is a pre-review candidate. `scripts/spine.mjs` implements the
+supervisor's sequencing over `scripts/ledger.mjs`; one milestone executes or
+undergoes review at a time. Before Zen review, the ledger persists an immutable
+candidate and a unique `result_ref`. Promotion requires an observed GO matching
+the milestone, current `plan_version` and candidate reference, plus actual
+verification evidence. Changed candidates need new references and reviews.
+
+Material replanning ends active execution/review before adoption, increments
+`plan_version`, marks old verdicts STALE and clears active/completed state.
+Retained milestones need fresh current-version review in dependency order.
+Historical evidence remains, but cannot authorize completion. Global completion
+requires all current milestones verified, no blockers, no active invocation or
+review, and direct observation of evidence by the supervisor.
+
+## Invocation policy
+
+`scripts/runner.mjs` resolves installed model slugs without silent fallback and
+owns effort, cwd/context, bounded prompt construction, timeouts, recursion
+protection, structured result capture and failure reporting. Role bodies load
+from `agents/`; critical roles are runner-invoked, not natively selectable.
+
+- Steamroller/Bulldozer target Gemini 3.8 Flash / High.
+- Piledriver targets Gemini 3.1 Pro / High.
+- Instinct targets Claude Sonnet 5.5 / High; Claude Opus 5.5 / High is selected
+  only on explicit `--escalate`.
+- Jaguar/Puma/Bobcat retain native Flash; Excavator/Strix Halo/Zen native Pro.
+- `NTG_ZEN_MODEL` optionally pins the independently invoked Zen model. Moving
+  the baseline to an exact model requires comparative live evidence, not a
+  policy assumption.
+
+NEEDS_ALT is for materially similar failures repeating without new evidence,
+or same-family paths over-converging. The advice packet carries failure class/signature, current hypothesis, attempt
+count, evidence and tier-B replan context. Instinct returns current framing,
+why it may be wrong, materially different hypotheses/approaches (each with an
+OBSERVED/INFERRED/UNKNOWN basis and discriminating test), recommendation and
+unknowns. The result is advisory evidence (`adopted: false`), never automatic
+plan adoption or promotion. Same-class failure recommendations require at
+least three attempts without meaningful new evidence or causal-model progress;
+they are not raw retry counts and never automatically run paid calls.
+
+## Planning visibility
+
+Planning receives a bounded tier-B `replan_context`, not the raw ledger
+(owner decision #114). It identifies the failed artifact/lane and failed step's
+redacted tool arguments or command line. Prompt text, role bodies and contract
+fragments stay hidden; inherited context is not an authority grant. Exact fields,
+excluded candidate/verdict blobs and redaction rules have one normative home in
+[contract §4.3](specs/vnext-architecture-contract.md#43-steamroller--piledriver-planning-packet).
+`scripts/telemetry.mjs` applies redaction both when recording and projecting.
+
+## Result packets
+
+Machine invocations request a bare JSON object; Bulldozer is instructed to start
+its response with `{` and relay worker reports only inside packet fields
+(`verification_evidence`, `delegations` findings), never before or after it
+(#136, shipped in 1.1.0). Parsing does not replace ledger validation or review.
+
+`parseResponsePacket` in `scripts/runner.mjs` accepts a single unambiguous
+packet, including a JSON code fence or plain surrounding narration. Other
+packet-external text containing JSON-like tokens (double quotes, backticks,
+braces, square brackets, or a standalone number, `true`, `false` or `null`)
+is ambiguous and rejected. Empty, malformed or multiple packets fail closed:
+the invocation failure is recorded and nothing promoted. A model occasionally
+echoes worker reports outside its packet; source instructions reduce this
+failure mode but are not a guarantee. The observed failure and retry remain
+in [activation evidence](../.omo/evidence/134-vnext-activation.md).
+
+## Behavioral guards
+
+Zen's verification-only `run_command` uses the `NTG_ZEN_VERIFY=1` marker and
+`PreToolUse` guard against common intentional shell mutation paths. Excavator's
+`NTG_EXCAVATOR=1` marker scopes its guard: ordinary task-relevant sudo diagnostics
+and repair remain allowed, while stdin-password injection/guessing, alternate
+privilege acquisition (`su`, `pkexec`, root SSH to localhost), shell-history
+credential mining and broad system upgrades are rejected.
+
+These are role-specific behavioral backstops, not complete shell or privilege
+sandboxes. AGY `PreToolUse` payloads lack reliable custom-agent identity; the
+guards use explicit markers rather than a model-wide deny.
+Deterministic coverage lives in
+[`tests/test_zen_shell_guard.py`](../tests/test_zen_shell_guard.py) and
+[`tests/test_excavator_shell_guard.py`](../tests/test_excavator_shell_guard.py).
 
 ## Google AI Studio lane
 
@@ -97,5 +221,38 @@ Piledriver -> Bulldozer -> Zen) and specialist delegation (Bulldozer ->
 Jaguar / Puma / Bobcat, including the nested Bobcat -> Strix Halo gate) in live
 probe sessions. Revalidate this compatibility gate when the AGY runtime
 changes. See [Versioning Policy](versioning.md) for versioning details and the
-compatibility matrix. The release validation checklist lives in
-[Usage](usage.md#alpha-validation).
+compatibility matrix. This is a maintainer release gate, not a normal user
+workflow. The canonical obligations remain in [AGENTS.md](../AGENTS.md#validation-required):
+
+1. Runner execution/planning/review reaches a matching independent Zen GO
+   before promotion.
+2. Multi-milestone work follows dependencies; material replans increment the
+   version and revalidate retained milestones.
+3. A NO-GO leaves work incomplete; a repaired candidate needs a fresh GO.
+4. Fresh-context resume uses the ledger, not conversation.
+5. Bobcat invokes only Strix Halo (include negative delegation coverage).
+6. Bulldozer may delegate bounded diagnosis/repair to Excavator; the worker
+   edits, invokes no child (including Zen), and returns its worker result;
+   delegation validation accepts it and rejects non-worker roles.
+7. Zen verification uses its marker and rejects common intentional mutations.
+8. Excavator-marked calls preserve ordinary sudo diagnostics while rejecting
+   privilege drift and full upgrades.
+
+Items 1–4 passed in prior AGY 1.3.3 live runner probes. Items 5–8 have deterministic
+coverage and prior live observations; the later Excavator worker probe is linked
+in [Status](status.md#live-validation). Revalidate the full gate after an AGY
+runtime change. This documentation change does not claim a new release run.
+
+## Activation and transition record
+
+vNext activation (44G, #134) connected the runner and distributed role/rule
+bodies. Version 1.0.0 removed the pre-vNext topology and compatibility paths
+(#138); version 1.1.0 removed the last native primary, demoted Excavator to a
+worker and implemented Instinct (#20). This is completed migration history,
+not a user-facing mode selection.
+
+The [Status history](status.md#release-and-migration-history) retains removed
+paths, the superseded #137 customization decision and original live receipts.
+The [44B spike](specs/44b-runner-spike.md) preserves its earlier implementation
+contract and empirical receipts; it is historical, not the current whole-system
+specification.
