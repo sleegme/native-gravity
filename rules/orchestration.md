@@ -232,7 +232,7 @@ tiers. Model policy, not hard-coded slugs:
 | Puma | Flash | native | native subagent |
 | Bobcat | Flash | native | native subagent |
 | Excavator | Pro | native | native subagent |
-| Strix Halo | Pro | native | native subagent |
+| Strix Halo | Flash | native | native subagent |
 | Zen | Pro | native | native subagent (exact 3.1 Pro / High only if validation shows material improvement) |
 
 ## Excavator shell boundary

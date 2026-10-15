@@ -75,7 +75,7 @@ It returns `ROOT_CAUSE`, `CHANGES`, `VERIFICATION_EVIDENCE`, `ROLLBACK`,
 `RESIDUAL_RISK`, and `STATUS` to Bulldozer; READY or BLOCKED describes the
 worker's local result, not project completion.
 
-Strix Halo is Pro-tier, read-only advice for Bobcat. Bobcat can call
+Strix Halo is Flash-tier, read-only advice for Bobcat. Bobcat can call
 `strix-halo` and no other child. Corrections go back through Bobcat.
 Bulldozer chooses `ADVISOR_GATE: REQUIRED | NONE` in Bobcat's assignment:
 use REQUIRED for substantive behavior, code, APIs, state, lifecycle, tests,
