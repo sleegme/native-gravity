@@ -64,6 +64,22 @@ class ZenShellGuardTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(run_payload(command_payload(command))["decision"], "allow")
 
+    def test_test_paths_name_literal_files_only(self):
+        allowed = "NTG_ZEN_VERIFY=1 node --test tests/test_ledger.mjs tests/test_spine.mjs"
+        self.assertEqual(run_payload(command_payload(allowed))["decision"], "allow")
+        patterns = [
+            "node --test tests/*.mjs",
+            "node --test tests/test_?.mjs",
+            "node --test tests/[a-z].mjs",
+            "node --test tests/{a,b}.mjs",
+            "node --test tests//a.mjs",
+            "node --test tests/~a.mjs",
+        ]
+        for command in patterns:
+            marked = "NTG_ZEN_VERIFY=1 " + command
+            with self.subTest(command=marked):
+                self.assertEqual(run_payload(command_payload(marked))["decision"], "deny")
+
     def test_marked_mutations_and_bypasses_denied(self):
         commands = [
             "rm -rf project", "mv a b", "cp a b", "touch artifact", "mkdir output",
