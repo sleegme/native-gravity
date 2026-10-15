@@ -36,8 +36,10 @@
   거부합니다. ledger 하나는 한 번에 한 세션만 씁니다.
 - **npm 미게시:** 저장소에서 설치합니다. 플러그인을 설치해도 전역 명령은 생기지
   않습니다.
-- 독립 검수자의 exact-model 선택은 아직 비교 검증 중인 질문이며 계획된 기능이
-  아닙니다. [모델 프로필](../model-profiles/README.md)은 잠정적인 연구 자료이며
+- 독립 검수자는 정책상 Claude Sonnet 5.5 / High로 고정되어 있습니다
+  (2026-10-15 재매핑, 네이티브 agent 선택이 더 이상 해석되지 않기 때문).
+  그 선택에 대한 비교 증거는 아직 열려 있습니다.
+  [모델 프로필](../model-profiles/README.md)은 잠정적인 연구 자료이며
   배포된 라우팅이 아닙니다.
 
 ## 라이브 검증
@@ -47,7 +49,7 @@ AGY 1.3.3에서 검증 완료 (증거: `.omo/evidence/113-live-probe-results.md`
 - 러너 end-to-end: 마일스톤별 독립 Zen GO를 가진 멀티 마일스톤 의존성 순서 실행, 관측된 중단 후 fresh-context 재개, `plan_version` 증가와 fresh current-version 재검증을 가진 material replan, 그리고 라이브 Zen NO-GO -> 수정 -> fresh GO 사이클(의도적으로 변조한 결과물이 반려되었고 수정된 후보는 새 GO가 필요했음)
 - specialist 위임: Bulldozer -> Jaguar / Puma / Bobcat과 중첩 Bobcat -> Strix Halo(`ACCEPT`) gate가 transcript 수준 `invoke_subagent` dispatch로 관측됨
 - Bulldozer -> Excavator worker: 실제 `ntg-vnext run` 마일스톤이 `~/.cache`의 고장 난 fixture에 대한 bounded 진단+수리를 Excavator에 위임했고(Bulldozer transcript에서 `invoke_subagent` `TypeName: excavator` 관측; Excavator는 Zen을 호출하지 않고 worker 결과를 반환), Steamroller의 matching Zen GO가 마일스톤을 global completion까지 승격; 증거: `.omo/evidence/20-instinct-results.md`
-- 러너 exact-model 해석: piledriver `gemini-3.1-pro-high`, bulldozer/steamroller `gemini-3.8-flash-high`, instinct `claude-sonnet-5-5-high` (명시적 escalation에서만 `claude-opus-5-5-high`)
+- 러너 exact-model 해석: piledriver `claude-opus-5-5-high`, bulldozer/steamroller `gemini-3.8-flash-high`, instinct `claude-sonnet-5-5-high` (명시적 escalation에서만 `claude-opus-5-5-high`), 네이티브 호출에서 zen `claude-sonnet-5-5-high` (2026-10-15 Piledriver/Zen/Excavator 재매핑은 위 end-to-end 실행 이후입니다)
 - Instinct NEEDS_ALT: 작은 ledger에 대해 Sonnet으로 실제 `ntg-vnext alt` 호출 1회, `adopted: false`와 함께 advisory JSON 반환; 증거: `.omo/evidence/20-instinct-results.md`
 - 네이티브 Excavator (강등 이전, #137): 실제 인터랙티브 NO-GO -> 수정 -> fresh GO 이후 같은 세션에서 GO 뒤 직접 write -> fresh 독립 검수 -> READY를 관측했습니다. 실제 terminal Stop 이벤트는 fresh GO 뒤 완료를 허용했습니다. Stale verdict 거부는 캡처한 post-write transcript를 별도로 재생해 확인했으며, 조기 READY 시도의 live 관측은 아닙니다. 이 경로는 네이티브 primary와 함께 제거되었습니다. 증거: `.omo/evidence/137-excavator-validation.md`.
 

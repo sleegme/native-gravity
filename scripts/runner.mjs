@@ -7,7 +7,17 @@ import { TextDecoder } from "node:util";
 
 // Explicitly bounded to the runner roles; native specialists stay native.
 const ROLE_BODY_ROLES = Object.freeze(["steamroller", "piledriver", "bulldozer", "instinct"]);
+// Zen is not runner-supervised: ntg-vnext invokes it natively, outside the
+// supervisor's role packets. It is listed here because its exact slug resolves
+// from the same frozen policy table and its body loads through the same loader.
+// invoke() and composeBoundedPrompt() still reject every role outside
+// ROLE_BODY_ROLES, so this grants no runner or delegation authority.
+const NATIVE_ROLE_BODY_ROLES = Object.freeze(["zen"]);
+const MODEL_RESOLUTION_ROLES = Object.freeze([...ROLE_BODY_ROLES, ...NATIVE_ROLE_BODY_ROLES]);
 const RUNNER_DIR = dirname(fileURLToPath(import.meta.url));
+
+/** Leading AGY frontmatter block of a role file (its metadata, not prompt text). */
+const FRONTMATTER_BLOCK = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n)?/;
 
 /**
  * Role policy table mapping agent roles to target model families and reasoning effort requirements.
@@ -16,7 +26,12 @@ const RUNNER_DIR = dirname(fileURLToPath(import.meta.url));
 export const ROLE_POLICY_TABLE = Object.freeze({
   piledriver: Object.freeze({
     role: "piledriver",
-    family: "Gemini 3.1 Pro",
+    family: "Claude Opus 5.5",
+    effort: "High",
+  }),
+  zen: Object.freeze({
+    role: "zen",
+    family: "Claude Sonnet 5.5",
     effort: "High",
   }),
   bulldozer: Object.freeze({
@@ -93,24 +108,20 @@ export class RoleBodyError extends Error {
 }
 
 /**
- * Loads the role file as Markdown content, without interpreting AGY frontmatter.
- * Directory precedence: roleBodyDir, opts.env.NTG_ROLE_BODY_DIR, process env,
- * then ../agents relative to this module. Relative overrides also use RUNNER_DIR,
- * never the invocation cwd. Missing/invalid files never fall back to defaults.
+ * Reads and validates one shipped role file as Markdown, without interpreting
+ * AGY frontmatter. Directory precedence: roleBodyDir, opts.env.NTG_ROLE_BODY_DIR,
+ * process env, then ../agents relative to this module. Relative overrides also
+ * use RUNNER_DIR, never the invocation cwd. Missing/invalid files never fall
+ * back to defaults.
  */
-function loadRoleBody(role, opts) {
-  const normalized = typeof role === "string" ? role.trim().toLowerCase() : "";
-  if (!ROLE_BODY_ROLES.includes(normalized)) {
-    throw new UnresolvedModelSlugError(role, `Unknown runner role: "${role}".`);
-  }
-
+function readRoleBody(role, opts = {}) {
   try {
     const directory = opts.roleBodyDir ?? opts.env?.NTG_ROLE_BODY_DIR ??
       process.env.NTG_ROLE_BODY_DIR ?? "../agents";
     if (typeof directory !== "string" || !directory.trim()) {
       throw new Error("Role body directory must be a non-empty path string");
     }
-    const path = resolve(RUNNER_DIR, directory, `${normalized}.md`);
+    const path = resolve(RUNNER_DIR, directory, `${role}.md`);
     const body = new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(path));
     if (!body.trim() || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(body)) {
       throw new Error("Role body must contain non-empty UTF-8 Markdown without non-text control characters");
@@ -120,9 +131,39 @@ function loadRoleBody(role, opts) {
     throw new RoleBodyError(
       role,
       err.code === "ENOENT" ? "ROLE_BODY_MISSING" : "ROLE_BODY_INVALID",
-      `Cannot load role body for "${normalized}": ${err.message}`
+      `Cannot load role body for "${role}": ${err.message}`
     );
   }
+}
+
+function normalizedRole(role) {
+  return typeof role === "string" ? role.trim().toLowerCase() : "";
+}
+
+function loadRoleBody(role, opts) {
+  const normalized = normalizedRole(role);
+  if (!ROLE_BODY_ROLES.includes(normalized)) {
+    throw new UnresolvedModelSlugError(role, `Unknown runner role: "${role}".`);
+  }
+  return readRoleBody(normalized, opts);
+}
+
+/**
+ * Loads a natively invoked role body (Zen) for a prompt the runner does not
+ * compose. The AGY frontmatter block is stripped: the body is prepended to a
+ * native invocation, not a runner packet, and frontmatter keys are not prompt
+ * text. Directory precedence and fail-closed validation match loadRoleBody.
+ *
+ * @param {string} role - Native role name (currently only "zen")
+ * @param {object} [opts] - roleBodyDir / env options (see readRoleBody)
+ * @returns {string} Role body without frontmatter
+ */
+export function loadNativeRoleBody(role, opts = {}) {
+  const normalized = normalizedRole(role);
+  if (!NATIVE_ROLE_BODY_ROLES.includes(normalized)) {
+    throw new UnresolvedModelSlugError(role, `Unknown native role: "${role}".`);
+  }
+  return readRoleBody(normalized, opts).replace(FRONTMATTER_BLOCK, "").trim();
 }
 
 /**
@@ -237,9 +278,9 @@ export function matchesPolicy(policy, model) {
  * @returns {string} Exact model slug
  */
 export function resolveSlug(role, opts = {}) {
-  const normalized = typeof role === "string" ? role.trim().toLowerCase() : "";
+  const normalized = normalizedRole(role);
   const basePolicy = ROLE_POLICY_TABLE[normalized];
-  if (!ROLE_BODY_ROLES.includes(normalized)) {
+  if (!MODEL_RESOLUTION_ROLES.includes(normalized)) {
     throw new UnresolvedModelSlugError(
       role,
       `Unknown role: "${role}". No role policy defined.`

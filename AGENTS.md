@@ -63,7 +63,7 @@ Route according to the operation, not just its size:
 | Locate code or establish codebase facts | Jaguar, a read-only Flash worker |
 | Explicit, small, low-risk edits, formatting, or writing | Puma, Flash, without child calls |
 | Ordinary implementation | Bobcat, Flash |
-| Hard diagnosis and repair within the milestone | Excavator, Pro |
+| Hard diagnosis and repair within the milestone | Excavator, Flash |
 | Planning or an unsettled architectural decision | Piledriver through Steamroller |
 | Repeated failures needing a different causal framing | Instinct through Steamroller, using NEEDS_ALT |
 | Independent milestone acceptance | Zen through Steamroller |
@@ -83,14 +83,15 @@ or uncertain implementation. NONE is reserved for clearly mechanical,
 low-risk work that still belongs with Bobcat. Most quick writing belongs
 with Puma and does not need this advisor loop.
 
-Zen uses the Pro tier and has no mutation authority, although it can run
-commands to independently check evidence.
+Zen uses Claude Sonnet 5.5 at High and has no mutation authority, although it
+can run commands to independently check evidence.
 
 Runner policy resolves exact models and effort rather than guessing slugs
 from frontmatter: Steamroller and Bulldozer use Gemini 3.8 Flash at High;
-Piledriver uses Gemini 3.1 Pro at High. Instinct normally uses Claude Sonnet
-5.5 at High; switching it to Claude Opus 5.5 High requires explicit escalation.
-Native workers retain their tier contracts.
+Piledriver uses Claude Opus 5.5 at High. Zen is invoked natively on the same
+policy table, resolving Claude Sonnet 5.5 at High. Instinct normally uses
+Claude Sonnet 5.5 at High; switching it to Claude Opus 5.5 High requires
+explicit escalation. Native workers retain their tier contracts.
 
 ## Evidence, convergence, and authority
 
@@ -112,7 +113,7 @@ do not add universal command blacklists, persistent coordination state, or
 a custom runtime to make model families behave alike. A scoped backstop is
 appropriate for a reproduced failure that prose cannot reliably control.
 Excavator intentionally edits project sources; do not restore a blanket
-Gemini 3.1 Pro mutation ban.
+Gemini mutation ban.
 
 ## Shell effects
 

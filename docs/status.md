@@ -38,9 +38,11 @@ stages.
   a safe shutdown. Only one session owns a ledger at a time.
 - **Not published to npm:** install from the repository. Installing the plugin
   doesn't create a global command.
-- Picking an exact model for the independent reviewer is an open comparison
-  question, not a planned feature. [Model profiles](model-profiles/README.md)
-  are provisional research, not deployed routing.
+- The independent reviewer is pinned by policy to Claude Sonnet 5.5 / High
+  (2026-10-15 remap, after native agent selection stopped resolving);
+  comparative evidence for that choice remains open.
+  [Model profiles](model-profiles/README.md) are provisional research, not
+  deployed routing.
 
 ## Live validation
 
@@ -49,7 +51,7 @@ Validated on AGY 1.3.3 (evidence: `.omo/evidence/113-live-probe-results.md`, `.o
 - runner end-to-end: multi-milestone dependency-order execution with an independent Zen GO per milestone, fresh-context resume after an observed interrupted invocation, material replan with `plan_version` increment and fresh current-version review, and a live Zen NO-GO -> repair -> fresh GO cycle (a deliberately tampered artifact was rejected and the repaired candidate needed a fresh GO)
 - specialist delegation: Bulldozer -> Jaguar / Puma / Bobcat and the nested Bobcat -> Strix Halo (`ACCEPT`) gate, observed with transcript-level `invoke_subagent` dispatches
 - Bulldozer -> Excavator worker: one live `ntg-vnext run` milestone delegated a bounded diagnose+repair of a broken fixture in `~/.cache` to Excavator (`invoke_subagent` `TypeName: excavator` observed in the Bulldozer transcript; Excavator returned its worker result without invoking Zen), and Steamroller's matching Zen GO promoted the milestone to global completion; evidence: `.omo/evidence/20-instinct-results.md`
-- runner exact-model resolution: piledriver `gemini-3.1-pro-high`, bulldozer/steamroller `gemini-3.8-flash-high`, instinct `claude-sonnet-5-5-high` (`claude-opus-5-5-high` only on explicit escalation)
+- runner exact-model resolution: piledriver `claude-opus-5-5-high`, bulldozer/steamroller `gemini-3.8-flash-high`, instinct `claude-sonnet-5-5-high` (`claude-opus-5-5-high` only on explicit escalation), zen `claude-sonnet-5-5-high` for its native invocation (the 2026-10-15 Piledriver/Zen/Excavator remap postdates the end-to-end runs above)
 - Instinct NEEDS_ALT: one live `ntg-vnext alt` call on Sonnet against a small ledger, returning the advisory JSON with `adopted: false`; evidence: `.omo/evidence/20-instinct-results.md`
 - native Excavator (pre-demotion, #137): actual interactive NO-GO -> repair -> fresh GO, followed in the same session by a direct write after GO -> fresh independent review -> READY. Actual terminal Stop events allowed completion after fresh GO. Stale-verdict rejection was separately replayed against the captured post-write transcript; it was not a live premature-READY attempt. That completion path is removed with the native primary. Evidence: `.omo/evidence/137-excavator-validation.md`.
 

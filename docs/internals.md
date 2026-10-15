@@ -94,7 +94,7 @@ shell or privilege sandboxes.
 | Jaguar | Read-only factual discovery; no delegation |
 | Puma | Small, explicit, low-risk writing/formatting/presentation/mechanical text or config; no delegation or advisor ceremony |
 | Bobcat | Ordinary bounded implementation; may invoke only Strix Halo; parent chooses `ADVISOR_GATE: REQUIRED \| NONE`, REQUIRED for substantive code/behavior/API/state/lifecycle/test work or uncertainty, NONE only for clearly low-risk mechanical work |
-| Excavator | Native Pro difficult diagnose/reproduce/root-cause/repair/verify worker under Bulldozer; edits inside its scope, no nested delegation, never invokes Zen |
+| Excavator | Native Flash difficult diagnose/reproduce/root-cause/repair/verify worker under Bulldozer; edits inside its scope, no nested delegation, never invokes Zen |
 | Strix Halo (`strix-halo`) | Bobcat-only read-only advice/CHECK gate; `ACCEPT \| REVISE \| NEEDS_DEEP`; corrections go through Bobcat |
 | Zen | Independent non-mutating milestone review for Steamroller, not Bulldozer's child; `GO \| NO-GO`; may run verification commands |
 | Instinct | Runner-only heterogeneous alternate-framing advice, not a ritual reviewer; no implementation, orchestration, ledger, adoption or verdict/completion authority |
@@ -130,11 +130,17 @@ protection, structured result capture and failure reporting. Role bodies load
 from `agents/`; critical roles are runner-invoked, not natively selectable.
 
 - Steamroller/Bulldozer target Gemini 3.8 Flash / High.
-- Piledriver targets Gemini 3.1 Pro / High.
+- Piledriver targets Claude Opus 5.5 / High.
 - Instinct targets Claude Sonnet 5.5 / High; Claude Opus 5.5 / High is selected
   only on explicit `--escalate`.
-- Jaguar/Puma/Bobcat/Strix Halo use native Flash; Excavator/Zen native Pro.
-  Strix Halo moved to Flash on 2026-10-15 after Gemini 3.1 Pro left agy.
+- Jaguar/Puma/Bobcat/Strix Halo/Excavator use native Flash. Zen is invoked
+  natively by `ntg-vnext`, which resolves Claude Sonnet 5.5 / High from the
+  same policy table and prepends the `agents/zen.md` body (frontmatter
+  stripped) instead of selecting `--agent zen`.
+- Model assignments were remapped 2026-10-15 after Gemini 3.1 Pro left agy:
+  Piledriver to Claude Opus 5.5, Zen to Claude Sonnet 5.5, Excavator to the
+  native Flash tier. Excavator escalation uses the existing NEEDS_ALT ->
+  Instinct path; there is no model escalation for Excavator.
 - `NTG_ZEN_MODEL` optionally pins the independently invoked Zen model. Moving
   the baseline to an exact model requires comparative live evidence, not a
   policy assumption.
@@ -179,7 +185,9 @@ in [activation evidence](../.omo/evidence/134-vnext-activation.md).
 ## Behavioral guards
 
 Zen's verification-only `run_command` uses the `NTG_ZEN_VERIFY=1` marker and
-`PreToolUse` guard against common intentional shell mutation paths. Excavator's
+`PreToolUse` guard against common intentional shell mutation paths. Its grammar
+admits read-only inspection plus `node --test` over named `tests/` files, and
+no other executable path. Excavator's
 `NTG_EXCAVATOR=1` marker scopes its guard: ordinary task-relevant sudo diagnostics
 and repair remain allowed, while stdin-password injection/guessing, alternate
 privilege acquisition (`su`, `pkexec`, root SSH to localhost), shell-history

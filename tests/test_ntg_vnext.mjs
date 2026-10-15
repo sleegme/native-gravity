@@ -255,15 +255,35 @@ test('the npm-style bin symlink executes the CLI (#135 B1)', t => {
   assert.equal(init.next_milestone, 'one');
 });
 
-function fakeZen(t, envelope) {
+const ZEN_MODELS = [
+  'gemini-3.8-flash-high\tGemini 3.8 Flash (High)',
+  'claude-sonnet-5-5-medium\tClaude Sonnet 5.5 (Medium)',
+  'claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)',
+  'claude-opus-5-5-high\tClaude Opus 5.5 (High)',
+].join('\n');
+
+function fakeZen(t, envelope, { models = ZEN_MODELS } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'ntg-vnext-zen-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const agy = join(dir, 'agy');
   writeFileSync(join(dir, 'out.json'), JSON.stringify(envelope));
-  writeFileSync(agy, `#!/bin/sh\ncat ${JSON.stringify(join(dir, 'out.json'))}\n`);
+  writeFileSync(join(dir, 'models.txt'), `${models}\n`);
+  writeFileSync(agy, `#!/usr/bin/env node
+const { readFileSync, writeFileSync } = require('node:fs');
+const argv = process.argv.slice(2);
+if (argv[0] === 'models') {
+  process.stdout.write(readFileSync(${JSON.stringify(join(dir, 'models.txt'))}, 'utf8'));
+} else {
+  writeFileSync(${JSON.stringify(join(dir, 'zen-args.json'))}, JSON.stringify(argv));
+  process.stdout.write(readFileSync(${JSON.stringify(join(dir, 'out.json'))}, 'utf8'));
+}
+`);
   spawnSync('chmod', ['+x', agy]);
   return agy;
 }
+
+/** argv the fake agy received for the Zen invocation (never the `models` probe). */
+const zenArgs = agy => JSON.parse(readFileSync(join(dirname(agy), 'zen-args.json'), 'utf8'));
 const zenGo = JSON.stringify({ milestone_id: 'one', plan_version: 'v1', result_ref: 'r', verdict: 'GO', verification_evidence: observed });
 
 test('native Zen GO is accepted only from a SUCCESS envelope with an explicit verdict (#135 B3)', t => {
@@ -275,4 +295,42 @@ test('native Zen GO is accepted only from a SUCCESS envelope with an explicit ve
   }) }), /TOOL_PERMISSION_DENIED/);
   assert.throws(() => nativeZen({}, { agyPath: fakeZen(t, { status: 'SUCCESS', response: JSON.stringify({ milestone_id: 'one' }) }) }), /explicit GO or NO-GO/);
   assert.throws(() => nativeZen({}, { agyPath: fakeZen(t, { message: zenGo }) }), /INVALID_OUTPUT/);
+});
+
+test('native Zen is model-pinned by policy and never by --agent', t => {
+  const agy = fakeZen(t, { status: 'SUCCESS', response: zenGo });
+  const request = { milestone_id: 'one', plan_version: 'v1', result_ref: 'r' };
+  assert.equal(nativeZen(request, { agyPath: agy }).verdict, 'GO');
+
+  const args = zenArgs(agy);
+  assert.equal(args.includes('--agent'), false);
+  assert.equal(args[args.indexOf('--model') + 1], 'claude-sonnet-5-5-high');
+  assert.equal(args[args.indexOf('--output-format') + 1], 'json');
+  assert.ok(args.includes('--dangerously-skip-permissions'));
+  assert.ok(args.includes('-p'));
+  // The shipped role body reaches the prompt without its AGY frontmatter, which
+  // the runner roles pass through but native invocation must not.
+  const prompt = args[args.indexOf('-p') + 1];
+  assert.equal(prompt.startsWith('---'), false);
+  assert.match(prompt, /You are the independent, non-mutating verification gate\./);
+  assert.match(prompt, /Independently verify the candidate against its milestone contract\./);
+  assert.match(prompt, /"milestone_id":"one"/);
+});
+
+test('NTG_ZEN_MODEL overrides the resolved Zen slug and fails closed without a matching model', t => {
+  process.env.NTG_ZEN_MODEL = 'claude-opus-5-5-high';
+  try {
+    const agy = fakeZen(t, { status: 'SUCCESS', response: zenGo });
+    assert.equal(nativeZen({}, { agyPath: agy }).verdict, 'GO');
+    const args = zenArgs(agy);
+    assert.equal(args[args.indexOf('--model') + 1], 'claude-opus-5-5-high');
+    assert.equal(args.includes('--agent'), false);
+  } finally {
+    delete process.env.NTG_ZEN_MODEL;
+  }
+
+  const flashOnly = fakeZen(t, { status: 'SUCCESS', response: zenGo }, {
+    models: 'gemini-3.8-flash-high\tGemini 3.8 Flash (High)',
+  });
+  assert.throws(() => nativeZen({}, { agyPath: flashOnly }), /No installed model found matching policy for role "zen"/);
 });

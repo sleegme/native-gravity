@@ -11,7 +11,7 @@ tools:
   - replace_file_content
 mainAgent: false
 subagent: true
-model: pro
+model: flash
 commandExecutionPolicy: sandbox
 ---
 

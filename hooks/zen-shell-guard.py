@@ -22,6 +22,16 @@ GIT_READ_COMMANDS = {
     "rev-list", "show-ref", "cat-file", "describe", "branch",
 }
 SEPARATORS = {";", "|", "&&", "||"}
+# Only the repository's own named test files: a relative path below tests/ that
+# ends in .mjs or .js, with no traversal out of the tree.
+TEST_FILE = re.compile(r"^tests/(?:[^/]+/)*[^/]+\.(?:mjs|js)$")
+
+
+def reads_only_test_files(args):
+    """`node --test <path>...` is read-only only over named tests/ files."""
+    if len(args) < 2 or args[0] != "--test":
+        return False
+    return all(TEST_FILE.match(arg) and ".." not in arg for arg in args[1:])
 
 
 def read_only_command(words):
@@ -74,8 +84,11 @@ def read_only_command(words):
             return True
         # Node syntax checking does not run the script. Arbitrary test runners,
         # inline programs, and runtime preload options are not read-only checks.
-        return (command == "node" and len(args) == 2 and args[0] == "--check"
-                and not args[1].startswith("-"))
+        if command == "node" and len(args) == 2 and args[0] == "--check" and not args[1].startswith("-"):
+            return True
+        # Node's own test runner over named repository test files only: any
+        # other flag, path, or location stays denied.
+        return command == "node" and reads_only_test_files(args)
     return False
 
 
