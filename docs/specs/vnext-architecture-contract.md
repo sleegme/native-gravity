@@ -42,7 +42,7 @@ USER
                   ├─► JAGUAR   (Flash — read-only factual retrieval)
                   ├─► PUMA     (Flash — quick/writing/mechanical)
                   ├─► BOBCAT   (Flash — bounded implementation)
-                  │      └─► STRIX HALO  (Pro — implementation advisor/gate)
+                  │      └─► STRIX HALO  (Flash — implementation advisor/gate)
                   └─► EXCAVATOR (Pro — difficult diagnosis/repair)
 
 [After each milestone]
@@ -528,7 +528,7 @@ Initial target policy (subject to live validation in slice 44B):
 | Jaguar | Flash | native | native AGY subagent |
 | Puma | Flash | native | native AGY subagent |
 | Bobcat | Flash | native | native AGY subagent |
-| Strix Halo | Pro | native | native AGY subagent |
+| Strix Halo | Flash | native | native AGY subagent |
 | Zen | Pro | native | native AGY subagent (exact 3.1P/High only if validation shows material improvement) |
 
 **Do NOT hard-code unverified AGY model slugs.** Resolve exact slug from the installed AGY model surface during implementation. If a slug cannot be resolved, runner must fail with a structured error rather than falling back silently.

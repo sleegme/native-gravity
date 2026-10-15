@@ -133,7 +133,8 @@ from `agents/`; critical roles are runner-invoked, not natively selectable.
 - Piledriver targets Gemini 3.1 Pro / High.
 - Instinct targets Claude Sonnet 5.5 / High; Claude Opus 5.5 / High is selected
   only on explicit `--escalate`.
-- Jaguar/Puma/Bobcat retain native Flash; Excavator/Strix Halo/Zen native Pro.
+- Jaguar/Puma/Bobcat/Strix Halo use native Flash; Excavator/Zen native Pro.
+  Strix Halo moved to Flash on 2026-10-15 after Gemini 3.1 Pro left agy.
 - `NTG_ZEN_MODEL` optionally pins the independently invoked Zen model. Moving
   the baseline to an exact model requires comparative live evidence, not a
   policy assumption.
