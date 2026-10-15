@@ -54,12 +54,32 @@ class ZenShellGuardTests(unittest.TestCase):
             "NTG_ZEN_VERIFY=1 ls -la && wc -l README.md",
             "NTG_ZEN_VERIFY=1 test -f README.md || pwd",
             "NTG_ZEN_VERIFY=1 node --check scripts/spine.mjs",
+            "NTG_ZEN_VERIFY=1 node --test tests/test_ledger.mjs",
+            "NTG_ZEN_VERIFY=1 node --test tests/test_ledger.mjs tests/test_spine.mjs",
+            "NTG_ZEN_VERIFY=1 node --test tests/fixtures/helper.js",
             "NTG_ZEN_VERIFY=1 python3 --version",
             "NTG_ZEN_VERIFY=1 cat 'file with spaces.txt'",
         ]
         for command in commands:
             with self.subTest(command=command):
                 self.assertEqual(run_payload(command_payload(command))["decision"], "allow")
+
+    def test_test_paths_name_literal_files_only(self):
+        allowed = "NTG_ZEN_VERIFY=1 node --test tests/test_ledger.mjs tests/test_spine.mjs"
+        self.assertEqual(run_payload(command_payload(allowed))["decision"], "allow")
+        patterns = [
+            "node --test tests/*.mjs",
+            "node --test tests/test_?.mjs",
+            "node --test tests/[a-z].mjs",
+            "node --test tests/{a,b}.mjs",
+            "node --test tests//a.mjs",
+            "node --test tests/~a.mjs",
+            "node --test tests/a..b.mjs",
+        ]
+        for command in patterns:
+            marked = "NTG_ZEN_VERIFY=1 " + command
+            with self.subTest(command=marked):
+                self.assertEqual(run_payload(command_payload(marked))["decision"], "deny")
 
     def test_marked_mutations_and_bypasses_denied(self):
         commands = [
@@ -88,6 +108,13 @@ class ZenShellGuardTests(unittest.TestCase):
             "python3 -c 'open(\"a\",\"w\").write(\"x\")'",
             "node -e 'require(\"fs\").writeFileSync(\"a\",\"x\")'",
             "python3 project_test.py", "node tests/test_spine.mjs",
+            "node --test", "node --test --require x tests/a.mjs",
+            "node --test tests/", "node --test tests/a.mjs --test-reporter=spec",
+            "node --test ../x.mjs", "node --test /tmp/x.mjs", "node --test tests/../x.mjs",
+            "node --test tests/a.txt", "node --test tests/a.cjs",
+            "node --test --test-name-pattern=zen tests/a.mjs",
+            "node --test=tests/a.mjs", "node --test scripts/spine.mjs",
+            "node -e 'process.exit(0)'",
             "bash -c 'rm a'", "sh -c 'touch a'", "eval 'rm a'",
             "env sh -c 'rm a'", "sudo rm a", "command rm a", "exec rm a",
             "find . -delete", "find . -exec rm a ;", "xargs rm",
@@ -151,7 +178,7 @@ class ZenShellGuardTests(unittest.TestCase):
         self.assertTrue(scalar["description"].strip())
         self.assertEqual(scalar["mainAgent"], "false")
         self.assertEqual(scalar["subagent"], "true")
-        self.assertEqual(scalar["model"], "pro")
+        self.assertEqual(scalar["model"], "inherit")
         self.assertEqual(scalar["commandExecutionPolicy"], "sandbox")
         tools = re.findall(r"^  - (\w+)$", frontmatter, re.MULTILINE)
         self.assertIn("run_command", tools)

@@ -9,7 +9,7 @@ tools:
   - run_command
 mainAgent: false
 subagent: true
-model: pro
+model: inherit
 commandExecutionPolicy: sandbox
 ---
 

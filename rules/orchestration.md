@@ -220,20 +220,22 @@ historical records outside the new completion set.
 
 The runner owns exact model resolution (fail-closed against the installed
 model surface) and effort for the runner roles; native subagents use native
-tiers. Model policy, not hard-coded slugs:
+tiers. Zen is invoked natively by `ntg-vnext`, which resolves its exact slug
+and effort from the same policy table rather than native agent selection.
+Model policy, not hard-coded slugs:
 
 | Role | Model family | Effort | Invocation |
 |---|---|---|---|
 | Steamroller | Gemini 3.8 Flash | High | exact-model runner |
-| Piledriver | Gemini 3.1 Pro | High | exact-model runner |
+| Piledriver | Claude Opus 5.5 | High | exact-model runner |
 | Bulldozer | Gemini 3.8 Flash | High | exact-model runner |
 | Instinct | Claude Sonnet 5.5 (Claude Opus 5.5 only on explicit escalation) | High | exact-model runner |
 | Jaguar | Flash | native | native subagent |
 | Puma | Flash | native | native subagent |
 | Bobcat | Flash | native | native subagent |
-| Excavator | Pro | native | native subagent |
+| Excavator | Flash | native | native subagent |
 | Strix Halo | Flash | native | native subagent |
-| Zen | Pro | native | native subagent (exact 3.1 Pro / High only if validation shows material improvement) |
+| Zen | Claude Sonnet 5.5 | High | native invocation by `ntg-vnext` (policy-resolved slug) |
 
 ## Excavator shell boundary
 

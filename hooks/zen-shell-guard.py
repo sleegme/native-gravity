@@ -22,6 +22,28 @@ GIT_READ_COMMANDS = {
     "rev-list", "show-ref", "cat-file", "describe", "branch",
 }
 SEPARATORS = {";", "|", "&&", "||"}
+# Only the repository's own named test files: a literal relative path below
+# tests/ that ends in .mjs or .js. A glob is a pattern, not a named file, so
+# each segment admits only literal characters (letters, digits, '_', '-', '.')
+# and no segment is empty. A path carrying '..' anywhere in its text is not a
+# named file, whether or not the traversal forms a whole segment.
+TEST_FILE = re.compile(
+    r"tests/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.(?:mjs|js)"
+)
+
+
+def is_named_test_file(path):
+    """Named tests/ file only: glob metacharacters cannot stand in for it."""
+    if not TEST_FILE.fullmatch(path):
+        return False
+    return ".." not in path
+
+
+def reads_only_test_files(args):
+    """`node --test <path>...` is read-only only over named tests/ files."""
+    if len(args) < 2 or args[0] != "--test":
+        return False
+    return all(is_named_test_file(arg) for arg in args[1:])
 
 
 def read_only_command(words):
@@ -74,8 +96,11 @@ def read_only_command(words):
             return True
         # Node syntax checking does not run the script. Arbitrary test runners,
         # inline programs, and runtime preload options are not read-only checks.
-        return (command == "node" and len(args) == 2 and args[0] == "--check"
-                and not args[1].startswith("-"))
+        if command == "node" and len(args) == 2 and args[0] == "--check" and not args[1].startswith("-"):
+            return True
+        # Node's own test runner over named repository test files only: any
+        # other flag, path, or location stays denied.
+        return command == "node" and reads_only_test_files(args)
     return False
 
 

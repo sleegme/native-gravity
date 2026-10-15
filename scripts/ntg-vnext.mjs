@@ -15,8 +15,8 @@
  *   ntg-vnext status  --ledger L
  *
  * --timeout SECONDS bounds each runner invocation (default 600; the runner's own
- * 90s default is too short for Piledriver on Pro / High). NTG_RUNNER_TIMEOUT_S
- * overrides the default.
+ * 90s default is too short for Piledriver on Claude Opus 5.5 / High).
+ * NTG_RUNNER_TIMEOUT_S overrides the default.
  *
  * Every invocation is a fresh context: state is reloaded from the ledger, never
  * from conversation. Output is one JSON object on stdout; exit 0 on success,
@@ -28,12 +28,14 @@ import { basename, dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { MinimalSpine, recommendNeedsAlt } from './spine.mjs';
-import { parseResponseEnvelope } from './runner.mjs';
+import { loadNativeRoleBody, parseResponseEnvelope, resolveSlug } from './runner.mjs';
 
 /** Executor provenance markers inherited by every runner/Zen child (#135 B2). */
 export const SUPERVISOR_PID_ENV = 'NTG_SUPERVISOR_PID';
 export const SUPERVISOR_LEDGER_ENV = 'NTG_SUPERVISOR_LEDGER';
 const EXECUTOR_EXIT_WAIT_MS = 10000;
+/** Native verification gate: invoked here, never supervised as a runner role. */
+const ZEN_ROLE = 'zen';
 
 export const DEFAULT_RUNNER_TIMEOUT_S = 600;
 const USAGE = 'usage: ntg-vnext <init|plan|run|replan|recover|alt|status> --ledger PATH [options]';
@@ -77,15 +79,33 @@ export function parseZenEnvelope(stdout) {
   return packet;
 }
 
-/** Native, independent Zen review through the installed `zen` agent. */
-export function nativeZen(request, { agyPath = process.env.AGY_PATH || 'agy', cwd = process.cwd(), timeout = 600000 } = {}) {
-  const prompt = 'Independently verify the candidate against its milestone contract. '
+/**
+ * Resolves Zen's exact slug from the frozen ROLE_POLICY_TABLE against the
+ * installed agy surface. NTG_ZEN_MODEL pins a slug explicitly instead.
+ */
+export function resolveZenModel({ agyPath = process.env.AGY_PATH || 'agy', installedModels } = {}) {
+  if (process.env.NTG_ZEN_MODEL) return process.env.NTG_ZEN_MODEL;
+  return resolveSlug(ZEN_ROLE, { agyPath, installedModels });
+}
+
+/**
+ * Native, independent Zen review. Zen is model-pinned by policy rather than by
+ * `--agent zen`: the agent is not natively selectable, so the shipped role body
+ * (frontmatter stripped) is prepended to the prompt and the exact slug comes
+ * from the same frozen policy table the runner roles use. NTG_ZEN_MODEL
+ * overrides the resolved slug.
+ */
+export function nativeZen(request, { agyPath = process.env.AGY_PATH || 'agy', cwd = process.cwd(), timeout = 600000, installedModels } = {}) {
+  const instruction = 'Independently verify the candidate against its milestone contract. '
     + 'Return only a bare JSON object with milestone_id, plan_version and result_ref echoed unchanged, '
     + 'verdict (GO or NO-GO), verification_evidence (non-empty array of '
     + '{"classification": "OBSERVED", "criterion": "...", "result": "..."}) and, for NO-GO, '
     + 'repair_needs (non-empty string). Request:\n' + JSON.stringify(request);
-  const args = ['--agent', 'zen', '--output-format', 'json', '--dangerously-skip-permissions', '-p', prompt];
-  if (process.env.NTG_ZEN_MODEL) args.splice(2, 0, '--model', process.env.NTG_ZEN_MODEL);
+  const prompt = `${loadNativeRoleBody(ZEN_ROLE)}\n\n${instruction}`;
+  const args = [
+    '--model', resolveZenModel({ agyPath, installedModels }),
+    '--output-format', 'json', '--dangerously-skip-permissions', '-p', prompt,
+  ];
   const r = spawnSync(agyPath, args, { cwd, encoding: 'utf8', timeout, killSignal: 'SIGKILL', maxBuffer: 20 * 1024 * 1024 });
   if (r.error) throw r.error;
   if (r.status !== 0) throw new Error(`zen invocation exited ${r.status}: ${(r.stderr || '').slice(-500)}`);
