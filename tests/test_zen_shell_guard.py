@@ -74,6 +74,7 @@ class ZenShellGuardTests(unittest.TestCase):
             "node --test tests/{a,b}.mjs",
             "node --test tests//a.mjs",
             "node --test tests/~a.mjs",
+            "node --test tests/a..b.mjs",
         ]
         for command in patterns:
             marked = "NTG_ZEN_VERIFY=1 " + command
