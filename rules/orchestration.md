@@ -184,10 +184,15 @@ Bulldozer -> Steamroller result packet (the complete result packet):
 - `verification_evidence` — OBSERVED evidence for each acceptance criterion
 - `unresolved_unknowns` — UNKNOWN or INFERRED items Steamroller must track
 - `scope_deviations` — any deviation from bounded scope, explicit not absorbed
+- `candidate_artifact_ref` — required for `DONE`: a non-empty string identifying immutable delivered artifact versions, such as a path plus SHA-256 digest or a commit SHA; never a mutable path alone. `artifact_ref` is an alias; both values must match if both are supplied.
 - `blockers` — active blockers preventing `DONE`, when status is `BLOCKED`
 - `escalation_needs` — the bounded question or artifact for Piledriver when status is `NEEDS_DEEP`
 
 `DONE` is a pre-review candidate claim, never verified or global completion.
+An absent, empty or conflicting artifact binding is an invalid handoff.
+Steamroller returns the reason to Bulldozer for packet-only correction from
+existing artifacts and evidence, at most twice, then records BLOCKED.
+Only a valid immutable candidate binding is persisted and sent to Zen.
 Worker and specialist reports travel only inside packet fields, never as text
 around the packet.
 

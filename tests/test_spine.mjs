@@ -257,7 +257,7 @@ for (const termination of ['normal', 'SIGINT', 'SIGTERM']) {
 
 for (const patch of [
   { status: 'READY' }, { plan_version: 'stale' }, { changes_made: null },
-  { verification_evidence: [] }, { candidate_artifact_ref: {} }, { zen_verdict: 'GO' },
+  { verification_evidence: [] }, { zen_verdict: 'GO' },
 ]) {
   test(`unwrapped candidate still rejects schema or authority mismatch ${JSON.stringify(patch)}`, async t => {
     const f = fixture(t);
@@ -684,13 +684,104 @@ test('SIGKILL between durable delegation and candidate requires observed crash r
   assert.deepEqual(disk.evidence.one.failure_evidence, recovered.evidence.one.failure_evidence);
 });
 
-test('candidate must bind current identity and immutable artifact versions', async t => {
-  for (const patch of [{ plan_version: 'v0' }, { milestone_id: 'two' }, { candidate_artifact_ref: undefined }]) {
+test('candidate must bind current identity', async t => {
+  for (const patch of [{ plan_version: 'v0' }, { milestone_id: 'two' }]) {
     const f = fixture(t, { output: contract => candidate(contract, patch) });
     await assert.rejects(f.spine.runMilestone('one'));
     assert.ok(!f.calls.includes('zen'));
     assert.deepEqual(f.spine.state.completed_milestones, []);
   }
+});
+
+for (const patch of [
+  { candidate_artifact_ref: undefined, artifact_ref: 'sha256:alias-only' },
+  { candidate_artifact_ref: 'sha256:matching', artifact_ref: 'sha256:matching' },
+]) {
+  test(`DONE artifact aliases are normalized before independent review: ${JSON.stringify(patch)}`, async t => {
+    const f = fixture(t, {
+      output: contract => candidate(contract, patch),
+      review: request => {
+        assert.equal(request.candidate.candidate_artifact_ref, patch.artifact_ref);
+        assert.equal(request.candidate.payload.candidate_artifact_ref, patch.artifact_ref);
+        assert.ok(!('artifact_ref' in request.candidate.payload));
+        return verdict(request);
+      },
+    });
+    assert.equal((await f.spine.runMilestone('one')).verified, true);
+    assert.deepEqual(f.calls, ['bulldozer', 'zen']);
+  });
+}
+
+for (const patch of [
+  { candidate_artifact_ref: undefined },
+  { candidate_artifact_ref: null },
+  { candidate_artifact_ref: '' },
+  { candidate_artifact_ref: ' ' },
+  { candidate_artifact_ref: {} },
+  { candidate_artifact_ref: 42 },
+  { candidate_artifact_ref: 'sha256:first', artifact_ref: 'sha256:second' },
+]) {
+  test(`invalid DONE binding is returned and corrected without a crash: ${JSON.stringify(patch)}`, async t => {
+    let attempts = 0;
+    const f = fixture(t, {
+      output: contract => {
+        attempts += 1;
+        if (attempts === 1) return candidate(contract, patch);
+        assert.equal(contract.invalid_handoff.error, 'INVALID_HANDOFF_PACKET');
+        assert.match(contract.invalid_handoff.reason,
+          patch.artifact_ref ? /Conflicting candidate artifact references/ : /DONE must bind immutable/);
+        assert.equal(contract.invalid_handoff.candidate.status, 'DONE');
+        assert.ok(!f.calls.includes('zen'));
+        const disk = AuthoritativeLedger.load(f.ledgerPath).getState();
+        assert.equal(disk.current_milestone, 'one');
+        assert.deepEqual(disk.completed_milestones, []);
+        assert.ok(!JSON.stringify(disk.evidence).includes('ref-sha256-'));
+        return candidate(contract, { candidate_artifact_ref: 'sha256:corrected' });
+      },
+      review: request => {
+        assert.equal(request.candidate.candidate_artifact_ref, 'sha256:corrected');
+        return verdict(request);
+      },
+    });
+    assert.equal((await f.spine.runMilestone('one')).verified, true);
+    assert.deepEqual(f.calls, ['bulldozer', 'bulldozer', 'zen']);
+    assert.deepEqual(f.resume().state.completed_milestones, ['one']);
+  });
+}
+
+for (const patch of [
+  { candidate_artifact_ref: undefined },
+  { candidate_artifact_ref: 'sha256:first', artifact_ref: 'sha256:second' },
+]) {
+  test(`invalid handoff correction stops after two retries: ${JSON.stringify(patch)}`, async t => {
+    const f = fixture(t, { output: contract => candidate(contract, patch) });
+    const result = await f.spine.runMilestone('one');
+    assert.equal(result.status, 'BLOCKED');
+    assert.equal(result.verified, false);
+    assert.match(result.blockers[0], /Invalid handoff after 2 corrections/);
+    assert.deepEqual(f.calls, ['bulldozer', 'bulldozer', 'bulldozer']);
+    const disk = f.resume().state;
+    assert.equal(disk.current_milestone, null);
+    assert.deepEqual(disk.completed_milestones, []);
+    const failure = disk.evidence.one.failure_evidence[0];
+    assert.equal(failure.status, 'BLOCKED');
+    assert.equal(failure.evidence.error, 'INVALID_HANDOFF_PACKET');
+    assert.equal(failure.evidence.attempts, 3);
+    assert.throws(() => f.spine.declareGlobalCompletion());
+  });
+}
+
+test('Bulldozer can report BLOCKED instead of inventing an artifact during correction', async t => {
+  let attempts = 0;
+  const f = fixture(t, {
+    output: contract => ++attempts === 1
+      ? candidate(contract, { candidate_artifact_ref: undefined })
+      : candidate(contract, { status: 'BLOCKED', blockers: ['Delivered version unavailable'] }),
+  });
+  assert.equal((await f.spine.runMilestone('one')).status, 'BLOCKED');
+  assert.deepEqual(f.calls, ['bulldozer', 'bulldozer']);
+  assert.equal(f.spine.state.current_milestone, null);
+  assert.deepEqual(f.spine.state.completed_milestones, []);
 });
 
 test('specialists can be invoked under an active milestone without touching ledger state', async t => {

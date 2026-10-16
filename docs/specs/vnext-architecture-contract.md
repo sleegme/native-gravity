@@ -398,10 +398,16 @@ The Bulldozer-to-Steamroller result packet must include at minimum:
 | `verification_evidence` | OBSERVED evidence for each acceptance criterion |
 | `unresolved_unknowns` | UNKNOWN or INFERRED items that Steamroller must track |
 | `scope_deviations` | Any deviation from the bounded scope — must be explicit, not silently absorbed |
+| `candidate_artifact_ref` | Required for `DONE`: non-empty string identifying immutable delivered artifact versions (path plus SHA-256 digest or commit SHA), not a mutable path alone. `artifact_ref` is an alias; supplied aliases must agree. |
 | `blockers` | Active blockers preventing `DONE`, if status is `BLOCKED` |
 | `escalation_needs` | Specific question or artifact to route to Piledriver if status is `NEEDS_DEEP` |
 
 **NEEDS_DEEP routing:** Bulldozer reports `NEEDS_DEEP` to Steamroller. Steamroller decides whether to invoke Piledriver and what packet to send. Bulldozer does not invoke Piledriver directly.
+
+Missing, empty or conflicting artifact bindings are invalid handoffs returned
+to Bulldozer with the reason for packet-only correction from existing artifacts
+and evidence. The runner allows two corrections, then records BLOCKED without
+invoking Zen. Correcting a packet must not re-execute completed work.
 
 This is a pre-review candidate packet: `DONE` is Bulldozer's claim that acceptance criteria are met, not verified completion. Zen is mandatory for every P0 milestone; there is no `NOT_REQUIRED` path. Steamroller invokes Zen with this packet and the authoritative milestone contract. Zen returns a separate packet to Steamroller containing `milestone_id`, `plan_version`, `result_ref` (the immutable candidate artifact reference), `verdict` (`GO | NO-GO`), and `verification_evidence`. Steamroller associates that observed verdict with the candidate result; Bulldozer does not author or relay Zen authority. The accepted combined record contains the current Zen verdict.
 

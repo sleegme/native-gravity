@@ -111,30 +111,28 @@ export function canonicalJson(obj) {
 }
 
 /**
- * Generates a unique, deterministic result_ref (SHA-256) from candidate payload and artifact ref.
- * Normalizes candidate_artifact_ref and artifact_ref aliases to candidate_artifact_ref prior to hashing.
+ * Returns a new packet with artifact_ref normalized to candidate_artifact_ref.
  * Fails closed if both aliases are present with different values.
  *
  * @param {object} candidatePacket
- * @returns {string}
+ * @param {object} [options]
+ * @returns {object}
  */
-export function generateResultRef(candidatePacket) {
+export function normalizeCandidateArtifactRef(candidatePacket, { errorClass = InvariantViolationError } = {}) {
   if (!candidatePacket || typeof candidatePacket !== "object" || Array.isArray(candidatePacket)) {
-    throw new InvariantViolationError("Candidate packet must be an object to generate result_ref");
+    throw new errorClass("Candidate packet must be an object");
   }
 
   const hasCand = candidatePacket.candidate_artifact_ref !== undefined;
   const hasArt = candidatePacket.artifact_ref !== undefined;
 
   if (hasCand && hasArt && candidatePacket.candidate_artifact_ref !== candidatePacket.artifact_ref) {
-    throw new InvariantViolationError(
+    throw new errorClass(
       `Conflicting candidate artifact references: candidate_artifact_ref '${candidatePacket.candidate_artifact_ref}' vs artifact_ref '${candidatePacket.artifact_ref}'`
     );
   }
 
   const clone = { ...candidatePacket };
-  delete clone.result_ref;
-  delete clone.resultRef;
   delete clone.artifact_ref;
 
   const effectiveRef = hasCand ? candidatePacket.candidate_artifact_ref : candidatePacket.artifact_ref;
@@ -144,7 +142,15 @@ export function generateResultRef(candidatePacket) {
     delete clone.candidate_artifact_ref;
   }
 
-  const artifactRef = effectiveRef ?? "";
+  return clone;
+}
+
+/** Generates a deterministic result_ref after shared artifact alias normalization. */
+export function generateResultRef(candidatePacket) {
+  const clone = normalizeCandidateArtifactRef(candidatePacket);
+  delete clone.result_ref;
+  delete clone.resultRef;
+  const artifactRef = clone.candidate_artifact_ref ?? "";
   const canonical = canonicalJson(clone) + "::" + String(artifactRef);
   const hash = createHash("sha256").update(canonical, "utf-8").digest("hex");
   return `ref-sha256-${hash}`;
@@ -278,17 +284,7 @@ export function validateCandidateSemantics(packet, opts = {}) {
   }
 
   // Check alias conflict fail-closed
-  const hasCandArtifact = packet.candidate_artifact_ref !== undefined;
-  const hasAliasArtifact = packet.artifact_ref !== undefined;
-  if (
-    hasCandArtifact &&
-    hasAliasArtifact &&
-    packet.candidate_artifact_ref !== packet.artifact_ref
-  ) {
-    throw new ErrorClass(
-      `Conflicting candidate artifact references: candidate_artifact_ref '${packet.candidate_artifact_ref}' vs artifact_ref '${packet.artifact_ref}'`
-    );
-  }
+  normalizeCandidateArtifactRef(packet, { errorClass: ErrorClass });
 
   return true;
 }
@@ -923,22 +919,9 @@ export class AuthoritativeLedger {
       errorClass: InvalidTransitionError,
     });
 
-    const hasCandArtifact = candidatePacket.candidate_artifact_ref !== undefined;
-    const hasAliasArtifact = candidatePacket.artifact_ref !== undefined;
-
     // Deep clone input packet to completely decouple from caller references
-    const clonedPacket = deepClone(candidatePacket);
-
-    // Normalize artifact reference on clonedPacket
-    const effectiveArtifactRef = hasCandArtifact
-      ? clonedPacket.candidate_artifact_ref
-      : clonedPacket.artifact_ref;
-    delete clonedPacket.artifact_ref;
-    if (effectiveArtifactRef !== undefined) {
-      clonedPacket.candidate_artifact_ref = effectiveArtifactRef;
-    } else {
-      delete clonedPacket.candidate_artifact_ref;
-    }
+    const clonedPacket = deepClone(normalizeCandidateArtifactRef(candidatePacket));
+    const effectiveArtifactRef = clonedPacket.candidate_artifact_ref;
 
     const computedRef = generateResultRef(clonedPacket);
 
