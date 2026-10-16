@@ -1,11 +1,16 @@
 # Navi: bounded Linux desktop access
 
-**Draft / blocked on AGY 1.3.6:** exact Argon model selection works, but the
+**Draft / blocked on AGY 1.3.6 and 1.4.0:** exact Argon model selection works, but the
 agent-local MCP tools were not exposed in live invocations. The dispatch and
 configuration below are implemented, not a claim that desktop control works.
 See [live evidence](navi-evidence.md). Do not release this role until its
 screenshot, accessibility and harmless input calls are observed through the
 real runner.
+
+The follow-up also tested a private `HOME` with process-global MCP and a
+temporary plugin-global server with a role hook. Both remained without desktop
+tool declarations, including the 1.4.0 recheck. The hook fallback is weaker isolation and is not
+included in the shipped configuration; neither path has been marked ready.
 
 Navi is named for AMD's Navi GPU architecture and "navigate". Steamroller
 requests this desktop leaf through the exact-model runner on Gemini 4 Argon /
