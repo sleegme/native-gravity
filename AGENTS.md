@@ -171,9 +171,10 @@ Keep the graph shallow: Steamroller's planning and milestone execution
 branches must not grow into an open-ended coordinator. Navi is a bounded
 desktop leaf, not another coordinator or Bulldozer worker. Only Steamroller
 may request it through the runner; Bulldozer and workers return desktop needs
-upstream. Navi targets Gemini 4 Argon / Medium and alone attaches the
-computer-use-linux MCP server in its agent frontmatter. Never attach that
-server at plugin or global scope. It has no children or ledger authority.
+upstream. Navi targets Gemini 4 Argon / Medium; its runner invocation builds a
+private per-process HOME that registers only the desktop server `cu`, reached
+through the generic `call_mcp_tool` dispatcher. Never attach that server at
+agent, plugin or global scope. It has no children or ledger authority.
 Viewing is free; irreversible or external actions return NEEDS_CONFIRMATION
 with the exact intended action. On Sway it uses full-screen screenshots and
 accessibility elements, without window-focus dependencies.

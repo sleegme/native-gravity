@@ -185,7 +185,7 @@ export class MinimalSpine {
    */
   #transportCommand(role, slug) {
     const parts = ['agy', '--model', slug ?? '<unresolved>', '--output-format', 'json'];
-    if (role === 'navi') parts.push('--agent', 'navi', '--dangerously-skip-permissions');
+    if (role === 'navi') parts.push('--dangerously-skip-permissions');
     if (role === 'bulldozer') parts.push('--dangerously-skip-permissions');
     parts.push('--print', '(prompt withheld)');
     return parts.join(' ');

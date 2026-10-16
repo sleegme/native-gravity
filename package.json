@@ -25,6 +25,8 @@
         "docs/navi-evidence.md",
         "scripts/ledger-lock.mjs",
         "scripts/dag-view.mjs",
+        "scripts/navi.mjs",
+        "scripts/navi-bridge.mjs",
         "tests/test_dag_view.mjs",
         "scripts/ntg-vnext.mjs",
         "scripts/spine.mjs",

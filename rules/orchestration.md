@@ -148,9 +148,11 @@ another coordinator or nesting level, preserving the shallow graph. Navi
 cannot delegate, edit sources, write the ledger, promote milestones, review
 candidates or complete projects.
 
-Only `agents/navi.md` attaches computer-use-linux via `mcpServers`. Plugin and
-global MCP configuration would expose desktop control to every conversation
-and must never contain this server. Navi observes before acting, prefers
+Navi's runner invocation builds a private per-process HOME that registers only
+the desktop server `cu`; tools are reached through AGY's generic
+`call_mcp_tool` dispatcher. Agent frontmatter, plugin and global MCP
+configuration would expose desktop control to every conversation and must
+never contain this server. Navi observes before acting, prefers
 accessibility elements, and re-observes after each action. Screenshots,
 accessibility trees and available window lists are free; clicks and typing are
 allowed within scope. Before payments, purchases, deletion, messages/email,

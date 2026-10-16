@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { TextDecoder } from "node:util";
+import { withNaviHome } from "./navi.mjs";
 
 // Explicitly bounded to the runner roles; native specialists stay native.
 const ROLE_BODY_ROLES = Object.freeze(["steamroller", "piledriver", "bulldozer", "instinct", "navi"]);
@@ -589,6 +590,23 @@ export function invokeTransport(slugOrOpts, maybePrompt, maybeOpts) {
     opts = maybeOpts || {};
   }
 
+  const request = { ...opts, slug, prompt };
+  if (typeof opts.role !== "string" || opts.role.trim().toLowerCase() !== "navi") {
+    return invokeAgyTransport(request);
+  }
+  try {
+    return withNaviHome(request, (env, prefix) => invokeAgyTransport({ ...request, env }, prefix));
+  } catch (error) {
+    return {
+      ok: false, error: "NAVI_SETUP_ERROR", role: "navi",
+      code: error.code || "NAVI_SETUP_FAILED",
+      ...(error.variable ? { variable: error.variable } : {}),
+    };
+  }
+}
+
+function invokeAgyTransport(opts, prefix = []) {
+  const { slug, prompt } = opts;
   const role = opts.role;
   const timeout = typeof opts.timeout === "number" ? opts.timeout : 90000;
   const outputFormat = opts.outputFormat || "json";
@@ -616,8 +634,8 @@ export function invokeTransport(slugOrOpts, maybePrompt, maybeOpts) {
     ...(nextChain ? { NTG_RUNNER_CHAIN: nextChain } : {}),
   };
 
-  // Other roles use the composed machine contract. Navi additionally selects
-  // its installed agent so AGY loads its agent-scoped MCP configuration.
+  // Exact-model roles use their composed body. Navi's MCP registration lives
+  // only in its per-process HOME; no native --agent selection is needed.
   const args = [
     "--model",
     slug,
@@ -631,7 +649,7 @@ export function invokeTransport(slugOrOpts, maybePrompt, maybeOpts) {
   // Must precede --print: agy consumes the token after --print as the prompt.
   const normalizedRole = typeof role === "string" ? role.trim().toLowerCase() : "";
   if (normalizedRole === "navi") {
-    args.push("--agent", "navi", "--dangerously-skip-permissions");
+    args.push("--dangerously-skip-permissions");
   }
   if (normalizedRole === "bulldozer") {
     args.push("--dangerously-skip-permissions");
@@ -656,7 +674,7 @@ export function invokeTransport(slugOrOpts, maybePrompt, maybeOpts) {
 
   let result;
   try {
-    result = spawnSync(agyPath, args, {
+    result = spawnSync(prefix.length ? "bwrap" : agyPath, prefix.length ? [...prefix, agyPath, ...args] : args, {
       timeout,
       killSignal: "SIGKILL",
       detached: process.platform !== "win32",
