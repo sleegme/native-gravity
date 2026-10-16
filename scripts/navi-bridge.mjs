@@ -9,6 +9,10 @@ import { createInterface } from "node:readline";
  * would (JSON-RPC method not found) and forwards every other message verbatim
  * in both directions. It never inspects arguments or results.
  *
+ * Shutdown is bounded: on stdin close (AGY went away) or on SIGTERM/SIGINT to
+ * the bridge, the server gets SIGTERM, then SIGKILL when it is still alive
+ * after 3 s; the bridge reaps it and exits with its status.
+ *
  * Usage: node navi-bridge.mjs <server-command> [server-args...]
  */
 const [, , server, ...serverArgs] = process.argv;
@@ -32,5 +36,26 @@ requests.on("line", (line) => {
 });
 createInterface({ input: child.stdout, crlfDelay: Infinity })
   .on("line", (line) => process.stdout.write(`${line}\n`));
-process.stdin.on("close", () => child.kill());
-child.on("exit", (code, signal) => process.exit(signal ? 1 : (code ?? 0)));
+
+// Bounded shutdown: SIGTERM the server, escalate to SIGKILL when it is still
+// alive after the grace period, then reap it (await its exit) and exit with
+// its status. Triggers: AGY closes the bridge's stdin, or the bridge itself
+// receives SIGTERM/SIGINT.
+const SHUTDOWN_GRACE_MS = 3000;
+let shuttingDown = false;
+let escalateTimer = null;
+
+function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  escalateTimer = setTimeout(() => child.kill("SIGKILL"), SHUTDOWN_GRACE_MS);
+  child.kill("SIGTERM");
+}
+
+child.on("exit", (code, signal) => {
+  if (escalateTimer) clearTimeout(escalateTimer);
+  process.exit(signal ? 1 : (code ?? 0));
+});
+process.stdin.on("close", shutdown);
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);

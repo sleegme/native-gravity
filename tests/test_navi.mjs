@@ -331,3 +331,172 @@ test('Steamroller desktop results do not change the ledger or authorize workers'
   assert.equal(cli.out.desktop.intended_action, response.intended_action);
   assert.deepEqual(readFileSync(ledgerPath), before);
 });
+
+// ---- Gate-review regressions (#156): sanitized navi failures and bridge lifecycle ----
+
+function clearRunnerChain(t) {
+  const saved = process.env.NTG_RUNNER_CHAIN;
+  delete process.env.NTG_RUNNER_CHAIN;
+  t.after(() => {
+    if (saved !== undefined) process.env.NTG_RUNNER_CHAIN = saved;
+  });
+}
+
+function mockSpawnQueue(t, results) {
+  const calls = [];
+  t.mock.method(childProcess, 'spawnSync', (command, args, options) => {
+    calls.push({ command, args, options });
+    const next = results.shift();
+    if (!next) throw new Error('unexpected spawnSync call');
+    return next;
+  });
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  return calls;
+}
+
+const FAILURE_SENTINELS = [
+  'sk-synthetic-4Q9zK2mV7xR1tP5nW8yL3cJ6hD0bF2g',
+  'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.synthetic-payload.synthetic-signature',
+  '.gemini/antigravity-cli/antigravity-oauth-token',
+  join(tmpdir(), 'ntg-navi-private-root', '.gemini', 'antigravity-cli'),
+  '"mcpServers":{"cu":{"command"',
+];
+
+test('navi timeout results carry no raw stderr, stdout or synthetic secrets', t => {
+  const { env } = fixtureOwner(t);
+  clearRunnerChain(t);
+  const leaked = FAILURE_SENTINELS.join('\n');
+  mockSpawnQueue(t, [
+    { status: 0, stdout: '' },
+    { error: { code: 'ETIMEDOUT', message: 'agy timed out' }, stderr: leaked, stdout: leaked },
+  ]);
+  const result = invokeTransport({
+    role: 'navi', slug: 'gemini-4-argon-medium', prompt: 'observe the desktop',
+    env, agyPath: 'agy', timeout: 5000,
+  });
+  assert.deepEqual(result, { ok: false, error: 'TIMEOUT', code: 'NAVI_TIMEOUT', exitStatus: null });
+  const serialized = JSON.stringify(result);
+  for (const sentinel of FAILURE_SENTINELS) {
+    assert.ok(!serialized.includes(sentinel), `timeout result leaked ${sentinel}`);
+  }
+});
+
+test('navi nonzero-exit results are sanitized while other roles keep raw stderr', t => {
+  const { env } = fixtureOwner(t);
+  clearRunnerChain(t);
+  const leaked = FAILURE_SENTINELS.join('\n');
+  mockSpawnQueue(t, [
+    { status: 0, stdout: '' },
+    { status: 7, stderr: leaked, stdout: leaked },
+    { status: 2, stderr: 'raw-diagnostic-line' },
+  ]);
+  const result = invokeTransport({
+    role: 'navi', slug: 'gemini-4-argon-medium', prompt: 'observe the desktop',
+    env, agyPath: 'agy', timeout: 5000,
+  });
+  assert.deepEqual(result, {
+    ok: false, error: 'EXECUTION_FAILED', code: 'NAVI_EXECUTION_FAILED', exitStatus: 7,
+  });
+  const serialized = JSON.stringify(result);
+  for (const sentinel of FAILURE_SENTINELS) {
+    assert.ok(!serialized.includes(sentinel), `nonzero-exit result leaked ${sentinel}`);
+  }
+  const control = invokeTransport({
+    role: 'bulldozer', slug: 'gemini-3.8-flash-high', prompt: 'implement',
+    agyPath: 'agy', timeout: 5000,
+  });
+  assert.equal(control.exitCode, 2);
+  assert.equal(control.stderr, 'raw-diagnostic-line', 'other roles keep raw stderr (unchanged scope)');
+});
+
+function spawnSigtermIgnoringServer(base, t) {
+  const directory = mkdtempSync(join(base, 'run-'));
+  const stub = join(directory, 'stub-ignore-sigterm.mjs');
+  const pidFile = join(directory, 'server.pid');
+  writeFileSync(stub, [
+    "import { writeFileSync } from 'node:fs';",
+    "process.on('SIGTERM', () => {});",
+    'writeFileSync(process.argv[2], String(process.pid));',
+    'setInterval(() => {}, 1000);',
+  ].join('\n'));
+  const bridge = childProcess.spawn(process.execPath, [bridgePath, process.execPath, stub, pidFile], {
+    stdio: ['pipe', 'pipe', 'ignore'],
+  });
+  t.after(() => { try { bridge.kill('SIGKILL'); } catch {} });
+  return { bridge, pidFile };
+}
+
+function waitForPidFile(file, timeoutMs = 10000) {
+  return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+    const poll = () => {
+      if (existsSync(file)) return resolve(Number(readFileSync(file, 'utf8')));
+      if (Date.now() - startedAt > timeoutMs) return reject(new Error(`server pid file never appeared: ${file}`));
+      setTimeout(poll, 10);
+    };
+    poll();
+  });
+}
+
+function waitForExit(child, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      return resolve({ code: child.exitCode, signal: child.signalCode });
+    }
+    const timer = setTimeout(
+      () => reject(new Error(`process ${child.pid} did not exit within ${timeoutMs}ms`)), timeoutMs);
+    child.once('exit', (code, signal) => { clearTimeout(timer); resolve({ code, signal }); });
+  });
+}
+
+async function waitForGone(pid, timeoutMs = 5000) {
+  const startedAt = Date.now();
+  for (;;) {
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if (error.code === 'ESRCH') return;
+      throw error;
+    }
+    if (Date.now() - startedAt > timeoutMs) throw new Error(`process ${pid} is still present after ${timeoutMs}ms`);
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+}
+
+test('navi bridge escalates to SIGKILL and reaps the server when stdin closes', async t => {
+  const base = mkdtempSync(join(tmpdir(), 'ntg-navi-lifecycle-'));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  const { bridge, pidFile } = spawnSigtermIgnoringServer(base, t);
+  const serverPid = await waitForPidFile(pidFile);
+  t.after(() => { try { process.kill(serverPid, 'SIGKILL'); } catch {} });
+  const exitPromise = waitForExit(bridge);
+  const startedAt = Date.now();
+  bridge.stdin.end();
+  const exit = await exitPromise;
+  const elapsed = Date.now() - startedAt;
+  assert.equal(exit.signal, null, 'the bridge itself exits normally after reaping');
+  assert.equal(exit.code, 1, 'a SIGKILLed server maps to bridge exit 1');
+  assert.ok(elapsed >= 2500, `the grace period was observed before escalation (${elapsed}ms)`);
+  assert.ok(elapsed < 9000, `both processes are gone within the bound (${elapsed}ms)`);
+  await waitForGone(serverPid);
+});
+
+test('navi bridge handles SIGTERM and SIGINT to itself with the same bounded escalation', async t => {
+  const base = mkdtempSync(join(tmpdir(), 'ntg-navi-lifecycle-'));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  for (const signal of ['SIGTERM', 'SIGINT']) {
+    const { bridge, pidFile } = spawnSigtermIgnoringServer(base, t);
+    const serverPid = await waitForPidFile(pidFile);
+    t.after(() => { try { process.kill(serverPid, 'SIGKILL'); } catch {} });
+    const exitPromise = waitForExit(bridge);
+    const startedAt = Date.now();
+    bridge.kill(signal);
+    const exit = await exitPromise;
+    const elapsed = Date.now() - startedAt;
+    assert.equal(exit.code, 1, `${signal}: bridge exits with the signal-killed server status`);
+    assert.ok(elapsed >= 2500, `${signal}: the grace period was observed before escalation (${elapsed}ms)`);
+    assert.ok(elapsed < 9000, `${signal}: both processes are gone within the bound (${elapsed}ms)`);
+    await waitForGone(serverPid);
+  }
+});

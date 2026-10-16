@@ -703,6 +703,16 @@ function invokeAgyTransport(opts, prefix = []) {
           if (err.code !== "ESRCH") throw err;
         }
       }
+      if (normalizedRole === "navi") {
+        // Navi's private root holds the MCP registration and credential path,
+        // so its raw streams never leave the runner (Refs #156 gate review).
+        return {
+          ok: false,
+          error: "TIMEOUT",
+          code: "NAVI_TIMEOUT",
+          exitStatus: result.status ?? null,
+        };
+      }
       return {
         ok: false,
         error: "TIMEOUT",
@@ -722,6 +732,16 @@ function invokeAgyTransport(opts, prefix = []) {
   }
 
   if (result.status !== 0) {
+    if (normalizedRole === "navi") {
+      // Fixed taxonomy only; raw stderr may carry the private config root,
+      // credential paths or provider tokens (Refs #156 gate review).
+      return {
+        ok: false,
+        error: "EXECUTION_FAILED",
+        code: "NAVI_EXECUTION_FAILED",
+        exitStatus: result.status,
+      };
+    }
     return {
       ok: false,
       error: "EXECUTION_FAILED",

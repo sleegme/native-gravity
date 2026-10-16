@@ -29,8 +29,9 @@ that probe — and otherwise proxies the protocol verbatim to the desktop
 binary. The OAuth token is exposed through a symlink plus a bubblewrap
 read-only bind, and the root's `conversations` and `brain` directories link
 back to AGY's store so each invocation stays inspectable after the temp root
-is removed. Errors never carry configuration output, credential values or
-owner paths.
+is removed. Bubblewrap makes only the credential read-only (it binds `/` and
+`/dev` writable) and is not a full sandbox. Errors never carry configuration
+output, credential values or owner paths.
 
 The frontmatter model is `inherit`, not an exact slug or `pro`; native agent
 frontmatter cannot pin models. Runner policy resolves `gemini-4-argon-medium`
