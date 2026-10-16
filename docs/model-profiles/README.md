@@ -41,14 +41,17 @@ Each profile is one Markdown file (`<model>.md`) with this shape:
 ```
 
 The `model:` values used in `agents/*.md` (`flash`, `pro`, `inherit`) are
-tiers, not concrete IDs — a profile names the model ID a tier currently
-resolves to so a future tier switch can diff behavior deliberately.
+tiers, not concrete IDs. On AGY 1.3.6, native `pro` is the Gemini 4 Argon
+tier; AGY owns its reasoning effort. Runner roles use exact family/effort
+policies instead of frontmatter. See [Argon](gemini-4-argon.md) for mappings
+and cost guidance.
 
 ## Current profiles
 
 - `gemini-3.1-flash.md` — stub (legacy fast lane)
-- `gemini-3.1-pro.md` — stub (legacy slow lane; reviewer/executor default)
+- `gemini-3.1-pro.md` — historical stub (retired; no installed slug)
 - `gemini-3.8-flash.md` — draft (current de-facto executor tier on AGY ≥1.3)
+- `gemini-4-argon.md` — current routing and cost guidance (#74)
 
 ## Pipeline hook
 

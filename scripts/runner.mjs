@@ -26,12 +26,12 @@ const FRONTMATTER_BLOCK = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n)?/;
 export const ROLE_POLICY_TABLE = Object.freeze({
   piledriver: Object.freeze({
     role: "piledriver",
-    family: "Claude Opus 5.5",
+    family: "Gemini 4 Argon",
     effort: "High",
   }),
   zen: Object.freeze({
     role: "zen",
-    family: "Claude Sonnet 5.5",
+    family: "Gemini 4 Argon",
     effort: "High",
   }),
   bulldozer: Object.freeze({
@@ -41,8 +41,8 @@ export const ROLE_POLICY_TABLE = Object.freeze({
   }),
   steamroller: Object.freeze({
     role: "steamroller",
-    family: "Gemini 3.8 Flash",
-    effort: "High",
+    family: "Gemini 4 Argon",
+    effort: "Medium",
   }),
   instinct: Object.freeze({
     role: "instinct",

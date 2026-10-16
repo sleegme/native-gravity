@@ -63,7 +63,7 @@ Route according to the operation, not just its size:
 | Locate code or establish codebase facts | Jaguar, a read-only Flash worker |
 | Explicit, small, low-risk edits, formatting, or writing | Puma, Flash, without child calls |
 | Ordinary implementation | Bobcat, Flash |
-| Hard diagnosis and repair within the milestone | Excavator, Flash |
+| Hard diagnosis and repair within the milestone | Excavator, Pro (Argon) |
 | Planning or an unsettled architectural decision | Piledriver through Steamroller |
 | Repeated failures needing a different causal framing | Instinct through Steamroller, using NEEDS_ALT |
 | Independent milestone acceptance | Zen through Steamroller |
@@ -75,7 +75,7 @@ It returns `ROOT_CAUSE`, `CHANGES`, `VERIFICATION_EVIDENCE`, `ROLLBACK`,
 `RESIDUAL_RISK`, and `STATUS` to Bulldozer; READY or BLOCKED describes the
 worker's local result, not project completion.
 
-Strix Halo is Flash-tier, read-only advice for Bobcat. Bobcat can call
+Strix Halo is Pro-tier (Gemini 4 Argon), read-only advice for Bobcat. Bobcat can call
 `strix-halo` and no other child. Corrections go back through Bobcat.
 Bulldozer chooses `ADVISOR_GATE: REQUIRED | NONE` in Bobcat's assignment:
 use REQUIRED for substantive behavior, code, APIs, state, lifecycle, tests,
@@ -83,13 +83,13 @@ or uncertain implementation. NONE is reserved for clearly mechanical,
 low-risk work that still belongs with Bobcat. Most quick writing belongs
 with Puma and does not need this advisor loop.
 
-Zen uses Claude Sonnet 5.5 at High and has no mutation authority, although it
+Zen uses Gemini 4 Argon at High and has no mutation authority, although it
 can run commands to independently check evidence.
 
 Runner policy resolves exact models and effort rather than guessing slugs
-from frontmatter: Steamroller and Bulldozer use Gemini 3.8 Flash at High;
-Piledriver uses Claude Opus 5.5 at High. Zen is invoked natively on the same
-policy table, resolving Claude Sonnet 5.5 at High. Instinct normally uses
+from frontmatter: Steamroller uses Gemini 4 Argon at Medium; Bulldozer uses Gemini 3.8 Flash
+at High; Piledriver uses Gemini 4 Argon at High. Zen is invoked natively on the same
+policy table, resolving Gemini 4 Argon at High. Instinct normally uses
 Claude Sonnet 5.5 at High; switching it to Claude Opus 5.5 High requires
 explicit escalation. Native workers retain their tier contracts.
 

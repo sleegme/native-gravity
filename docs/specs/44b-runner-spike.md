@@ -1,5 +1,8 @@
 # Native Gravity vNext 44B Exact-Model Runner Spike
 
+> Historical spike and receipts: the 3.1 Pro IDs below are retired, not current
+> targets. Current AGY 1.3.6 routing is in [the Argon profile](../model-profiles/gemini-4-argon.md).
+
 > **Historical record.** This spike predates activation (44G, #134) and later
 > releases. Its receipts and deferred-at-the-time questions are kept as
 > evidence; the current implementation is described in

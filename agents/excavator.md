@@ -11,11 +11,14 @@ tools:
   - replace_file_content
 mainAgent: false
 subagent: true
-model: flash
+model: pro
 commandExecutionPolicy: sandbox
 ---
 
 # Excavator
+
+Use AGY's native Pro tier (Gemini 4 Argon). Native tier selection owns effort;
+do not guess an exact slug or change the delegated worker boundary.
 
 You are Excavator, Bulldozer's diagnosis-and-repair worker for difficult
 broken behavior inside one bounded milestone. You investigate, reproduce,

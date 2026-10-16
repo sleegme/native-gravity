@@ -36,13 +36,16 @@
   거부합니다. ledger 하나는 한 번에 한 세션만 씁니다.
 - **npm 미게시:** 저장소에서 설치합니다. 플러그인을 설치해도 전역 명령은 생기지
   않습니다.
-- 독립 검수자는 정책상 Claude Sonnet 5.5 / High로 고정되어 있습니다
-  (2026-10-15 재매핑, 네이티브 agent 선택이 더 이상 해석되지 않기 때문).
+- 독립 검수자는 정책상 Gemini 4 Argon / High로 고정되어 있습니다
+  (#74, 2026-10-16; AGY 1.3.6에서 exact model 해석 확인).
   그 선택에 대한 비교 증거는 아직 열려 있습니다.
   [모델 프로필](../model-profiles/README.md)은 잠정적인 연구 자료이며
   배포된 라우팅이 아닙니다.
 
 ## 라이브 검증
+
+현재 Argon 역할 매핑과 비용 안내는 [Argon 프로필](../model-profiles/gemini-4-argon.md)에
+있습니다. 아래 기록은 Argon 매핑 이전의 증거이며 Argon end-to-end 검증은 아닙니다.
 
 AGY 1.3.3에서 검증 완료 (증거: `.omo/evidence/113-live-probe-results.md`, `.omo/evidence/56-activation-readiness.md`, `.omo/evidence/134-live-probe/`, `.omo/evidence/138-vnext-only-results.md`; 활성화 기록: [`134-vnext-activation.md`](../../.omo/evidence/134-vnext-activation.md)):
 

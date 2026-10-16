@@ -94,7 +94,7 @@ shell or privilege sandboxes.
 | Jaguar | Read-only factual discovery; no delegation |
 | Puma | Small, explicit, low-risk writing/formatting/presentation/mechanical text or config; no delegation or advisor ceremony |
 | Bobcat | Ordinary bounded implementation; may invoke only Strix Halo; parent chooses `ADVISOR_GATE: REQUIRED \| NONE`, REQUIRED for substantive code/behavior/API/state/lifecycle/test work or uncertainty, NONE only for clearly low-risk mechanical work |
-| Excavator | Native Flash difficult diagnose/reproduce/root-cause/repair/verify worker under Bulldozer; edits inside its scope, no nested delegation, never invokes Zen |
+| Excavator | Native Pro (Argon) difficult diagnose/reproduce/root-cause/repair/verify worker under Bulldozer; edits inside its scope, no nested delegation, never invokes Zen |
 | Strix Halo (`strix-halo`) | Bobcat-only read-only advice/CHECK gate; `ACCEPT \| REVISE \| NEEDS_DEEP`; corrections go through Bobcat |
 | Zen | Independent non-mutating milestone review for Steamroller, not Bulldozer's child; `GO \| NO-GO`; may run verification commands |
 | Instinct | Runner-only heterogeneous alternate-framing advice, not a ritual reviewer; no implementation, orchestration, ledger, adoption or verdict/completion authority |
@@ -129,21 +129,21 @@ owns effort, cwd/context, bounded prompt construction, timeouts, recursion
 protection, structured result capture and failure reporting. Role bodies load
 from `agents/`; critical roles are runner-invoked, not natively selectable.
 
-- Steamroller/Bulldozer target Gemini 3.8 Flash / High.
-- Piledriver targets Claude Opus 5.5 / High.
+- Steamroller targets Gemini 4 Argon / Medium; Bulldozer stays on Gemini 3.8 Flash / High.
+- Piledriver targets Gemini 4 Argon / High.
 - Instinct targets Claude Sonnet 5.5 / High; Claude Opus 5.5 / High is selected
   only on explicit `--escalate`.
-- Jaguar/Puma/Bobcat/Strix Halo/Excavator use native Flash. Zen is invoked
-  natively by `ntg-vnext`, which resolves Claude Sonnet 5.5 / High from the
+- Jaguar/Puma/Bobcat use native Flash. Excavator and Strix Halo use native Pro
+  (Gemini 4 Argon, effort selected by AGY). Zen is invoked
+  natively by `ntg-vnext`, which resolves Gemini 4 Argon / High from the
   same policy table and prepends the `agents/zen.md` body (frontmatter
   stripped) instead of selecting `--agent zen`.
-- Model assignments were remapped 2026-10-15 after Gemini 3.1 Pro left agy:
-  Piledriver to Claude Opus 5.5, Zen to Claude Sonnet 5.5, Excavator to the
-  native Flash tier. Excavator escalation uses the existing NEEDS_ALT ->
+- The 2026-10-16 Argon mapping (#74) supersedes the temporary 2026-10-15
+  Claude/Flash remap after Gemini 3.1 Pro disappeared. Excavator escalation uses the existing NEEDS_ALT ->
   Instinct path; there is no model escalation for Excavator.
-- `NTG_ZEN_MODEL` optionally pins the independently invoked Zen model. Moving
-  the baseline to an exact model requires comparative live evidence, not a
-  policy assumption.
+- `NTG_ZEN_MODEL` optionally pins the independently invoked Zen model.
+  Comparative behavioral evidence remains open; model discovery proves
+  availability, not quality.
 
 NEEDS_ALT is for materially similar failures repeating without new evidence,
 or same-family paths over-converging. The advice packet carries failure class/signature, current hypothesis, attempt
@@ -209,12 +209,13 @@ then a direct `generateContent` REST call instead of `agy`.
 ```js
 import { invokeStudio } from './scripts/studio-runner.mjs';
 const result = await invokeStudio('steamroller', packet, {
-  model: 'gemini-3.1-pro-high',
+  model: process.env.GOOGLE_AI_STUDIO_MODEL,
   generationConfig: { temperature: 0.2 },
 });
 ```
 
-Set `GOOGLE_AI_STUDIO_API_KEY` (or `GOOGLE_API_KEY`) in the environment. The
+Set `GOOGLE_AI_STUDIO_MODEL` to a model ID exposed by that provider, not an
+assumed AGY slug. Set `GOOGLE_AI_STUDIO_API_KEY` (or `GOOGLE_API_KEY`) in the environment. The
 key goes only to Google in the request URL and is never written to results,
 errors, or ledger state. Results carry `provider: 'google-ai-studio'`, the
 model id, and token `usage` so comparisons stay attributable by
