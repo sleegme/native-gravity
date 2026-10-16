@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { AuthoritativeLedger, deepClone, deepFreeze } from './ledger.mjs';
+import { AuthoritativeLedger, deepClone, deepFreeze, normalizeCandidateArtifactRef } from './ledger.mjs';
 import { acquireLedgerLock } from './ledger-lock.mjs';
 import { InvalidHandoffPacketError, InvalidResponseFormatError, invoke, parseResponsePacket } from './runner.mjs';
 import { projectFailureRecord, projectFailureTelemetry, redactTelemetryValue } from './telemetry.mjs';
 
 const NEEDS_ALT_MIN_ATTEMPTS = 3;
+const MAX_HANDOFF_CORRECTIONS = 2;
 
 /**
  * A failure class is the materially-similar failure identity (contract §2.9);
@@ -494,8 +495,7 @@ export class MinimalSpine {
     this.#ledger.save(this.#path);
     this.#busy = true;
     try {
-      const candidate = await this.#exact('bulldozer',
-        'Execute only this milestone. Delegate bounded work to specialists by kind: '
+      const instruction = 'Execute only this milestone. Delegate bounded work to specialists by kind: '
         + 'Jaguar for read-only factual retrieval, Puma for low-risk writing and '
         + 'mechanical text/config edits, Bobcat for bounded implementation, and '
         + 'Excavator for difficult broken-behavior diagnosis/repair. '
@@ -510,7 +510,41 @@ export class MinimalSpine {
         + 'changes_made, verification_evidence, unresolved_unknowns, scope_deviations, '
         + 'blockers and escalation_needs as applicable. DONE must identify immutable '
         + 'delivered artifact versions in candidate_artifact_ref. Do not invoke Zen, '
-        + 'supply Zen authority, write the ledger, or claim global completion.', contract);
+        + 'supply Zen authority, write the ledger, or claim global completion.';
+      let candidate;
+      let invalidHandoff;
+      for (let correction = 0; correction <= MAX_HANDOFF_CORRECTIONS; correction += 1) {
+        candidate = await this.#exact('bulldozer',
+          invalidHandoff
+            ? 'Correct only the invalid result packet for this milestone using the existing '
+              + 'delivered artifacts and evidence. Do not re-execute completed work or invent '
+              + 'an artifact binding. Return the complete corrected JSON packet; if unable '
+              + 'to bind the delivered artifact, return BLOCKED. '
+              + 'Do not invoke Zen, write the ledger or claim global completion.'
+            : instruction,
+          invalidHandoff ? { ...contract, invalid_handoff: invalidHandoff } : contract);
+        if (candidate.status !== 'DONE') break;
+        try {
+          candidate = normalizeCandidateArtifactRef(candidate, { errorClass: InvalidHandoffPacketError });
+          if (typeof candidate.candidate_artifact_ref !== 'string'
+              || !candidate.candidate_artifact_ref.trim()) {
+            throw new InvalidHandoffPacketError('DONE must bind immutable delivered artifact versions in candidate_artifact_ref');
+          }
+          break;
+        } catch (error) {
+          if (!(error instanceof InvalidHandoffPacketError)) throw error;
+          invalidHandoff = { error: error.error, reason: error.message, candidate: deepClone(candidate) };
+          if (correction === MAX_HANDOFF_CORRECTIONS) {
+            const blockers = [`Invalid handoff after ${MAX_HANDOFF_CORRECTIONS} corrections: ${error.message}`];
+            this.#ledger.recordBlockedOrFailure({
+              milestoneId, status: 'BLOCKED', blockers,
+              evidence: { classification: 'OBSERVED', ...invalidHandoff, attempts: correction + 1 },
+            });
+            this.#ledger.save(this.#path);
+            return { status: 'BLOCKED', candidate: deepClone(candidate), blockers, verified: false };
+          }
+        }
+      }
 
       if (candidate.milestone_id !== contract.milestone_id
           || candidate.plan_version !== contract.plan_version) {
@@ -548,10 +582,6 @@ export class MinimalSpine {
       }
       if ('verdict' in candidate || 'zen_verdict' in candidate || 'result_ref' in candidate) {
         throw new Error('Bulldozer cannot issue result references or Zen authority');
-      }
-      if (typeof candidate.candidate_artifact_ref !== 'string'
-          || !candidate.candidate_artifact_ref.trim()) {
-        throw new Error('DONE must bind immutable delivered artifact versions');
       }
       const { result_ref, candidate_record } = this.#ledger.receiveCandidate(candidate);
       // The immutable candidate binding must be durable before Zen is invoked.

@@ -107,6 +107,15 @@ Return the complete result packet specified in `rules/orchestration.md`:
 `verification_evidence`, `unresolved_unknowns`, `scope_deviations`,
 `blockers`, `escalation_needs`.
 
+Every DONE must also include `candidate_artifact_ref`, a non-empty string
+identifying the immutable delivered artifact versions (for example, a file
+path plus its SHA-256 digest or a commit SHA). `artifact_ref` is an accepted
+alias; if both fields are supplied, their values must be identical. Do not
+invent a binding or use a mutable path alone. An invalid artifact binding is
+returned with `invalid_handoff.reason` for packet-only correction using the
+existing artifacts and evidence, not re-execution of completed work. After
+two unsuccessful corrections, Steamroller records BLOCKED without Zen review.
+
 Use DONE only when all acceptance criteria are supported by actual observed
 results. It is a pre-review candidate claim, not verified completion.
 Use BLOCKED for a genuine blocker, NEEDS_DEEP for a bounded decision requiring
