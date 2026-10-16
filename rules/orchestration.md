@@ -233,8 +233,8 @@ Model policy, not hard-coded slugs:
 | Jaguar | Flash | native | native subagent |
 | Puma | Flash | native | native subagent |
 | Bobcat | Flash | native | native subagent |
-| Excavator | Pro (Gemini 4 Argon) | AGY-selected | native subagent |
-| Strix Halo | Pro (Gemini 4 Argon) | AGY-selected | native subagent |
+| Excavator | Flash | native | native subagent |
+| Strix Halo | Flash | native | native subagent |
 | Zen | Gemini 4 Argon | High | native invocation by `ntg-vnext` (policy-resolved slug) |
 
 ## Excavator shell boundary

@@ -42,8 +42,8 @@ USER
                   ├─► JAGUAR   (Flash — read-only factual retrieval)
                   ├─► PUMA     (Flash — quick/writing/mechanical)
                   ├─► BOBCAT   (Flash — bounded implementation)
-                  │      └─► STRIX HALO  (Argon Pro — implementation advisor/gate)
-                  └─► EXCAVATOR (Argon Pro — difficult diagnosis/repair)
+                  │      └─► STRIX HALO  (Flash — implementation advisor/gate)
+                  └─► EXCAVATOR (Flash — difficult diagnosis/repair)
 
 [After each milestone]
   BULLDOZER ──candidate packet──► STEAMROLLER ──review request──► ZEN
@@ -197,7 +197,7 @@ Excavator runs this path as a Bulldozer worker inside the delegated milestone (o
 
 ### 2.7 Strix Halo — Implementation Advisor / Gate
 
-**Model:** native Pro tier (Gemini 4 Argon; AGY selects effort)
+**Model:** native Flash tier (retained from #148)
 
 **vNext invariant.**
 
@@ -247,7 +247,7 @@ AND no meaningful new evidence or causal-model progress
 
 This is not a raw retry count. Track failure class/signature, current hypothesis, attempt count within that class, and whether meaningful new evidence appeared.
 
-**RESOLVED (owner decision; OQ-3; model updated by #74):** Excavator's authority and placement are fixed as a Bulldozer worker for hard diagnosis/repair on the native Pro (Argon) tier, with no nested delegation and no Zen invocation. #137's `inheritCustomizations: true` decision applied to the former native primary and is superseded by the demotion; workers carry no `inheritCustomizations` field. Continue validating behavior against real AGY failure cases inside the worker role. Do not invent from role aesthetics.
+**RESOLVED (owner decision; OQ-3; native pin limitation verified in #74):** Excavator's authority and placement are fixed as a Bulldozer worker for hard diagnosis/repair on the native Flash tier, with no nested delegation and no Zen invocation. #137's `inheritCustomizations: true` decision applied to the former native primary and is superseded by the demotion; workers carry no `inheritCustomizations` field. Continue validating behavior against real AGY failure cases inside the worker role. Do not invent from role aesthetics.
 
 ### 2.10 Instinct — Alternate-Framing Specialist (#20)
 
@@ -528,8 +528,8 @@ Initial target policy (subject to live validation in slice 44B):
 | Jaguar | Flash | native | native AGY subagent |
 | Puma | Flash | native | native AGY subagent |
 | Bobcat | Flash | native | native AGY subagent |
-| Excavator | Pro (Gemini 4 Argon) | AGY-selected | native AGY subagent |
-| Strix Halo | Pro (Gemini 4 Argon) | AGY-selected | native AGY subagent |
+| Excavator | Flash | native | native AGY subagent |
+| Strix Halo | Flash | native | native AGY subagent |
 | Zen | Gemini 4 Argon | High | native invocation by `ntg-vnext` (policy-resolved slug, not `--agent`) |
 
 **Do NOT hard-code unverified AGY model slugs.** Resolve exact slug from the installed AGY model surface during implementation. If a slug cannot be resolved, runner must fail with a structured error rather than falling back silently.
@@ -650,7 +650,7 @@ The following items are explicitly unresolved at the time this contract is froze
 |---|---|---|
 | OQ-1 | Exact AGY model slugs for the policy-table families (Gemini 4 Argon, Gemini 3.8 Flash, Claude Opus 5.5, Claude Sonnet 5.5) — must be resolved from the installed AGY surface, not assumed | 44B |
 | OQ-2 | Whether Zen should use an exact model or a native tier — updated by #74 on 2026-10-16: Zen is invoked natively on exact Gemini 4 Argon / High resolved from the policy table, since `--agent` selection no longer resolves | 44B / 44F |
-| OQ-3 | Exact final authority, placement, and model assignment of Excavator in the vNext graph | Resolved (owner decision; model updated by #74): Bulldozer worker for hard diagnosis/repair, native Pro (Argon) tier, no nested delegation, never invokes Zen — §2.9 |
+| OQ-3 | Exact final authority, placement, and model assignment of Excavator in the vNext graph | Resolved (owner decision; pin limitation verified in #74): Bulldozer worker for hard diagnosis/repair, native Flash tier (Argon High pin blocked by AGY native frontmatter), no nested delegation, never invokes Zen — §2.9 |
 | OQ-4 | Exact AGY CLI invocation path for Sonnet (Instinct backend) — must be validated before Instinct is implemented | Resolved #20 |
 | OQ-5 | Ledger persistence format and location (YAML file, sidecar artifact, etc.) — implementation decision for 44C | 44C |
 | OQ-6 | `inheritCustomizations: true` kept on the then-native Excavator (#137); AGY 1.3.3 workspace-rule propagation verified for true/omission, suppressed for false; inheritance is not an authority grant | Resolved #137; superseded by the Excavator worker demotion (no native primary; workers carry no `inheritCustomizations`) |

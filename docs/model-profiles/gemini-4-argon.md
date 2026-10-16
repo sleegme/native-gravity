@@ -5,14 +5,14 @@
 
 `agy models` exposes `gemini-4-argon-low`, `gemini-4-argon-medium`,
 and `gemini-4-argon-high`. The retired `gemini-3.1-pro-*` IDs are absent.
-This supersedes the temporary Claude/Flash remap from 2026-10-15.
+Availability does not prove that a native tier selects any of these models.
 
 | Role | Selection | Effort rationale |
 |---|---|---|
-| Excavator | native `model: pro` (Argon) | AGY owns native tier effort; difficult bounded diagnosis and repair |
+| Excavator | native `model: flash`; Argon High pin blocked | Exact-slug native frontmatter is not accepted; see below |
 | Piledriver | `gemini-4-argon-high` | High for bounded architecture and difficult decisions |
 | Steamroller | `gemini-4-argon-medium` | Medium for constrained supervision and ledger decisions |
-| Strix Halo | native `model: pro` (Argon) | AGY owns native tier effort; bounded implementation review |
+| Strix Halo | native `model: flash` | Preserve the deliberate Flash assignment from #148 |
 | Zen | `gemini-4-argon-high` | High for independent contract verification |
 | Bulldozer | `gemini-3.8-flash-high` | Retain Flash for bounded milestone delegation |
 | Jaguar / Puma / Bobcat | native `model: flash` | Retain Flash for discovery, mechanical work and ordinary implementation |
@@ -24,20 +24,39 @@ against the installed catalog and failing closed on missing or ambiguous
 models. Piledriver, Steamroller and Zen keep `model: inherit` frontmatter
 because their invocation supplies the policy-resolved slug.
 
-Excavator and Strix Halo remain native subagents, not new runner roles.
-Their `pro` selector is a native tier, not an exact slug or an effort pin.
-The available Argon effort candidates are the three IDs above; this change
-does not claim which effort AGY chooses for a native child. A live temporary
-`model="pro"` child returned `PRO_TIER_OK`; its CLI log did not expose the
-child's exact slug. Catalog checks and runner resolution are availability
-evidence, not comparative quality or full milestone validation.
+## Native model limitation and proposed alternative
+
+The original PR claim that native `pro` selects Argon was wrong. The stored
+metadata of its child `19e9cab6-5c09-4228-ba03-ff70b1cb0cd9` contains
+`gemini-3.8-flash-high` and generation metadata records
+`gemini-3.8-flash-tiered`. A successful sentinel did not establish model identity.
+
+A throwaway copy of Excavator with `model: gemini-4-argon-high` failed
+registration and could not create a child. Changing only its model to `flash`
+registered it and created a child whose generation and executor metadata both
+record `gemini-3.8-flash-tiered`. Full probe and control evidence is in
+[the correction receipt](../../.omo/evidence/74-argon-routing.md).
+
+Excavator therefore remains native Flash; its requested Argon High pin is
+**not implemented**. Native delegation does not consult `ROLE_POLICY_TABLE`:
+adding a policy entry and a resolver-only test would not fix the actual path.
+No test claims that the native worker resolves to Argon.
+
+The proposed alternative is a bounded explicit-model Excavator invocation,
+using `agy --model` with a policy-resolved slug and the shipped worker body,
+as Zen already does. It must be wired into real worker dispatch, preserving
+the Bulldozer caller, milestone slice, tools, shell marker, and no-child
+boundary. Merely injecting a spine test adapter does not intercept AGY's
+native `invoke_subagent` calls. This routing change is proposed, not shipped.
 
 ## Cost guidance
 
-Argon costs **$2/M input tokens and $10/M output tokens**, with **cached input
-95% cheaper** ($0.10/M cached input tokens). These are the rates recorded in
-[#74](https://github.com/sleegme/native-gravity/issues/74), not measured AGY
-subscription charges.
+Argon costs **$2/M input tokens and $10/M output tokens** through 2026-11-30.
+From **2026-12-01**, the scheduled prices are **$4/M input and $20/M output**.
+**Cached input is 95% cheaper** ($0.10/M currently, $0.20/M from 2026-12-01).
+Current rates come from [#74](https://github.com/sleegme/native-gravity/issues/74);
+the scheduled change was supplied by the owner on 2026-10-16. These are not
+measured AGY subscription charges.
 
 Keep simple and frequent tasks on Flash. Use Medium for constrained
 supervision, and High for difficult planning or independent verification.

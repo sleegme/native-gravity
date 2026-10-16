@@ -63,7 +63,7 @@ Route according to the operation, not just its size:
 | Locate code or establish codebase facts | Jaguar, a read-only Flash worker |
 | Explicit, small, low-risk edits, formatting, or writing | Puma, Flash, without child calls |
 | Ordinary implementation | Bobcat, Flash |
-| Hard diagnosis and repair within the milestone | Excavator, Pro (Argon) |
+| Hard diagnosis and repair within the milestone | Excavator, Flash |
 | Planning or an unsettled architectural decision | Piledriver through Steamroller |
 | Repeated failures needing a different causal framing | Instinct through Steamroller, using NEEDS_ALT |
 | Independent milestone acceptance | Zen through Steamroller |
@@ -75,7 +75,7 @@ It returns `ROOT_CAUSE`, `CHANGES`, `VERIFICATION_EVIDENCE`, `ROLLBACK`,
 `RESIDUAL_RISK`, and `STATUS` to Bulldozer; READY or BLOCKED describes the
 worker's local result, not project completion.
 
-Strix Halo is Pro-tier (Gemini 4 Argon), read-only advice for Bobcat. Bobcat can call
+Strix Halo is Flash-tier, read-only advice for Bobcat. Bobcat can call
 `strix-halo` and no other child. Corrections go back through Bobcat.
 Bulldozer chooses `ADVISOR_GATE: REQUIRED | NONE` in Bobcat's assignment:
 use REQUIRED for substantive behavior, code, APIs, state, lifecycle, tests,

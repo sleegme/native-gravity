@@ -40,11 +40,12 @@ Each profile is one Markdown file (`<model>.md`) with this shape:
 - <links to runs/issues/QA notes>
 ```
 
-The `model:` values used in `agents/*.md` (`flash`, `pro`, `inherit`) are
-tiers, not concrete IDs. On AGY 1.3.6, native `pro` is the Gemini 4 Argon
-tier; AGY owns its reasoning effort. Runner roles use exact family/effort
-policies instead of frontmatter. See [Argon](gemini-4-argon.md) for mappings
-and cost guidance.
+The native `model:` values accepted by AGY 1.3.6 are tiers (`inherit`,
+`flash`, `pro`, `flash_lite`), not exact slugs. Native `pro` did not select
+Argon in observed child metadata; exact Argon frontmatter failed to register.
+Runner roles and Zen use explicit family/effort policies instead. See
+[Argon](gemini-4-argon.md) for verified mappings, the blocked native
+Excavator pin, and cost guidance.
 
 ## Current profiles
 

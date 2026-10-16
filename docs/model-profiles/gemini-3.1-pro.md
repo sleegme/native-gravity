@@ -23,7 +23,7 @@
 |---|---|---|
 | planner | strong | trade-offs, acceptance design |
 | executor (excavator) | strong | bounded autonomous repair |
-| gate / reviewer (zen, strix-halo) | strong | default |
+| gate / reviewer (zen) | strong | historical hypothesis |
 | specialist (steamroller reasoning) | strong (hypothesis) | deep-reasoning tier; not deployed; see current Argon policy |
 
 ## Gate-checklist variants

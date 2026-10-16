@@ -40,7 +40,7 @@ Per contract §6.3, specialists remain native AGY subagents:
 - **Jaguar**: Flash (native)
 - **Puma**: Flash (native)
 - **Bobcat**: Flash (native)
-- **Strix Halo**: Pro (native)
+- **Strix Halo**: Flash (native; current assignment retained from #148)
 - **Zen**: Pro (native)
 
 ## 3. Invocation Mechanics & Architecture Split

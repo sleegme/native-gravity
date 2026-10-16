@@ -188,14 +188,10 @@ runTest("1.6: Live installed surface resolution against system agy models", () =
     console.log(`  ${role} -> ${slug}`);
   }
   assert.strictEqual(resolveSlug("instinct", { installedModels: models, escalate: true }), "claude-opus-5-5-high");
-  // Native workers select a tier, not an exact effort. Confirm the shipped
-  // selectors and every Argon effort candidate against the same live surface.
+  // Native selectors are not exact-model policies. Do not treat availability
+  // of an Argon slug as proof that a native worker used it.
   for (const role of ["excavator", "strix-halo"]) {
-    assert.match(machineBody(role), /^model: pro$/m);
-    for (const effort of ["low", "medium", "high"]) {
-      assert.ok(models.some(model => model.slug === `gemini-4-argon-${effort}`));
-    }
-    console.log(`  ${role} -> native pro (gemini-4-argon-{low,medium,high}; AGY owns effort)`);
+    assert.match(machineBody(role), /^model: flash$/m);
   }
 });
 

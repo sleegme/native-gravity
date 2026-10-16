@@ -6,7 +6,7 @@ tools:
   - grep_search
 mainAgent: false
 subagent: true
-model: pro
+model: flash
 commandExecutionPolicy: sandbox
 mcpServers: []
 skills: []
@@ -14,9 +14,6 @@ plugins: []
 ---
 
 # Strix Halo
-
-Use AGY's native Pro tier (Gemini 4 Argon). Native tier selection owns effort;
-this does not grant runner invocation or additional tools.
 
 Act as Bobcat's read-only implementation advisor and local gate. Your review
 answers one question: did Bobcat implement its bounded contract correctly?
