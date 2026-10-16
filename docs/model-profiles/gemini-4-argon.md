@@ -12,6 +12,7 @@ Availability does not prove that a native tier selects any of these models.
 | Excavator | native `model: flash`; Argon High pin blocked | Exact-slug native frontmatter is not accepted; see below |
 | Piledriver | `gemini-4-argon-high` | High for bounded architecture and difficult decisions |
 | Steamroller | `gemini-4-argon-medium` | Medium for constrained supervision and ledger decisions |
+| Navi | `gemini-4-argon-medium` | Medium for bounded desktop tasks; agent-scoped MCP only |
 | Strix Halo | native `model: flash` | Preserve the deliberate Flash assignment from #148 |
 | Zen | `gemini-4-argon-high` | High for independent contract verification |
 | Bulldozer | `gemini-3.8-flash-high` | Retain Flash for bounded milestone delegation |

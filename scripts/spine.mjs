@@ -185,6 +185,7 @@ export class MinimalSpine {
    */
   #transportCommand(role, slug) {
     const parts = ['agy', '--model', slug ?? '<unresolved>', '--output-format', 'json'];
+    if (role === 'navi') parts.push('--dangerously-skip-permissions');
     if (role === 'bulldozer') parts.push('--dangerously-skip-permissions');
     parts.push('--print', '(prompt withheld)');
     return parts.join(' ');
@@ -416,6 +417,28 @@ export class MinimalSpine {
       failure_telemetry: projectFailureTelemetry(state.evidence),
       verification_summary,
     })));
+  }
+
+  /** Steamroller-only desktop leaf; no ledger mutation or automatic replay. */
+  async requestDesktop(task) {
+    this.#idle();
+    if (typeof task !== 'string' || !task.trim()) throw new TypeError('Desktop task required');
+    this.#busy = true;
+    try {
+      const result = await this.#exact('navi',
+        'Perform only the bounded desktop task and return your JSON result. '
+        + 'Return NEEDS_CONFIRMATION with the exact intended_action before any '
+        + 'irreversible or external effect; do not perform that action.',
+        { task: task.trim(), constraints: this.state.constraints });
+      if (!['OBSERVED', 'DONE', 'BLOCKED', 'NEEDS_CONFIRMATION'].includes(result.status)
+        || (result.status === 'NEEDS_CONFIRMATION'
+          && (typeof result.intended_action !== 'string' || !result.intended_action.trim()))) {
+        throw new InvalidResponseFormatError('navi');
+      }
+      return result;
+    } finally {
+      this.#busy = false;
+    }
   }
 
   /** A planning response is advice; only explicit supervisor adoption changes state. */

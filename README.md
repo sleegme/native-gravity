@@ -83,6 +83,7 @@ only one session can own a progress file at a time.
 - [Usage](docs/usage.md): everyday workflows, examples and troubleshooting.
 - [Architecture](docs/architecture.md): design choices and the overall shape.
 - [Internals](docs/internals.md): implementation details for maintainers.
+- [Navi](docs/navi.md): isolated, bounded Linux desktop tasks through Steamroller.
 - [Specs](docs/specs/): technical contracts.
 - [Status](docs/status.md): what works, known limits and the evidence.
 - [Versioning](docs/versioning.md): release policy and compatibility history.

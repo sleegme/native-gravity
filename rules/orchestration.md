@@ -22,6 +22,7 @@ User
                        Strix Halo — Bobcat-local gate
     Instinct — alternate-framing advisory on NEEDS_ALT
     Zen — independent milestone verification
+    Navi — bounded Linux desktop leaf through the exact-model runner
     Steamroller ledger transition
 ```
 
@@ -42,6 +43,7 @@ Choose by kind of work, not apparent task size:
 | Planning, architecture, ambiguity, trade-off | Piledriver (via Steamroller) |
 | Stalled same-class failures, materially different framing needed | Instinct (NEEDS_ALT via Steamroller) |
 | Milestone verification, independent completion review | Zen (via Steamroller) |
+| Full Linux desktop observation and bounded interaction | Navi (via Steamroller's exact-model runner) |
 | Multi-milestone project work | Steamroller through the runner |
 | Hard broken-behavior diagnosis and repair inside a milestone | Excavator (Bulldozer worker) |
 
@@ -136,6 +138,31 @@ unknowns). Advisory only: it never implements, orchestrates, writes the
 ledger, adopts plans, or claims verdicts or completion. Its output is
 recorded as advisory evidence (`adopted: false`); Steamroller decides whether
 to act.
+
+## Navi — isolated desktop leaf
+
+Only Steamroller requests Navi through the exact-model runner, on Gemini 4
+Argon / Medium. Desktop needs discovered by Bulldozer or workers return
+upstream; Navi is not in their native worker allowlist. This adds a leaf, not
+another coordinator or nesting level, preserving the shallow graph. Navi
+cannot delegate, edit sources, write the ledger, promote milestones, review
+candidates or complete projects.
+
+Navi's runner invocation builds a private per-process HOME that registers only
+the desktop server `cu`; tools are reached through AGY's generic
+`call_mcp_tool` dispatcher. Agent frontmatter, plugin and global MCP
+configuration would expose desktop control to every conversation and must
+never contain this server. Navi observes before acting, prefers
+accessibility elements, and re-observes after each action. Screenshots,
+accessibility trees and available window lists are free; clicks and typing are
+allowed within scope. Before payments, purchases, deletion, messages/email,
+form submission, login/credentials or system setting changes, it returns
+`NEEDS_CONFIRMATION` with the exact intended action and does not act.
+On Sway, full-screen screenshots and accessibility elements replace unavailable
+window introspection/targeting; no window-focus tool is required.
+
+Navi's local `DONE` is desktop evidence only, not milestone acceptance.
+Steamroller receives the result and handles any owner confirmation separately.
 
 ## Zen — independent milestone review
 
