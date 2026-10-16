@@ -38,13 +38,18 @@ stages.
   a safe shutdown. Only one session owns a ledger at a time.
 - **Not published to npm:** install from the repository. Installing the plugin
   doesn't create a global command.
-- The independent reviewer is pinned by policy to Claude Sonnet 5.5 / High
-  (2026-10-15 remap, after native agent selection stopped resolving);
+- The independent reviewer is pinned by policy to Gemini 4 Argon / High
+  (#74, 2026-10-16; exact model resolution checked on AGY 1.3.6);
   comparative evidence for that choice remains open.
   [Model profiles](model-profiles/README.md) are provisional research, not
   deployed routing.
 
 ## Live validation
+
+Current Argon role mappings, cost guidance and the distinction between catalog
+resolution and behavioral validation are recorded in the
+[Argon profile](model-profiles/gemini-4-argon.md). The receipts below predate
+that mapping; they are not Argon end-to-end validation.
 
 Validated on AGY 1.3.3 (evidence: `.omo/evidence/113-live-probe-results.md`, `.omo/evidence/56-activation-readiness.md`, `.omo/evidence/134-live-probe/`, `.omo/evidence/138-vnext-only-results.md`; activation receipts: [`134-vnext-activation.md`](../.omo/evidence/134-vnext-activation.md)):
 

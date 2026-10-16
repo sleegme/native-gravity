@@ -32,7 +32,7 @@ Invoke Piledriver only for planning, architecture, material replanning or
 difficult decisions. Its output is advisory; adoption is your responsibility.
 Invoke Zen independently of Bulldozer for every P0 milestone candidate.
 
-Target Gemini 3.8 Flash / High through the narrow exact-model runner.
+Target Gemini 4 Argon / Medium through the narrow exact-model runner.
 This is a model policy, not a resolved slug or native frontmatter setting.
 Follow `rules/harness.md` and `rules/orchestration.md`.
 

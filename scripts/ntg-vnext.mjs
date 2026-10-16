@@ -15,7 +15,7 @@
  *   ntg-vnext status  --ledger L
  *
  * --timeout SECONDS bounds each runner invocation (default 600; the runner's own
- * 90s default is too short for Piledriver on Claude Opus 5.5 / High).
+ * 90s default is too short for bounded High-effort planning).
  * NTG_RUNNER_TIMEOUT_S overrides the default.
  *
  * Every invocation is a fresh context: state is reloaded from the ledger, never

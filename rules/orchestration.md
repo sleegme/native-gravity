@@ -226,8 +226,8 @@ Model policy, not hard-coded slugs:
 
 | Role | Model family | Effort | Invocation |
 |---|---|---|---|
-| Steamroller | Gemini 3.8 Flash | High | exact-model runner |
-| Piledriver | Claude Opus 5.5 | High | exact-model runner |
+| Steamroller | Gemini 4 Argon | Medium | exact-model runner |
+| Piledriver | Gemini 4 Argon | High | exact-model runner |
 | Bulldozer | Gemini 3.8 Flash | High | exact-model runner |
 | Instinct | Claude Sonnet 5.5 (Claude Opus 5.5 only on explicit escalation) | High | exact-model runner |
 | Jaguar | Flash | native | native subagent |
@@ -235,7 +235,7 @@ Model policy, not hard-coded slugs:
 | Bobcat | Flash | native | native subagent |
 | Excavator | Flash | native | native subagent |
 | Strix Halo | Flash | native | native subagent |
-| Zen | Claude Sonnet 5.5 | High | native invocation by `ntg-vnext` (policy-resolved slug) |
+| Zen | Gemini 4 Argon | High | native invocation by `ntg-vnext` (policy-resolved slug) |
 
 ## Excavator shell boundary
 

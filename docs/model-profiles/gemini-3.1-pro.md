@@ -1,4 +1,8 @@
 # gemini-3.1-pro — profile
+> Historical profile: `gemini-3.1-pro-*` is absent on AGY 1.3.6. No current
+> role targets it; see [Gemini 4 Argon](gemini-4-argon.md). The observations
+> and hypotheses below are not current routing.
+
 **Status:** stub   **Last evidence:** none (collection pipeline pending)
 
 ## Strengths
@@ -19,8 +23,8 @@
 |---|---|---|
 | planner | strong | trade-offs, acceptance design |
 | executor (excavator) | strong | bounded autonomous repair |
-| gate / reviewer (zen, strix-halo) | strong | default |
-| specialist (steamroller reasoning) | strong (hypothesis) | deep-reasoning tier; not deployed; Steamroller runs on Gemini 3.8 Flash / High |
+| gate / reviewer (zen) | strong | historical hypothesis |
+| specialist (steamroller reasoning) | strong (hypothesis) | deep-reasoning tier; not deployed; see current Argon policy |
 
 ## Gate-checklist variants
 - On read-only roles, check that no file mutation happened even with a

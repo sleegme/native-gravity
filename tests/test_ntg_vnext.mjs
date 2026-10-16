@@ -256,6 +256,7 @@ test('the npm-style bin symlink executes the CLI (#135 B1)', t => {
 });
 
 const ZEN_MODELS = [
+  'gemini-4-argon-high\tGemini 4 Argon (High)',
   'gemini-3.8-flash-high\tGemini 3.8 Flash (High)',
   'claude-sonnet-5-5-medium\tClaude Sonnet 5.5 (Medium)',
   'claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)',
@@ -304,7 +305,7 @@ test('native Zen is model-pinned by policy and never by --agent', t => {
 
   const args = zenArgs(agy);
   assert.equal(args.includes('--agent'), false);
-  assert.equal(args[args.indexOf('--model') + 1], 'claude-sonnet-5-5-high');
+  assert.equal(args[args.indexOf('--model') + 1], 'gemini-4-argon-high');
   assert.equal(args[args.indexOf('--output-format') + 1], 'json');
   assert.ok(args.includes('--dangerously-skip-permissions'));
   assert.ok(args.includes('-p'));

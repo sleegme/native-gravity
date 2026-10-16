@@ -96,8 +96,8 @@ runTest("1.2: Absent surface error (0 matches) throws UnresolvedModelSlugError w
 runTest("1.3: Ambiguous surface error (multiple matches) throws UnresolvedModelSlugError with candidate details", () => {
   let caughtErr = null;
   const ambiguousSurface = [
-    { slug: "claude-opus-5-5-high-v1", description: "Claude Opus 5.5 (High) v1" },
-    { slug: "claude-opus-5-5-high-v2", description: "Claude Opus 5.5 (High) v2" },
+    { slug: "gemini-4-argon-high-v1", description: "Gemini 4 Argon (High) v1" },
+    { slug: "gemini-4-argon-high-v2", description: "Gemini 4 Argon (High) v2" },
   ];
   try {
     resolveSlug("piledriver", { installedModels: ambiguousSurface });
@@ -108,41 +108,42 @@ runTest("1.3: Ambiguous surface error (multiple matches) throws UnresolvedModelS
   assert.strictEqual(caughtErr.ok, false);
   assert.strictEqual(caughtErr.error, "UNRESOLVED_MODEL_SLUG");
   assert.strictEqual(caughtErr.reason, "AMBIGUOUS");
-  assert.deepStrictEqual(caughtErr.matches, ["claude-opus-5-5-high-v1", "claude-opus-5-5-high-v2"]);
+  assert.deepStrictEqual(caughtErr.matches, ["gemini-4-argon-high-v1", "gemini-4-argon-high-v2"]);
   assert.ok(caughtErr.message.includes("Ambiguous model slug resolution"));
 });
 
 runTest("1.4: Deterministic resolution against cached installed models for all roles", () => {
   const mockSurface = [
-    { slug: "claude-opus-5-5-high", description: "Claude Opus 5.5 (High)" },
+    { slug: "gemini-4-argon-medium", description: "Gemini 4 Argon (Medium)" },
+    { slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" },
     { slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" },
     { slug: "claude-sonnet-5-5-high", description: "Claude Sonnet 5.5 (High)" },
   ];
 
   const piledriverSlug = resolveSlug("piledriver", { installedModels: mockSurface });
-  assert.strictEqual(piledriverSlug, "claude-opus-5-5-high");
+  assert.strictEqual(piledriverSlug, "gemini-4-argon-high");
 
   // Case-insensitive
   const piledriverUpper = resolveSlug("PileDriver", { installedModels: mockSurface });
-  assert.strictEqual(piledriverUpper, "claude-opus-5-5-high");
+  assert.strictEqual(piledriverUpper, "gemini-4-argon-high");
 
   const bulldozerSlug = resolveSlug("bulldozer", { installedModels: mockSurface });
   assert.strictEqual(bulldozerSlug, "gemini-3.8-flash-high");
 
   const steamrollerSlug = resolveSlug("steamroller", { installedModels: mockSurface });
-  assert.strictEqual(steamrollerSlug, "gemini-3.8-flash-high");
+  assert.strictEqual(steamrollerSlug, "gemini-4-argon-medium");
 
   // Verify ROLE_POLICY_TABLE definitions
-  assert.strictEqual(ROLE_POLICY_TABLE.piledriver.family, "Claude Opus 5.5");
+  assert.strictEqual(ROLE_POLICY_TABLE.piledriver.family, "Gemini 4 Argon");
   assert.strictEqual(ROLE_POLICY_TABLE.piledriver.effort, "High");
   assert.strictEqual(ROLE_POLICY_TABLE.bulldozer.family, "Gemini 3.8 Flash");
   assert.strictEqual(ROLE_POLICY_TABLE.bulldozer.effort, "High");
-  assert.strictEqual(ROLE_POLICY_TABLE.steamroller.family, "Gemini 3.8 Flash");
-  assert.strictEqual(ROLE_POLICY_TABLE.steamroller.effort, "High");
+  assert.strictEqual(ROLE_POLICY_TABLE.steamroller.family, "Gemini 4 Argon");
+  assert.strictEqual(ROLE_POLICY_TABLE.steamroller.effort, "Medium");
   // Zen is policy-resolved for its native invocation without becoming a runner role.
-  assert.strictEqual(ROLE_POLICY_TABLE.zen.family, "Claude Sonnet 5.5");
+  assert.strictEqual(ROLE_POLICY_TABLE.zen.family, "Gemini 4 Argon");
   assert.strictEqual(ROLE_POLICY_TABLE.zen.effort, "High");
-  assert.strictEqual(resolveSlug("zen", { installedModels: mockSurface }), "claude-sonnet-5-5-high");
+  assert.strictEqual(resolveSlug("zen", { installedModels: mockSurface }), "gemini-4-argon-high");
 
   // Hard-coded mapping removed from ROLE_MODEL_TABLE
   assert.deepStrictEqual(Object.keys(ROLE_MODEL_TABLE), []);
@@ -153,15 +154,15 @@ runTest("1.5: parseInstalledModels correctly parses agy models stdout table", ()
 Fetching available models...
 gemini-3.8-flash-high\tGemini 3.8 Flash (High)
 gemini-3.8-flash-low\tGemini 3.8 Flash (Low)
-claude-opus-5-5-high\tClaude Opus 5.5 (High)
+gemini-4-argon-high\tGemini 4 Argon (High)
 claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)
 `;
   const parsed = parseInstalledModels(sampleStdout);
   assert.strictEqual(parsed.length, 4);
   assert.strictEqual(parsed[0].slug, "gemini-3.8-flash-high");
   assert.strictEqual(parsed[0].description, "Gemini 3.8 Flash (High)");
-  assert.strictEqual(parsed[2].slug, "claude-opus-5-5-high");
-  assert.strictEqual(parsed[2].description, "Claude Opus 5.5 (High)");
+  assert.strictEqual(parsed[2].slug, "gemini-4-argon-high");
+  assert.strictEqual(parsed[2].description, "Gemini 4 Argon (High)");
 });
 
 runTest("1.6: Live installed surface resolution against system agy models", () => {
@@ -169,17 +170,38 @@ runTest("1.6: Live installed surface resolution against system agy models", () =
   assert.ok(Array.isArray(models), "Expected models to be an array");
   assert.ok(models.length > 0, "Expected at least one installed model");
 
-  // Verify piledriver resolves live to claude-opus-5-5-high
+  // Verify piledriver resolves live to gemini-4-argon-high
   const pSlug = resolveSlug("piledriver");
-  assert.strictEqual(pSlug, "claude-opus-5-5-high");
+  assert.strictEqual(pSlug, "gemini-4-argon-high");
 
   // Verify bulldozer resolves live to gemini-3.8-flash-high
   const bSlug = resolveSlug("bulldozer");
   assert.strictEqual(bSlug, "gemini-3.8-flash-high");
 
-  // Verify Zen resolves live to claude-sonnet-5-5-high for its native invocation
+  // Verify Zen resolves live to gemini-4-argon-high for its native invocation
   const zSlug = resolveSlug("zen");
-  assert.strictEqual(zSlug, "claude-sonnet-5-5-high");
+  assert.strictEqual(zSlug, "gemini-4-argon-high");
+
+  for (const role of Object.keys(ROLE_POLICY_TABLE)) {
+    const slug = resolveSlug(role, { installedModels: models });
+    assert.ok(models.some(model => model.slug === slug), `${role}: ${slug}`);
+    console.log(`  ${role} -> ${slug}`);
+  }
+  assert.strictEqual(resolveSlug("instinct", { installedModels: models, escalate: true }), "claude-opus-5-5-high");
+  // Native selectors are not exact-model policies. Do not treat availability
+  // of an Argon slug as proof that a native worker used it.
+  for (const role of ["excavator", "strix-halo"]) {
+    assert.match(machineBody(role), /^model: flash$/m);
+  }
+});
+
+runTest("1.7: Argon policies fail closed on a retired Pro or wrong-effort surface", () => {
+  for (const role of ["piledriver", "steamroller", "zen"]) {
+    for (const installedModels of [["gemini-3.1-pro-high"], ["gemini-4-argon-low"]]) {
+      assert.throws(() => resolveSlug(role, { installedModels }),
+        err => err instanceof UnresolvedModelSlugError && err.reason === "NOT_FOUND");
+    }
+  }
 });
 
 // =============================================================================
@@ -197,7 +219,7 @@ runTest("2.1: Unparseable JSON response returns INVALID_OUTPUT failure", () => {
 
 runTest("2.2: Non-object JSON response returns INVALID_OUTPUT failure", () => {
   for (const raw of ["null", "12345", "true", "[\"array\"]", "\"string\""]) {
-    const res = parseResponseEnvelope(raw, { role: "piledriver", slug: "claude-opus-5-5-high" });
+    const res = parseResponseEnvelope(raw, { role: "piledriver", slug: "gemini-4-argon-high" });
     assert.strictEqual(res.ok, false, `Expected ${raw} to fail`);
     assert.strictEqual(res.error, "INVALID_OUTPUT");
     assert.strictEqual(res.message, "JSON response is not a valid object envelope");
@@ -210,11 +232,11 @@ runTest("2.3: status === 'ERROR' returns MODEL_ERROR failure", () => {
     message: "Rate limit exceeded or quota exhausted",
     error_code: 429,
   });
-  const res = parseResponseEnvelope(errorJson, { role: "piledriver", slug: "claude-opus-5-5-high" });
+  const res = parseResponseEnvelope(errorJson, { role: "piledriver", slug: "gemini-4-argon-high" });
   assert.strictEqual(res.ok, false);
   assert.strictEqual(res.error, "MODEL_ERROR");
   assert.strictEqual(res.role, "piledriver");
-  assert.strictEqual(res.slug, "claude-opus-5-5-high");
+  assert.strictEqual(res.slug, "gemini-4-argon-high");
   assert.strictEqual(res.details.status, "ERROR");
   assert.strictEqual(res.details.error_code, 429);
 });
@@ -236,7 +258,7 @@ runTest("2.5: Unexpected or unknown status returns INVALID_OUTPUT (never success
   const unexpectedStatuses = ["PENDING", "UNKNOWN", "QUEUED", "FAILED", undefined, ""];
   for (const st of unexpectedStatuses) {
     const packet = { status: st, response: "should not succeed" };
-    const res = parseResponseEnvelope(JSON.stringify(packet), { role: "piledriver", slug: "claude-opus-5-5-high" });
+    const res = parseResponseEnvelope(JSON.stringify(packet), { role: "piledriver", slug: "gemini-4-argon-high" });
     assert.strictEqual(res.ok, false, `Expected status '${st}' to fail with INVALID_OUTPUT`);
     assert.strictEqual(res.error, "INVALID_OUTPUT");
     assert.ok(res.message.includes("Unexpected response status"));
@@ -254,13 +276,13 @@ runTest("2.6: status === 'SUCCESS' with valid string response succeeds", () => {
       total_tokens: 120,
     },
   };
-  const res = parseResponseEnvelope(JSON.stringify(successPacket), { role: "piledriver", slug: "claude-opus-5-5-high" });
+  const res = parseResponseEnvelope(JSON.stringify(successPacket), { role: "piledriver", slug: "gemini-4-argon-high" });
   assert.strictEqual(res.ok, true);
   assert.strictEqual(res.response, "Task completed successfully");
   assert.strictEqual(res.duration, 2.14);
   assert.strictEqual(res.usage.total_tokens, 120);
   assert.strictEqual(res.role, "piledriver");
-  assert.strictEqual(res.slug, "claude-opus-5-5-high");
+  assert.strictEqual(res.slug, "gemini-4-argon-high");
 });
 
 runTest("2.6a: SUCCESS with denied_actions is a preserved tool-permission failure", () => {
@@ -294,7 +316,7 @@ console.log(JSON.stringify({
   try {
     const res = invoke("piledriver", { task: "Test denial" }, {
       agyPath: mockScript,
-      installedModels: [{ slug: "claude-opus-5-5-high", description: "Claude Opus 5.5 (High)" }],
+      installedModels: [{ slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" }],
       env: { MOCK_CALLS_FILE: callsFile },
     });
     assert.strictEqual(res.ok, false);
@@ -319,7 +341,7 @@ console.log(JSON.stringify({ status: "SUCCESS", response: "" }));
   const opts = {
     agyPath: mockScript,
     installedModels: [
-      { slug: "claude-opus-5-5-high", description: "Claude Opus 5.5 (High)" },
+      { slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" },
       { slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" },
     ],
     env: { MOCK_CALLS_FILE: callsFile },
@@ -355,7 +377,7 @@ runTest("2.6b3: non-mutating empty retries consume one shared deadline", () => {
   try {
     const result = invoke("piledriver", { task: "Empty" }, {
       timeout: 100,
-      installedModels: [{ slug: "claude-opus-5-5-high", description: "Claude Opus 5.5 (High)" }],
+      installedModels: [{ slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" }],
     });
     assert.strictEqual(result.ok, false);
     assert.strictEqual(result.error, "EMPTY_RESPONSE");
@@ -388,7 +410,7 @@ runTest("2.6b4: attempt count accompanies success and transport failure after re
     try {
       const result = invoke("steamroller", { task: "Retry read-only work" }, {
         timeout: 100,
-        installedModels: [{ slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" }],
+        installedModels: [{ slug: "gemini-4-argon-medium", description: "Gemini 4 Argon (Medium)" }],
       });
       assert.strictEqual(result.attempts, emptyAttempts + 1);
       assert.deepStrictEqual(timeouts, Array.from({ length: emptyAttempts + 1 }, (_, i) => 100 - i * 10));
@@ -534,7 +556,7 @@ process.exit(Number(process.env.MOCK_EXIT_CODE || 0));
   try {
     // 1. Invalid JSON from process
     const invalidJsonRes = invokeTransport({
-      slug: "claude-opus-5-5-high",
+      slug: "gemini-4-argon-high",
       prompt: "test",
       agyPath: mockScript,
       env: { MOCK_STDOUT: "corrupted json {{{" },
@@ -544,7 +566,7 @@ process.exit(Number(process.env.MOCK_EXIT_CODE || 0));
 
     // 2. Unknown status from process
     const pendingRes = invokeTransport({
-      slug: "claude-opus-5-5-high",
+      slug: "gemini-4-argon-high",
       prompt: "test",
       agyPath: mockScript,
       env: { MOCK_STDOUT: JSON.stringify({ status: "PENDING", response: "wait" }) },
@@ -554,7 +576,7 @@ process.exit(Number(process.env.MOCK_EXIT_CODE || 0));
 
     // 3. Process execution failure (non-zero exit)
     const failRes = invokeTransport({
-      slug: "claude-opus-5-5-high",
+      slug: "gemini-4-argon-high",
       prompt: "test",
       agyPath: mockScript,
       env: { MOCK_EXIT_CODE: "2" },
@@ -565,7 +587,7 @@ process.exit(Number(process.env.MOCK_EXIT_CODE || 0));
 
     // 4. Valid SUCCESS envelope from process
     const okRes = invokeTransport({
-      slug: "claude-opus-5-5-high",
+      slug: "gemini-4-argon-high",
       prompt: "test",
       agyPath: mockScript,
       env: {
@@ -682,7 +704,7 @@ process.exit(0);
       { task: "Test" },
       {
         agyPath: mockScript,
-        installedModels: [{ slug: "claude-opus-5-5-high", description: "Claude Opus 5.5 (High)" }],
+        installedModels: [{ slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" }],
         env: { MOCK_STDOUT: "plain text output instead of JSON envelope" },
       }
     );
@@ -692,14 +714,14 @@ process.exit(0);
 
     // 4. In contrast, invokeTransport directly supports outputFormat: "text" when needed
     const transportTextRes = invokeTransport({
-      slug: "claude-opus-5-5-high",
+      slug: "gemini-4-argon-high",
       prompt: "test",
       outputFormat: "text",
       agyPath: mockScript,
       env: { MOCK_STDOUT: "plain text output" },
     });
     assert.strictEqual(transportTextRes.ok, true);
-    assert.strictEqual(transportTextRes.slug, "claude-opus-5-5-high");
+    assert.strictEqual(transportTextRes.slug, "gemini-4-argon-high");
     assert.strictEqual(transportTextRes.response.trim(), "plain text output");
   } finally {
     try {
@@ -848,7 +870,7 @@ const skipLive = process.env.SKIP_LIVE_TESTS === "1" || process.env.SKIP_LIVE_TE
 if (skipLive) {
   console.log("[SKIP] Section 5 live LLM tests skipped via SKIP_LIVE_TESTS=1");
 } else {
-  runTest("5.1: Live Piledriver bounded invocation (claude-opus-5-5-high)", () => {
+  runTest("5.1: Live Piledriver bounded invocation (gemini-4-argon-high)", () => {
     const res = invoke("piledriver", { task: "Reply with exactly: PILEDRIVER_SPIKE_PASS" });
     assert.strictEqual(
       res.ok,
@@ -856,7 +878,7 @@ if (skipLive) {
       `Expected res.ok === true, got error: ${res.error} (${res.stderr || res.message})`
     );
     assert.strictEqual(res.role, "piledriver");
-    assert.strictEqual(res.slug, "claude-opus-5-5-high");
+    assert.strictEqual(res.slug, "gemini-4-argon-high");
     assert.ok(typeof res.response === "string", "Expected response to be string");
     assert.ok(
       res.response.includes("PILEDRIVER_SPIKE_PASS"),
@@ -895,7 +917,7 @@ function withRoleBodies(fn) {
   const cwd = join(root, "neutral");
   const capture = join(root, "transport-called");
   const agyPath = join(root, "agy.mjs");
-  const installedModels = ["gemini-3.8-flash-high", "claude-sonnet-5-5-high", "claude-opus-5-5-high"];
+  const installedModels = ["gemini-4-argon-medium", "gemini-3.8-flash-high", "claude-sonnet-5-5-high", "gemini-4-argon-high"];
   try {
     mkdirSync(roleBodyDir);
     mkdirSync(cwd);
@@ -1093,7 +1115,7 @@ runTest("6.9: CLI injects env-selected role body from neutral cwd and reports mi
     const received = JSON.parse(success.stdout);
     assert.ok(received.prompt.includes("BODY_MARKER_piledriver"));
     assert.ok(received.prompt.includes("## Task\nCLI_TASK_MARKER"));
-    assert.strictEqual(received.slug, "claude-opus-5-5-high");
+    assert.strictEqual(received.slug, "gemini-4-argon-high");
     unlinkSync(opts.capture);
     unlinkSync(join(opts.roleBodyDir, "piledriver.md"));
     const failure = spawnSync(process.execPath, [runnerPath, "piledriver", "CLI_TASK_MARKER"], cliOpts);
@@ -1109,6 +1131,8 @@ runTest("6.9: CLI injects env-selected role body from neutral cwd and reports mi
 // =============================================================================
 
 const claudeSurface = [
+  { slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" },
+  { slug: "gemini-4-argon-medium", description: "Gemini 4 Argon (Medium)" },
   { slug: "claude-sonnet-5-5-low", description: "Claude Sonnet 5.5 (Low)" },
   { slug: "claude-sonnet-5-5-medium", description: "Claude Sonnet 5.5 (Medium)" },
   { slug: "claude-sonnet-5-5-high", description: "Claude Sonnet 5.5 (High)" },
@@ -1132,10 +1156,10 @@ runTest("7.0: a different version with a prefix-colliding slug never satisfies t
     }
   }
   // Exact families on the same surface still resolve, including Gemini roles.
-  const mixed = ["claude-sonnet-5-50-high", "claude-sonnet-5-5-high", "gemini-3.8-flash-high", "claude-opus-5-5-high"];
+  const mixed = ["claude-sonnet-5-50-high", "claude-sonnet-5-5-high", "gemini-3.8-flash-high", "claude-opus-5-5-high", "gemini-4-argon-high"];
   assert.strictEqual(resolveSlug("instinct", { installedModels: mixed }), "claude-sonnet-5-5-high");
   assert.strictEqual(resolveSlug("bulldozer", { installedModels: mixed }), "gemini-3.8-flash-high");
-  assert.strictEqual(resolveSlug("piledriver", { installedModels: mixed }), "claude-opus-5-5-high");
+  assert.strictEqual(resolveSlug("piledriver", { installedModels: mixed }), "gemini-4-argon-high");
 });
 
 runTest("7.1: instinct targets Claude Sonnet 5.5 High and Opus 5.5 High only on explicit escalation", () => {
@@ -1149,9 +1173,9 @@ runTest("7.1: instinct targets Claude Sonnet 5.5 High and Opus 5.5 High only on 
   assert.strictEqual(resolveSlug(" InStinct ", { installedModels: claudeSurface, escalate: true }), "claude-opus-5-5-high");
 
   // Escalation is instinct-scoped; other roles keep their policy models.
-  assert.strictEqual(resolveSlug("piledriver", { installedModels: claudeSurface, escalate: true }), "claude-opus-5-5-high");
+  assert.strictEqual(resolveSlug("piledriver", { installedModels: claudeSurface, escalate: true }), "gemini-4-argon-high");
   assert.strictEqual(resolveSlug("bulldozer", { installedModels: claudeSurface, escalate: true }), "gemini-3.8-flash-high");
-  assert.strictEqual(resolveSlug("steamroller", { installedModels: claudeSurface, escalate: true }), "gemini-3.8-flash-high");
+  assert.strictEqual(resolveSlug("steamroller", { installedModels: claudeSurface, escalate: true }), "gemini-4-argon-medium");
 });
 
 runTest("7.2: missing or ambiguous Claude surface fails closed without silent fallback", () => {

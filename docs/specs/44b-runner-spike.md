@@ -1,5 +1,8 @@
 # Native Gravity vNext 44B Exact-Model Runner Spike
 
+> Historical spike and receipts: the 3.1 Pro IDs below are retired, not current
+> targets. Current AGY 1.3.6 routing is in [the Argon profile](../model-profiles/gemini-4-argon.md).
+
 > **Historical record.** This spike predates activation (44G, #134) and later
 > releases. Its receipts and deferred-at-the-time questions are kept as
 > evidence; the current implementation is described in
@@ -37,7 +40,7 @@ Per contract §6.3, specialists remain native AGY subagents:
 - **Jaguar**: Flash (native)
 - **Puma**: Flash (native)
 - **Bobcat**: Flash (native)
-- **Strix Halo**: Pro (native)
+- **Strix Halo**: Flash (native; current assignment retained from #148)
 - **Zen**: Pro (native)
 
 ## 3. Invocation Mechanics & Architecture Split
