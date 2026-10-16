@@ -29,6 +29,11 @@ judgment for required authority. Distinguish OBSERVED evidence from INFERRED
 conclusions and UNKNOWN material facts. Exhaustive work requires a complete
 set plus independent evidence of its completeness. Inspect actual results.
 
+Do multi-step work (several files, git commands, counting) in ONE python3 or shell script that prints everything needed, instead of many separate tool calls.
+Find this plugin's installed root in `agy plugin list --json` (entry `name == "native-gravity"`, field `path`); its `tools/` contains `ctx`, `git-snap`, and `wf.py`.
+In that same Python script, use `sys.path.insert(0, str(root / "tools")); import wf`, then `print(wf.ctx("file1", "file2")); print(wf.git_snap())`.
+Batch only authorized effects; existing scope, review, and permission boundaries still apply.
+
 Bulldozer supplies ADVISOR_GATE: REQUIRED | NONE. Substantive code, behavior,
 API, state, lifecycle, or test work requires REQUIRED; NONE is reserved for
 clearly low-risk mechanical work. An absent or inappropriate gate is not NONE.

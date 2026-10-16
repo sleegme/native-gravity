@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+# git-snap -- one-shot repository snapshot for an agent.
+set -u
+
+usage() {
+    cat <<'EOF'
+usage: git-snap [repo-dir]
+
+Print a compact snapshot of a repository (default: current directory) with
+one "## title" section per area:
+
+  ## repo                 work tree root
+  ## branch               current branch, upstream, ahead/behind
+  ## status               git status --short (max 50 lines)
+  ## branches             local + remote (max 30 lines)
+  ## commits              last 5 commits, oneline with dates
+  ## remotes              fetch URLs
+  ## stash                number of stash entries
+
+Options:
+  -h, --help   show this help and exit
+
+Exit status: 0 on success, 1 when the directory is missing or is not a git
+repository, 2 on usage error.
+EOF
+}
+
+if [ "$#" -gt 1 ]; then
+    printf 'git-snap: unexpected extra argument: %s\n' "$2" >&2
+    usage >&2
+    exit 2
+fi
+
+dir=.
+case ${1:-} in
+    -h|--help) usage; exit 0 ;;
+    "") ;;
+    -*) printf 'git-snap: unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
+    *) dir=$1 ;;
+esac
+
+if [ ! -d "$dir" ]; then
+    printf 'git-snap: %s: no such directory\n' "$dir" >&2
+    exit 1
+fi
+if ! git -C "$dir" rev-parse --git-dir >/dev/null 2>&1; then
+    printf 'git-snap: %s: not a git repository\n' "$dir" >&2
+    exit 1
+fi
+
+g() { git --no-pager -C "$dir" "$@"; }
+
+printf '## repo\n'
+root=$(g rev-parse --show-toplevel 2>/dev/null || true)
+[ -n "$root" ] || root=$(g rev-parse --absolute-git-dir 2>/dev/null || true)
+printf '%s\n' "$root"
+
+printf '## branch\n'
+branch=$(g symbolic-ref --short -q HEAD 2>/dev/null || true)
+if [ -z "$branch" ]; then
+    sha=$(g rev-parse --short HEAD 2>/dev/null || true)
+    if [ -n "$sha" ]; then
+        printf 'detached HEAD at %s\n' "$sha"
+    else
+        printf '(unborn repository, no commits)\n'
+    fi
+elif ! g rev-parse --verify -q HEAD >/dev/null 2>&1; then
+    printf '%s (no commits yet)\n' "$branch"
+else
+    upstream=$(g rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)
+    if [ -z "$upstream" ]; then
+        base=""
+        for cand in origin/HEAD origin/main origin/master main master; do
+            if [ "$cand" != "$branch" ] && g rev-parse --verify --quiet "$cand" >/dev/null 2>&1; then base=$cand; break; fi
+        done
+        counts=""
+        [ -n "$base" ] && counts=$(g rev-list --left-right --count "HEAD...$base" 2>/dev/null || true)
+        if [ -n "$counts" ]; then
+            printf '%s (no upstream; vs %s: ahead %s, behind %s)\n' "$branch" "$base" "${counts%%[[:space:]]*}" "${counts##*[[:space:]]}"
+        else
+            printf '%s (no upstream)\n' "$branch"
+        fi
+    else
+        counts=$(g rev-list --left-right --count 'HEAD...@{upstream}' 2>/dev/null || true)
+        if [ -z "$counts" ]; then
+            printf '%s -> %s\n' "$branch" "$upstream"
+        else
+            ahead=${counts%%[[:space:]]*}
+            behind=${counts##*[[:space:]]}
+            printf '%s -> %s [ahead %s, behind %s]\n' "$branch" "$upstream" "$ahead" "$behind"
+        fi
+    fi
+fi
+
+printf '## status\n'
+status=$(g status --short 2>/dev/null || true)
+if [ -z "$status" ]; then
+    printf 'clean\n'
+else
+    count=$(printf '%s\n' "$status" | wc -l)
+    printf '%s\n' "$status" | head -n 50
+    if [ "$count" -gt 50 ]; then
+        printf '... %d more entries (of %d)\n' "$((count - 50))" "$count"
+    fi
+fi
+
+printf '## branches (local + remote, max 30)\n'
+branch_lines=$(
+    {
+        g branch --no-color 2>/dev/null || true
+        g branch -r --no-color 2>/dev/null || true
+    } | grep -v -- ' -> ' || true
+)
+if [ -z "$branch_lines" ]; then
+    printf '(none)\n'
+else
+    count=$(printf '%s\n' "$branch_lines" | wc -l)
+    printf '%s\n' "$branch_lines" | head -n 30
+    if [ "$count" -gt 30 ]; then
+        printf '... %d more branches (of %d)\n' "$((count - 30))" "$count"
+    fi
+fi
+
+printf '## commits (last 5)\n'
+commits=$(g log -n 5 --date=short --pretty=format:'%h %ad %s' 2>/dev/null || true)
+if [ -z "$commits" ]; then
+    printf '(none)\n'
+else
+    printf '%s\n' "$commits"
+fi
+
+printf '## remotes\n'
+remotes=$(g remote -v 2>/dev/null | sed -n 's/[[:space:]]*(fetch)$//p' || true)
+if [ -z "$remotes" ]; then
+    printf '(none)\n'
+else
+    printf '%s\n' "$remotes"
+fi
+
+printf '## stash\n'
+entries=$(g stash list 2>/dev/null | wc -l)
+printf '%s entries\n' "$entries"
+
+exit 0
