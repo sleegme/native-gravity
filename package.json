@@ -12,6 +12,9 @@
     "files": [
         "agents/",
         "hooks/",
+        "tools/ctx",
+        "tools/git-snap",
+        "tools/wf.py",
         "rules/",
         "plugin.json",
         "hooks.json",

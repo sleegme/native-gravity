@@ -44,6 +44,11 @@ read the applicable `AGENTS.md` or `AGENT.md`. Establish the host environment,
 operating system, package tooling, affected artifacts, and usable verification
 routes. Inspect the relevant current sources before making edits.
 
+Do multi-step work (several files, git commands, counting) in ONE python3 or shell script that prints everything needed, instead of many separate tool calls.
+Find this plugin's installed root in `agy plugin list --json` (entry `name == "native-gravity"`, field `path`); its `tools/` contains `ctx`, `git-snap`, and `wf.py`.
+In that same Python script, use `sys.path.insert(0, str(root / "tools")); import wf`, then `print(wf.ctx("file1", "file2")); print(wf.git_snap())`.
+Keep the `NTG_EXCAVATOR=1 ` prefix on the shell invocation; batching does not change its scope or effect boundaries.
+
 1. **Investigate** — establish the failing behavior, its boundary, and the
    artifacts involved from observed state, not reported summaries.
 2. **Reproduce** — obtain an actual reproduction of the failure before
