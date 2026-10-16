@@ -11,7 +11,7 @@ architecture decisions.
 
 ## Who owns what
 
-Start project work with `ntg-vnext`. There is no native primary to select.
+Start project work with `ntg-vnext`.
 The default path for work spanning milestones is `scripts/spine.mjs`, which
 loads role instructions from `agents/` and resolves exact models.
 
@@ -67,6 +67,7 @@ Route according to the operation, not just its size:
 | Planning or an unsettled architectural decision | Piledriver through Steamroller |
 | Repeated failures needing a different causal framing | Instinct through Steamroller, using NEEDS_ALT |
 | Independent milestone acceptance | Zen through Steamroller |
+| Full Linux desktop observation and bounded interaction | Navi through Steamroller's exact-model runner |
 | Durable multi-milestone execution | Steamroller through the runner |
 
 Excavator investigates, reproduces, determines the cause, repairs, and checks
@@ -166,8 +167,16 @@ Exercise actual delegation paths rather than assuming configuration works:
    reproduced privilege drift and system upgrades under its marker, without
    imposing those denials on other roles.
 
-Keep the graph shallow: Steamroller's two explicit branches for planning
-and milestone execution must not grow into an open-ended coordinator.
+Keep the graph shallow: Steamroller's planning and milestone execution
+branches must not grow into an open-ended coordinator. Navi is a bounded
+desktop leaf, not another coordinator or Bulldozer worker. Only Steamroller
+may request it through the runner; Bulldozer and workers return desktop needs
+upstream. Navi targets Gemini 4 Argon / Medium and alone attaches the
+computer-use-linux MCP server in its agent frontmatter. Never attach that
+server at plugin or global scope. It has no children or ledger authority.
+Viewing is free; irreversible or external actions return NEEDS_CONFIRMATION
+with the exact intended action. On Sway it uses full-screen screenshots and
+accessibility elements, without window-focus dependencies.
 Jaguar remains factual; Piledriver and Instinct remain advisory.
 Strix stays read-only, Zen stays non-mutating, and Excavator owns autonomous
 repair only within the delegated milestone. Guard sudo by its effects and

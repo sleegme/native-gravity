@@ -21,6 +21,8 @@
         "scripts/npm-install.mjs",
         "README.md",
         "docs/ko/README.md",
+        "docs/navi.md",
+        "docs/navi-evidence.md",
         "scripts/ledger-lock.mjs",
         "scripts/dag-view.mjs",
         "tests/test_dag_view.mjs",

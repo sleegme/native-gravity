@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { TextDecoder } from "node:util";
 
 // Explicitly bounded to the runner roles; native specialists stay native.
-const ROLE_BODY_ROLES = Object.freeze(["steamroller", "piledriver", "bulldozer", "instinct"]);
+const ROLE_BODY_ROLES = Object.freeze(["steamroller", "piledriver", "bulldozer", "instinct", "navi"]);
 // Zen is not runner-supervised: ntg-vnext invokes it natively, outside the
 // supervisor's role packets. It is listed here because its exact slug resolves
 // from the same frozen policy table and its body loads through the same loader.
@@ -24,6 +24,11 @@ const FRONTMATTER_BLOCK = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n)?/;
  * Used for runtime resolution against the installed AGY surface (`agy models`).
  */
 export const ROLE_POLICY_TABLE = Object.freeze({
+  navi: Object.freeze({
+    role: "navi",
+    family: "Gemini 4 Argon",
+    effort: "Medium",
+  }),
   piledriver: Object.freeze({
     role: "piledriver",
     family: "Gemini 4 Argon",
@@ -611,8 +616,8 @@ export function invokeTransport(slugOrOpts, maybePrompt, maybeOpts) {
     ...(nextChain ? { NTG_RUNNER_CHAIN: nextChain } : {}),
   };
 
-  // The composed role body is the machine contract. Do not add --agent:
-  // native agent selection would replace it with the installed agent's contract.
+  // Other roles use the composed machine contract. Navi additionally selects
+  // its installed agent so AGY loads its agent-scoped MCP configuration.
   const args = [
     "--model",
     slug,
@@ -622,9 +627,12 @@ export function invokeTransport(slugOrOpts, maybePrompt, maybeOpts) {
 
   // Permission grant: owner decision 2026-10-07 — bulldozer may inspect
   // known execution context via tools (incl. RunCommand); discovery still
-  // delegated. Skip-permissions applies to bulldozer invocations only.
+  // delegated. Navi's scoped MCP calls use its own confirmation contract.
   // Must precede --print: agy consumes the token after --print as the prompt.
   const normalizedRole = typeof role === "string" ? role.trim().toLowerCase() : "";
+  if (normalizedRole === "navi") {
+    args.push("--agent", "navi", "--dangerously-skip-permissions");
+  }
   if (normalizedRole === "bulldozer") {
     args.push("--dangerously-skip-permissions");
   }
@@ -801,10 +809,10 @@ export function invoke(role, packet, opts = {}) {
 
   // Retry boundedly only when SUCCESS has an empty response and no explicit
   // denied_actions. Explicit tool denials are classified by parseResponseEnvelope.
-  // Bulldozer is never retried: it may have delegated edits before returning
-  // empty, and a retry would re-execute the milestone on a changed tree.
+  // Bulldozer and Navi are never retried: either may have caused effects
+  // before returning empty, so replay could duplicate those effects.
   const MAX_EMPTY_RETRIES = 3;
-  const retryable = normalizedRole !== "bulldozer";
+  const retryable = normalizedRole !== "bulldozer" && normalizedRole !== "navi";
   while (retryable && attempts <= MAX_EMPTY_RETRIES && Date.now() < deadline
     && attempt.ok && (attempt.response || "").trim() === "") {
     attempt = run();

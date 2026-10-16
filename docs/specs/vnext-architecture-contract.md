@@ -58,6 +58,11 @@ USER
 - Zen is an independent gate, not a child of Bulldozer. Its verdict is delivered to Steamroller.
 - Excavator is a Bulldozer worker for difficult diagnosis/repair inside one milestone — see §2.9 and §7.
 - Instinct is implemented as the runner-only NEEDS_ALT advisory (#20) — see §2.10.
+- Navi (#154) is a Steamroller-invoked desktop leaf on Gemini 4 Argon / Medium,
+  not a Bulldozer worker or coordinator. Only its agent frontmatter attaches
+  computer-use-linux. It has no children or ledger/completion authority.
+  External or irreversible effects return NEEDS_CONFIRMATION with the exact
+  intended action before acting. See [desktop dispatch](../navi.md).
 
 ### 1.2 Failure / Recovery Path (post-P0)
 

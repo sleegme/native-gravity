@@ -58,11 +58,13 @@ User
                        Strix Halo — Bobcat-local advisor gate
     Instinct — alternate-framing advisory on NEEDS_ALT
     Zen — independent milestone verification
+    Navi — bounded Linux desktop leaf through the exact-model runner
     Steamroller ledger transition
 ```
 
-No natively selectable primary remains; `ntg-vnext` is the entry for project
-work. Bulldozer, Piledriver and Instinct are runner-only roles: Bulldozer
+No natively selectable project primary remains; `ntg-vnext` is the entry for
+project work. Navi is selectable only for the runner's agent-scoped MCP load,
+not as a project primary. Bulldozer, Piledriver and Instinct are runner-only roles: Bulldozer
 executes exactly one bounded milestone per invocation, Piledriver returns
 advisory plans to Steamroller, and Instinct returns alternate-framing advice on
 NEEDS_ALT. Excavator is a Bulldozer worker for difficult broken-behavior work
@@ -98,6 +100,7 @@ shell or privilege sandboxes.
 | Strix Halo (`strix-halo`) | Bobcat-only read-only advice/CHECK gate; `ACCEPT \| REVISE \| NEEDS_DEEP`; corrections go through Bobcat |
 | Zen | Independent non-mutating milestone review for Steamroller, not Bulldozer's child; `GO \| NO-GO`; may run verification commands |
 | Instinct | Runner-only heterogeneous alternate-framing advice, not a ritual reviewer; no implementation, orchestration, ledger, adoption or verdict/completion authority |
+| Navi | Steamroller-only desktop leaf on Gemini 4 Argon / Medium; agent-scoped MCP, no children, shell, source editing, ledger or completion authority; external/irreversible effects return `NEEDS_CONFIRMATION` |
 
 Difficult decisions propagate through
 `Strix Halo -> Bobcat -> Bulldozer -> Steamroller -> optional Piledriver`.
@@ -131,6 +134,7 @@ from `agents/`; critical roles are runner-invoked, not natively selectable.
 
 - Steamroller targets Gemini 4 Argon / Medium; Bulldozer stays on Gemini 3.8 Flash / High.
 - Piledriver targets Gemini 4 Argon / High.
+- Navi targets Gemini 4 Argon / Medium; see [desktop dispatch](navi.md).
 - Instinct targets Claude Sonnet 5.5 / High; Claude Opus 5.5 / High is selected
   only on explicit `--escalate`.
 - Jaguar/Puma/Bobcat/Excavator/Strix Halo use native Flash. Exact Argon

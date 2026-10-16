@@ -13,6 +13,7 @@
  *   ntg-vnext alt     --ledger L --task "..." [--milestone ID] [--escalate]
  *                                                 (Instinct NEEDS_ALT advice; not adopted)
  *   ntg-vnext status  --ledger L
+ *   ntg-vnext navi    --ledger L --task "..."         (bounded desktop leaf)
  *
  * --timeout SECONDS bounds each runner invocation (default 600; the runner's own
  * 90s default is too short for bounded High-effort planning).
@@ -38,7 +39,7 @@ const EXECUTOR_EXIT_WAIT_MS = 10000;
 const ZEN_ROLE = 'zen';
 
 export const DEFAULT_RUNNER_TIMEOUT_S = 600;
-const USAGE = 'usage: ntg-vnext <init|plan|run|replan|recover|alt|status> --ledger PATH [options]';
+const USAGE = 'usage: ntg-vnext <init|plan|run|replan|recover|alt|status|navi> --ledger PATH [options]';
 
 function parseArgs(argv) {
   const [command, ...rest] = argv;
@@ -52,7 +53,7 @@ function parseArgs(argv) {
     opts[key] = rest[i + 1];
     i += 1;
   }
-  if (!['init', 'plan', 'run', 'replan', 'recover', 'alt', 'status'].includes(command)) throw new Error(USAGE);
+  if (!['init', 'plan', 'run', 'replan', 'recover', 'alt', 'status', 'navi'].includes(command)) throw new Error(USAGE);
   if (!opts.ledger) throw new Error(`--ledger is required\n${USAGE}`);
   const seconds = Number(opts.timeout ?? process.env.NTG_RUNNER_TIMEOUT_S ?? DEFAULT_RUNNER_TIMEOUT_S);
   if (!Number.isFinite(seconds) || seconds <= 0) throw new Error(`--timeout must be a positive number of seconds\n${USAGE}`);
@@ -241,6 +242,14 @@ export async function main(argv, deps = {}) {
             needs_alt: recommendNeedsAlt(spine.state.evidence, spine.state._verification_history),
           },
         };
+      case 'navi': {
+        if (!opts.task) throw new Error('--task is required');
+        const desktop = await spine.requestDesktop(opts.task);
+        return {
+          code: desktop.status === 'NEEDS_CONFIRMATION' || desktop.status === 'BLOCKED' ? 2 : 0,
+          out: { desktop, state: spine.state },
+        };
+      }
       case 'plan':
         if (!opts.task) throw new Error('--task is required');
         return { code: 0, out: { advisory_plan: await spine.requestPlan(opts.task), adopted: false } };
