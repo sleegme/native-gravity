@@ -614,11 +614,25 @@ function extractRelayTailObject(response) {
   return undefined;
 }
 
-/** True when the text opens a { or [ that it never closes. */
+/**
+ * True when the text may open a { or [ that it never closes. Conservative by
+ * design: openers always count, closers count only outside double-quoted
+ * strings, so a quoted "]" or "}" cannot cancel a real opener. Depth can
+ * only be overestimated, which rejects (fails closed) and never accepts.
+ */
 function hasUnclosedBracket(text) {
   let depth = 0;
-  for (const ch of text) {
-    if (ch === "{" || ch === "[") depth += 1;
+  let inString = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === "\\") i += 1;
+      else if (ch === '"') inString = false;
+      else if (ch === "{" || ch === "[") depth += 1;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{" || ch === "[") depth += 1;
     else if ((ch === "}" || ch === "]") && depth > 0) depth -= 1;
   }
   return depth > 0;

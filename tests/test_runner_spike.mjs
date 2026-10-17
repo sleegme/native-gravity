@@ -564,6 +564,12 @@ runTest("2.6j: relay preambles without a trailing object packet still fail close
     // Gate review #158: an inner object of an unfinished outer value is not a tail packet.
     `${relay}\nFindings.\n[\n{"status": "DONE"}`,
     `${relay}\nFindings.\n{"candidate":\n{"status": "DONE"}`,
+    // Gate re-review #158: quoted closers must not close an unfinished container.
+    `${relay}\n[\n"]",\n{"status": "DONE"}`,
+    `${relay}\n{"note":"}","candidate":\n{"status": "DONE"}`,
+    `${relay}\n{"values":["}]",\n{"status": "DONE"}`,
+    `${relay}\n\`\`\`json\n["]",\n{"status": "DONE"}\n\`\`\``,
+    `${relay}\n{"note":"\`]\`","candidate":\n{"status": "DONE"}`,
     `Subagent \`00000000\` has sent the following message:\n${relay}`,
   ]) {
     const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
