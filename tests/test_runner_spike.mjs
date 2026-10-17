@@ -535,6 +535,7 @@ runTest("2.6i: AGY relay preambles expose the trailing object packet", () => {
     `${relay}\nFindings: parseResponsePacket() slices \`{\` to \`}\` in \`scripts/runner.mjs\`; see {"path":"scripts/runner.mjs"}.\n${json}`,
     `${relay}\nReport: \`{"budget": [], "nested": {"depth": 1}}\`\n\`\`\`json\n${json}\n\`\`\``,
     `${relay}\n{\n  "fragment": "preamble block that never parses through to the end"\n}\nFindings continued.\n${json}`,
+    `Findings first.\n${relay}\n${json}`,
   ]) {
     const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
     const result = parseResponsePacket(envelope);
@@ -570,6 +571,12 @@ runTest("2.6j: relay preambles without a trailing object packet still fail close
     `${relay}\n{"values":["}]",\n{"status": "DONE"}`,
     `${relay}\n\`\`\`json\n["]",\n{"status": "DONE"}\n\`\`\``,
     `${relay}\n{"note":"\`]\`","candidate":\n{"status": "DONE"}`,
+    // Gate review 3 #158: a quote in prose must not desync the check.
+    `${relay}\nFindings: the quote character is \`"\`.\n[\n"]",\n{"status": "DONE"}`,
+    `${relay}\nFindings: the quote character is \`"\`.\n{"note":"}","candidate":\n{"status": "DONE"}`,
+    `${relay}\nFindings: the quote character is \`"\`.\n{"values":["}]",\n{"status": "DONE"}`,
+    // U+2028 is legal raw inside a JSON string; it must not start a candidate line.
+    `${relay}\n{"note":"\u2028{"status": "DONE"}`,
     `Subagent \`00000000\` has sent the following message:\n${relay}`,
   ]) {
     const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));

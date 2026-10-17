@@ -597,12 +597,16 @@ function extractRelayTailObject(response) {
   // Candidates open a line (optionally after a ```json fence line). Scan first
   // to last, and accept only a slice that parses to one plain object through
   // the final brace; ambiguous tails keep the strict failure.
-  for (const match of text.matchAll(/^[ \t]*\{/gm)) {
+  // Anchor on \n only: a /m ^ also matches after U+2028/U+2029, which JSON
+  // strings may contain raw, so a candidate could sit inside an open string.
+  for (const match of text.matchAll(/(?:^|\n)[ \t]*\{/g)) {
     const start = match.index + match[0].length - 1;
-    // A candidate nested inside an unfinished outer value ("[\n{...}" or
-    // "{\"k\":\n{...}") is not a tail packet. Any bracket left open by the
-    // preamble makes the tail ambiguous, so fail closed.
-    if (hasUnclosedBracket(text.slice(0, start))) return undefined;
+    // A candidate nested inside an unfinished outer value ("[\n{...}",
+    // "{\"k\":\n{...}", "[\"]\",\n{...}") is not a tail packet. In JSON a nested
+    // value can follow only '[', ',' or ':' (plus whitespace), so a candidate
+    // after one of those, or after '{', is skipped. This is a local token rule:
+    // it needs no bracket or quote tracking in the free-form preamble.
+    if (mayContinueJsonValue(text.slice(0, start))) continue;
     let value;
     try {
       value = JSON.parse(text.slice(start));
@@ -615,27 +619,19 @@ function extractRelayTailObject(response) {
 }
 
 /**
- * True when the text may open a { or [ that it never closes. Conservative by
- * design: openers always count, closers count only outside double-quoted
- * strings, so a quoted "]" or "}" cannot cancel a real opener. Depth can
- * only be overestimated, which rejects (fails closed) and never accepts.
+ * True when a value starting right after `before` could be a nested element
+ * of an unfinished JSON container: the last non-whitespace character is one
+ * of [ , : {. One opening ```json fence line directly before the candidate
+ * is looked through, so a fence cannot hide such a character.
  */
-function hasUnclosedBracket(text) {
-  let depth = 0;
-  let inString = false;
-  for (let i = 0; i < text.length; i += 1) {
-    const ch = text[i];
-    if (inString) {
-      if (ch === "\\") i += 1;
-      else if (ch === '"') inString = false;
-      else if (ch === "{" || ch === "[") depth += 1;
-      continue;
-    }
-    if (ch === '"') inString = true;
-    else if (ch === "{" || ch === "[") depth += 1;
-    else if ((ch === "}" || ch === "]") && depth > 0) depth -= 1;
+function mayContinueJsonValue(before) {
+  const unfenced = before.replace(/(?:^|\n)[ \t]*```(?:json)?[ \t]*\n?[ \t]*$/i, "");
+  // The relay header itself ends in ':' but is a line of prose, not JSON.
+  if (/(?:^|\n)Subagent `[0-9a-fA-F-]{8,}` has sent the following message:\s*$/.test(unfenced)) {
+    return false;
   }
-  return depth > 0;
+  const last = unfenced.trimEnd().slice(-1);
+  return last === "[" || last === "," || last === ":" || last === "{";
 }
 
 /**
