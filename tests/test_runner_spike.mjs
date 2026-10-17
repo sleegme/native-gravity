@@ -561,6 +561,9 @@ runTest("2.6j: relay preambles without a trailing object packet still fail close
     `${relay}\nFindings: \`{"status":"DONE"}\`\n{"milestone_id":"m-1"}\nEnd of report.`,
     // A trailing array is not a packet, even though the marker is present.
     `${relay}\nFindings: \`{"budget": []}\`\n[\n  {"status": "DONE"}\n]`,
+    // Gate review #158: an inner object of an unfinished outer value is not a tail packet.
+    `${relay}\nFindings.\n[\n{"status": "DONE"}`,
+    `${relay}\nFindings.\n{"candidate":\n{"status": "DONE"}`,
     `Subagent \`00000000\` has sent the following message:\n${relay}`,
   ]) {
     const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));

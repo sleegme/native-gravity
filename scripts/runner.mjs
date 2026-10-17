@@ -599,6 +599,10 @@ function extractRelayTailObject(response) {
   // the final brace; ambiguous tails keep the strict failure.
   for (const match of text.matchAll(/^[ \t]*\{/gm)) {
     const start = match.index + match[0].length - 1;
+    // A candidate nested inside an unfinished outer value ("[\n{...}" or
+    // "{\"k\":\n{...}") is not a tail packet. Any bracket left open by the
+    // preamble makes the tail ambiguous, so fail closed.
+    if (hasUnclosedBracket(text.slice(0, start))) return undefined;
     let value;
     try {
       value = JSON.parse(text.slice(start));
@@ -608,6 +612,16 @@ function extractRelayTailObject(response) {
     if (value !== null && typeof value === "object" && !Array.isArray(value)) return value;
   }
   return undefined;
+}
+
+/** True when the text opens a { or [ that it never closes. */
+function hasUnclosedBracket(text) {
+  let depth = 0;
+  for (const ch of text) {
+    if (ch === "{" || ch === "[") depth += 1;
+    else if ((ch === "}" || ch === "]") && depth > 0) depth -= 1;
+  }
+  return depth > 0;
 }
 
 /**
