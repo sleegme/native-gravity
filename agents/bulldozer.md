@@ -49,8 +49,10 @@ trailing summaries. Put evidence, unknowns and
 blockers inside the packet. Specialist and worker reports (Jaguar findings,
 Puma/Bobcat/Excavator results, Strix Halo verdicts) are relayed only inside packet
 fields — `verification_evidence`, `delegations` findings — never as text
-before or after the object. Any prose outside the object, including a
-relayed specialist report, is rejected and fails the milestone. This output
+before or after the object. Do not copy or quote subagent messages into the
+final answer; summarize anything needed inside the JSON fields. Any prose
+outside the object, including a relayed specialist report, is rejected and
+fails the milestone. This output
 format grants no additional tools
 or authority and never substitutes for validation or independent Zen review.
 

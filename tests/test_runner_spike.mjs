@@ -527,6 +527,68 @@ runTest("2.6h: Multiple objects and malformed or non-object payloads are never u
   assert.strictEqual(denied.error, "TOOL_PERMISSION_DENIED");
 });
 
+runTest("2.6i: AGY relay preambles expose the trailing object packet", () => {
+  const packet = { milestone_id: "m-1", plan_version: 3, status: "DONE" };
+  const json = JSON.stringify(packet);
+  const relay = "Subagent `0c63109b-326b-44a1-a1d6-f72a8440e586` has sent the following message:";
+  for (const response of [
+    `${relay}\nFindings: parseResponsePacket() slices \`{\` to \`}\` in \`scripts/runner.mjs\`; see {"path":"scripts/runner.mjs"}.\n${json}`,
+    `${relay}\nReport: \`{"budget": [], "nested": {"depth": 1}}\`\n\`\`\`json\n${json}\n\`\`\``,
+    `${relay}\n{\n  "fragment": "preamble block that never parses through to the end"\n}\nFindings continued.\n${json}`,
+  ]) {
+    const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
+    const result = parseResponsePacket(envelope);
+    assert.strictEqual(result.ok, true, response);
+    assert.deepStrictEqual(result.packet, packet);
+    assert.strictEqual(result.relayPreambleStripped, true, response);
+    assert.strictEqual(result.response, response);
+    assert.strictEqual(result.raw, envelope.raw);
+    assert.strictEqual(result.raw.response, response);
+  }
+  // The marker flag is relay-only: a clean bare packet keeps the strict path.
+  const bare = parseResponsePacket(parseResponseEnvelope(JSON.stringify({
+    status: "SUCCESS", response: json,
+  })));
+  assert.strictEqual(bare.ok, true);
+  assert.deepStrictEqual(bare.packet, packet);
+  assert.strictEqual(bare.relayPreambleStripped, undefined);
+});
+
+runTest("2.6j: relay preambles without a trailing object packet still fail closed", () => {
+  const relay = "Subagent `0c63109b-326b-44a1-a1d6-f72a8440e586` has sent the following message:";
+  for (const response of [
+    // Trailing prose after the last '}': the packet is not the tail.
+    `${relay}\nFindings: \`{"status":"DONE"}\`\n{"milestone_id":"m-1"}\nEnd of report.`,
+    // A trailing array is not a packet, even though the marker is present.
+    `${relay}\nFindings: \`{"budget": []}\`\n[\n  {"status": "DONE"}\n]`,
+    `Subagent \`00000000\` has sent the following message:\n${relay}`,
+  ]) {
+    const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
+    const result = parseResponsePacket(envelope);
+    assert.strictEqual(result.ok, false, response);
+    assert.strictEqual(result.error, "INVALID_RESPONSE_FORMAT", response);
+    assert.strictEqual(result.relayPreambleStripped, undefined, response);
+    assert.strictEqual(result.packet, undefined, response);
+    assert.strictEqual(result.response, response);
+    assert.strictEqual(result.raw, envelope.raw);
+  }
+});
+
+runTest("2.6k: backticked narration without the relay marker keeps the strict boundary", () => {
+  const response = [
+    "I inspected `scripts/runner.mjs` and its `{}` slicing.",
+    'Findings: {"nested": {"ok": true}}',
+    '{"milestone_id":"m-1"}',
+  ].join("\n");
+  const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
+  const result = parseResponsePacket(envelope);
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.error, "INVALID_RESPONSE_FORMAT");
+  assert.strictEqual(result.relayPreambleStripped, undefined);
+  assert.strictEqual(result.response, response);
+  assert.strictEqual(result.raw, envelope.raw);
+});
+
 runTest("2.6.a: Oversized UTF-8 prompts fail with PROMPT_TOO_LARGE before spawning", () => {
   const prompt = "漢".repeat(50000);
   const result = invokeTransport({

@@ -523,43 +523,91 @@ export function parseResponseEnvelope(stdout, meta = {}) {
 /**
  * Validates the inner response when a caller requires a JSON object packet.
  * Generic text responses remain supported by the envelope/transport boundary.
- * Only narration/fences around one object may be removed. Role-specific schema
- * and authority checks remain at the spine/ledger boundary, after extraction.
+ * Only narration/fences around one object may be removed, plus the trailing
+ * packet behind an AGY subagent relay preamble. Role-specific schema and
+ * authority checks remain at the spine/ledger boundary, after extraction.
  * response and raw are never rewritten: they retain the original provenance.
  */
 export function parseResponsePacket(result) {
   if (!result.ok) return result;
   if (!result.response.trim()) return { ...result, ok: false, error: "EMPTY_RESPONSE" };
   let packet;
+  let relayPreambleStripped = false;
   try {
     packet = JSON.parse(result.response);
   } catch {
-    const start = result.response.indexOf("{");
-    const end = result.response.lastIndexOf("}");
-    if (start === -1 || end < start) {
-      return { ...result, ok: false, error: "INVALID_RESPONSE_FORMAT" };
-    }
-    // Do not search for a parsable subset or choose between successive packets.
-    // Parsing first-to-last braces rejects multiple objects and malformed outer
-    // objects, while JSON.parse handles nested objects and escaped string braces.
-    const surrounding = result.response.slice(0, start) + "\n" + result.response.slice(end + 1);
-    const narration = surrounding.replace(/^[ \t]*```(?:json)?[ \t]*$/gim, "");
-    // Arrays, quoted JSON, unmatched delimiters and extra JSON scalar values
-    // outside the candidate are not narration. Ambiguity must fail closed.
-    if (/[{}\[\]"`]/.test(narration)
-        || /(?:^|\s)(?:null|true|false|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=\s|$)/.test(narration)) {
-      return { ...result, ok: false, error: "INVALID_RESPONSE_FORMAT" };
-    }
-    try {
-      packet = JSON.parse(result.response.slice(start, end + 1));
-    } catch {
-      return { ...result, ok: false, error: "INVALID_RESPONSE_FORMAT" };
+    packet = extractNarratedObject(result.response);
+    if (packet === undefined) {
+      packet = extractRelayTailObject(result.response);
+      if (packet === undefined) {
+        return { ...result, ok: false, error: "INVALID_RESPONSE_FORMAT" };
+      }
+      relayPreambleStripped = true;
     }
   }
   if (packet === null || typeof packet !== "object" || Array.isArray(packet)) {
     return { ...result, ok: false, error: "INVALID_RESPONSE_FORMAT" };
   }
-  return { ...result, packet };
+  return {
+    ...result,
+    packet,
+    ...(relayPreambleStripped ? { relayPreambleStripped: true } : {}),
+  };
+}
+
+/** One object surrounded by narration/fences, or undefined when ambiguous. */
+function extractNarratedObject(response) {
+  const start = response.indexOf("{");
+  const end = response.lastIndexOf("}");
+  if (start === -1 || end < start) return undefined;
+  // Do not search for a parsable subset or choose between successive packets.
+  // Parsing first-to-last braces rejects multiple objects and malformed outer
+  // objects, while JSON.parse handles nested objects and escaped string braces.
+  const surrounding = response.slice(0, start) + "\n" + response.slice(end + 1);
+  const narration = surrounding.replace(/^[ \t]*```(?:json)?[ \t]*$/gim, "");
+  // Arrays, quoted JSON, unmatched delimiters and extra JSON scalar values
+  // outside the candidate are not narration. Ambiguity must fail closed.
+  if (/[{}\[\]"`]/.test(narration)
+      || /(?:^|\s)(?:null|true|false|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=\s|$)/.test(narration)) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(response.slice(start, end + 1));
+  } catch {
+    return undefined;
+  }
+}
+
+/** AGY relay header, e.g. "Subagent `<uuid>` has sent the following message:". */
+const SUBAGENT_RELAY_MARKER = /^Subagent `[0-9a-fA-F-]{8,}` has sent the following message:\s*$/m;
+
+/**
+ * The trailing packet behind a relayed subagent message, or undefined.
+ * Only consulted after the two strict paths failed and only when the relay
+ * marker is present, so ordinary narration gains no slack. Everything before
+ * the trailing object is preamble and is discarded; response and raw keep the
+ * original provenance for the caller.
+ */
+function extractRelayTailObject(response) {
+  if (!SUBAGENT_RELAY_MARKER.test(response)) return undefined;
+  // The packet must be the tail: at most one closing fence may follow it.
+  let text = response.trim();
+  if (text.endsWith("```")) text = text.slice(0, -3).trimEnd();
+  if (!text.endsWith("}")) return undefined;
+  // Candidates open a line (optionally after a ```json fence line). Scan first
+  // to last, and accept only a slice that parses to one plain object through
+  // the final brace; ambiguous tails keep the strict failure.
+  for (const match of text.matchAll(/^[ \t]*\{/gm)) {
+    const start = match.index + match[0].length - 1;
+    let value;
+    try {
+      value = JSON.parse(text.slice(start));
+    } catch {
+      continue;
+    }
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) return value;
+  }
+  return undefined;
 }
 
 /**
