@@ -625,13 +625,19 @@ function extractRelayTailObject(response) {
  * is looked through, so a fence cannot hide such a character.
  */
 function mayContinueJsonValue(before) {
-  const unfenced = before.replace(/(?:^|\n)[ \t]*```(?:json)?[ \t]*\n?[ \t]*$/i, "");
-  // The relay header itself ends in ':' but is a line of prose, not JSON.
-  if (/(?:^|\n)Subagent `[0-9a-fA-F-]{8,}` has sent the following message:\s*$/.test(unfenced)) {
-    return false;
+  // Look through trailing whitespace (\s covers \r, NBSP, BOM and line
+  // separators), fence lines with any info string, and relay header lines.
+  // The last character is checked at every stage (except a header's own
+  // prose ':'), so stripping can never hide a preceding '[', ',', ':' or '{'.
+  const fenceLine = /(?:^|\n)[^\S\n]*```[^\n]*$/u;
+  const headerLine = /(?:^|\n)[^\S\n]*Subagent `[0-9a-fA-F-]{8,}` has sent the following message:$/u;
+  let rest = before.replace(/\s+$/u, "");
+  for (;;) {
+    const isHeader = headerLine.test(rest);
+    if (!isHeader && /[[,:{]$/u.test(rest)) return true;
+    if (!isHeader && !fenceLine.test(rest)) return false;
+    rest = rest.replace(isHeader ? headerLine : fenceLine, "").replace(/\s+$/u, "");
   }
-  const last = unfenced.trimEnd().slice(-1);
-  return last === "[" || last === "," || last === ":" || last === "{";
 }
 
 /**
