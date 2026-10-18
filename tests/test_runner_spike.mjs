@@ -583,6 +583,11 @@ runTest("2.6j: relay preambles without a trailing object packet still fail close
     `${relay}\n[\n\`\`\`json5\n{"status": "DONE"}`,
     `${relay}\n[\n\`\`\`\n\`\`\`json\n{"status": "DONE"}`,
     `${relay}\n[\n${relay}\n{"status": "DONE"}`,
+    // Gate review 5 #159: \r, \u2028, \u2029 line starts and ~~~ fences must not hide container starts.
+    `${relay}\n[\r\`\`\`json\n{"status": "DONE"}`,
+    `${relay}\n[\u2028\`\`\`json\n{"status": "DONE"}`,
+    `${relay}\n[\u2029\`\`\`json\n{"status": "DONE"}`,
+    `${relay}\n[\n~~~json\n{"status": "DONE"}`,
     // U+2028 is legal raw inside a JSON string; it must not start a candidate line.
     `${relay}\n{"note":"\u2028{"status": "DONE"}`,
     `Subagent \`00000000\` has sent the following message:\n${relay}`,
@@ -612,6 +617,23 @@ runTest("2.6k: backticked narration without the relay marker keeps the strict bo
   assert.strictEqual(result.response, response);
   assert.strictEqual(result.raw, envelope.raw);
 });
+
+runTest("2.6l: relay response with an 80,000-space interior run parses in under 200 ms", () => {
+  const packet = { milestone_id: "m-1", plan_version: 3, status: "DONE" };
+  const json = JSON.stringify(packet);
+  const relay = "Subagent `0c63109b-326b-44a1-a1d6-f72a8440e586` has sent the following message:";
+  const spaces = " ".repeat(80000);
+  const response = `${relay}\nFindings: see {"path":"scripts/runner.mjs"}.\n${spaces}\n${json}`;
+  const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
+  const start = performance.now();
+  const result = parseResponsePacket(envelope);
+  const duration = performance.now() - start;
+  assert.ok(duration < 200, `Expected parseResponsePacket to return in under 200 ms, took ${duration.toFixed(2)} ms`);
+  assert.strictEqual(result.ok, true, response);
+  assert.deepStrictEqual(result.packet, packet);
+  assert.strictEqual(result.relayPreambleStripped, true);
+});
+
 
 runTest("2.6.a: Oversized UTF-8 prompts fail with PROMPT_TOO_LARGE before spawning", () => {
   const prompt = "漢".repeat(50000);

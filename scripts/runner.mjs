@@ -594,9 +594,9 @@ function extractRelayTailObject(response) {
   let text = response.trim();
   if (text.endsWith("```")) text = text.slice(0, -3).trimEnd();
   if (!text.endsWith("}")) return undefined;
-  // Candidates open a line (optionally after a ```json fence line). Scan first
-  // to last, and accept only a slice that parses to one plain object through
-  // the final brace; ambiguous tails keep the strict failure.
+  // Candidates open a line (optionally after opening fences (``` or ~~~) or relay
+  // headers). Scan first to last, and accept only a slice that parses to one
+  // plain object through the final brace; ambiguous tails keep the strict failure.
   // Anchor on \n only: a /m ^ also matches after U+2028/U+2029, which JSON
   // strings may contain raw, so a candidate could sit inside an open string.
   for (const match of text.matchAll(/(?:^|\n)[ \t]*\{/g)) {
@@ -621,22 +621,23 @@ function extractRelayTailObject(response) {
 /**
  * True when a value starting right after `before` could be a nested element
  * of an unfinished JSON container: the last non-whitespace character is one
- * of [ , : {. One opening ```json fence line directly before the candidate
- * is looked through, so a fence cannot hide such a character.
+ * of [ , : {. Opening fences (``` or ~~~) and relay headers directly before
+ * the candidate are looked through, so fences or headers cannot hide such a
+ * character.
  */
 function mayContinueJsonValue(before) {
   // Look through trailing whitespace (\s covers \r, NBSP, BOM and line
   // separators), fence lines with any info string, and relay header lines.
   // The last character is checked at every stage (except a header's own
   // prose ':'), so stripping can never hide a preceding '[', ',', ':' or '{'.
-  const fenceLine = /(?:^|\n)[^\S\n]*```[^\n]*$/u;
-  const headerLine = /(?:^|\n)[^\S\n]*Subagent `[0-9a-fA-F-]{8,}` has sent the following message:$/u;
-  let rest = before.replace(/\s+$/u, "");
+  const fenceLine = /(?:^|[\n\r\u2028\u2029])[^\S\n]*(?:```|~~~)[^\n]*$/u;
+  const headerLine = /(?:^|[\n\r\u2028\u2029])[^\S\n]*Subagent `[0-9a-fA-F-]{8,}` has sent the following message:$/u;
+  let rest = before.trimEnd();
   for (;;) {
     const isHeader = headerLine.test(rest);
     if (!isHeader && /[[,:{]$/u.test(rest)) return true;
     if (!isHeader && !fenceLine.test(rest)) return false;
-    rest = rest.replace(isHeader ? headerLine : fenceLine, "").replace(/\s+$/u, "");
+    rest = rest.replace(isHeader ? headerLine : fenceLine, "").trimEnd();
   }
 }
 
