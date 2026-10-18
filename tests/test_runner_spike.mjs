@@ -588,6 +588,12 @@ runTest("2.6j: relay preambles without a trailing object packet still fail close
     `${relay}\n[\u2028\`\`\`json\n{"status": "DONE"}`,
     `${relay}\n[\u2029\`\`\`json\n{"status": "DONE"}`,
     `${relay}\n[\n~~~json\n{"status": "DONE"}`,
+    // Gate review #161: headers after CR/U+2028/U+2029 keep the #158 boundary,
+    // and a fence tail cannot swallow an intervening token line.
+    ...["\r", "\u2028", "\u2029"].flatMap((sep) => [
+      `${relay}\nFindings.${sep}${relay}\n{"status": "DONE"}`,
+      `${relay}\n~~~intro${sep}[${sep}\`\`\`json${sep}${relay}\n{"status": "DONE"}`,
+    ]),
     // U+2028 is legal raw inside a JSON string; it must not start a candidate line.
     `${relay}\n{"note":"\u2028{"status": "DONE"}`,
     `Subagent \`00000000\` has sent the following message:\n${relay}`,
@@ -623,7 +629,9 @@ runTest("2.6l: relay response with an 80,000-space interior run parses in under 
   const json = JSON.stringify(packet);
   const relay = "Subagent `0c63109b-326b-44a1-a1d6-f72a8440e586` has sent the following message:";
   const spaces = " ".repeat(80000);
-  const response = `${relay}\nFindings: see {"path":"scripts/runner.mjs"}.\n${spaces}\n${json}`;
+  // The run must be interior to the preamble (a sentinel follows it), or the
+  // old /\s+$/u trim matches it at once and the test cannot catch a revert.
+  const response = `${relay}\nFindings: see {"path":"scripts/runner.mjs"}.\nx${spaces}y.\n${json}`;
   const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
   const start = performance.now();
   const result = parseResponsePacket(envelope);
