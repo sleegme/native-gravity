@@ -628,20 +628,28 @@ function extractRelayTailObject(response) {
 function mayContinueJsonValue(before) {
   // Look through trailing whitespace (\s covers \r, NBSP, BOM and line
   // separators), fence lines with any info string, and relay header lines.
-  // The last character is checked at every stage (except a header's own
-  // prose ':'), so stripping can never hide a preceding '[', ',', ':' or '{'.
-  // A fence tail stops at any line separator so one strip cannot swallow a
-  // following token-bearing line.
-  const fenceLine = /(?:^|[\n\r\u2028\u2029])[^\S\n\r\u2028\u2029]*(?:```|~~~)[^\n\r\u2028\u2029]*$/u;
+  // The last character is checked before every strip (except a header's own
+  // prose ':'), and every logical line inside a stripped fence segment is
+  // checked too, so stripping can never hide a preceding '[', ',', ':' or '{'.
+  // A fence may start after \n, \r, U+2028 or U+2029; its tail runs to the end
+  // like #158's, so this strips at least what #158 stripped and checks more.
+  const fenceLine = /(?:^|[\n\r\u2028\u2029])[^\S\n\r\u2028\u2029]*(?:```|~~~)[^\n]*$/u;
   // Headers keep the #158 boundary (LF line start only): exempting a header's
   // ':' after CR/U+2028/U+2029 would accept inputs #158 rejected.
   const headerLine = /(?:^|\n)[^\S\n]*Subagent `[0-9a-fA-F-]{8,}` has sent the following message:$/u;
+  const continues = text => /[[,:{]$/u.test(text.trimEnd());
   let rest = before.trimEnd();
   for (;;) {
     const isHeader = headerLine.test(rest);
-    if (!isHeader && /[[,:{]$/u.test(rest)) return true;
-    if (!isHeader && !fenceLine.test(rest)) return false;
-    rest = rest.replace(isHeader ? headerLine : fenceLine, "").trimEnd();
+    if (!isHeader && continues(rest)) return true;
+    if (isHeader) {
+      rest = rest.replace(headerLine, "").trimEnd();
+      continue;
+    }
+    const fence = rest.match(fenceLine);
+    if (!fence) return false;
+    if (fence[0].split(/[\n\r\u2028\u2029]/u).some(continues)) return true;
+    rest = rest.slice(0, fence.index).trimEnd();
   }
 }
 

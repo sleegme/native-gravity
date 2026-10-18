@@ -593,6 +593,9 @@ runTest("2.6j: relay preambles without a trailing object packet still fail close
     ...["\r", "\u2028", "\u2029"].flatMap((sep) => [
       `${relay}\nFindings.${sep}${relay}\n{"status": "DONE"}`,
       `${relay}\n~~~intro${sep}[${sep}\`\`\`json${sep}${relay}\n{"status": "DONE"}`,
+      // Gate re-review #161: prose after a fence on a CR/U+2028/U+2029 line must
+      // not expose prose that #158 would have stripped back to the opener.
+      `${relay}\n[\n\`\`\`json${sep}Findings.\n{"status": "DONE"}`,
     ]),
     // U+2028 is legal raw inside a JSON string; it must not start a candidate line.
     `${relay}\n{"note":"\u2028{"status": "DONE"}`,
