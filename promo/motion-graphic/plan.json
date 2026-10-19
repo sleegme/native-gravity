@@ -97,7 +97,7 @@
       "acceptance_criteria": [
         "Blocks, rail and HUD live on one continuous Stage driven by deriveWorld; scene-only elements are Sequence overlays",
         "Stills of NG-Master-EN and NG-Master-KO at frames 60, 210, 380, 520 and 690 match the scene descriptions for S01 to S05",
-        "The frame 60, 210 and 690 stills contain zero pixels within 6 of #39D98A per channel",
+        "The frame 60, 210 and 690 stills contain zero pixels within 6 of #34A853 per channel",
         "Rendering frame 520 twice gives PNGs with identical SHA-256"
       ],
       "non_goals": [
