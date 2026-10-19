@@ -70,9 +70,10 @@ NO-GO와 GO의 차이가 보여야 합니다.
 - `npm install native-gravity`. 1.1.0은 npm에 없습니다. 설치는 저장소에서 합니다.
 - 전역 `ntg-vnext` 명령처럼 보이는 표기. 화면 명령은 `node "$NTG/scripts/ntg-vnext.mjs" …` 형태만 씁니다.
 - 모델 이름(Gemini, Argon, Flash, Claude 등)과 내부 역할 이름. 라우팅은 바뀔 수 있고 사용자 기능이 아닙니다.
-- Google, Antigravity, Gemini의 로고와 아이콘, Gemini 스파클(네 갈래 별) 모양, Google 로고처럼 네 색을
-  한자리에 나란히 놓은 배열, 공식 제휴처럼 보이는 표현. 팔레트는 오너 결정으로 Gemini 계열 색을 쓰지만(§5.1)
-  색만 빌리고 마크나 모양은 빌리지 않습니다. 텍스트는 "for Google Antigravity" 같은 호환성 표기만 허용합니다.
+- Google, Antigravity, Gemini의 로고와 아이콘(원본 파일, 따라 그린 것, 조금 고친 것 모두), Google 로고처럼 네 색을
+  한자리에 나란히 놓은 배열, 공식 제휴처럼 보이는 표현. 오너 결정으로 Gemini 계열 색(§5.1)과 네 갈래 스파크
+  모티프를 쓰지만, 스파크는 [`logo/LOGO.md`](logo/LOGO.md)의 "스파크를 쓰는 원칙"을 지킨 형태로만 씁니다.
+  텍스트는 "for Google Antigravity" 같은 호환성 표기만 허용합니다.
 - 실제 녹화 실행처럼 보이게 하는 것. 예시 플랜은 `docs/usage.md`를 바탕으로 한 설명용입니다.
   S04부터 S10까지 화면 오른쪽 위에 `Illustrative example` / `예시 시나리오` 라벨을 둡니다.
 - 이모지 글리프. 헤드리스 Chromium에서 두부(□)로 깨질 수 있습니다. 아이콘은 모두 SVG로 그립니다.
@@ -176,7 +177,8 @@ S03 태그라인 "Agents get lift. Verified work gets gravity."처럼 둘을 보
    ledger 레일 구간, 리뷰 카드, 판정 알약에는 절대 쓰지 않습니다.
 3. 빨강은 NO-GO 전용, 노랑은 STALE 전용입니다.
 4. 독립 리뷰는 `reviewer` 흰색입니다. 에이전트의 Gemini 색을 쓰지 않는 것이 "독립"의 시각 표현입니다.
-5. Google 네 색을 로고처럼 한자리에 나란히 놓지 않고, Gemini 스파클 모양을 쓰지 않습니다(§2.2).
+5. Google 네 색을 로고처럼 한자리에 나란히 놓지 않습니다. 스파크 모티프는 `logo/LOGO.md`의 원칙을 따른
+   로고에서만 쓰고, 장면 속 장식으로 흩뿌리지 않습니다(§2.2).
 
 ### 5.3 타이포그래피
 

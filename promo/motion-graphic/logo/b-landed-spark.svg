@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96">
+  <title>Native Gravity mark, proposal B: Landed Spark</title>
+  <defs>
+    <linearGradient id="land" x1="8" y1="16" x2="88" y2="72" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4893FC"/>
+      <stop offset="0.55" stop-color="#969DFF"/>
+      <stop offset="1" stop-color="#BD99FE"/>
+    </linearGradient>
+    <clipPath id="above-ledger"><rect x="0" y="0" width="96" height="72"/></clipPath>
+  </defs>
+  <path d="M48 16 Q56 40 88 46 Q56 54 48 86 Q40 54 8 46 Q40 40 48 16Z" fill="url(#land)" clip-path="url(#above-ledger)"/>
+  <rect x="12" y="72" width="72" height="7" rx="3.5" fill="#34A853"/>
+</svg>

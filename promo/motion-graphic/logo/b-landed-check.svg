@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96">
-  <title>Native Gravity mark, proposal B: Landed Check</title>
-  <defs>
-    <clipPath id="above-ledger"><rect x="0" y="0" width="96" height="74"/></clipPath>
-  </defs>
-  <path d="M21 49 L39 76 L79 18" fill="none" stroke="#34A853" stroke-width="13" stroke-linecap="round" stroke-linejoin="miter" stroke-miterlimit="8" clip-path="url(#above-ledger)"/>
-  <rect x="8" y="74" width="80" height="7" rx="3.5" fill="#E3E3E3"/>
-</svg>
