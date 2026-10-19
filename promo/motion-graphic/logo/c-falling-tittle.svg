@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96">
+  <title>Native Gravity mark, proposal C: Falling Tittle</title>
+  <defs>
+    <linearGradient id="lift" x1="20" y1="8" x2="34" y2="22" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4893FC"/>
+      <stop offset="0.55" stop-color="#969DFF"/>
+      <stop offset="1" stop-color="#BD99FE"/>
+    </linearGradient>
+  </defs>
+  <rect x="20" y="8" width="14" height="14" rx="3.5" fill="url(#lift)"/>
+  <rect x="20" y="38" width="14" height="44" rx="3" fill="#E3E3E3"/>
+  <rect x="50" y="38" width="14" height="44" rx="3" fill="#E3E3E3"/>
+  <rect x="70" y="68" width="14" height="14" rx="3.5" fill="#34A853"/>
+</svg>
