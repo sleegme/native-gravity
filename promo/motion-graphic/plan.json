@@ -1,0 +1,170 @@
+{
+  "goal": "Implement the Native Gravity promo motion graphic in the native-gravity-promo workspace exactly as specified by design/DESIGN.md",
+  "constraints": [
+    "design/DESIGN.md is a read-only copy of promo/motion-graphic/DESIGN.md from the native-gravity repository and is the authoritative spec; never edit it",
+    "Items marked [fixed] in DESIGN.md (scenes, copy, color law, landing invariant, caption windows) do not change; other values may move within the tolerances in DESIGN.md section 7, and anything beyond is recorded in DEVIATIONS.md with reason and evidence",
+    "Remotion and every other dependency are pinned to exact versions; no ^ or ~ ranges",
+    "Rendering is deterministic: no Math.random, Date or CSS animations; fonts are self-hosted woff2 and nothing is fetched over the network during render",
+    "No emoji glyphs, no Google/Antigravity/Gemini logos, no model or internal role names, no npm install instructions (DESIGN.md section 2.2)",
+    "Do not modify any file in the native-gravity plugin repository"
+  ],
+  "plan_version": "v1",
+  "milestones": [
+    {
+      "id": "p1-scaffold",
+      "title": "Scaffold the Remotion workspace",
+      "objective": "Create the project skeleton from DESIGN.md section 11.3 with tokens, copy, self-hosted fonts and six registered placeholder compositions",
+      "acceptance_criteria": [
+        "package.json pins every dependency to an exact version and defines test, typecheck and render:all scripts",
+        "src/tokens.ts holds every color token from DESIGN.md section 5.1 with identical names and hex values, plus the layout constants from section 5.4",
+        "src/copy.ts holds every key from DESIGN.md sections 8.1 and 8.2 in en and ko, character-for-character",
+        "public/fonts contains Space Grotesk, Inter, JetBrains Mono and Pretendard woff2 files with their OFL license files, loaded with delayRender until ready",
+        "npx remotion compositions lists NG-Master-EN, NG-Master-KO (1920x1080, 1470 frames), NG-Short-EN, NG-Short-KO (1920x1080, 450 frames), NG-ReadmeLoop (960x540, 120 frames) and NG-ComponentSheet (1920x1080, 1 frame), all at 30fps",
+        "npx tsc --noEmit exits 0 and a still of frame 0 renders for every composition"
+      ],
+      "non_goals": [
+        "Any scene animation",
+        "Final visuals"
+      ],
+      "dependencies": [],
+      "bounded_scope": [
+        "package.json",
+        "package-lock.json",
+        "tsconfig.json",
+        "remotion.config.ts",
+        ".gitignore",
+        "design/DESIGN.md",
+        "public/fonts/",
+        "src/index.ts",
+        "src/Root.tsx",
+        "src/tokens.ts",
+        "src/copy.ts",
+        "src/compositions/"
+      ]
+    },
+    {
+      "id": "p2-motion-core",
+      "title": "Motion primitives, timeline and derived world state",
+      "objective": "Implement the motion primitives from DESIGN.md section 6 as pure frame functions, the scene tables and story events for master, short and loop, and deriveWorld, with the tests from section 11.5",
+      "acceptance_criteria": [
+        "src/motion exports FLOAT, LAND (normal and fast), REPEL, TEAR, SCAN (normal and mini), STAMP, STALE LIFT, POP, TYPE-ON, LINE REVEAL, POWER OFF/ON and CAPTION with the parameters in DESIGN.md section 6",
+        "src/timeline.ts encodes the master scene table from section 7, the short table from 9.1 and the loop from 9.2, plus every story event and caption window those sections give",
+        "deriveWorld(events, frame) returns each block's state, last event and frames since that event",
+        "npm test runs and passes tests 1 to 6 from DESIGN.md section 11.5, including the [fixed] landing invariant and the section 8.3 reading-speed rule for every caption window",
+        "A deliberately broken fixture (a land event without a preceding matching GO) makes the invariant test fail, and the test output shows it"
+      ],
+      "non_goals": [
+        "Rendering components",
+        "Visual styling"
+      ],
+      "dependencies": [
+        "p1-scaffold"
+      ],
+      "bounded_scope": [
+        "src/motion/",
+        "src/timeline.ts",
+        "src/world.ts",
+        "tests/"
+      ]
+    },
+    {
+      "id": "p3-components",
+      "title": "Visual components and component sheet",
+      "objective": "Build every object in DESIGN.md section 5.5 and lay them out on NG-ComponentSheet for review",
+      "acceptance_criteria": [
+        "Components exist for MilestoneBlock (all six states), CandidateTab, ClaimChip, LedgerRail, ReviewerCard, ReviewerBeam, VerdictPill (full and mini), ChatBubble, Wordmark, CommandBar, PlanPanel, HudChip, Caption, Background and Dust",
+        "out/qa/component-sheet.png shows every block state, both verdict pills, a candidate tab with claim chip, the rail with one lit segment, the reviewer card, the wordmark, and an EN and a KO caption",
+        "Colors in the sheet come only from src/tokens.ts and obey the color law in DESIGN.md section 5.2; test 7 from section 11.5 passes",
+        "KO text in the sheet renders without missing-glyph boxes, and no text is smaller than 22px"
+      ],
+      "non_goals": [
+        "Scene timing",
+        "Full renders"
+      ],
+      "dependencies": [
+        "p1-scaffold"
+      ],
+      "bounded_scope": [
+        "src/components/",
+        "src/compositions/ComponentSheet.tsx",
+        "tests/"
+      ]
+    },
+    {
+      "id": "p4-master-a",
+      "title": "Master scenes S01 to S05",
+      "objective": "Assemble the continuous stage and the overlays for master scenes S01 to S05 per DESIGN.md section 7",
+      "acceptance_criteria": [
+        "Blocks, rail and HUD live on one continuous Stage driven by deriveWorld; scene-only elements are Sequence overlays",
+        "Stills of NG-Master-EN and NG-Master-KO at frames 60, 210, 380, 520 and 690 match the scene descriptions for S01 to S05",
+        "The frame 60, 210 and 690 stills contain zero pixels within 6 of #39D98A per channel",
+        "Rendering frame 520 twice gives PNGs with identical SHA-256"
+      ],
+      "non_goals": [
+        "Scenes S06 to S10",
+        "Short and loop compositions"
+      ],
+      "dependencies": [
+        "p2-motion-core",
+        "p3-components"
+      ],
+      "bounded_scope": [
+        "src/stage/",
+        "src/compositions/Master.tsx",
+        "src/timeline.ts",
+        "tests/"
+      ]
+    },
+    {
+      "id": "p5-master-b",
+      "title": "Master scenes S06 to S10 and full master renders",
+      "objective": "Complete master scenes S06 to S10 and render both full masters",
+      "acceptance_criteria": [
+        "Stills of both masters at frames 820, 1000, 1125, 1230, 1312 and 1469 match the scene descriptions for S06 to S10",
+        "out/native-gravity-promo-en-1080p.mp4 and out/native-gravity-promo-ko-1080p.mp4 exist, and ffprobe reports h264, yuv420p, 1920x1080, 30/1 fps and 49.0 seconds within one frame",
+        "Every caption on screen matches DESIGN.md section 8 character-for-character in both languages",
+        "npm test still passes"
+      ],
+      "non_goals": [
+        "Short, loop, poster and audio"
+      ],
+      "dependencies": [
+        "p4-master-a"
+      ],
+      "bounded_scope": [
+        "src/stage/",
+        "src/compositions/Master.tsx",
+        "src/timeline.ts",
+        "tests/",
+        "out/"
+      ]
+    },
+    {
+      "id": "p6-variants-qa",
+      "title": "Short cut, README loop, posters and QA report",
+      "objective": "Produce the remaining deliverables from DESIGN.md section 4 and the QA report from section 13",
+      "acceptance_criteria": [
+        "Both shorts render at 1920x1080, 450 frames, and their stills at frames 30, 120, 230, 330 and 449 match DESIGN.md section 9.1",
+        "out/native-gravity-readme-loop.mp4 and .gif exist; the GIF is 960 wide, 15fps, loops forever and is at most 6MB; frames 0 and 119 are attached to show a seamless join",
+        "out/poster-en.png and out/poster-ko.png are master frame 1469",
+        "scripts/render-all.sh regenerates every deliverable and QA still from a clean out/ directory",
+        "QA.md records all ten checks from DESIGN.md section 13 with OBSERVED evidence, and DEVIATIONS.md lists every deviation or states that there are none"
+      ],
+      "non_goals": [
+        "Audio unless the owner supplies licensed tracks",
+        "New scenes or copy"
+      ],
+      "dependencies": [
+        "p5-master-b"
+      ],
+      "bounded_scope": [
+        "src/compositions/",
+        "src/timeline.ts",
+        "scripts/render-all.sh",
+        "QA.md",
+        "DEVIATIONS.md",
+        "out/"
+      ]
+    }
+  ]
+}
