@@ -4,8 +4,10 @@ import { once } from 'node:events';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { main, nativeZen } from '../scripts/ntg-vnext.mjs';
+import { AuthoritativeLedger, computeUsageRollup } from '../scripts/ledger.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { symlinkSync } from 'node:fs';
 
@@ -173,6 +175,11 @@ test('recover refuses to remove a lock held by a live supervisor', async t => {
 });
 
 test('runner invocations get a 600s default timeout, overridable with --timeout', async t => {
+  const origTimeout = process.env.NTG_RUNNER_TIMEOUT_S;
+  delete process.env.NTG_RUNNER_TIMEOUT_S;
+  t.after(() => {
+    if (origTimeout !== undefined) process.env.NTG_RUNNER_TIMEOUT_S = origTimeout;
+  });
   const h = harness(t);
   await h.cli('init', '--plan', h.write('plan.json', plan('v1', ['one'])));
   await h.cli('plan', '--task', 'advise');
@@ -334,4 +341,132 @@ test('NTG_ZEN_MODEL overrides the resolved Zen slug and fails closed without a m
     models: 'gemini-3.8-flash-high\tGemini 3.8 Flash (High)',
   });
   assert.throws(() => nativeZen({}, { agyPath: flashOnly }), /No installed model found matching policy for role "zen"/);
+});
+
+test('usage telemetry: records per-role entries in ledger and surfaces rollup in status', async t => {
+  const h = harness(t);
+  await h.cli('init', '--plan', h.write('plan.json', plan('v1', ['one'])));
+
+  const customDeps = {
+    handleSignals: false,
+    invokeRole: async (role, packet, runnerOptions = {}) => {
+      if (role === 'bulldozer') {
+        if (runnerOptions.invokeSpecialist) {
+          await runnerOptions.invokeSpecialist('bobcat', { task: 'implement' });
+          await runnerOptions.invokeSpecialist('strix-halo', { task: 'review' }, { caller: 'bobcat' });
+        }
+        return {
+          ok: true,
+          slug: 'gemini-3.8-flash-high',
+          duration_ms: 250,
+          usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+          response: JSON.stringify({
+            milestone_id: 'one',
+            plan_version: 'v1',
+            status: 'DONE',
+            changes_made: ['one.txt'],
+            verification_evidence: observed,
+            unresolved_unknowns: [],
+            scope_deviations: [],
+            candidate_artifact_ref: 'sha256:one',
+          }),
+        };
+      }
+      return { ok: true, response: '{}' };
+    },
+    invokeSpecialist: async (role, slice, options = {}) => {
+      if (role === 'bobcat') {
+        return {
+          ok: true,
+          status: 'READY',
+          slug: 'gemini-3.8-flash-high',
+          duration_ms: 150,
+          usage: { input_tokens: 50, output_tokens: 10, total_tokens: 60 },
+          response: JSON.stringify({ status: 'READY' }),
+        };
+      }
+      if (role === 'strix-halo') {
+        return {
+          ok: true,
+          verdict: 'ACCEPT',
+          slug: 'gemini-3.8-flash-high',
+          duration_ms: 80,
+          usage: { input_tokens: 30, output_tokens: 5, total_tokens: 35 },
+          response: JSON.stringify({ verdict: 'ACCEPT' }),
+        };
+      }
+      return { ok: true, response: '{}' };
+    },
+    invokeZen: async request => {
+      return {
+        milestone_id: request.milestone_id,
+        plan_version: request.plan_version,
+        result_ref: request.result_ref,
+        verdict: 'GO',
+        verification_evidence: observed,
+        slug: 'gemini-4-argon-high',
+        duration_ms: 300,
+        usage: { input_tokens: 200, output_tokens: 40, total_tokens: 240 },
+      };
+    },
+  };
+
+  const runRes = await main(['run', '--ledger', h.ledger], customDeps);
+  assert.equal(runRes.code, 0);
+
+  const disk = JSON.parse(readFileSync(h.ledger, 'utf8'));
+  assert.ok(disk.usage, 'usage property exists on ledger');
+  assert.ok(Array.isArray(disk.usage.one), 'usage.one is an array');
+
+  const entries = disk.usage.one;
+  assert.equal(entries.length, 4);
+
+  const roles = entries.map(e => e.role);
+  assert.deepEqual(roles, ['bobcat', 'strix-halo', 'bulldozer', 'zen']);
+
+  for (const entry of entries) {
+    assert.equal(typeof entry.role, 'string');
+    assert.equal(typeof entry.slug, 'string');
+    assert.equal(typeof entry.duration_ms, 'number');
+    assert.ok(entry.duration_ms > 0);
+    assert.equal(typeof entry.status, 'string');
+    assert.ok(entry.usage && typeof entry.usage.total_tokens === 'number');
+  }
+
+  const statusRes = await main(['status', '--ledger', h.ledger], customDeps);
+  assert.equal(statusRes.code, 0);
+  assert.ok(statusRes.out.usage, 'status output contains usage rollup');
+  assert.ok(statusRes.out.usage.one, 'usage rollup contains milestone one');
+
+  const m1Rollup = statusRes.out.usage.one;
+  assert.equal(m1Rollup.total_tokens, 455);
+  assert.equal(m1Rollup.total_duration_ms, 780);
+  assert.equal(m1Rollup.total.total_tokens, 455);
+  assert.equal(m1Rollup.total.total_duration_ms, 780);
+
+  assert.equal(m1Rollup.roles.bobcat.total_tokens, 60);
+  assert.equal(m1Rollup.roles.bobcat.total_duration_ms, 150);
+  assert.equal(m1Rollup.roles['strix-halo'].total_tokens, 35);
+  assert.equal(m1Rollup.roles['strix-halo'].total_duration_ms, 80);
+  assert.equal(m1Rollup.roles.bulldozer.total_tokens, 120);
+  assert.equal(m1Rollup.roles.bulldozer.total_duration_ms, 250);
+  assert.equal(m1Rollup.roles.zen.total_tokens, 240);
+  assert.equal(m1Rollup.roles.zen.total_duration_ms, 300);
+
+  assert.deepEqual(m1Rollup.by_role, m1Rollup.roles);
+});
+
+test('pre-change-format ledger fixture (tests/fixtures/dag-view/all-states.ledger.json) loads, status does not crash, and shows no usage sections', async t => {
+  const fixturePath = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'dag-view', 'all-states.ledger.json');
+  assert.ok(existsSync(fixturePath));
+
+  const ledger = AuthoritativeLedger.load(fixturePath);
+  assert.ok(ledger);
+  assert.deepEqual(ledger.usage, {});
+  assert.equal(ledger.toJSON().usage, undefined);
+
+  const res = await main(['status', '--ledger', fixturePath], { handleSignals: false });
+  assert.equal(res.code, 0);
+  assert.equal(res.out.usage, undefined);
+  assert.equal(res.out.state.usage, undefined);
 });

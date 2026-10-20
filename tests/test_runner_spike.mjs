@@ -23,6 +23,9 @@ import {
   invoke,
 } from "../scripts/runner.mjs";
 
+// Clean ambient runner chain from caller environment so tests run hermetically
+delete process.env.NTG_RUNNER_CHAIN;
+
 console.log("=== Native Gravity 44B Exact-Model Runner Spike Tests ===");
 
 let passed = 0;
@@ -932,6 +935,243 @@ process.exit(0);
     try {
       unlinkSync(mockScript);
     } catch {}
+  }
+});
+
+runTest("2.9a: mocked successful invocation carries duration_ms and usage object, preserving duration", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ntg-usage-ok-"));
+  const mockScript = join(dir, "agy.mjs");
+  const usageData = {
+    input_tokens: 150,
+    output_tokens: 45,
+    thinking_tokens: 10,
+    cache_read_tokens: 5,
+    total_tokens: 200,
+  };
+  writeFileSync(
+    mockScript,
+    `#!/usr/bin/env node
+console.log(JSON.stringify({
+  status: "SUCCESS",
+  response: "SUCCESSFUL_RUN",
+  duration_seconds: 1.75,
+  usage: ${JSON.stringify(usageData)}
+}));
+`
+  );
+  chmodSync(mockScript, 0o755);
+  try {
+    const resTransport = invokeTransport({
+      slug: "gemini-4-argon-high",
+      prompt: "test",
+      agyPath: mockScript,
+    });
+    assert.strictEqual(resTransport.ok, true);
+    assert.strictEqual(resTransport.response, "SUCCESSFUL_RUN");
+    assert.strictEqual(resTransport.duration, 1.75);
+    assert.strictEqual(typeof resTransport.duration_ms, "number");
+    assert.ok(resTransport.duration_ms >= 0, "duration_ms >= 0");
+    assert.deepStrictEqual(resTransport.usage, usageData);
+
+    const resInvoke = invoke("piledriver", { task: "Test usage" }, {
+      agyPath: mockScript,
+      installedModels: [{ slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" }],
+    });
+    assert.strictEqual(resInvoke.ok, true);
+    assert.strictEqual(resInvoke.response, "SUCCESSFUL_RUN");
+    assert.strictEqual(resInvoke.duration, 1.75);
+    assert.strictEqual(typeof resInvoke.duration_ms, "number");
+    assert.ok(resInvoke.duration_ms >= 0, "duration_ms >= 0");
+    assert.deepStrictEqual(resInvoke.usage, usageData);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+runTest("2.9b: mocked successful invocation with missing usage leaves usage undefined", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ntg-usage-missing-"));
+  const mockScript = join(dir, "agy.mjs");
+  writeFileSync(
+    mockScript,
+    `#!/usr/bin/env node
+console.log(JSON.stringify({
+  status: "SUCCESS",
+  response: "SUCCESS_NO_USAGE",
+  duration_seconds: 0.95
+}));
+`
+  );
+  chmodSync(mockScript, 0o755);
+  try {
+    const resTransport = invokeTransport({
+      slug: "gemini-4-argon-high",
+      prompt: "test",
+      agyPath: mockScript,
+    });
+    assert.strictEqual(resTransport.ok, true);
+    assert.strictEqual(resTransport.response, "SUCCESS_NO_USAGE");
+    assert.strictEqual(resTransport.duration, 0.95);
+    assert.strictEqual(typeof resTransport.duration_ms, "number");
+    assert.ok(resTransport.duration_ms >= 0, "duration_ms >= 0");
+    assert.strictEqual(resTransport.usage, undefined);
+
+    const resInvoke = invoke("piledriver", { task: "Test missing usage" }, {
+      agyPath: mockScript,
+      installedModels: [{ slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" }],
+    });
+    assert.strictEqual(resInvoke.ok, true);
+    assert.strictEqual(resInvoke.response, "SUCCESS_NO_USAGE");
+    assert.strictEqual(resInvoke.duration, 0.95);
+    assert.strictEqual(typeof resInvoke.duration_ms, "number");
+    assert.ok(resInvoke.duration_ms >= 0, "duration_ms >= 0");
+    assert.strictEqual(resInvoke.usage, undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+runTest("2.9c: mocked failed invocation carries duration_ms and usage when available", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ntg-usage-fail-"));
+  const mockScript = join(dir, "agy.mjs");
+  const usageData = { input_tokens: 42, output_tokens: 8, total_tokens: 50 };
+  writeFileSync(
+    mockScript,
+    `#!/usr/bin/env node
+const mode = process.env.MOCK_FAIL_MODE || "error";
+if (mode === "error") {
+  console.log(JSON.stringify({
+    status: "ERROR",
+    message: "Rate limit exceeded",
+    usage: ${JSON.stringify(usageData)}
+  }));
+} else if (mode === "denial") {
+  console.log(JSON.stringify({
+    status: "SUCCESS",
+    response: "",
+    denied_actions: [{ action: "command", display_name: "RunCommand" }],
+    usage: ${JSON.stringify(usageData)}
+  }));
+} else if (mode === "exit_code") {
+  console.log(JSON.stringify({
+    status: "ERROR",
+    message: "Process failed with status code",
+    usage: ${JSON.stringify(usageData)}
+  }));
+  process.exit(1);
+}
+`
+  );
+  chmodSync(mockScript, 0o755);
+  try {
+    // 1. MODEL_ERROR carries duration_ms and usage
+    const resError = invoke("piledriver", { task: "Test error" }, {
+      agyPath: mockScript,
+      installedModels: [{ slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" }],
+      env: { MOCK_FAIL_MODE: "error" },
+    });
+    assert.strictEqual(resError.ok, false);
+    assert.strictEqual(resError.error, "MODEL_ERROR");
+    assert.strictEqual(typeof resError.duration_ms, "number");
+    assert.ok(resError.duration_ms >= 0);
+    assert.deepStrictEqual(resError.usage, usageData);
+
+    // 2. TOOL_PERMISSION_DENIED carries duration_ms and usage
+    const resDenial = invoke("piledriver", { task: "Test denial" }, {
+      agyPath: mockScript,
+      installedModels: [{ slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" }],
+      env: { MOCK_FAIL_MODE: "denial" },
+    });
+    assert.strictEqual(resDenial.ok, false);
+    assert.strictEqual(resDenial.error, "TOOL_PERMISSION_DENIED");
+    assert.strictEqual(typeof resDenial.duration_ms, "number");
+    assert.ok(resDenial.duration_ms >= 0);
+    assert.deepStrictEqual(resDenial.usage, usageData);
+
+    // 3. Non-zero exit code with JSON stdout carries duration_ms and usage
+    const resExit = invokeTransport({
+      slug: "gemini-4-argon-high",
+      prompt: "test",
+      agyPath: mockScript,
+      env: { MOCK_FAIL_MODE: "exit_code" },
+    });
+    assert.strictEqual(resExit.ok, false);
+    assert.strictEqual(resExit.error, "EXECUTION_FAILED");
+    assert.strictEqual(typeof resExit.duration_ms, "number");
+    assert.ok(resExit.duration_ms >= 0);
+    assert.deepStrictEqual(resExit.usage, usageData);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+runTest("2.9d: mocked failed invocation without usage leaves usage undefined", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ntg-usage-no-usage-fail-"));
+  const mockScript = join(dir, "agy.mjs");
+  writeFileSync(
+    mockScript,
+    `#!/usr/bin/env node
+console.error("fatal crash");
+process.exit(2);
+`
+  );
+  chmodSync(mockScript, 0o755);
+  try {
+    const res = invokeTransport({
+      slug: "gemini-4-argon-high",
+      prompt: "test",
+      agyPath: mockScript,
+    });
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.error, "EXECUTION_FAILED");
+    assert.strictEqual(typeof res.duration_ms, "number");
+    assert.ok(res.duration_ms >= 0);
+    assert.strictEqual(res.usage, undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+runTest("2.9e: early error returns from invoke() attach duration_ms and usage undefined", () => {
+  // 1. INVALID_OUTPUT_FORMAT
+  const resFmt = invoke("piledriver", { task: "Test" }, { outputFormat: "text" });
+  assert.strictEqual(resFmt.ok, false);
+  assert.strictEqual(resFmt.error, "INVALID_OUTPUT_FORMAT");
+  assert.strictEqual(typeof resFmt.duration_ms, "number");
+  assert.ok(resFmt.duration_ms >= 0);
+  assert.strictEqual(resFmt.usage, undefined);
+
+  // 2. UNRESOLVED_MODEL_SLUG
+  const resSlug = invoke("nonexistent-role", { task: "Test" });
+  assert.strictEqual(resSlug.ok, false);
+  assert.strictEqual(resSlug.error, "UNRESOLVED_MODEL_SLUG");
+  assert.strictEqual(typeof resSlug.duration_ms, "number");
+  assert.ok(resSlug.duration_ms >= 0);
+  assert.strictEqual(resSlug.usage, undefined);
+
+  // 3. INVALID_HANDOFF_PACKET
+  const resPkt = invoke("piledriver", null);
+  assert.strictEqual(resPkt.ok, false);
+  assert.strictEqual(resPkt.error, "INVALID_HANDOFF_PACKET");
+  assert.strictEqual(typeof resPkt.duration_ms, "number");
+  assert.ok(resPkt.duration_ms >= 0);
+  assert.strictEqual(resPkt.usage, undefined);
+
+  // 4. RECURSION_DETECTED
+  const origChain = process.env.NTG_RUNNER_CHAIN;
+  try {
+    process.env.NTG_RUNNER_CHAIN = "piledriver";
+    const resRec = invoke("piledriver", { task: "Test recursion" });
+    assert.strictEqual(resRec.ok, false);
+    assert.strictEqual(resRec.error, "RECURSION_DETECTED");
+    assert.strictEqual(typeof resRec.duration_ms, "number");
+    assert.ok(resRec.duration_ms >= 0);
+    assert.strictEqual(resRec.usage, undefined);
+  } finally {
+    if (origChain === undefined) {
+      delete process.env.NTG_RUNNER_CHAIN;
+    } else {
+      process.env.NTG_RUNNER_CHAIN = origChain;
+    }
   }
 });
 

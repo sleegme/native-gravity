@@ -452,6 +452,7 @@ export function parseResponseEnvelope(stdout, meta = {}) {
       ...(slug ? { slug } : {}),
       message: `Failed to parse JSON response: ${parseErr.message}`,
       raw: stdout,
+      usage: undefined,
     };
   }
 
@@ -463,8 +464,11 @@ export function parseResponseEnvelope(stdout, meta = {}) {
       ...(slug ? { slug } : {}),
       message: "JSON response is not a valid object envelope",
       raw: parsed,
+      usage: undefined,
     };
   }
+
+  const usage = parsed.usage !== null && typeof parsed.usage === "object" ? parsed.usage : undefined;
 
   if (parsed.status === "ERROR") {
     return {
@@ -472,6 +476,7 @@ export function parseResponseEnvelope(stdout, meta = {}) {
       error: "MODEL_ERROR",
       ...(role ? { role } : {}),
       ...(slug ? { slug } : {}),
+      usage,
       details: parsed,
     };
   }
@@ -484,6 +489,7 @@ export function parseResponseEnvelope(stdout, meta = {}) {
         ...(role ? { role } : {}),
         ...(slug ? { slug } : {}),
         denied_actions: parsed.denied_actions,
+        usage,
         details: parsed,
       };
     }
@@ -495,6 +501,7 @@ export function parseResponseEnvelope(stdout, meta = {}) {
         ...(role ? { role } : {}),
         ...(slug ? { slug } : {}),
         message: "Missing or invalid 'response' field in SUCCESS envelope",
+        usage,
         details: parsed,
       };
     }
@@ -505,7 +512,7 @@ export function parseResponseEnvelope(stdout, meta = {}) {
       ...(slug ? { slug } : {}),
       response: parsed.response,
       duration: parsed.duration_seconds,
-      usage: parsed.usage,
+      usage,
       raw: parsed,
     };
   }
@@ -516,6 +523,7 @@ export function parseResponseEnvelope(stdout, meta = {}) {
     ...(role ? { role } : {}),
     ...(slug ? { slug } : {}),
     message: `Unexpected response status: "${parsed.status}"`,
+    usage,
     details: parsed,
   };
 }
@@ -667,6 +675,7 @@ function mayContinueJsonValue(before) {
  * @returns {object} Structured result
  */
 export function invokeTransport(slugOrOpts, maybePrompt, maybeOpts) {
+  const startTime = Date.now();
   let slug;
   let prompt;
   let opts;
@@ -682,18 +691,31 @@ export function invokeTransport(slugOrOpts, maybePrompt, maybeOpts) {
   }
 
   const request = { ...opts, slug, prompt };
+  let result;
   if (typeof opts.role !== "string" || opts.role.trim().toLowerCase() !== "navi") {
-    return invokeAgyTransport(request);
+    result = invokeAgyTransport(request);
+  } else {
+    try {
+      result = withNaviHome(request, (env, prefix) => invokeAgyTransport({ ...request, env }, prefix));
+    } catch (error) {
+      result = {
+        ok: false, error: "NAVI_SETUP_ERROR", role: "navi",
+        code: error.code || "NAVI_SETUP_FAILED",
+        ...(error.variable ? { variable: error.variable } : {}),
+        usage: undefined,
+      };
+    }
   }
-  try {
-    return withNaviHome(request, (env, prefix) => invokeAgyTransport({ ...request, env }, prefix));
-  } catch (error) {
-    return {
-      ok: false, error: "NAVI_SETUP_ERROR", role: "navi",
-      code: error.code || "NAVI_SETUP_FAILED",
-      ...(error.variable ? { variable: error.variable } : {}),
-    };
+
+  const duration_ms = Math.max(0, Date.now() - startTime);
+  if (result.code === "NAVI_TIMEOUT" || result.code === "NAVI_EXECUTION_FAILED") {
+    return result;
   }
+  return {
+    ...result,
+    duration_ms,
+    usage: result.usage,
+  };
 }
 
 function invokeAgyTransport(opts, prefix = []) {
@@ -848,6 +870,16 @@ function invokeAgyTransport(opts, prefix = []) {
         exitStatus: result.status,
       };
     }
+    let usage = undefined;
+    const stdout = (result.stdout || "").toString();
+    if (stdout.trim()) {
+      try {
+        const parsed = JSON.parse(stdout.trim());
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && parsed.usage !== null && typeof parsed.usage === "object") {
+          usage = parsed.usage;
+        }
+      } catch {}
+    }
     return {
       ok: false,
       error: "EXECUTION_FAILED",
@@ -855,6 +887,7 @@ function invokeAgyTransport(opts, prefix = []) {
       slug,
       exitCode: result.status,
       stderr: (result.stderr || "").toString(),
+      usage,
     };
   }
 
@@ -883,6 +916,7 @@ function invokeAgyTransport(opts, prefix = []) {
  * @returns {object} Structured result
  */
 export function invoke(role, packet, opts = {}) {
+  const startTime = Date.now();
   const options = opts || {};
   if (options.outputFormat && options.outputFormat !== "json") {
     return {
@@ -891,6 +925,8 @@ export function invoke(role, packet, opts = {}) {
       role,
       message:
         "invoke() requires JSON output format; envelope validation cannot be bypassed. Use invokeTransport() if text format is needed.",
+      duration_ms: Math.max(0, Date.now() - startTime),
+      usage: undefined,
     };
   }
 
@@ -905,6 +941,8 @@ export function invoke(role, packet, opts = {}) {
         error: "RECURSION_DETECTED",
         role,
         chain: chainRaw,
+        duration_ms: Math.max(0, Date.now() - startTime),
+        usage: undefined,
       };
     }
   }
@@ -920,6 +958,8 @@ export function invoke(role, packet, opts = {}) {
       role,
       message: err.message,
       ...(err.matches ? { matches: err.matches } : {}),
+      duration_ms: Math.max(0, Date.now() - startTime),
+      usage: undefined,
     };
   }
 
@@ -933,6 +973,8 @@ export function invoke(role, packet, opts = {}) {
       error: err.error || "INVALID_HANDOFF_PACKET",
       role,
       message: err.message,
+      duration_ms: Math.max(0, Date.now() - startTime),
+      usage: undefined,
     };
   }
 
@@ -962,10 +1004,24 @@ export function invoke(role, packet, opts = {}) {
     attempt = run();
     attempts++;
   }
+  const totalDurationMs = Math.max(0, Date.now() - startTime);
   if (attempt.ok && (attempt.response || "").trim() === "") {
-    return { ok: false, error: "EMPTY_RESPONSE", role, slug, attempts };
+    return {
+      ok: false,
+      error: "EMPTY_RESPONSE",
+      role,
+      slug,
+      attempts,
+      duration_ms: totalDurationMs,
+      usage: attempt.usage,
+    };
   }
-  return { ...attempt, attempts };
+  return {
+    ...attempt,
+    attempts,
+    duration_ms: totalDurationMs,
+    usage: attempt.usage,
+  };
 }
 
 // CLI execution support

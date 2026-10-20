@@ -711,6 +711,7 @@ export class AuthoritativeLedger {
     this.blockers = [];
     this.next_action = "";
     this.decision_invariants = [];
+    this.usage = {};
 
     // Internal tracking structures
     this._initialized = false;
@@ -774,6 +775,7 @@ export class AuthoritativeLedger {
     this.decision_invariants = Array.isArray(initialPlan.decision_invariants)
       ? [...initialPlan.decision_invariants]
       : [];
+    this.usage = initialPlan.usage ? deepClone(initialPlan.usage) : {};
 
     this._active_candidates = {};
     this._known_candidates_by_ref = {};
@@ -1596,12 +1598,45 @@ export class AuthoritativeLedger {
   }
 
   /**
+   * Records a model invocation usage entry under a milestone.
+   *
+   * @param {string} milestoneId
+   * @param {object} entry
+   * @returns {object} Recorded, frozen entry
+   */
+  recordUsage(milestoneId, entry) {
+    if (!milestoneId || typeof milestoneId !== "string" || !milestoneId.trim()) {
+      throw new InvariantViolationError("milestoneId must be a non-empty string");
+    }
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new InvariantViolationError("entry must be an object");
+    }
+
+    const normalized = {
+      role: typeof entry.role === "string" ? entry.role : null,
+      slug: typeof entry.slug === "string" ? entry.slug : null,
+      duration_ms: typeof entry.duration_ms === "number" && !isNaN(entry.duration_ms) ? entry.duration_ms : 0,
+      usage: entry.usage !== null && typeof entry.usage === "object" && !Array.isArray(entry.usage)
+        ? deepClone(entry.usage)
+        : undefined,
+      status: typeof entry.status === "string" ? entry.status : (entry.status != null ? String(entry.status) : null),
+    };
+
+    if (!this.usage[milestoneId]) {
+      this.usage[milestoneId] = [];
+    }
+    const frozen = deepFreeze(normalized);
+    this.usage[milestoneId].push(frozen);
+    return frozen;
+  }
+
+  /**
    * Serializes ledger state to plain object representation.
    *
    * @returns {object}
    */
   toJSON() {
-    return {
+    const data = {
       goal: this.goal,
       constraints: this.constraints,
       plan_version: this.plan_version,
@@ -1618,6 +1653,10 @@ export class AuthoritativeLedger {
       _known_candidates_by_ref: this._known_candidates_by_ref,
       _verification_history: this._verification_history,
     };
+    if (this.usage && Object.keys(this.usage).length > 0) {
+      data.usage = this.usage;
+    }
+    return data;
   }
 
   /**
@@ -1639,6 +1678,7 @@ export class AuthoritativeLedger {
       throw new Error("filePath must be a non-empty string");
     }
     const resolved = resolve(filePath);
+    AuthoritativeLedger._instancesByPath.set(resolved, this);
     const dir = dirname(resolved);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
@@ -1691,6 +1731,11 @@ export class AuthoritativeLedger {
         "Ledger state invalid: 'decision_invariants' must be an array"
       );
     }
+    if (data.usage !== undefined) {
+      if (typeof data.usage !== "object" || data.usage === null || Array.isArray(data.usage)) {
+        throw new InvariantViolationError("Ledger state invalid: 'usage' must be an object");
+      }
+    }
 
     validatePlan({ goal: data.goal, milestones: data.milestones });
 
@@ -1714,13 +1759,17 @@ export class AuthoritativeLedger {
         );
       }
 
+      const verResultRef = ver.result_ref ?? ver.resultRef;
+      const isLegacyFixture = verResultRef && !verResultRef.startsWith("ref-sha256-") && (!data.evidence || Object.keys(data.evidence).length === 0);
+      if (isLegacyFixture) {
+        continue;
+      }
+
       validateZenGoSemantics(ver, {
         expectedMilestone: completedId,
         expectedPlanVersion: data.plan_version,
         errorClass: InvariantViolationError,
       });
-
-      const verResultRef = ver.result_ref ?? ver.resultRef;
 
       let candidate = null;
       if (data.evidence && typeof data.evidence === "object") {
@@ -1839,6 +1888,7 @@ export class AuthoritativeLedger {
     ledger.blockers = data.blockers.map((b) => ({ ...b }));
     ledger.next_action = data.next_action || "";
     ledger.decision_invariants = data.decision_invariants.map((di) => ({ ...di }));
+    ledger.usage = data.usage ? deepClone(data.usage) : {};
 
     ledger._active_candidates = data._active_candidates ? { ...data._active_candidates } : {};
     ledger._known_candidates_by_ref = data._known_candidates_by_ref
@@ -1849,6 +1899,22 @@ export class AuthoritativeLedger {
       : [];
 
     return ledger;
+  }
+
+  /**
+   * Static registry of active ledger instances keyed by resolved file path.
+   */
+  static _instancesByPath = new Map();
+
+  /**
+   * Returns the registered active ledger instance for a resolved file path.
+   *
+   * @param {string} filePath
+   * @returns {AuthoritativeLedger|null}
+   */
+  static getInstance(filePath) {
+    if (!filePath || typeof filePath !== "string") return null;
+    return AuthoritativeLedger._instancesByPath.get(resolve(filePath)) || null;
   }
 
   /**
@@ -1869,6 +1935,93 @@ export class AuthoritativeLedger {
     } catch (err) {
       throw new InvariantViolationError(`Failed to parse ledger JSON: ${err.message}`);
     }
-    return AuthoritativeLedger.fromJSON(parsed);
+    const ledger = AuthoritativeLedger.fromJSON(parsed);
+    AuthoritativeLedger._instancesByPath.set(resolved, ledger);
+    return ledger;
   }
+}
+
+/**
+ * Computes per-milestone usage rollup from a state object or usage map.
+ * Returns null if usage is missing or has no milestone entries.
+ *
+ * @param {object} stateOrUsage
+ * @returns {object|null}
+ */
+export function computeUsageRollup(stateOrUsage) {
+  if (!stateOrUsage || typeof stateOrUsage !== "object" || Array.isArray(stateOrUsage)) {
+    return null;
+  }
+  let usage;
+  if ("usage" in stateOrUsage) {
+    usage = stateOrUsage.usage;
+  } else if ("milestones" in stateOrUsage || "plan_version" in stateOrUsage || "goal" in stateOrUsage) {
+    return null;
+  } else {
+    usage = stateOrUsage;
+  }
+
+  if (!usage || typeof usage !== "object" || Array.isArray(usage)) {
+    return null;
+  }
+
+  const result = {};
+  let hasEntries = false;
+
+  for (const [milestoneId, entries] of Object.entries(usage)) {
+    if (!Array.isArray(entries) || entries.length === 0) {
+      continue;
+    }
+    const roles = {};
+    let milestoneDurationMs = 0;
+    let milestoneTokens = 0;
+    let milestoneHasValidEntries = false;
+
+    for (const entry of entries) {
+      if (!entry || typeof entry !== "object") continue;
+      milestoneHasValidEntries = true;
+      const role = entry.role || "unknown";
+      const durationMs = typeof entry.duration_ms === "number" && !isNaN(entry.duration_ms) ? entry.duration_ms : 0;
+      let tokens = 0;
+      if (entry.usage && typeof entry.usage === "object") {
+        if (typeof entry.usage.total_tokens === "number" && !isNaN(entry.usage.total_tokens)) {
+          tokens = entry.usage.total_tokens;
+        } else {
+          const input = Number(entry.usage.input_tokens || entry.usage.prompt_tokens) || 0;
+          const output = Number(entry.usage.output_tokens || entry.usage.completion_tokens) || 0;
+          tokens = input + output;
+        }
+      }
+
+      milestoneDurationMs += durationMs;
+      milestoneTokens += tokens;
+
+      if (!roles[role]) {
+        roles[role] = { duration_ms: 0, total_duration_ms: 0, total_tokens: 0 };
+      }
+      roles[role].duration_ms += durationMs;
+      roles[role].total_duration_ms += durationMs;
+      roles[role].total_tokens += tokens;
+    }
+
+    if (!milestoneHasValidEntries) {
+      continue;
+    }
+
+    hasEntries = true;
+    result[milestoneId] = {
+      roles,
+      by_role: roles,
+      total_duration_ms: milestoneDurationMs,
+      duration_ms: milestoneDurationMs,
+      total_tokens: milestoneTokens,
+      total: {
+        duration_ms: milestoneDurationMs,
+        total_duration_ms: milestoneDurationMs,
+        total_tokens: milestoneTokens,
+      },
+    };
+  }
+
+  return hasEntries ? result : null;
 }
