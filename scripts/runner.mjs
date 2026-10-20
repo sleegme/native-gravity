@@ -804,13 +804,28 @@ function invokeAgyTransport(opts, prefix = []) {
           exitStatus: result.status ?? null,
         };
       }
+      const stderr = (result.stderr || "").toString();
+      const bgMatch = stderr.split(/\r?\n|\r/).find((l) => /waiting up to \S+ for \d+ background task\(s\)/.test(l));
+      if (bgMatch !== undefined) {
+        const line = bgMatch.replace(/[\r\n]+$/, "");
+        return {
+          ok: false,
+          error: "BACKGROUND_TASK_PENDING",
+          ...(role ? { role } : {}),
+          slug,
+          timeout,
+          stderr,
+          line,
+          message: line,
+        };
+      }
       return {
         ok: false,
         error: "TIMEOUT",
         ...(role ? { role } : {}),
         slug,
         timeout,
-        stderr: (result.stderr || "").toString(),
+        stderr,
       };
     }
     return {
