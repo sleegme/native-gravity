@@ -824,7 +824,8 @@ runTest("2.7b: Timeout with pending background task in stderr returns BACKGROUND
     assert.strictEqual(invokeRes.error, "BACKGROUND_TASK_PENDING");
     assert.strictEqual(invokeRes.line, "waiting up to 30s for 1 background task(s)");
     assert.strictEqual(invokeRes.message, "waiting up to 30s for 1 background task(s)");
-    assert.strictEqual(invokeRes.timeout, 5000);
+    // invoke() passes the remaining budget (deadline - now), so it is at most 5000 ms.
+    assert.ok(invokeRes.timeout > 0 && invokeRes.timeout <= 5000, `timeout ${invokeRes.timeout}`);
     assert.strictEqual(invokeRes.stderr, bgStderr);
     assert.strictEqual(invokeRes.slug, "gemini-3.8-flash-high");
     assert.strictEqual(invokeRes.role, "bulldozer");
@@ -834,7 +835,7 @@ runTest("2.7b: Timeout with pending background task in stderr returns BACKGROUND
   }
 });
 
-runTest("2.7c: Timeout without pending background task in stderr returns TIMEOUT", () => {
+runTest("2.7c (control, same on base): Timeout without pending background task in stderr still returns TIMEOUT", () => {
   const genericStderr = "info: starting run\noperation timed out after 5000ms\n";
   const transport = mock.method(childProcess, "spawnSync", () => {
     return {
@@ -864,7 +865,8 @@ runTest("2.7c: Timeout without pending background task in stderr returns TIMEOUT
     });
     assert.strictEqual(invokeRes.ok, false);
     assert.strictEqual(invokeRes.error, "TIMEOUT");
-    assert.strictEqual(invokeRes.timeout, 5000);
+    // invoke() passes the remaining budget (deadline - now), so it is at most 5000 ms.
+    assert.ok(invokeRes.timeout > 0 && invokeRes.timeout <= 5000, `timeout ${invokeRes.timeout}`);
     assert.strictEqual(invokeRes.stderr, genericStderr);
     assert.strictEqual(invokeRes.slug, "gemini-3.8-flash-high");
     assert.strictEqual(invokeRes.role, "bulldozer");
