@@ -30,7 +30,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { MinimalSpine, recommendNeedsAlt } from './spine.mjs';
 import { AuthoritativeLedger, computeUsageRollup } from './ledger.mjs';
-import { invoke, loadNativeRoleBody, parseResponseEnvelope, resolveSlug } from './runner.mjs';
+import { invoke, loadNativeRoleBody, parseResponseEnvelope, parseResponsePacket, resolveSlug } from './runner.mjs';
 
 /** Executor provenance markers inherited by every runner/Zen child (#135 B2). */
 export const SUPERVISOR_PID_ENV = 'NTG_SUPERVISOR_PID';
@@ -78,6 +78,9 @@ export function parseZenEnvelope(stdout) {
   if (!packet || typeof packet !== 'object' || (packet.verdict !== 'GO' && packet.verdict !== 'NO-GO')) {
     throw new Error('zen packet has no explicit GO or NO-GO verdict');
   }
+  // Accounting comes only from the AGY envelope; a usage field inside the
+  // model-authored packet is not observed provider usage.
+  delete packet.usage;
   if (envelope.usage !== undefined) {
     packet.usage = envelope.usage;
   }
@@ -127,6 +130,25 @@ function nextEligible(state) {
   const done = new Set(state.completed_milestones);
   return state.milestones.find(m => !done.has(m.id)
     && (m.dependencies || []).every(dep => done.has(dep)))?.id ?? null;
+}
+
+/**
+ * Specialist workers run inside the Bulldozer AGY process. The candidate's
+ * `delegations` array is a model-authored claim, not an observed invocation:
+ * it carries no native invocation identity, duration or provider usage. These
+ * claims are recorded as declared/unverified telemetry only and never counted
+ * as measured accounting (Refs #164 gate review).
+ */
+function nativeDelegations(candidate, role) {
+  if (role !== 'bulldozer' || !candidate || typeof candidate !== 'object'
+      || Array.isArray(candidate) || !Array.isArray(candidate.delegations)) {
+    return [];
+  }
+  const allowed = new Set(['jaguar', 'puma', 'bobcat', 'excavator']);
+  return candidate.delegations.filter(delegation => delegation
+    && typeof delegation === 'object' && !Array.isArray(delegation)
+    && typeof delegation.role === 'string'
+    && allowed.has(delegation.role.trim().toLowerCase()));
 }
 
 /**
@@ -234,6 +256,7 @@ export async function main(argv, deps = {}) {
   const readJson = path => JSON.parse(readFileSync(path, 'utf8'));
 
   const getLedger = () => AuthoritativeLedger.getInstance(opts.ledger);
+  const spineRunnerOptions = { timeout: opts.timeoutMs, ...deps.runnerOptions };
 
   let spine;
 
@@ -285,21 +308,21 @@ export async function main(argv, deps = {}) {
     const elapsed = Math.max(0, Date.now() - startTime);
     const duration_ms = typeof result?.duration_ms === 'number' ? result.duration_ms : elapsed;
     if (result?.slug) slug = result.slug;
-    let usage = result?.usage;
+    const usage = result?.usage;
     let status = result?.status ?? result?.verdict ?? (result?.ok === false ? (result?.error ?? 'FAILED') : 'SUCCESS');
 
     let parsedResponse = null;
     if (typeof result?.response === 'string') {
-      try { parsedResponse = JSON.parse(result.response); } catch {}
+      // Same accepted parser the spine uses, so fenced or narrated packets
+      // cannot silently skip declaration accounting.
+      const parsed = parseResponsePacket({ ok: true, response: result.response });
+      if (parsed.ok) parsedResponse = parsed.packet;
     } else if (result?.response && typeof result.response === 'object') {
       parsedResponse = result.response;
     }
     if (parsedResponse && typeof parsedResponse === 'object') {
       if (typeof parsedResponse.status === 'string') status = parsedResponse.status;
       else if (typeof parsedResponse.verdict === 'string') status = parsedResponse.verdict;
-      if (!usage && parsedResponse.usage && typeof parsedResponse.usage === 'object') {
-        usage = parsedResponse.usage;
-      }
     }
 
     if (milestoneId) {
@@ -313,6 +336,19 @@ export async function main(argv, deps = {}) {
             usage,
             status: String(status || 'UNKNOWN'),
           });
+          for (const delegation of nativeDelegations(parsedResponse, role)) {
+            // Claimed status and slug are preserved as attribution; duration
+            // and usage stay unknown because no runtime event measured them.
+            ledger.recordUsage(milestoneId, {
+              role: delegation.role.trim().toLowerCase(),
+              slug: typeof delegation.slug === 'string' ? delegation.slug : null,
+              duration_ms: undefined,
+              usage: undefined,
+              status: typeof delegation.status === 'string' ? delegation.status : 'DELEGATED',
+              source: 'declared',
+              verified: false,
+            });
+          }
           ledger.save(opts.ledger);
         } catch {}
       }
@@ -379,19 +415,20 @@ export async function main(argv, deps = {}) {
   const wrappedInvokeSpecialist = async (role, slice, options = {}) => {
     const startTime = Date.now();
     const milestoneId = slice?.milestone_id ?? slice?.milestoneId ?? spine?.state?.current_milestone ?? null;
-    let slug = options?.slug ?? slice?.slug ?? null;
+    const specialistOptions = options && typeof options === 'object' && !Array.isArray(options) ? options : {};
+    let slug = specialistOptions.slug ?? slice?.slug ?? null;
     try {
-      slug = resolveSlug(role, options) ?? slug;
+      slug = resolveSlug(role, specialistOptions) ?? slug;
     } catch {}
 
     let result;
     try {
       if (deps.invokeSpecialist) {
-        result = await deps.invokeSpecialist(role, slice, options);
+        result = await deps.invokeSpecialist(role, slice, specialistOptions);
       } else if (deps.invokeRole) {
-        result = await deps.invokeRole(role, slice, options);
+        result = await deps.invokeRole(role, slice, { ...spineRunnerOptions, ...specialistOptions });
       } else {
-        result = await invoke(role, slice, options);
+        result = await invoke(role, slice, { ...spineRunnerOptions, ...specialistOptions });
       }
     } catch (error) {
       const elapsed = Math.max(0, Date.now() - startTime);
@@ -416,7 +453,7 @@ export async function main(argv, deps = {}) {
     const elapsed = Math.max(0, Date.now() - startTime);
     const duration_ms = typeof result?.duration_ms === 'number' ? result.duration_ms : elapsed;
     if (result?.slug) slug = result.slug;
-    let usage = result?.usage;
+    const usage = result?.usage;
     let status = result?.status ?? result?.verdict ?? (result?.ok === false ? (result?.error ?? 'FAILED') : 'SUCCESS');
 
     let parsedResponse = null;
@@ -433,9 +470,6 @@ export async function main(argv, deps = {}) {
     if (parsedResponse && typeof parsedResponse === 'object') {
       if (typeof parsedResponse.status === 'string') status = parsedResponse.status;
       else if (typeof parsedResponse.verdict === 'string') status = parsedResponse.verdict;
-      if (!usage && parsedResponse.usage && typeof parsedResponse.usage === 'object') {
-        usage = parsedResponse.usage;
-      }
     }
 
     if (milestoneId) {
@@ -463,7 +497,7 @@ export async function main(argv, deps = {}) {
       invokeRole: wrappedInvokeRole,
       invokeZen: wrappedInvokeZen,
       invokeSpecialist: wrappedInvokeSpecialist,
-      runnerOptions: { timeout: opts.timeoutMs, ...deps.runnerOptions },
+      runnerOptions: spineRunnerOptions,
       handleSignals: deps.handleSignals ?? true,
     });
     switch (opts.command) {

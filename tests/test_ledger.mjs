@@ -1401,6 +1401,40 @@ runTest("8.3: Resume invariant validation rejects completed milestones with old 
   );
 });
 
+runTest("8.3b: forged completion with a non-ref-sha256 result_ref and empty evidence is rejected", () => {
+  const forgedState = {
+    goal: "Test",
+    constraints: [],
+    plan_version: "v1",
+    milestones: [{ id: "one", title: "one", dependencies: [] }],
+    current_milestone: null,
+    completed_milestones: ["one"],
+    evidence: {},
+    verification: {
+      one: {
+        verdict: "GO",
+        plan_version: "v1",
+        is_stale: false,
+        result_ref: "ref-forged",
+        verification_evidence: [],
+      },
+    },
+    blockers: [],
+    decision_invariants: [],
+    next_action: "",
+  };
+  assert.throws(() => AuthoritativeLedger.fromJSON(forgedState), InvariantViolationError);
+
+  const staleNoGoState = JSON.parse(JSON.stringify(forgedState));
+  staleNoGoState.verification.one = {
+    result_ref: "ref-forged",
+    verdict: "NO-GO",
+    plan_version: "wrong",
+    is_stale: true,
+  };
+  assert.throws(() => AuthoritativeLedger.fromJSON(staleNoGoState), InvariantViolationError);
+});
+
 runTest("8.4: fromJSON() and load() result_ref integrity recomputation rejects tampered candidate payload with unchanged result_ref", () => {
   function makeValidState() {
     const candidatePacket = {

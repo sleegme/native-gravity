@@ -375,7 +375,11 @@ test('navi timeout results carry no raw stderr, stdout or synthetic secrets', t 
     role: 'navi', slug: 'gemini-4-argon-medium', prompt: 'observe the desktop',
     env, agyPath: 'agy', timeout: 5000,
   });
-  assert.deepEqual(result, { ok: false, error: 'TIMEOUT', code: 'NAVI_TIMEOUT', exitStatus: null });
+  const { duration_ms, usage, ...sanitized } = result;
+  assert.deepEqual(sanitized, { ok: false, error: 'TIMEOUT', code: 'NAVI_TIMEOUT', exitStatus: null });
+  assert.equal(typeof duration_ms, 'number');
+  assert.ok(duration_ms >= 0);
+  assert.equal(usage, undefined);
   const serialized = JSON.stringify(result);
   for (const sentinel of FAILURE_SENTINELS) {
     assert.ok(!serialized.includes(sentinel), `timeout result leaked ${sentinel}`);
@@ -389,18 +393,39 @@ test('navi nonzero-exit results are sanitized while other roles keep raw stderr'
   mockSpawnQueue(t, [
     { status: 0, stdout: '' },
     { status: 7, stderr: leaked, stdout: leaked },
+    { status: 0, stdout: '' },
+    { status: 7, stderr: leaked, stdout: JSON.stringify({ status: 'ERROR', message: leaked, usage: { total_tokens: 9 } }) },
     { status: 2, stderr: 'raw-diagnostic-line' },
   ]);
   const result = invokeTransport({
     role: 'navi', slug: 'gemini-4-argon-medium', prompt: 'observe the desktop',
     env, agyPath: 'agy', timeout: 5000,
   });
-  assert.deepEqual(result, {
+  const { duration_ms, usage, ...sanitized } = result;
+  assert.deepEqual(sanitized, {
     ok: false, error: 'EXECUTION_FAILED', code: 'NAVI_EXECUTION_FAILED', exitStatus: 7,
   });
+  assert.equal(typeof duration_ms, 'number');
+  assert.ok(duration_ms >= 0);
+  assert.equal(usage, undefined);
   const serialized = JSON.stringify(result);
   for (const sentinel of FAILURE_SENTINELS) {
     assert.ok(!serialized.includes(sentinel), `nonzero-exit result leaked ${sentinel}`);
+  }
+  const withUsage = invokeTransport({
+    role: 'navi', slug: 'gemini-4-argon-medium', prompt: 'observe the desktop',
+    env, agyPath: 'agy', timeout: 5000,
+  });
+  const { duration_ms: usageDuration, usage: usageData, ...usageSanitized } = withUsage;
+  assert.deepEqual(usageSanitized, {
+    ok: false, error: 'EXECUTION_FAILED', code: 'NAVI_EXECUTION_FAILED', exitStatus: 7,
+  });
+  assert.equal(typeof usageDuration, 'number');
+  assert.ok(usageDuration >= 0);
+  assert.deepEqual(usageData, { total_tokens: 9 });
+  const usageSerialized = JSON.stringify(withUsage);
+  for (const sentinel of FAILURE_SENTINELS) {
+    assert.ok(!usageSerialized.includes(sentinel), `nonzero-exit usage result leaked ${sentinel}`);
   }
   const control = invokeTransport({
     role: 'bulldozer', slug: 'gemini-3.8-flash-high', prompt: 'implement',
@@ -408,6 +433,90 @@ test('navi nonzero-exit results are sanitized while other roles keep raw stderr'
   });
   assert.equal(control.exitCode, 2);
   assert.equal(control.stderr, 'raw-diagnostic-line', 'other roles keep raw stderr (unchanged scope)');
+});
+
+test('navi failure usage is projected to numeric token counts, never arbitrary fields', t => {
+  const { env } = fixtureOwner(t);
+  clearRunnerChain(t);
+  const secret = 'sk-synthetic-navi-usage-secret';
+  const credential = '/virtual-navi-private/.gemini/antigravity-cli/antigravity-oauth-token';
+  mockSpawnQueue(t, [
+    { status: 0, stdout: '' },
+    {
+      status: 7,
+      stderr: secret,
+      stdout: JSON.stringify({
+        status: 'ERROR',
+        usage: {
+          total_tokens: 9,
+          input_tokens: '10',
+          output_tokens: -4,
+          diagnostic: secret,
+          credential_path: credential,
+          nested: { token: secret },
+          list: [secret],
+        },
+      }),
+    },
+    { status: 0, stdout: '' },
+    { status: 7, stderr: secret, stdout: JSON.stringify({ status: 'ERROR', usage: [secret] }) },
+    { status: 0, stdout: '' },
+    { status: 7, stderr: secret, stdout: JSON.stringify({ status: 'ERROR', usage: { total_tokens: secret } }) },
+  ]);
+  const invoke = () => invokeTransport({
+    role: 'navi', slug: 'gemini-4-argon-medium', prompt: 'observe the desktop',
+    env, agyPath: 'agy', timeout: 5000,
+  });
+
+  const projected = invoke();
+  assert.deepEqual(projected.usage, { total_tokens: 9 }, 'only valid finite nonnegative numeric fields survive');
+  const serialized = JSON.stringify(projected);
+  assert.ok(!serialized.includes(secret), 'synthetic secret inside usage must not leak');
+  assert.ok(!serialized.includes(credential), 'credential path inside usage must not leak');
+  assert.ok(!serialized.includes('diagnostic'));
+  assert.ok(!serialized.includes('nested'));
+
+  assert.equal(invoke().usage, undefined, 'array usage is rejected, not returned raw');
+  assert.equal(invoke().usage, undefined, 'nonnumeric token values are rejected');
+});
+
+test('navi timeout retains sanitized available usage and rejects invalid usage', t => {
+  const { env } = fixtureOwner(t);
+  clearRunnerChain(t);
+  const secret = 'sk-synthetic-navi-timeout-usage';
+  mockSpawnQueue(t, [
+    { status: 0, stdout: '' },
+    {
+      error: { code: 'ETIMEDOUT' },
+      status: null,
+      stderr: secret,
+      stdout: JSON.stringify({ status: 'ERROR', usage: { total_tokens: 9, diagnostic: secret } }),
+    },
+    { status: 0, stdout: '' },
+    {
+      error: { code: 'ETIMEDOUT' },
+      status: null,
+      stderr: secret,
+      stdout: JSON.stringify({ status: 'ERROR', usage: { total_tokens: secret } }),
+    },
+  ]);
+  const invoke = () => invokeTransport({
+    role: 'navi', slug: 'gemini-4-argon-medium', prompt: 'observe the desktop',
+    env, agyPath: 'agy', timeout: 5000,
+  });
+
+  const timedOut = invoke();
+  const { duration_ms, usage, ...sanitized } = timedOut;
+  assert.deepEqual(sanitized, { ok: false, error: 'TIMEOUT', code: 'NAVI_TIMEOUT', exitStatus: null });
+  assert.equal(typeof duration_ms, 'number');
+  assert.ok(duration_ms >= 0);
+  assert.deepEqual(usage, { total_tokens: 9 }, 'parseable timeout usage is retained after projection');
+  assert.ok(!JSON.stringify(timedOut).includes(secret));
+
+  const invalid = invoke();
+  assert.equal(invalid.error, 'TIMEOUT');
+  assert.equal(invalid.usage, undefined, 'invalid timeout usage stays unknown');
+  assert.ok(!JSON.stringify(invalid).includes(secret));
 });
 
 function spawnSigtermIgnoringServer(base, t) {

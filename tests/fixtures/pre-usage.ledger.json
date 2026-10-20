@@ -1,0 +1,271 @@
+{
+  "goal": "Ship a pre-usage ledger fixture",
+  "constraints": [],
+  "plan_version": "v1",
+  "milestones": [
+    {
+      "id": "one",
+      "title": "one",
+      "objective": "Deliver one",
+      "acceptance_criteria": [
+        "content matches"
+      ],
+      "non_goals": [],
+      "dependencies": [],
+      "bounded_scope": [
+        "one.txt"
+      ]
+    },
+    {
+      "id": "two",
+      "title": "two",
+      "objective": "Deliver two",
+      "acceptance_criteria": [
+        "content matches"
+      ],
+      "non_goals": [],
+      "dependencies": [
+        "one"
+      ],
+      "bounded_scope": [
+        "two.txt"
+      ]
+    }
+  ],
+  "current_milestone": null,
+  "completed_milestones": [
+    "one"
+  ],
+  "evidence": {
+    "one": {
+      "candidates": [
+        {
+          "milestone_id": "one",
+          "plan_version": "v1",
+          "result_ref": "ref-sha256-12cc689fb2e2359e1fc6fd262ba0f6053da6ca1eda2ca65a79a5a68c5bd54b03",
+          "candidate_artifact_ref": "sha256:one",
+          "status": "DONE",
+          "changes_made": [
+            "one.txt"
+          ],
+          "verification_evidence": [
+            {
+              "classification": "OBSERVED",
+              "criterion": "content",
+              "result": "inspected"
+            }
+          ],
+          "unresolved_unknowns": [],
+          "scope_deviations": [],
+          "timestamp": "2026-10-20T07:06:58.411Z",
+          "payload": {
+            "milestone_id": "one",
+            "plan_version": "v1",
+            "status": "DONE",
+            "changes_made": [
+              "one.txt"
+            ],
+            "verification_evidence": [
+              {
+                "classification": "OBSERVED",
+                "criterion": "content",
+                "result": "inspected"
+              }
+            ],
+            "unresolved_unknowns": [],
+            "scope_deviations": [],
+            "candidate_artifact_ref": "sha256:one",
+            "result_ref": "ref-sha256-12cc689fb2e2359e1fc6fd262ba0f6053da6ca1eda2ca65a79a5a68c5bd54b03"
+          }
+        }
+      ],
+      "active_candidate": {
+        "milestone_id": "one",
+        "plan_version": "v1",
+        "result_ref": "ref-sha256-12cc689fb2e2359e1fc6fd262ba0f6053da6ca1eda2ca65a79a5a68c5bd54b03",
+        "candidate_artifact_ref": "sha256:one",
+        "status": "DONE",
+        "changes_made": [
+          "one.txt"
+        ],
+        "verification_evidence": [
+          {
+            "classification": "OBSERVED",
+            "criterion": "content",
+            "result": "inspected"
+          }
+        ],
+        "unresolved_unknowns": [],
+        "scope_deviations": [],
+        "timestamp": "2026-10-20T07:06:58.411Z",
+        "payload": {
+          "milestone_id": "one",
+          "plan_version": "v1",
+          "status": "DONE",
+          "changes_made": [
+            "one.txt"
+          ],
+          "verification_evidence": [
+            {
+              "classification": "OBSERVED",
+              "criterion": "content",
+              "result": "inspected"
+            }
+          ],
+          "unresolved_unknowns": [],
+          "scope_deviations": [],
+          "candidate_artifact_ref": "sha256:one",
+          "result_ref": "ref-sha256-12cc689fb2e2359e1fc6fd262ba0f6053da6ca1eda2ca65a79a5a68c5bd54b03"
+        }
+      }
+    },
+    "ref-sha256-12cc689fb2e2359e1fc6fd262ba0f6053da6ca1eda2ca65a79a5a68c5bd54b03": {
+      "milestone_id": "one",
+      "plan_version": "v1",
+      "result_ref": "ref-sha256-12cc689fb2e2359e1fc6fd262ba0f6053da6ca1eda2ca65a79a5a68c5bd54b03",
+      "candidate_artifact_ref": "sha256:one",
+      "status": "DONE",
+      "changes_made": [
+        "one.txt"
+      ],
+      "verification_evidence": [
+        {
+          "classification": "OBSERVED",
+          "criterion": "content",
+          "result": "inspected"
+        }
+      ],
+      "unresolved_unknowns": [],
+      "scope_deviations": [],
+      "timestamp": "2026-01-01T00:00:00.000Z",
+      "payload": {
+        "milestone_id": "one",
+        "plan_version": "v1",
+        "status": "DONE",
+        "changes_made": [
+          "one.txt"
+        ],
+        "verification_evidence": [
+          {
+            "classification": "OBSERVED",
+            "criterion": "content",
+            "result": "inspected"
+          }
+        ],
+        "unresolved_unknowns": [],
+        "scope_deviations": [],
+        "candidate_artifact_ref": "sha256:one",
+        "result_ref": "ref-sha256-12cc689fb2e2359e1fc6fd262ba0f6053da6ca1eda2ca65a79a5a68c5bd54b03"
+      }
+    }
+  },
+  "verification": {
+    "one": {
+      "milestone_id": "one",
+      "plan_version": "v1",
+      "result_ref": "ref-sha256-12cc689fb2e2359e1fc6fd262ba0f6053da6ca1eda2ca65a79a5a68c5bd54b03",
+      "verdict": "GO",
+      "verification_evidence": [
+        {
+          "classification": "OBSERVED",
+          "criterion": "content",
+          "result": "inspected"
+        }
+      ],
+      "is_stale": false,
+      "timestamp": "2026-01-01T00:00:00.000Z",
+      "details": {
+        "milestone_id": "one",
+        "plan_version": "v1",
+        "result_ref": "ref-sha256-12cc689fb2e2359e1fc6fd262ba0f6053da6ca1eda2ca65a79a5a68c5bd54b03",
+        "verdict": "GO",
+        "verification_evidence": [
+          {
+            "classification": "OBSERVED",
+            "criterion": "content",
+            "result": "inspected"
+          }
+        ]
+      }
+    }
+  },
+  "blockers": [],
+  "next_action": "Milestone 'one' verified (GO). Ready to delegate next milestone.",
+  "decision_invariants": [],
+  "_initialized": true,
+  "_active_candidates": {},
+  "_known_candidates_by_ref": {
+    "ref-sha256-12cc689fb2e2359e1fc6fd262ba0f6053da6ca1eda2ca65a79a5a68c5bd54b03": {
+      "record": {
+        "milestone_id": "one",
+        "plan_version": "v1",
+        "result_ref": "ref-sha256-12cc689fb2e2359e1fc6fd262ba0f6053da6ca1eda2ca65a79a5a68c5bd54b03",
+        "candidate_artifact_ref": "sha256:one",
+        "status": "DONE",
+        "changes_made": [
+          "one.txt"
+        ],
+        "verification_evidence": [
+          {
+            "classification": "OBSERVED",
+            "criterion": "content",
+            "result": "inspected"
+          }
+        ],
+        "unresolved_unknowns": [],
+        "scope_deviations": [],
+        "timestamp": "2026-10-20T07:06:58.411Z",
+        "payload": {
+          "milestone_id": "one",
+          "plan_version": "v1",
+          "status": "DONE",
+          "changes_made": [
+            "one.txt"
+          ],
+          "verification_evidence": [
+            {
+              "classification": "OBSERVED",
+              "criterion": "content",
+              "result": "inspected"
+            }
+          ],
+          "unresolved_unknowns": [],
+          "scope_deviations": [],
+          "candidate_artifact_ref": "sha256:one",
+          "result_ref": "ref-sha256-12cc689fb2e2359e1fc6fd262ba0f6053da6ca1eda2ca65a79a5a68c5bd54b03"
+        }
+      },
+      "canonicalPayload": "{\"candidate_artifact_ref\":\"sha256:one\",\"changes_made\":[\"one.txt\"],\"milestone_id\":\"one\",\"plan_version\":\"v1\",\"result_ref\":\"ref-sha256-12cc689fb2e2359e1fc6fd262ba0f6053da6ca1eda2ca65a79a5a68c5bd54b03\",\"scope_deviations\":[],\"status\":\"DONE\",\"unresolved_unknowns\":[],\"verification_evidence\":[{\"classification\":\"OBSERVED\",\"criterion\":\"content\",\"result\":\"inspected\"}]}"
+    }
+  },
+  "_verification_history": [
+    {
+      "milestone_id": "one",
+      "plan_version": "v1",
+      "result_ref": "ref-sha256-12cc689fb2e2359e1fc6fd262ba0f6053da6ca1eda2ca65a79a5a68c5bd54b03",
+      "verdict": "GO",
+      "verification_evidence": [
+        {
+          "classification": "OBSERVED",
+          "criterion": "content",
+          "result": "inspected"
+        }
+      ],
+      "is_stale": false,
+      "timestamp": "2026-10-20T07:06:58.412Z",
+      "details": {
+        "milestone_id": "one",
+        "plan_version": "v1",
+        "result_ref": "ref-sha256-12cc689fb2e2359e1fc6fd262ba0f6053da6ca1eda2ca65a79a5a68c5bd54b03",
+        "verdict": "GO",
+        "verification_evidence": [
+          {
+            "classification": "OBSERVED",
+            "criterion": "content",
+            "result": "inspected"
+          }
+        ]
+      }
+    }
+  ]
+}

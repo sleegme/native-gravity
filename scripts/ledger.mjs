@@ -775,7 +775,9 @@ export class AuthoritativeLedger {
     this.decision_invariants = Array.isArray(initialPlan.decision_invariants)
       ? [...initialPlan.decision_invariants]
       : [];
-    this.usage = initialPlan.usage ? deepClone(initialPlan.usage) : {};
+    // A plan is model-authored input, not observed execution. Accounting is
+    // recorded only through recordUsage and restored from saved ledger state.
+    this.usage = {};
 
     this._active_candidates = {};
     this._known_candidates_by_ref = {};
@@ -1612,14 +1614,19 @@ export class AuthoritativeLedger {
       throw new InvariantViolationError("entry must be an object");
     }
 
+    // Missing accounting stays unknown. A model-declared delegation cannot
+    // supply observed duration or usage, so it is stored with both undefined
+    // and marked as an unverified declaration rather than measured telemetry.
     const normalized = {
       role: typeof entry.role === "string" ? entry.role : null,
       slug: typeof entry.slug === "string" ? entry.slug : null,
-      duration_ms: typeof entry.duration_ms === "number" && !isNaN(entry.duration_ms) ? entry.duration_ms : 0,
+      duration_ms: typeof entry.duration_ms === "number" && Number.isFinite(entry.duration_ms) ? entry.duration_ms : undefined,
       usage: entry.usage !== null && typeof entry.usage === "object" && !Array.isArray(entry.usage)
         ? deepClone(entry.usage)
         : undefined,
       status: typeof entry.status === "string" ? entry.status : (entry.status != null ? String(entry.status) : null),
+      source: typeof entry.source === "string" ? entry.source : "runtime",
+      verified: entry.verified !== false,
     };
 
     if (!this.usage[milestoneId]) {
@@ -1759,17 +1766,13 @@ export class AuthoritativeLedger {
         );
       }
 
-      const verResultRef = ver.result_ref ?? ver.resultRef;
-      const isLegacyFixture = verResultRef && !verResultRef.startsWith("ref-sha256-") && (!data.evidence || Object.keys(data.evidence).length === 0);
-      if (isLegacyFixture) {
-        continue;
-      }
-
       validateZenGoSemantics(ver, {
         expectedMilestone: completedId,
         expectedPlanVersion: data.plan_version,
         errorClass: InvariantViolationError,
       });
+
+      const verResultRef = ver.result_ref ?? ver.resultRef;
 
       let candidate = null;
       if (data.evidence && typeof data.evidence === "object") {
@@ -1942,6 +1945,19 @@ export class AuthoritativeLedger {
 }
 
 /**
+ * Returns a token count only when it is a validated finite, non-negative
+ * scalar. Malformed persisted values stay unknown instead of being coerced.
+ *
+ * @param {*} value
+ * @returns {number|undefined}
+ */
+function tokenCount(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : undefined;
+}
+
+/**
  * Computes per-milestone usage rollup from a state object or usage map.
  * Returns null if usage is missing or has no milestone entries.
  *
@@ -1973,23 +1989,35 @@ export function computeUsageRollup(stateOrUsage) {
       continue;
     }
     const roles = {};
+    const declaredRoles = {};
+    let declaredEntries = 0;
     let milestoneDurationMs = 0;
     let milestoneTokens = 0;
     let milestoneHasValidEntries = false;
 
     for (const entry of entries) {
       if (!entry || typeof entry !== "object") continue;
-      milestoneHasValidEntries = true;
       const role = entry.role || "unknown";
+      // Model-authored delegations are claims, not observed invocations. They
+      // never contribute measured duration or token totals; keep them visible
+      // as a separate declared-only summary.
+      if (entry.verified === false || entry.source === "declared") {
+        declaredEntries += 1;
+        if (!declaredRoles[role]) declaredRoles[role] = { entries: 0 };
+        declaredRoles[role].entries += 1;
+        continue;
+      }
+      milestoneHasValidEntries = true;
       const durationMs = typeof entry.duration_ms === "number" && !isNaN(entry.duration_ms) ? entry.duration_ms : 0;
       let tokens = 0;
-      if (entry.usage && typeof entry.usage === "object") {
-        if (typeof entry.usage.total_tokens === "number" && !isNaN(entry.usage.total_tokens)) {
-          tokens = entry.usage.total_tokens;
+      if (entry.usage && typeof entry.usage === "object" && !Array.isArray(entry.usage)) {
+        const total = tokenCount(entry.usage.total_tokens);
+        if (total !== undefined) {
+          tokens = total;
         } else {
-          const input = Number(entry.usage.input_tokens || entry.usage.prompt_tokens) || 0;
-          const output = Number(entry.usage.output_tokens || entry.usage.completion_tokens) || 0;
-          tokens = input + output;
+          const input = tokenCount(entry.usage.input_tokens) ?? tokenCount(entry.usage.prompt_tokens);
+          const output = tokenCount(entry.usage.output_tokens) ?? tokenCount(entry.usage.completion_tokens);
+          tokens = (input ?? 0) + (output ?? 0);
         }
       }
 
@@ -2004,23 +2032,28 @@ export function computeUsageRollup(stateOrUsage) {
       roles[role].total_tokens += tokens;
     }
 
-    if (!milestoneHasValidEntries) {
+    if (!milestoneHasValidEntries && declaredEntries === 0) {
       continue;
     }
 
     hasEntries = true;
-    result[milestoneId] = {
-      roles,
-      by_role: roles,
-      total_duration_ms: milestoneDurationMs,
-      duration_ms: milestoneDurationMs,
-      total_tokens: milestoneTokens,
-      total: {
+    const summary = {};
+    if (milestoneHasValidEntries) {
+      summary.roles = roles;
+      summary.by_role = roles;
+      summary.total_duration_ms = milestoneDurationMs;
+      summary.duration_ms = milestoneDurationMs;
+      summary.total_tokens = milestoneTokens;
+      summary.total = {
         duration_ms: milestoneDurationMs,
         total_duration_ms: milestoneDurationMs,
         total_tokens: milestoneTokens,
-      },
-    };
+      };
+    }
+    if (declaredEntries > 0) {
+      summary.declared_unverified = { entries: declaredEntries, roles: declaredRoles };
+    }
+    result[milestoneId] = summary;
   }
 
   return hasEntries ? result : null;
