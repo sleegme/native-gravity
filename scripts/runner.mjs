@@ -452,6 +452,7 @@ export function parseResponseEnvelope(stdout, meta = {}) {
       ...(slug ? { slug } : {}),
       message: `Failed to parse JSON response: ${parseErr.message}`,
       raw: stdout,
+      usage: undefined,
     };
   }
 
@@ -463,8 +464,11 @@ export function parseResponseEnvelope(stdout, meta = {}) {
       ...(slug ? { slug } : {}),
       message: "JSON response is not a valid object envelope",
       raw: parsed,
+      usage: undefined,
     };
   }
+
+  const usage = parsed.usage !== null && typeof parsed.usage === "object" ? parsed.usage : undefined;
 
   if (parsed.status === "ERROR") {
     return {
@@ -472,6 +476,7 @@ export function parseResponseEnvelope(stdout, meta = {}) {
       error: "MODEL_ERROR",
       ...(role ? { role } : {}),
       ...(slug ? { slug } : {}),
+      usage,
       details: parsed,
     };
   }
@@ -484,6 +489,7 @@ export function parseResponseEnvelope(stdout, meta = {}) {
         ...(role ? { role } : {}),
         ...(slug ? { slug } : {}),
         denied_actions: parsed.denied_actions,
+        usage,
         details: parsed,
       };
     }
@@ -495,6 +501,7 @@ export function parseResponseEnvelope(stdout, meta = {}) {
         ...(role ? { role } : {}),
         ...(slug ? { slug } : {}),
         message: "Missing or invalid 'response' field in SUCCESS envelope",
+        usage,
         details: parsed,
       };
     }
@@ -505,7 +512,7 @@ export function parseResponseEnvelope(stdout, meta = {}) {
       ...(slug ? { slug } : {}),
       response: parsed.response,
       duration: parsed.duration_seconds,
-      usage: parsed.usage,
+      usage,
       raw: parsed,
     };
   }
@@ -516,6 +523,7 @@ export function parseResponseEnvelope(stdout, meta = {}) {
     ...(role ? { role } : {}),
     ...(slug ? { slug } : {}),
     message: `Unexpected response status: "${parsed.status}"`,
+    usage,
     details: parsed,
   };
 }
@@ -667,6 +675,7 @@ function mayContinueJsonValue(before) {
  * @returns {object} Structured result
  */
 export function invokeTransport(slugOrOpts, maybePrompt, maybeOpts) {
+  const startTime = Date.now();
   let slug;
   let prompt;
   let opts;
@@ -682,18 +691,61 @@ export function invokeTransport(slugOrOpts, maybePrompt, maybeOpts) {
   }
 
   const request = { ...opts, slug, prompt };
+  let result;
   if (typeof opts.role !== "string" || opts.role.trim().toLowerCase() !== "navi") {
-    return invokeAgyTransport(request);
+    result = invokeAgyTransport(request);
+  } else {
+    try {
+      result = withNaviHome(request, (env, prefix) => invokeAgyTransport({ ...request, env }, prefix));
+    } catch (error) {
+      result = {
+        ok: false, error: "NAVI_SETUP_ERROR", role: "navi",
+        code: error.code || "NAVI_SETUP_FAILED",
+        ...(error.variable ? { variable: error.variable } : {}),
+        usage: undefined,
+      };
+    }
   }
+
+  return {
+    ...result,
+    duration_ms: Math.max(0, Date.now() - startTime),
+    usage: result.usage,
+  };
+}
+
+function usageFromStdout(stdout) {
+  const text = (stdout || "").toString();
+  if (!text.trim()) return undefined;
   try {
-    return withNaviHome(request, (env, prefix) => invokeAgyTransport({ ...request, env }, prefix));
-  } catch (error) {
-    return {
-      ok: false, error: "NAVI_SETUP_ERROR", role: "navi",
-      code: error.code || "NAVI_SETUP_FAILED",
-      ...(error.variable ? { variable: error.variable } : {}),
-    };
+    const parsed = JSON.parse(text.trim());
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && parsed.usage !== null && typeof parsed.usage === "object") {
+      return parsed.usage;
+    }
+  } catch {}
+  return undefined;
+}
+
+/** Token-count fields the accounting layer understands. */
+const NAVI_USAGE_FIELDS = [
+  "input_tokens", "output_tokens", "total_tokens", "prompt_tokens", "completion_tokens",
+];
+
+/**
+ * Navi failure results cross a sanitized boundary, so usage is projected onto
+ * known numeric token-count fields. Arrays, strings, nested objects and
+ * arbitrary diagnostic fields never leave the runner (Refs #164 gate review).
+ */
+function sanitizeNaviUsage(usage) {
+  if (!usage || typeof usage !== "object" || Array.isArray(usage)) return undefined;
+  const sanitized = {};
+  for (const field of NAVI_USAGE_FIELDS) {
+    const value = usage[field];
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+      sanitized[field] = value;
+    }
   }
+  return Object.keys(sanitized).length > 0 ? sanitized : undefined;
 }
 
 function invokeAgyTransport(opts, prefix = []) {
@@ -802,6 +854,7 @@ function invokeAgyTransport(opts, prefix = []) {
           error: "TIMEOUT",
           code: "NAVI_TIMEOUT",
           exitStatus: result.status ?? null,
+          usage: sanitizeNaviUsage(usageFromStdout(result.stdout)),
         };
       }
       const stderr = (result.stderr || "").toString();
@@ -840,14 +893,18 @@ function invokeAgyTransport(opts, prefix = []) {
   if (result.status !== 0) {
     if (normalizedRole === "navi") {
       // Fixed taxonomy only; raw stderr may carry the private config root,
-      // credential paths or provider tokens (Refs #156 gate review).
+      // credential paths or provider tokens (Refs #156 gate review). Retained
+      // usage is projected to numeric token counts before it leaves this
+      // boundary (Refs #164 gate review).
       return {
         ok: false,
         error: "EXECUTION_FAILED",
         code: "NAVI_EXECUTION_FAILED",
         exitStatus: result.status,
+        usage: sanitizeNaviUsage(usageFromStdout(result.stdout)),
       };
     }
+    const usage = usageFromStdout(result.stdout);
     return {
       ok: false,
       error: "EXECUTION_FAILED",
@@ -855,6 +912,7 @@ function invokeAgyTransport(opts, prefix = []) {
       slug,
       exitCode: result.status,
       stderr: (result.stderr || "").toString(),
+      usage,
     };
   }
 
@@ -883,6 +941,7 @@ function invokeAgyTransport(opts, prefix = []) {
  * @returns {object} Structured result
  */
 export function invoke(role, packet, opts = {}) {
+  const startTime = Date.now();
   const options = opts || {};
   if (options.outputFormat && options.outputFormat !== "json") {
     return {
@@ -891,6 +950,8 @@ export function invoke(role, packet, opts = {}) {
       role,
       message:
         "invoke() requires JSON output format; envelope validation cannot be bypassed. Use invokeTransport() if text format is needed.",
+      duration_ms: Math.max(0, Date.now() - startTime),
+      usage: undefined,
     };
   }
 
@@ -905,6 +966,8 @@ export function invoke(role, packet, opts = {}) {
         error: "RECURSION_DETECTED",
         role,
         chain: chainRaw,
+        duration_ms: Math.max(0, Date.now() - startTime),
+        usage: undefined,
       };
     }
   }
@@ -920,6 +983,8 @@ export function invoke(role, packet, opts = {}) {
       role,
       message: err.message,
       ...(err.matches ? { matches: err.matches } : {}),
+      duration_ms: Math.max(0, Date.now() - startTime),
+      usage: undefined,
     };
   }
 
@@ -933,6 +998,8 @@ export function invoke(role, packet, opts = {}) {
       error: err.error || "INVALID_HANDOFF_PACKET",
       role,
       message: err.message,
+      duration_ms: Math.max(0, Date.now() - startTime),
+      usage: undefined,
     };
   }
 
@@ -962,10 +1029,24 @@ export function invoke(role, packet, opts = {}) {
     attempt = run();
     attempts++;
   }
+  const totalDurationMs = Math.max(0, Date.now() - startTime);
   if (attempt.ok && (attempt.response || "").trim() === "") {
-    return { ok: false, error: "EMPTY_RESPONSE", role, slug, attempts };
+    return {
+      ok: false,
+      error: "EMPTY_RESPONSE",
+      role,
+      slug,
+      attempts,
+      duration_ms: totalDurationMs,
+      usage: attempt.usage,
+    };
   }
-  return { ...attempt, attempts };
+  return {
+    ...attempt,
+    attempts,
+    duration_ms: totalDurationMs,
+    usage: attempt.usage,
+  };
 }
 
 // CLI execution support
