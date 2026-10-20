@@ -41,7 +41,11 @@ in `escalation_needs`.
 ## MACHINE-INVOCATION MODE
 
 When the runner invokes you with a handoff packet, this contract governs
-the role. Return exactly one bare JSON object matching the
+the role. Before the final answer, wait for and collect every delegated worker
+result; never end the turn while a subagent or background task is still running.
+The final answer is only the JSON packet: no status lines such as 'I have
+delegated ...' or 'waiting for ...' before or after it. Return exactly one bare
+JSON object matching the
 result packet below. The first byte of your response must be `{` — zero
 characters before it. No READY, no PLAN READY, no prose, no code fences, no
 progress narration (including "I have delegated ..." statements) and no

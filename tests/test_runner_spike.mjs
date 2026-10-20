@@ -791,6 +791,92 @@ if (process.platform === "win32") {
   }
 });
 
+runTest("2.7b: Timeout with pending background task in stderr returns BACKGROUND_TASK_PENDING", () => {
+  const bgStderr = "info: starting run\nwaiting up to 30s for 1 background task(s)\ninfo: done\n";
+  const transport = mock.method(childProcess, "spawnSync", () => {
+    return {
+      error: { code: "ETIMEDOUT" },
+      stderr: bgStderr,
+    };
+  });
+  syncBuiltinESMExports();
+  try {
+    const transportRes = invokeTransport({
+      slug: "test-model",
+      prompt: "test",
+      role: "bulldozer",
+      timeout: 5000,
+    });
+    assert.strictEqual(transportRes.ok, false);
+    assert.strictEqual(transportRes.error, "BACKGROUND_TASK_PENDING");
+    assert.strictEqual(transportRes.line, "waiting up to 30s for 1 background task(s)");
+    assert.strictEqual(transportRes.message, "waiting up to 30s for 1 background task(s)");
+    assert.strictEqual(transportRes.timeout, 5000);
+    assert.strictEqual(transportRes.stderr, bgStderr);
+    assert.strictEqual(transportRes.slug, "test-model");
+    assert.strictEqual(transportRes.role, "bulldozer");
+
+    const invokeRes = invoke("bulldozer", { task: "Test" }, {
+      timeout: 5000,
+      installedModels: [{ slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" }],
+    });
+    assert.strictEqual(invokeRes.ok, false);
+    assert.strictEqual(invokeRes.error, "BACKGROUND_TASK_PENDING");
+    assert.strictEqual(invokeRes.line, "waiting up to 30s for 1 background task(s)");
+    assert.strictEqual(invokeRes.message, "waiting up to 30s for 1 background task(s)");
+    // invoke() passes the remaining budget (deadline - now), so it is at most 5000 ms.
+    assert.ok(invokeRes.timeout > 0 && invokeRes.timeout <= 5000, `timeout ${invokeRes.timeout}`);
+    assert.strictEqual(invokeRes.stderr, bgStderr);
+    assert.strictEqual(invokeRes.slug, "gemini-3.8-flash-high");
+    assert.strictEqual(invokeRes.role, "bulldozer");
+  } finally {
+    transport.mock.restore();
+    syncBuiltinESMExports();
+  }
+});
+
+runTest("2.7c (control, same on base): Timeout without pending background task in stderr still returns TIMEOUT", () => {
+  const genericStderr = "info: starting run\noperation timed out after 5000ms\n";
+  const transport = mock.method(childProcess, "spawnSync", () => {
+    return {
+      error: { code: "ETIMEDOUT" },
+      stderr: genericStderr,
+    };
+  });
+  syncBuiltinESMExports();
+  try {
+    const transportRes = invokeTransport({
+      slug: "test-model",
+      prompt: "test",
+      role: "bulldozer",
+      timeout: 5000,
+    });
+    assert.strictEqual(transportRes.ok, false);
+    assert.strictEqual(transportRes.error, "TIMEOUT");
+    assert.strictEqual(transportRes.timeout, 5000);
+    assert.strictEqual(transportRes.stderr, genericStderr);
+    assert.strictEqual(transportRes.slug, "test-model");
+    assert.strictEqual(transportRes.role, "bulldozer");
+    assert.strictEqual(transportRes.line, undefined);
+
+    const invokeRes = invoke("bulldozer", { task: "Test" }, {
+      timeout: 5000,
+      installedModels: [{ slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" }],
+    });
+    assert.strictEqual(invokeRes.ok, false);
+    assert.strictEqual(invokeRes.error, "TIMEOUT");
+    // invoke() passes the remaining budget (deadline - now), so it is at most 5000 ms.
+    assert.ok(invokeRes.timeout > 0 && invokeRes.timeout <= 5000, `timeout ${invokeRes.timeout}`);
+    assert.strictEqual(invokeRes.stderr, genericStderr);
+    assert.strictEqual(invokeRes.slug, "gemini-3.8-flash-high");
+    assert.strictEqual(invokeRes.role, "bulldozer");
+    assert.strictEqual(invokeRes.line, undefined);
+  } finally {
+    transport.mock.restore();
+    syncBuiltinESMExports();
+  }
+});
+
 runTest("2.8: Output format discipline: invoke() rejects non-JSON / cannot bypass envelope validation, while invokeTransport retains text support", () => {
   // 1. invoke() explicitly rejects outputFormat: "text" with INVALID_OUTPUT_FORMAT
   const textRes = invoke("piledriver", { task: "Test" }, { outputFormat: "text" });
