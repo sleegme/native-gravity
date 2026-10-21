@@ -163,17 +163,11 @@ class WorkflowToolsTests(unittest.TestCase):
             self.assertEqual(res_bad.returncode, 2)
 
     def test_ctx_base_tool_byte_identity(self):
-        base_ctx_script = subprocess.run(
-            ["git", "show", "2ff0083:tools/ctx"],
-            cwd=str(ROOT), capture_output=True, check=True,
-        ).stdout
+        # Base tool fixture captured from commit 2ff0083 (tools/ctx)
+        base_tool = ROOT / "tests/fixtures/ctx-base"
 
         with tempfile.TemporaryDirectory(prefix="ntg ctx base test ") as directory:
             root = Path(directory)
-            base_tool = root / "base_ctx"
-            base_tool.write_bytes(base_ctx_script)
-            base_tool.chmod(0o755)
-
             head_tool = ROOT / "tools/ctx"
 
             fixtures = {

@@ -162,8 +162,8 @@ lte 'ctx: utf8 capped byte bound' "$bytes" 80
 has 'ctx: utf8 omitted notice' "$out" "... omitted: $tmp/fx/utf8.txt:"
 
 # === Base tool byte-identity checks ===
-git show 2ff0083:tools/ctx > "$tmp/base-ctx"
-chmod +x "$tmp/base-ctx"
+# Base tool fixture captured from commit 2ff0083 (tools/ctx)
+base_ctx="$here/../tests/fixtures/ctx-base"
 
 for fx_spec in \
     "crlf:printf 'one\r\ntwo\r\nthree\r\n'" \
@@ -187,7 +187,7 @@ do
         if [ "$fx_name" = "empty" ] && [ -n "$r" ] && [ "$r" != ":1-5" ]; then continue; fi
 
         arg="$fx_file$r"
-        "$tmp/base-ctx" "$arg" > "$tmp/base.out" 2> "$tmp/base.err"; base_rc=$?
+        "$base_ctx" "$arg" > "$tmp/base.out" 2> "$tmp/base.err"; base_rc=$?
         ./ctx "$arg" > "$tmp/head.out" 2> "$tmp/head.err"; head_rc=$?
 
         label="ctx base-identity ($fx_name$r)"
