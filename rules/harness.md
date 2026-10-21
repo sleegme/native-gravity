@@ -126,6 +126,15 @@ come from outside. Converge or escalate instead of repeating materially
 similar failed loops: same-class repetition without meaningful new evidence
 is an escalation signal, not more attempts.
 
+A resolution that would weaken or drop a required behavior, add a production
+exception, early return, skip, or bypass, edit files outside assigned scope, or
+change completion, authorization, or validation logic is not a safe in-scope
+remediation and crosses the contract boundary. When every remaining resolution
+would do so, returning BLOCKED (naming the conflict) satisfies condition 3 and
+condition 4 under this gate. If a safe in-scope remediation exists that keeps the
+requirement intact (such as updating an in-scope test that encodes the
+superseded contract), perform it and name it in the result.
+
 ## Review-evidence freshness
 
 Review evidence must be observed, current, provenance-bound, and applicable
@@ -161,9 +170,11 @@ authoritative.
 ## Invariant integrity and non-weakening
 
 - **Non-weakening under conflict** — when a required behavior conflicts with an
-  existing test, fixture, or assigned edit scope, stop and report the conflict;
-  never add a production exception, early return, skip, or bypass to make tests
-  pass or trade away the requirement.
+  existing test, fixture, or assigned edit scope, apply a safe in-scope
+  remediation that keeps the requirement intact if one exists. When every
+  remaining resolution would weaken the requirement or leave scope, stop and
+  return BLOCKED naming the conflict; never add a production exception, early
+  return, skip, or bypass to make tests pass or trade away the requirement.
 - **Baseline fixture verification** — a fixture or input reported as a
   compatibility or legacy baseline must first be demonstrated to be accepted by
   the unchanged base code; without observed baseline acceptance, its baseline

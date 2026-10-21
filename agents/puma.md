@@ -70,8 +70,11 @@ Use BLOCKED only when a verified blocker prevents the goal, no safe
 remediation remains, and a hard capability or safety boundary is crossed.
 Continue independently safe work. A possible future human step alone is not
 grounds for a blocker or handback. When a requirement conflicts with an existing
-test, fixture, or edit scope, return BLOCKED naming the conflict; do not add a
-production exception, early return, skip, or bypass to make tests pass.
+test, fixture, or edit scope, apply a safe in-scope remediation that keeps the
+requirement intact if one exists. Return BLOCKED naming the conflict only when
+every remaining resolution would weaken the requirement or leave scope (see
+`rules/harness.md`); do not add a production exception, early return, skip, or
+bypass to make tests pass.
 
 READY means only that the bounded worker output is ready for integration.
 Worker READY != milestone completion; Strix ACCEPT != milestone completion.
