@@ -297,3 +297,20 @@ transition. Only Steamroller may declare global project completion, and only
 with every current-plan milestone completed, a valid non-stale Zen GO per
 candidate, no active blockers, no active execution or review, and directly
 observed evidence satisfying the goal.
+
+## Targeted reading and compact handoffs
+
+Shared read and handoff discipline applies across all roles:
+
+- Locate with wf.search, then read only needed ranges through capped ctx (tools/ctx or wf.ctx).
+- Do not re-read an unchanged (path, range) within the same role invocation unless citing a concrete evidence gap.
+- Hand off compact reports (criterion-linked results, changed ranges, diff or artifact refs, check commands with exit codes and short summaries) instead of pasting whole files, full logs or transcripts.
+- Per-role new-source reading budgets as guidance (not hard limits):
+  * Bulldozer: about 2k tokens
+  * Jaguar: about 2k tokens
+  * Puma: about 8k tokens
+  * Bobcat: about 8k tokens
+  * Strix Halo: about 4k tokens
+  * Zen: about 8k tokens
+- Exceeding budget means requesting/inspecting a specific additional range with a reason, never skipping a required check.
+- Zen explicitly keeps unrestricted inspection and the requirement to check beyond the supplied diff; no role loses a required check or review.

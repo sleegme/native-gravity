@@ -849,6 +849,170 @@ runTest("5.1.a: Relevant evidence caps each failure history at five without losi
   assert.deepStrictEqual(ledger.getRelevantEvidence("unknown"), []);
 });
 
+runTest("5.1.b: getRelevantEvidence projects evidence, omits superseded per-criterion records, bounds failures, and shrinks size", () => {
+  const plan = samplePlan();
+  const ledger = new AuthoritativeLedger(plan);
+
+  // 1. Accumulate >5 failures on M1 (8 failure entries)
+  for (let attempt = 0; attempt < 8; attempt++) {
+    ledger.delegate("M1");
+    ledger.recordBlockedOrFailure({
+      milestoneId: "M1",
+      status: "INVOCATION_FAILURE",
+      evidence: { classification: "OBSERVED", error: `failure-${attempt}`, detail: "stack trace details ".repeat(50) },
+    });
+  }
+
+  // 2. Delegate M1 and receive candidate 1 with large changes, payloads, and initial criterion evidence
+  ledger.delegate("M1");
+  const cand1 = ledger.receiveCandidate(
+    sampleCandidate({
+      milestone_id: "M1",
+      candidate_artifact_ref: "sha256:artifact-v1",
+      changes_made: ["Substantial code changes v1 ".repeat(100)],
+      verification_evidence: [
+        { classification: "OBSERVED", criterion: "Runner resolves slugs", result: "v1 slug resolution initial" },
+        { classification: "OBSERVED", criterion_id: "Process execution works", result: "v1 process execution initial" },
+        "CRITERION: Extra criterion: string evidence v1",
+        "Runner resolves slugs: redundant early string evidence",
+      ],
+      unresolved_unknowns: ["temporary unknown"],
+      scope_deviations: [],
+    })
+  );
+
+  // Zen NO-GO records repair needs and partial evidence
+  ledger.recordZenNoGo(
+    sampleVerdict({
+      milestone_id: "M1",
+      result_ref: cand1.result_ref,
+      verdict: "NO-GO",
+      verification_evidence: [
+        { classification: "OBSERVED", acceptance_criterion: "Process execution works", result: "v1 zen failed execution" },
+      ],
+      repair_needs: "Repair process execution failure in runner",
+    })
+  );
+
+  // 3. Delegate M1 again, receive Candidate 2 with superseded evidence updates
+  ledger.delegate("M1");
+  const cand2 = ledger.receiveCandidate(
+    sampleCandidate({
+      milestone_id: "M1",
+      candidate_artifact_ref: "sha256:artifact-v2",
+      changes_made: ["Substantial code changes v2 ".repeat(100)],
+      verification_evidence: [
+        { classification: "OBSERVED", id: "Process execution works", result: "v2 process execution repaired" },
+        "CRITERION: Extra criterion: string evidence v2 updated",
+      ],
+      unresolved_unknowns: [],
+      scope_deviations: [],
+    })
+  );
+
+  // Zen GO records final verification
+  ledger.recordZenGo(
+    sampleVerdict({
+      milestone_id: "M1",
+      result_ref: cand2.result_ref,
+      verdict: "GO",
+      verification_evidence: [
+        { classification: "OBSERVED", criterion: "Runner resolves slugs", result: "v2 zen verified slugs pass" },
+      ],
+    })
+  );
+
+  // Audit state in ledger.evidence remains 100% complete
+  const fullEntry = ledger.evidence.M1;
+  assert.strictEqual(fullEntry.failure_evidence.length, 8);
+  assert.strictEqual(fullEntry.candidates.length, 2);
+  assert.ok(fullEntry.candidates[0].payload);
+  assert.ok(fullEntry.candidates[1].payload);
+
+  // Call getRelevantEvidence for M1
+  const relevantM1 = ledger.getRelevantEvidence("M1");
+  assert.strictEqual(relevantM1.length, 1);
+  const projM1 = relevantM1[0];
+
+  // 1. Explicit references to where full evidence lives in ledger
+  assert.strictEqual(projM1.full_evidence_ref, "evidence.M1");
+  assert.strictEqual(projM1.full_record_ref, "evidence.M1");
+  assert.strictEqual(projM1.ledger_ref, "evidence.M1");
+
+  // 2. Unresolved failures bounded to 5 (latest 5 retained)
+  assert.strictEqual(projM1.failure_evidence.length, 5);
+  assert.deepStrictEqual(
+    projM1.failure_evidence.map((f) => f.evidence.error),
+    ["failure-3", "failure-4", "failure-5", "failure-6", "failure-7"]
+  );
+
+  // 3. Candidate result_ref and artifact hashes
+  assert.strictEqual(projM1.result_ref, cand2.result_ref);
+  assert.strictEqual(projM1.candidate_artifact_ref, "sha256:artifact-v2");
+  assert.deepStrictEqual(
+    projM1.artifact_hashes.sort(),
+    ["sha256:artifact-v1", "sha256:artifact-v2"].sort()
+  );
+
+  // 4. Candidate payloads compacted / omitted
+  assert.strictEqual(projM1.payload, undefined);
+  for (const c of projM1.candidates) {
+    assert.strictEqual(c.payload, undefined);
+  }
+
+  // 5. Per-criterion evidence projection: only latest per criterion kept, superseded omitted
+  const critMap = new Map();
+  for (const ev of projM1.verification_evidence) {
+    if (typeof ev === "object") {
+      critMap.set(ev.criterion ?? ev.criterion_id ?? ev.acceptance_criterion ?? ev.id, ev.result);
+    } else if (typeof ev === "string") {
+      critMap.set(ev.split(":")[0].trim(), ev);
+    }
+  }
+
+  assert.strictEqual(critMap.get("Runner resolves slugs"), "v2 zen verified slugs pass");
+  assert.strictEqual(critMap.get("Process execution works"), "v2 process execution repaired");
+  const extraEv = projM1.verification_evidence.find((e) => typeof e === "string" && e.includes("Extra criterion"));
+  assert.strictEqual(extraEv, "CRITERION: Extra criterion: string evidence v2 updated");
+
+  // Verify that earlier superseded evidence items are omitted
+  const allResults = projM1.verification_evidence.map((e) => (typeof e === "object" ? e.result : e));
+  assert.ok(!allResults.includes("v1 slug resolution initial"));
+  assert.ok(!allResults.includes("v1 process execution initial"));
+  assert.ok(!allResults.includes("v1 zen failed execution"));
+  assert.ok(!allResults.includes("CRITERION: Extra criterion: string evidence v1"));
+
+  // 6. Significant shrink in serialized size
+  const fullSize = JSON.stringify(fullEntry).length;
+  const projSize = JSON.stringify(projM1).length;
+  assert.ok(projSize < fullSize);
+
+  // 7. Stored ledger records remain 100% complete and unmutated
+  assert.strictEqual(ledger.evidence.M1.failure_evidence.length, 8);
+  assert.strictEqual(ledger.evidence.M1.candidates.length, 2);
+  assert.ok(ledger.evidence.M1.candidates[0].payload);
+  assert.ok(ledger.evidence.M1.candidates[1].payload);
+
+  // 8. Forwarding evidence to dependency M2 works seamlessly
+  ledger.delegate("M2");
+  const relevantM2 = ledger.getRelevantEvidence("M2");
+  assert.strictEqual(relevantM2.length, 1);
+  assert.strictEqual(relevantM2[0].full_evidence_ref, "evidence.M1");
+  assert.strictEqual(relevantM2[0].failure_evidence.length, 5);
+
+  // 9. Save and load round-trip preserves all state without invariant errors
+  const tmpFile = join(tmpdir(), `test-proj-ev-roundtrip-${Date.now()}.json`);
+  try {
+    ledger.save(tmpFile);
+    const loaded = AuthoritativeLedger.load(tmpFile);
+    assert.strictEqual(loaded.evidence.M1.failure_evidence.length, 8);
+    assert.strictEqual(loaded.evidence.M1.candidates.length, 2);
+    assert.strictEqual(loaded.evidence.M1.active_candidate.result_ref, cand2.result_ref);
+  } finally {
+    try { if (existsSync(tmpFile)) unlinkSync(tmpFile); } catch {}
+  }
+});
+
 runTest("5.1a: Reused worker IDs cannot alias blockers; descriptions normalize without extra keys", () => {
   const ledger = new AuthoritativeLedger(samplePlan());
   ledger.delegate("M1");

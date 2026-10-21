@@ -855,30 +855,268 @@ export class AuthoritativeLedger {
   /**
    * Retrieves relevant evidence for a given milestone.
    *
+   * Projects evidence for the milestone and its dependencies rather than forwarding
+   * whole entries:
+   * - omits superseded per-criterion evidence while keeping the latest per criterion
+   * - retains all unresolved failures (bounded to 5) and repair needs
+   * - includes candidate result_ref and artifact hashes
+   * - compacts candidates by omitting large payload trees
+   * - provides explicit references to full ledger evidence records
+   * - preserves full audit history in this.evidence on disk and in memory
+   *
    * @param {string} milestoneId
    * @returns {Array}
    */
   getRelevantEvidence(milestoneId) {
-    const relevant = [];
+    const targets = [];
     if (this.evidence[milestoneId]) {
-      relevant.push(this.evidence[milestoneId]);
+      targets.push({ mId: milestoneId, entry: this.evidence[milestoneId] });
     }
     const milestone = this.milestones.find((m) => m.id === milestoneId);
     if (milestone && milestone.dependencies) {
       for (const dep of milestone.dependencies) {
-        if (this.evidence[dep]) {
-          relevant.push(this.evidence[dep]);
+        if (this.evidence[dep] && !targets.some((t) => t.mId === dep)) {
+          targets.push({ mId: dep, entry: this.evidence[dep] });
         }
       }
     }
+
     // Keep the complete audit history on disk, but do not replay every failed
     // attempt into a new invocation (including failures on dependencies).
     const MAX_RELEVANT_FAILURES = 5;
-    return relevant.map((entry) => {
-      const projected = { ...entry };
-      if (projected.failure_evidence) {
-        projected.failure_evidence = projected.failure_evidence.slice(-MAX_RELEVANT_FAILURES);
+
+    return targets.map(({ mId, entry }) => {
+      if (!entry || typeof entry !== "object") {
+        return deepClone(entry);
       }
+
+      const projected = { ...entry };
+
+      // Explicit references to full ledger evidence record
+      projected.full_evidence_ref = `evidence.${mId}`;
+      projected.full_record_ref = `evidence.${mId}`;
+      projected.ledger_ref = `evidence.${mId}`;
+
+      // Failure evidence bounded to MAX_RELEVANT_FAILURES
+      if (Array.isArray(entry.failure_evidence)) {
+        projected.failure_evidence = entry.failure_evidence.slice(-MAX_RELEVANT_FAILURES);
+      }
+
+      // Repair needs from verification record or entry
+      const repairNeeds = this.verification[mId]?.repair_needs ?? entry.repair_needs;
+      if (repairNeeds !== undefined && repairNeeds !== null) {
+        projected.repair_needs = repairNeeds;
+      }
+
+      // Candidate result_ref and artifact hashes
+      const latestCandidate =
+        entry.active_candidate ||
+        (Array.isArray(entry.candidates) && entry.candidates.length > 0
+          ? entry.candidates[entry.candidates.length - 1]
+          : null);
+
+      const resultRef = latestCandidate?.result_ref || entry.result_ref;
+      if (resultRef) {
+        projected.result_ref = resultRef;
+      }
+
+      const candidateArtifactRef =
+        latestCandidate?.candidate_artifact_ref !== undefined
+          ? latestCandidate.candidate_artifact_ref
+          : latestCandidate?.artifact_ref !== undefined
+          ? latestCandidate.artifact_ref
+          : entry.candidate_artifact_ref !== undefined
+          ? entry.candidate_artifact_ref
+          : entry.artifact_ref;
+      if (candidateArtifactRef !== undefined) {
+        projected.candidate_artifact_ref = candidateArtifactRef;
+      }
+
+      // Collect unique artifact references
+      const artifactHashes = new Set();
+      const addArtifact = (ref) => {
+        if (typeof ref === "string" && ref.trim()) {
+          artifactHashes.add(ref.trim());
+        }
+      };
+
+      if (Array.isArray(entry.artifact_hashes)) {
+        for (const h of entry.artifact_hashes) addArtifact(h);
+      }
+      addArtifact(projected.candidate_artifact_ref);
+      addArtifact(entry.candidate_artifact_ref);
+      addArtifact(entry.artifact_ref);
+
+      if (Array.isArray(entry.candidates)) {
+        for (const c of entry.candidates) {
+          if (!c || typeof c !== "object") continue;
+          addArtifact(c.candidate_artifact_ref);
+          addArtifact(c.artifact_ref);
+          addArtifact(c.payload?.candidate_artifact_ref);
+          addArtifact(c.payload?.artifact_ref);
+        }
+      }
+
+      if (entry.active_candidate && typeof entry.active_candidate === "object") {
+        addArtifact(entry.active_candidate.candidate_artifact_ref);
+        addArtifact(entry.active_candidate.artifact_ref);
+        addArtifact(entry.active_candidate.payload?.candidate_artifact_ref);
+        addArtifact(entry.active_candidate.payload?.artifact_ref);
+      }
+
+      if (artifactHashes.size > 0 || latestCandidate || entry.candidates) {
+        projected.artifact_hashes = Array.from(artifactHashes);
+      }
+
+      // Compact candidates by omitting payload
+      if (Array.isArray(entry.candidates)) {
+        projected.candidates = entry.candidates.map((c) => {
+          if (!c || typeof c !== "object") return c;
+          const { payload, ...compacted } = c;
+          return compacted;
+        });
+      }
+
+      if (entry.active_candidate && typeof entry.active_candidate === "object") {
+        const { payload, ...compacted } = entry.active_candidate;
+        projected.active_candidate = compacted;
+      }
+
+      if (projected.payload !== undefined) {
+        delete projected.payload;
+      }
+
+      // Per-criterion evidence projection
+      const targetMilestone = this.milestones.find((m) => m.id === mId);
+      const criteria = Array.isArray(targetMilestone?.acceptance_criteria)
+        ? targetMilestone.acceptance_criteria
+        : [];
+
+      const getCriterionKeyFromString = (str) => {
+        const trimmed = str.trim();
+
+        // 1. Colon prefix "CRITERION: ..."
+        const colonMatch = trimmed.match(/^CRITERION:\s*([^:\n]+)/i);
+        if (colonMatch) {
+          const rawPrefix = colonMatch[1].trim();
+          for (const crit of criteria) {
+            if (typeof crit === "string") {
+              const critTrimmed = crit.trim();
+              if (
+                rawPrefix === critTrimmed ||
+                critTrimmed.startsWith(rawPrefix) ||
+                rawPrefix.startsWith(critTrimmed)
+              ) {
+                return critTrimmed;
+              }
+            }
+          }
+          return rawPrefix;
+        }
+
+        // 2. Match against targetMilestone.acceptance_criteria
+        for (const crit of criteria) {
+          if (typeof crit === "string") {
+            const critTrimmed = crit.trim();
+            if (trimmed === critTrimmed) {
+              return critTrimmed;
+            }
+            const numMatch = critTrimmed.match(/^(\d+[\.\)]|[a-zA-Z0-9_\-]+:)/);
+            if (numMatch && trimmed.startsWith(numMatch[0])) {
+              return critTrimmed;
+            }
+            if (trimmed.includes(critTrimmed)) {
+              return critTrimmed;
+            }
+          }
+        }
+
+        // 3. String itself
+        return trimmed;
+      };
+
+      const getCriterionKey = (item) => {
+        if (item === null || item === undefined) return null;
+
+        if (typeof item === "object") {
+          const rawKey =
+            item.criterion ?? item.criterion_id ?? item.acceptance_criterion ?? item.id;
+          if (rawKey !== undefined && rawKey !== null) {
+            return getCriterionKeyFromString(String(rawKey));
+          }
+          const textCandidate =
+            item.description || item.text || item.result || item.evidence;
+          if (typeof textCandidate === "string") {
+            return getCriterionKeyFromString(textCandidate);
+          }
+          return JSON.stringify(item);
+        }
+
+        if (typeof item === "string") {
+          return getCriterionKeyFromString(item);
+        }
+
+        return String(item);
+      };
+
+      const rawEvidenceItems = [];
+
+      if (Array.isArray(entry.candidates)) {
+        for (const cand of entry.candidates) {
+          if (!cand) continue;
+          const ev = cand.verification_evidence ?? cand.payload?.verification_evidence;
+          if (ev) {
+            if (Array.isArray(ev)) rawEvidenceItems.push(...ev);
+            else rawEvidenceItems.push(ev);
+          }
+        }
+      }
+
+      if (
+        entry.active_candidate &&
+        (!Array.isArray(entry.candidates) ||
+          !entry.candidates.includes(entry.active_candidate))
+      ) {
+        const ev =
+          entry.active_candidate.verification_evidence ??
+          entry.active_candidate.payload?.verification_evidence;
+        if (ev) {
+          if (Array.isArray(ev)) rawEvidenceItems.push(...ev);
+          else rawEvidenceItems.push(ev);
+        }
+      }
+
+      if (entry.verification_evidence) {
+        const ev = entry.verification_evidence;
+        if (Array.isArray(ev)) rawEvidenceItems.push(...ev);
+        else rawEvidenceItems.push(ev);
+      }
+
+      const verRecord = this.verification[mId];
+      if (verRecord && verRecord.verification_evidence) {
+        const ev = verRecord.verification_evidence;
+        if (Array.isArray(ev)) rawEvidenceItems.push(...ev);
+        else rawEvidenceItems.push(ev);
+      }
+
+      const evidenceByCriterion = new Map();
+      for (const item of rawEvidenceItems) {
+        if (item === undefined || item === null) continue;
+        const key = getCriterionKey(item);
+        if (key !== null) {
+          evidenceByCriterion.set(key, item);
+        }
+      }
+
+      if (
+        rawEvidenceItems.length > 0 ||
+        entry.verification_evidence !== undefined ||
+        entry.active_candidate ||
+        (Array.isArray(entry.candidates) && entry.candidates.length > 0)
+      ) {
+        projected.verification_evidence = Array.from(evidenceByCriterion.values());
+      }
+
       return deepClone(projected);
     });
   }
