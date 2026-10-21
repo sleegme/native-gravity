@@ -161,6 +161,50 @@ bytes=$(printf '%s\n' "$out" | wc -c)
 lte 'ctx: utf8 capped byte bound' "$bytes" 80
 has 'ctx: utf8 omitted notice' "$out" "... omitted: $tmp/fx/utf8.txt:"
 
+# === Base tool byte-identity checks ===
+git show 2ff0083:tools/ctx > "$tmp/base-ctx"
+chmod +x "$tmp/base-ctx"
+
+for fx_spec in \
+    "crlf:printf 'one\r\ntwo\r\nthree\r\n'" \
+    "bare_cr:printf 'one\rtwo\rthree\n'" \
+    "vertical_tab:printf 'one\x0btwo\x0bthree\n'" \
+    "invalid_utf8:printf 'prefix \xff\xfe suffix\nsecond \x80\x81 line\n'" \
+    "nul_bin:printf 'before\0after\n'" \
+    "empty::" \
+    "no_nl:printf 'first\nsecond'" \
+    "lines_400:awk 'BEGIN { for (i=1; i<=400; i++) printf \"line %d\n\", i }'" \
+    "lines_401:awk 'BEGIN { for (i=1; i<=401; i++) printf \"line %d\n\", i }'" \
+    "long_2500:python3 -c 'import sys; sys.stdout.buffer.write(b\"a\"*2500 + b\"\n\" + \"🚀\".encode()*2500 + b\"\n\" + b\"\xff\"*2500 + b\"\n\")'"
+do
+    fx_name="${fx_spec%%:*}"
+    fx_cmd="${fx_spec#*:}"
+    fx_file="$tmp/fx/$fx_name.dat"
+    eval "$fx_cmd" > "$fx_file"
+
+    for r in "" ":1-2" ":2-2" ":3-1" ":0-2" ":8-9"; do
+        if [ "$fx_name" = "nul_bin" ] && [ -n "$r" ]; then continue; fi
+        if [ "$fx_name" = "empty" ] && [ -n "$r" ] && [ "$r" != ":1-5" ]; then continue; fi
+
+        arg="$fx_file$r"
+        "$tmp/base-ctx" "$arg" > "$tmp/base.out" 2> "$tmp/base.err"; base_rc=$?
+        ./ctx "$arg" > "$tmp/head.out" 2> "$tmp/head.err"; head_rc=$?
+
+        label="ctx base-identity ($fx_name$r)"
+        eq "$label rc" "$head_rc" "$base_rc"
+        if cmp -s "$tmp/base.out" "$tmp/head.out"; then
+            pass=$((pass + 1)); printf 'ok   %s stdout\n' "$label"
+        else
+            fail=$((fail + 1)); printf 'FAIL %s stdout -- mismatch\n' "$label"
+        fi
+        if cmp -s "$tmp/base.err" "$tmp/head.err"; then
+            pass=$((pass + 1)); printf 'ok   %s stderr\n' "$label"
+        else
+            fail=$((fail + 1)); printf 'FAIL %s stderr -- mismatch\n' "$label"
+        fi
+    done
+done
+
 
 echo
 echo '=== git-snap ==='

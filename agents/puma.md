@@ -86,7 +86,7 @@ work does not acquire an advisor ceremony.
 
 ## Targeted reading and compact handoffs
 
-- Locate with wf.search, then read only needed ranges through capped ctx (tools/ctx or wf.ctx).
+- Locate with native `grep_search`, then read only needed ranges through `view_file` with explicit line ranges (no `wf.search` or `tools/ctx` or `wf.ctx`).
 - Do not re-read an unchanged (path, range) within the same role invocation unless citing a concrete evidence gap.
 - Hand off compact reports (criterion-linked results, changed ranges, diff or artifact refs, check commands with exit codes and short summaries) instead of pasting whole files, full logs or transcripts.
 - New-source reading budget: about 8k tokens as guidance (not a hard limit). Exceeding budget means requesting/inspecting a specific additional range with a reason, never skipping a required check.

@@ -302,7 +302,10 @@ observed evidence satisfying the goal.
 
 Shared read and handoff discipline applies across all roles:
 
-- Locate with wf.search, then read only needed ranges through capped ctx (tools/ctx or wf.ctx).
+- Two targeted reading tool paths based on role capabilities:
+  * Roles with `run_command` (Bobcat, Zen) may locate with `wf.search` and read only needed ranges through capped `ctx` (`tools/ctx` or `wf.ctx`).
+  * Roles without `run_command` (Jaguar, Puma, Strix Halo) use native `grep_search` and `view_file` with explicit line ranges (no `wf.search` or `tools/ctx` or `wf.ctx`).
+  * Bulldozer has no shell authority and delegates discovery of unknown targets to Jaguar, inspecting only known execution context, named files, or produced artifacts using native non-shell tools (`view_file`, `grep_search`, `find_by_name`, `list_dir`) with explicit line ranges.
 - Do not re-read an unchanged (path, range) within the same role invocation unless citing a concrete evidence gap.
 - Hand off compact reports (criterion-linked results, changed ranges, diff or artifact refs, check commands with exit codes and short summaries) instead of pasting whole files, full logs or transcripts.
 - Per-role new-source reading budgets as guidance (not hard limits):

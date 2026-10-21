@@ -162,6 +162,70 @@ class WorkflowToolsTests(unittest.TestCase):
             )
             self.assertEqual(res_bad.returncode, 2)
 
+    def test_ctx_base_tool_byte_identity(self):
+        base_ctx_script = subprocess.run(
+            ["git", "show", "2ff0083:tools/ctx"],
+            cwd=str(ROOT), capture_output=True, check=True,
+        ).stdout
+
+        with tempfile.TemporaryDirectory(prefix="ntg ctx base test ") as directory:
+            root = Path(directory)
+            base_tool = root / "base_ctx"
+            base_tool.write_bytes(base_ctx_script)
+            base_tool.chmod(0o755)
+
+            head_tool = ROOT / "tools/ctx"
+
+            fixtures = {
+                "crlf": b"one\r\ntwo\r\nthree\r\n",
+                "bare_cr": b"one\rtwo\rthree\n",
+                "vertical_tab": b"one\x0btwo\x0bthree\n",
+                "invalid_utf8": b"prefix \xff\xfe suffix\nsecond \x80\x81 line\n",
+                "nul_binary": b"before\x00after\n",
+                "empty": b"",
+                "no_newline": b"first\nsecond",
+                "lines_400": b"".join(f"line {i}\n".encode() for i in range(1, 401)),
+                "lines_401": b"".join(f"line {i}\n".encode() for i in range(1, 402)),
+                "lines_2000": b"a" * 2500 + b"\n" + ("🚀" * 2500).encode("utf-8") + b"\n" + b"\xff" * 2500 + b"\n",
+                "crlf_longline": b"b" * 2500 + b"\r\n",
+                "mixed_cr_crlf_vt": b"a\r\nb\rc\x0bd\n",
+                "tabs": b"\tcol1\t\tcol2\n",
+            }
+
+            cases = []
+            for name, data in fixtures.items():
+                p = root / f"{name}.txt"
+                p.write_bytes(data)
+                cases.append(str(p))
+                if name not in ("nul_binary", "empty"):
+                    cases.append(f"{p}:1-2")
+                    cases.append(f"{p}:2-2")
+                    cases.append(f"{p}:3-1")
+                    cases.append(f"{p}:0-2")
+                    cases.append(f"{p}:8-9")
+            cases.append(f"{root / 'empty.txt'}:1-5")
+            cases.append(f"{root / 'lines_401.txt'}:401-450")
+            cases.append(f"{root / 'lines_401.txt'}:1-450")
+
+            clean_env = {k: v for k, v in os.environ.items() if k != "CTX_MAX_BYTES"}
+
+            for arg in cases:
+                base_res = subprocess.run([str(base_tool), arg], capture_output=True, env=clean_env)
+                head_res = subprocess.run([str(head_tool), arg], capture_output=True, env=clean_env)
+                self.assertEqual(
+                    base_res.returncode, head_res.returncode,
+                    f"returncode mismatch on {arg}: base={base_res.returncode} head={head_res.returncode}",
+                )
+                self.assertEqual(
+                    base_res.stderr, head_res.stderr,
+                    f"stderr mismatch on {arg}: base={base_res.stderr!r} head={head_res.stderr!r}",
+                )
+                self.assertEqual(
+                    base_res.stdout, head_res.stdout,
+                    f"stdout mismatch on {arg}: base={base_res.stdout!r} head={head_res.stdout!r}",
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
+
