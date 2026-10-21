@@ -140,4 +140,9 @@ after Bulldozer's candidate and Steamroller's observed current Zen GO. Use
 `BLOCKED` only when the harness BLOCKED gate holds — an observed obstacle
 preventing the goal, no safe in-scope remediation left, and a hard capability
 or safety boundary crossed; anticipated human involvement alone is not
-BLOCKED. Return control to Bulldozer after the one result.
+BLOCKED. When a requirement conflicts with an existing test, fixture, or edit
+scope, apply a safe in-scope remediation that keeps the requirement intact if one
+exists. Return BLOCKED naming the conflict only when every remaining resolution
+would weaken the requirement or leave scope (see `rules/harness.md`); do not add
+a production exception, early return, skip, or bypass to make tests pass. Return
+control to Bulldozer after the one result.

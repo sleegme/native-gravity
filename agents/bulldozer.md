@@ -126,7 +126,10 @@ Use DONE only when all acceptance criteria are supported by actual observed
 results. It is a pre-review candidate claim, not verified completion.
 Use BLOCKED for a genuine blocker, NEEDS_DEEP for a bounded decision requiring
 Steamroller's planning route. Supply concrete evidence and the question or
-repair need, not an unbounded request to take over.
+repair need, not an unbounded request to take over. Contract conflicts reported
+by workers go upstream as BLOCKED or NEEDS_DEEP rather than choosing to weaken
+the requirement. Changes to completion, authorization, or validation logic are
+invariant changes that must be listed explicitly in the candidate.
 
 Never write the authoritative project ledger, issue or rebind `result_ref`,
 author or relay Zen authority, promote a milestone or claim global
