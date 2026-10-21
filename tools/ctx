@@ -2,6 +2,277 @@
 # ctx -- print files for an agent: header, line numbers, bounded output.
 set -u
 
+# Check for capping mode: --max-bytes, --max-bytes=*, or CTX_MAX_BYTES in env
+has_cap=0
+if [ -n "${CTX_MAX_BYTES:-}" ]; then
+    has_cap=1
+fi
+for arg in "$@"; do
+    case $arg in
+        --max-bytes|--max-bytes=*)
+            has_cap=1
+            break
+            ;;
+    esac
+done
+
+if [ "$has_cap" -eq 1 ]; then
+    exec python3 - "$@" <<'PYEOF'
+import os
+import re
+import sys
+
+DEFAULT_MAX_BYTES = 24576
+MAX_LINES = 400
+MAX_COLS = 2000
+
+
+def usage(file=sys.stdout):
+    print("""usage: ctx [options] <file>... [file:A-B]...
+
+Print each file as a block meant to be read by an agent:
+
+  == path (N lines) ==
+       1\tfirst line
+       2\tsecond line
+
+Output is capped at 400 lines per file; past that a
+"... truncated, K more lines" note is printed. Single lines longer than 2000
+characters are cut with a " ... [+K chars]" marker.
+
+An argument may end in ":A-B" to print only that inclusive line range (also
+capped at 400 lines). If a file with that literal name exists it is used as
+is, so colons in real file names win.
+
+Binary files (NUL byte in the first 4 KiB) are skipped with a note. Missing,
+unreadable, or directory arguments are reported inline and the remaining
+files are still processed.
+
+Options:
+  -h, --help            show this help and exit
+  --max-bytes [BYTES]   cap aggregate output across all files (default: 24576)
+
+Exit status: 0 when every argument was printed, 1 when any of them failed,
+2 on usage error.""", file=file)
+
+
+def is_binary(path):
+    try:
+        with open(path, "rb") as f:
+            chunk = f.read(4096)
+            return b"\x00" in chunk
+    except Exception:
+        return False
+
+
+def main():
+    argv = sys.argv[1:]
+    max_bytes = None
+    opt_in = False
+    file_args = []
+
+    if "CTX_MAX_BYTES" in os.environ and os.environ["CTX_MAX_BYTES"].strip():
+        try:
+            max_bytes = int(os.environ["CTX_MAX_BYTES"].strip())
+            opt_in = True
+        except ValueError:
+            pass
+
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg in ("-h", "--help"):
+            usage(sys.stdout)
+            sys.exit(0)
+        elif arg.startswith("--max-bytes="):
+            val = arg.split("=", 1)[1]
+            try:
+                max_bytes = int(val)
+                opt_in = True
+            except ValueError:
+                sys.stderr.write(f"ctx: invalid --max-bytes value: {val}\n")
+                sys.exit(2)
+        elif arg == "--max-bytes":
+            opt_in = True
+            if i + 1 < len(argv) and re.match(r"^[0-9]+$", argv[i + 1]):
+                max_bytes = int(argv[i + 1])
+                i += 1
+            else:
+                max_bytes = DEFAULT_MAX_BYTES
+        else:
+            file_args.append(arg)
+        i += 1
+
+    if not file_args:
+        usage(sys.stderr)
+        sys.exit(2)
+
+    if not opt_in:
+        max_bytes = None
+
+    class Target:
+        def __init__(self, raw):
+            self.raw = raw
+            self.file_path = raw
+            self.start = 1
+            self.range_end = None
+            self.error_header = None
+            self.is_binary = False
+            self.lines = []
+            self.total = 0
+            self.empty_range = False
+            self.range_past_end = False
+            self.printed_header = False
+            self.last_printed_lineno = None
+
+            if not os.path.exists(raw):
+                m = re.match(r"^(.*):([0-9]+)-([0-9]+)$", raw)
+                if m and m.group(1):
+                    self.file_path = m.group(1)
+                    self.start = int(m.group(2))
+                    self.range_end = int(m.group(3))
+            if self.start < 1:
+                self.start = 1
+
+            if not os.path.exists(self.file_path):
+                self.error_header = f"== {self.file_path} (error: no such file or directory) ==\n"
+                return
+            if os.path.isdir(self.file_path):
+                self.error_header = f"== {self.file_path} (error: is a directory) ==\n"
+                return
+            if not os.access(self.file_path, os.R_OK):
+                self.error_header = f"== {self.file_path} (error: permission denied) ==\n"
+                return
+
+            if is_binary(self.file_path):
+                self.is_binary = True
+                self.error_header = f"== {self.file_path} (binary file, skipped) ==\n"
+                return
+
+            try:
+                with open(self.file_path, "rb") as f:
+                    content = f.read()
+                if not content:
+                    self.lines = []
+                elif content.endswith(b"\n"):
+                    self.lines = content[:-1].split(b"\n")
+                else:
+                    self.lines = content.split(b"\n")
+                self.total = len(self.lines)
+            except Exception:
+                self.error_header = f"== {self.file_path} (error: permission denied) ==\n"
+                return
+
+            if self.range_end is not None and self.range_end < self.start:
+                self.empty_range = True
+            elif self.range_end is not None and self.total < self.start:
+                self.range_past_end = True
+
+    targets = [Target(a) for a in file_args]
+    rc = 0
+    for t in targets:
+        if t.error_header and not t.is_binary:
+            rc = 1
+
+    for t in targets:
+        t.items = []
+        t.linenos = []
+        t.target_start = t.start
+        t.target_end = t.total if t.range_end is None else min(t.total, t.range_end)
+
+        if t.error_header:
+            t.items.append(t.error_header.encode("utf-8"))
+            t.linenos.append(None)
+            continue
+
+        t.items.append(f"== {t.file_path} ({t.total} lines) ==\n".encode("utf-8"))
+        t.linenos.append(None)
+
+        if t.empty_range:
+            t.items.append(f"(empty range: {t.start}-{t.range_end})\n".encode("utf-8"))
+            t.linenos.append(None)
+        elif t.range_past_end:
+            t.items.append(f"(file has only {t.total} lines; range starts at {t.start})\n".encode("utf-8"))
+            t.linenos.append(None)
+        else:
+            top = t.start + MAX_LINES - 1
+            topmost = t.total
+            if t.range_end is not None and t.range_end < topmost:
+                topmost = t.range_end
+
+            for lineno in range(t.start, min(top, topmost) + 1):
+                raw_line = t.lines[lineno - 1]
+                text = raw_line.decode("utf-8", errors="surrogateescape")
+                if len(text) > MAX_COLS:
+                    text = text[:MAX_COLS] + f" ... [+{len(text) - MAX_COLS} chars]"
+                formatted_bytes = text.encode("utf-8", errors="surrogateescape")
+                t.items.append(f"{lineno:6d}\t".encode("utf-8") + formatted_bytes + b"\n")
+                t.linenos.append(lineno)
+
+            if topmost > top and max_bytes is None:
+                t.items.append(f"... truncated, {topmost - top} more lines\n".encode("utf-8"))
+                t.linenos.append(None)
+
+    if max_bytes is None:
+        for t in targets:
+            for item in t.items:
+                sys.stdout.buffer.write(item)
+        sys.exit(rc)
+
+    # Capped output
+    def compute_omitted_notices(cur_t_idx=None, hyp_lno=None, hyp_header=None):
+        notices = []
+        for i, t in enumerate(targets):
+            is_header = hyp_header if i == cur_t_idx and hyp_header is not None else t.printed_header
+            lno = hyp_lno if i == cur_t_idx and hyp_lno is not None else t.last_printed_lineno
+            if t.error_header:
+                if not is_header:
+                    notices.append(f"... omitted: {t.file_path}\n".encode("utf-8"))
+            else:
+                s_omit = t.target_start if lno is None else lno + 1
+                if s_omit <= t.target_end:
+                    notices.append(f"... omitted: {t.file_path}:{s_omit}-{t.target_end}\n".encode("utf-8"))
+        return notices
+
+    printed_items = []
+    total_bytes = 0
+    stopped = False
+
+    for t_idx, t in enumerate(targets):
+        for item_idx, item in enumerate(t.items):
+            lno = t.linenos[item_idx]
+            hyp_lno = lno if lno is not None else t.last_printed_lineno
+            hyp_header = True if item_idx == 0 else t.printed_header
+            notices_after = compute_omitted_notices(t_idx, hyp_lno, hyp_header)
+            notices_bytes = sum(len(n) for n in notices_after)
+            if total_bytes + len(item) + notices_bytes <= max_bytes:
+                printed_items.append(item)
+                total_bytes += len(item)
+                t.printed_header = hyp_header
+                if lno is not None:
+                    t.last_printed_lineno = lno
+            else:
+                stopped = True
+                break
+        if stopped:
+            break
+
+    final_notices = compute_omitted_notices()
+    for n in final_notices:
+        if total_bytes + len(n) <= max_bytes:
+            printed_items.append(n)
+            total_bytes += len(n)
+
+    for item in printed_items:
+        sys.stdout.buffer.write(item)
+    sys.exit(rc)
+
+
+if __name__ == "__main__":
+    main()
+PYEOF
+fi
+
 MAX_LINES=400
 MAX_COLS=2000
 

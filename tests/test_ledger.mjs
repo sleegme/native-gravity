@@ -849,6 +849,170 @@ runTest("5.1.a: Relevant evidence caps each failure history at five without losi
   assert.deepStrictEqual(ledger.getRelevantEvidence("unknown"), []);
 });
 
+runTest("5.1.b: getRelevantEvidence projects evidence, omits superseded per-criterion records, bounds failures, and shrinks size", () => {
+  const plan = samplePlan();
+  const ledger = new AuthoritativeLedger(plan);
+
+  // 1. Accumulate >5 failures on M1 (8 failure entries)
+  for (let attempt = 0; attempt < 8; attempt++) {
+    ledger.delegate("M1");
+    ledger.recordBlockedOrFailure({
+      milestoneId: "M1",
+      status: "INVOCATION_FAILURE",
+      evidence: { classification: "OBSERVED", error: `failure-${attempt}`, detail: "stack trace details ".repeat(50) },
+    });
+  }
+
+  // 2. Delegate M1 and receive candidate 1 with large changes, payloads, and initial criterion evidence
+  ledger.delegate("M1");
+  const cand1 = ledger.receiveCandidate(
+    sampleCandidate({
+      milestone_id: "M1",
+      candidate_artifact_ref: "sha256:artifact-v1",
+      changes_made: ["Substantial code changes v1 ".repeat(100)],
+      verification_evidence: [
+        { classification: "OBSERVED", criterion: "Runner resolves slugs", result: "v1 slug resolution initial" },
+        { classification: "OBSERVED", criterion_id: "Process execution works", result: "v1 process execution initial" },
+        "CRITERION: Extra criterion: string evidence v1",
+        "Runner resolves slugs: redundant early string evidence",
+      ],
+      unresolved_unknowns: ["temporary unknown"],
+      scope_deviations: [],
+    })
+  );
+
+  // Zen NO-GO records repair needs and partial evidence
+  ledger.recordZenNoGo(
+    sampleVerdict({
+      milestone_id: "M1",
+      result_ref: cand1.result_ref,
+      verdict: "NO-GO",
+      verification_evidence: [
+        { classification: "OBSERVED", acceptance_criterion: "Process execution works", result: "v1 zen failed execution" },
+      ],
+      repair_needs: "Repair process execution failure in runner",
+    })
+  );
+
+  // 3. Delegate M1 again, receive Candidate 2 with superseded evidence updates
+  ledger.delegate("M1");
+  const cand2 = ledger.receiveCandidate(
+    sampleCandidate({
+      milestone_id: "M1",
+      candidate_artifact_ref: "sha256:artifact-v2",
+      changes_made: ["Substantial code changes v2 ".repeat(100)],
+      verification_evidence: [
+        { classification: "OBSERVED", id: "Process execution works", result: "v2 process execution repaired" },
+        "CRITERION: Extra criterion: string evidence v2 updated",
+      ],
+      unresolved_unknowns: [],
+      scope_deviations: [],
+    })
+  );
+
+  // Zen GO records final verification
+  ledger.recordZenGo(
+    sampleVerdict({
+      milestone_id: "M1",
+      result_ref: cand2.result_ref,
+      verdict: "GO",
+      verification_evidence: [
+        { classification: "OBSERVED", criterion: "Runner resolves slugs", result: "v2 zen verified slugs pass" },
+      ],
+    })
+  );
+
+  // Audit state in ledger.evidence remains 100% complete
+  const fullEntry = ledger.evidence.M1;
+  assert.strictEqual(fullEntry.failure_evidence.length, 8);
+  assert.strictEqual(fullEntry.candidates.length, 2);
+  assert.ok(fullEntry.candidates[0].payload);
+  assert.ok(fullEntry.candidates[1].payload);
+
+  // Call getRelevantEvidence for M1
+  const relevantM1 = ledger.getRelevantEvidence("M1");
+  assert.strictEqual(relevantM1.length, 1);
+  const projM1 = relevantM1[0];
+
+  // 1. Explicit references to where full evidence lives in ledger
+  assert.strictEqual(projM1.full_evidence_ref, "evidence.M1");
+  assert.strictEqual(projM1.full_record_ref, "evidence.M1");
+  assert.strictEqual(projM1.ledger_ref, "evidence.M1");
+
+  // 2. Unresolved failures bounded to 5 (latest 5 retained)
+  assert.strictEqual(projM1.failure_evidence.length, 5);
+  assert.deepStrictEqual(
+    projM1.failure_evidence.map((f) => f.evidence.error),
+    ["failure-3", "failure-4", "failure-5", "failure-6", "failure-7"]
+  );
+
+  // 3. Candidate result_ref and artifact hashes
+  assert.strictEqual(projM1.result_ref, cand2.result_ref);
+  assert.strictEqual(projM1.candidate_artifact_ref, "sha256:artifact-v2");
+  assert.deepStrictEqual(
+    projM1.artifact_hashes.sort(),
+    ["sha256:artifact-v1", "sha256:artifact-v2"].sort()
+  );
+
+  // 4. Candidate payloads compacted / omitted
+  assert.strictEqual(projM1.payload, undefined);
+  for (const c of projM1.candidates) {
+    assert.strictEqual(c.payload, undefined);
+  }
+
+  // 5. Per-criterion evidence projection: only latest per criterion kept, superseded omitted
+  const critMap = new Map();
+  for (const ev of projM1.verification_evidence) {
+    if (typeof ev === "object") {
+      critMap.set(ev.criterion ?? ev.criterion_id ?? ev.acceptance_criterion ?? ev.id, ev.result);
+    } else if (typeof ev === "string") {
+      critMap.set(ev.split(":")[0].trim(), ev);
+    }
+  }
+
+  assert.strictEqual(critMap.get("Runner resolves slugs"), "v2 zen verified slugs pass");
+  assert.strictEqual(critMap.get("Process execution works"), "v2 process execution repaired");
+  const extraEv = projM1.verification_evidence.find((e) => typeof e === "string" && e.includes("Extra criterion"));
+  assert.strictEqual(extraEv, "CRITERION: Extra criterion: string evidence v2 updated");
+
+  // Verify that earlier superseded evidence items are omitted
+  const allResults = projM1.verification_evidence.map((e) => (typeof e === "object" ? e.result : e));
+  assert.ok(!allResults.includes("v1 slug resolution initial"));
+  assert.ok(!allResults.includes("v1 process execution initial"));
+  assert.ok(!allResults.includes("v1 zen failed execution"));
+  assert.ok(!allResults.includes("CRITERION: Extra criterion: string evidence v1"));
+
+  // 6. Significant shrink in serialized size
+  const fullSize = JSON.stringify(fullEntry).length;
+  const projSize = JSON.stringify(projM1).length;
+  assert.ok(projSize < fullSize);
+
+  // 7. Stored ledger records remain 100% complete and unmutated
+  assert.strictEqual(ledger.evidence.M1.failure_evidence.length, 8);
+  assert.strictEqual(ledger.evidence.M1.candidates.length, 2);
+  assert.ok(ledger.evidence.M1.candidates[0].payload);
+  assert.ok(ledger.evidence.M1.candidates[1].payload);
+
+  // 8. Forwarding evidence to dependency M2 works seamlessly
+  ledger.delegate("M2");
+  const relevantM2 = ledger.getRelevantEvidence("M2");
+  assert.strictEqual(relevantM2.length, 1);
+  assert.strictEqual(relevantM2[0].full_evidence_ref, "evidence.M1");
+  assert.strictEqual(relevantM2[0].failure_evidence.length, 5);
+
+  // 9. Save and load round-trip preserves all state without invariant errors
+  const tmpFile = join(tmpdir(), `test-proj-ev-roundtrip-${Date.now()}.json`);
+  try {
+    ledger.save(tmpFile);
+    const loaded = AuthoritativeLedger.load(tmpFile);
+    assert.strictEqual(loaded.evidence.M1.failure_evidence.length, 8);
+    assert.strictEqual(loaded.evidence.M1.candidates.length, 2);
+    assert.strictEqual(loaded.evidence.M1.active_candidate.result_ref, cand2.result_ref);
+  } finally {
+    try { if (existsSync(tmpFile)) unlinkSync(tmpFile); } catch {}
+  }
+});
+
 runTest("5.1a: Reused worker IDs cannot alias blockers; descriptions normalize without extra keys", () => {
   const ledger = new AuthoritativeLedger(samplePlan());
   ledger.delegate("M1");
@@ -2198,6 +2362,235 @@ runTest("8.12: Persistence save -> load roundtrip happy path continues to succee
   } finally {
     try { if (existsSync(tmpFile)) unlinkSync(tmpFile); } catch {}
   }
+});
+
+// =============================================================================
+// Section 9: Relevant Evidence Projection & Compaction (Blockers B1 & B2)
+// =============================================================================
+
+runTest("9.1: NO-GO then repaired candidate: projection shows repaired evidence, not stale Zen failure", () => {
+  const plan = samplePlan();
+  const ledger = new AuthoritativeLedger(plan);
+
+  ledger.delegate("M1");
+  const cand1 = ledger.receiveCandidate(
+    sampleCandidate({
+      milestone_id: "M1",
+      candidate_artifact_ref: "sha256:cand1",
+      verification_evidence: [
+        { classification: "OBSERVED", criterion: "Process execution works", result: "v1 flawed process execution" },
+      ],
+    })
+  );
+
+  ledger.recordZenNoGo(
+    sampleVerdict({
+      milestone_id: "M1",
+      result_ref: cand1.result_ref,
+      verdict: "NO-GO",
+      verification_evidence: [
+        { classification: "OBSERVED", criterion: "Process execution works", result: "Zen NO-GO failure: process crashed" },
+      ],
+      repair_needs: "Fix process crash on spawn",
+    })
+  );
+
+  ledger.delegate("M1");
+  const cand2 = ledger.receiveCandidate(
+    sampleCandidate({
+      milestone_id: "M1",
+      candidate_artifact_ref: "sha256:cand2",
+      verification_evidence: [
+        { classification: "OBSERVED", criterion: "Process execution works", result: "v2 repaired process execution passes" },
+      ],
+    })
+  );
+
+  const relevant = ledger.getRelevantEvidence("M1");
+  assert.strictEqual(relevant.length, 1);
+  const proj = relevant[0];
+
+  const procEv = proj.verification_evidence.find(
+    (e) => typeof e === "object" && (e.criterion === "Process execution works" || e.criterion_id === "Process execution works")
+  );
+  assert.ok(procEv, "Expected Process execution works evidence in projection");
+  assert.strictEqual(procEv.result, "v2 repaired process execution passes");
+
+  const allResults = proj.verification_evidence.map((e) => (typeof e === "object" ? e.result : e));
+  assert.ok(!allResults.includes("Zen NO-GO failure: process crashed"), "Stale Zen failure must not be present");
+  assert.ok(!allResults.includes("v1 flawed process execution"), "Earlier superseded candidate evidence must not be present");
+});
+
+runTest("9.2: Overlapping criteria 'Parse' and 'Parse errors' both keep their own latest evidence", () => {
+  const plan = {
+    goal: "Grammar Parser",
+    constraints: [],
+    plan_version: "v1",
+    decision_invariants: [],
+    milestones: [
+      {
+        id: "M1",
+        title: "Parser core",
+        objective: "Parser and error handling",
+        acceptance_criteria: ["Parse", "Parse errors"],
+        dependencies: [],
+        bounded_scope: ["scripts/parser.mjs"],
+      },
+    ],
+  };
+  const ledger = new AuthoritativeLedger(plan);
+  ledger.delegate("M1");
+
+  ledger.receiveCandidate(
+    sampleCandidate({
+      milestone_id: "M1",
+      verification_evidence: [
+        { classification: "OBSERVED", criterion: "Parse", result: "AST produced successfully" },
+        { classification: "OBSERVED", criterion: "Parse errors", result: "Syntax errors caught cleanly" },
+      ],
+    })
+  );
+
+  const relevant = ledger.getRelevantEvidence("M1");
+  assert.strictEqual(relevant.length, 1);
+  const proj = relevant[0];
+
+  const parseEv = proj.verification_evidence.find(
+    (e) => typeof e === "object" && e.criterion === "Parse"
+  );
+  const parseErrorsEv = proj.verification_evidence.find(
+    (e) => typeof e === "object" && e.criterion === "Parse errors"
+  );
+
+  assert.ok(parseEv, "Expected 'Parse' criterion evidence");
+  assert.strictEqual(parseEv.result, "AST produced successfully");
+
+  assert.ok(parseErrorsEv, "Expected 'Parse errors' criterion evidence");
+  assert.strictEqual(parseErrorsEv.result, "Syntax errors caught cleanly");
+
+  assert.strictEqual(proj.verification_evidence.length, 2, "Both distinct criteria must be present without collision");
+});
+
+runTest("9.3: Superseded candidate verification_evidence and changes_made are omitted from projection while refs remain", () => {
+  const plan = samplePlan();
+  const ledger = new AuthoritativeLedger(plan);
+
+  ledger.delegate("M1");
+  const cand1 = ledger.receiveCandidate(
+    sampleCandidate({
+      milestone_id: "M1",
+      candidate_artifact_ref: "sha256:cand1-art",
+      changes_made: ["Massive change log 1 ".repeat(50)],
+      verification_evidence: [{ classification: "OBSERVED", criterion: "Process execution works", result: "cand1 ev" }],
+    })
+  );
+
+  ledger.recordZenNoGo(
+    sampleVerdict({
+      milestone_id: "M1",
+      result_ref: cand1.result_ref,
+      verdict: "NO-GO",
+      verification_evidence: ["Needs repair"],
+      repair_needs: "Fix runner",
+    })
+  );
+
+  ledger.delegate("M1");
+  const cand2 = ledger.receiveCandidate(
+    sampleCandidate({
+      milestone_id: "M1",
+      candidate_artifact_ref: "sha256:cand2-art",
+      changes_made: ["Repaired changes"],
+      verification_evidence: [{ classification: "OBSERVED", criterion: "Process execution works", result: "cand2 ev" }],
+    })
+  );
+
+  // Stored state before getRelevantEvidence
+  const storedCand0Before = ledger.evidence.M1.candidates[0];
+  assert.ok(storedCand0Before.verification_evidence);
+  assert.ok(storedCand0Before.changes_made);
+  assert.ok(storedCand0Before.payload);
+
+  const relevant = ledger.getRelevantEvidence("M1");
+  assert.strictEqual(relevant.length, 1);
+  const proj = relevant[0];
+
+  assert.strictEqual(proj.candidates.length, 2);
+  const projCand0 = proj.candidates[0]; // superseded candidate
+  const projCand1 = proj.candidates[1]; // active/latest candidate
+
+  // Superseded candidate assertions
+  assert.strictEqual(projCand0.verification_evidence, undefined);
+  assert.strictEqual(projCand0.changes_made, undefined);
+  assert.strictEqual(projCand0.payload, undefined);
+  assert.strictEqual(projCand0.result_ref, cand1.result_ref);
+  assert.strictEqual(projCand0.full_record_ref, `evidence.${cand1.result_ref}`);
+  assert.strictEqual(projCand0.candidate_artifact_ref, "sha256:cand1-art");
+  assert.strictEqual(projCand0.milestone_id, "M1");
+  assert.strictEqual(projCand0.plan_version, "v1");
+  assert.strictEqual(projCand0.status, "DONE");
+  assert.ok(projCand0.timestamp);
+
+  // Active candidate maintains its changes and evidence (with payload stripped)
+  assert.strictEqual(projCand1.result_ref, cand2.result_ref);
+  assert.strictEqual(projCand1.payload, undefined);
+  assert.deepStrictEqual(projCand1.changes_made, ["Repaired changes"]);
+  assert.ok(Array.isArray(projCand1.verification_evidence));
+
+  // AC 2: Stored ledger state is unchanged after getRelevantEvidence
+  assert.strictEqual(ledger.evidence.M1.candidates[0].verification_evidence, storedCand0Before.verification_evidence);
+  assert.strictEqual(ledger.evidence.M1.candidates[0].changes_made, storedCand0Before.changes_made);
+  assert.strictEqual(ledger.evidence.M1.candidates[0].payload, storedCand0Before.payload);
+
+  // AC 2: full_record_ref resolves to live entry
+  const [domain, ref] = projCand0.full_record_ref.split(".");
+  assert.strictEqual(domain, "evidence");
+  assert.strictEqual(ledger[domain][ref], ledger.evidence[cand1.result_ref]);
+  assert.strictEqual(ledger[domain][ref].result_ref, cand1.result_ref);
+  assert.ok(ledger[domain][ref].verification_evidence);
+  assert.ok(ledger[domain][ref].changes_made);
+});
+
+runTest("9.4: Unresolved failures and repair_needs are still forwarded and bounded to 5", () => {
+  const plan = samplePlan();
+  const ledger = new AuthoritativeLedger(plan);
+
+  // Accumulate 7 failures
+  for (let i = 0; i < 7; i++) {
+    ledger.delegate("M1");
+    ledger.recordBlockedOrFailure({
+      milestoneId: "M1",
+      status: "INVOCATION_FAILURE",
+      evidence: { error: `err-${i}` },
+    });
+  }
+
+  ledger.delegate("M1");
+  const cand = ledger.receiveCandidate(sampleCandidate({ milestone_id: "M1" }));
+
+  ledger.recordZenNoGo(
+    sampleVerdict({
+      milestone_id: "M1",
+      result_ref: cand.result_ref,
+      verdict: "NO-GO",
+      verification_evidence: ["Check failed"],
+      repair_needs: "Repair async timeout handling",
+    })
+  );
+
+  const relevant = ledger.getRelevantEvidence("M1");
+  assert.strictEqual(relevant.length, 1);
+  const proj = relevant[0];
+
+  // Bounded to 5 latest failures
+  assert.strictEqual(proj.failure_evidence.length, 5);
+  assert.deepStrictEqual(
+    proj.failure_evidence.map((f) => f.evidence.error),
+    ["err-2", "err-3", "err-4", "err-5", "err-6"]
+  );
+
+  // repair_needs is forwarded
+  assert.strictEqual(proj.repair_needs, "Repair async timeout handling");
 });
 
 console.log("=========================================================");

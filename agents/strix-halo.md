@@ -105,3 +105,10 @@ Steamroller owns authoritative ledger updates and global completion.
 An evidence gap is not BLOCKED unless a verified blocker prevents the goal,
 no safe remediation remains, and a hard capability or safety boundary is
 crossed. A possible later human action alone does not meet these conditions.
+
+## Targeted reading and compact handoffs
+
+- Locate with native `grep_search`, then read only needed ranges through `view_file` with explicit line ranges (no `wf.search` or `tools/ctx` or `wf.ctx`).
+- Do not re-read an unchanged (path, range) within the same role invocation unless citing a concrete evidence gap.
+- Hand off compact reports (criterion-linked results, changed ranges, diff or artifact refs, check commands with exit codes and short summaries) instead of pasting whole files, full logs or transcripts.
+- New-source reading budget: about 4k tokens as guidance (not a hard limit). Exceeding budget means requesting/inspecting a specific additional range with a reason, never skipping a required check.

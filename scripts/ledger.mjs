@@ -855,30 +855,325 @@ export class AuthoritativeLedger {
   /**
    * Retrieves relevant evidence for a given milestone.
    *
+   * Projects evidence for the milestone and its dependencies rather than forwarding
+   * whole entries:
+   * - omits superseded per-criterion evidence while keeping the latest per criterion
+   * - retains all unresolved failures (bounded to 5) and repair needs
+   * - includes candidate result_ref and artifact hashes
+   * - compacts candidates by omitting large payload trees
+   * - provides explicit references to full ledger evidence records
+   * - preserves full audit history in this.evidence on disk and in memory
+   *
    * @param {string} milestoneId
    * @returns {Array}
    */
   getRelevantEvidence(milestoneId) {
-    const relevant = [];
+    const targets = [];
     if (this.evidence[milestoneId]) {
-      relevant.push(this.evidence[milestoneId]);
+      targets.push({ mId: milestoneId, entry: this.evidence[milestoneId] });
     }
     const milestone = this.milestones.find((m) => m.id === milestoneId);
     if (milestone && milestone.dependencies) {
       for (const dep of milestone.dependencies) {
-        if (this.evidence[dep]) {
-          relevant.push(this.evidence[dep]);
+        if (this.evidence[dep] && !targets.some((t) => t.mId === dep)) {
+          targets.push({ mId: dep, entry: this.evidence[dep] });
         }
       }
     }
+
     // Keep the complete audit history on disk, but do not replay every failed
     // attempt into a new invocation (including failures on dependencies).
     const MAX_RELEVANT_FAILURES = 5;
-    return relevant.map((entry) => {
-      const projected = { ...entry };
-      if (projected.failure_evidence) {
-        projected.failure_evidence = projected.failure_evidence.slice(-MAX_RELEVANT_FAILURES);
+
+    return targets.map(({ mId, entry }) => {
+      if (!entry || typeof entry !== "object") {
+        return deepClone(entry);
       }
+
+      const projected = { ...entry };
+
+      // Explicit references to full ledger evidence record
+      projected.full_evidence_ref = `evidence.${mId}`;
+      projected.full_record_ref = `evidence.${mId}`;
+      projected.ledger_ref = `evidence.${mId}`;
+
+      // Failure evidence bounded to MAX_RELEVANT_FAILURES
+      if (Array.isArray(entry.failure_evidence)) {
+        projected.failure_evidence = entry.failure_evidence.slice(-MAX_RELEVANT_FAILURES);
+      }
+
+      // Repair needs from verification record or entry
+      const repairNeeds = this.verification[mId]?.repair_needs ?? entry.repair_needs;
+      if (repairNeeds !== undefined && repairNeeds !== null) {
+        projected.repair_needs = repairNeeds;
+      }
+
+      // Candidate result_ref and artifact hashes
+      const latestCandidate =
+        entry.active_candidate ||
+        (Array.isArray(entry.candidates) && entry.candidates.length > 0
+          ? entry.candidates[entry.candidates.length - 1]
+          : null);
+
+      const resultRef = latestCandidate?.result_ref || entry.result_ref;
+      if (resultRef) {
+        projected.result_ref = resultRef;
+      }
+
+      const candidateArtifactRef =
+        latestCandidate?.candidate_artifact_ref !== undefined
+          ? latestCandidate.candidate_artifact_ref
+          : latestCandidate?.artifact_ref !== undefined
+          ? latestCandidate.artifact_ref
+          : entry.candidate_artifact_ref !== undefined
+          ? entry.candidate_artifact_ref
+          : entry.artifact_ref;
+      if (candidateArtifactRef !== undefined) {
+        projected.candidate_artifact_ref = candidateArtifactRef;
+      }
+
+      // Collect unique artifact references
+      const artifactHashes = new Set();
+      const addArtifact = (ref) => {
+        if (typeof ref === "string" && ref.trim()) {
+          artifactHashes.add(ref.trim());
+        }
+      };
+
+      if (Array.isArray(entry.artifact_hashes)) {
+        for (const h of entry.artifact_hashes) addArtifact(h);
+      }
+      addArtifact(projected.candidate_artifact_ref);
+      addArtifact(entry.candidate_artifact_ref);
+      addArtifact(entry.artifact_ref);
+
+      if (Array.isArray(entry.candidates)) {
+        for (const c of entry.candidates) {
+          if (!c || typeof c !== "object") continue;
+          addArtifact(c.candidate_artifact_ref);
+          addArtifact(c.artifact_ref);
+          addArtifact(c.payload?.candidate_artifact_ref);
+          addArtifact(c.payload?.artifact_ref);
+        }
+      }
+
+      if (entry.active_candidate && typeof entry.active_candidate === "object") {
+        addArtifact(entry.active_candidate.candidate_artifact_ref);
+        addArtifact(entry.active_candidate.artifact_ref);
+        addArtifact(entry.active_candidate.payload?.candidate_artifact_ref);
+        addArtifact(entry.active_candidate.payload?.artifact_ref);
+      }
+
+      if (artifactHashes.size > 0 || latestCandidate || entry.candidates) {
+        projected.artifact_hashes = Array.from(artifactHashes);
+      }
+
+      // Compact candidates by omitting payload and pruning superseded candidate bodies
+      if (Array.isArray(entry.candidates)) {
+        projected.candidates = entry.candidates.map((c) => {
+          if (!c || typeof c !== "object") return c;
+          const isLatest =
+            latestCandidate &&
+            (c === latestCandidate || (c.result_ref && c.result_ref === latestCandidate.result_ref));
+
+          if (!isLatest) {
+            const compacted = {
+              milestone_id: c.milestone_id,
+              plan_version: c.plan_version,
+              status: c.status,
+              timestamp: c.timestamp,
+              result_ref: c.result_ref,
+              candidate_artifact_ref:
+                c.candidate_artifact_ref !== undefined
+                  ? c.candidate_artifact_ref
+                  : c.artifact_ref !== undefined
+                  ? c.artifact_ref
+                  : null,
+              full_record_ref: `evidence.${c.result_ref}`,
+            };
+            if (c.artifact_ref !== undefined) {
+              compacted.artifact_ref = c.artifact_ref;
+            }
+            return compacted;
+          }
+
+          const { payload, ...compacted } = c;
+          return compacted;
+        });
+      }
+
+      if (entry.active_candidate && typeof entry.active_candidate === "object") {
+        const { payload, ...compacted } = entry.active_candidate;
+        projected.active_candidate = compacted;
+      }
+
+      if (projected.payload !== undefined) {
+        delete projected.payload;
+      }
+
+      // Per-criterion evidence projection
+      const targetMilestone = this.milestones.find((m) => m.id === mId);
+      const criteria = Array.isArray(targetMilestone?.acceptance_criteria)
+        ? targetMilestone.acceptance_criteria
+        : [];
+
+      const getCriterionKey = (item) => {
+        if (item === null || item === undefined) return null;
+
+        let raw = item;
+        if (typeof item === "object") {
+          raw =
+            item.criterion ??
+            item.criterion_id ??
+            item.acceptance_criterion ??
+            item.id ??
+            item.criterion_index ??
+            item.index;
+          if (raw === undefined || raw === null) {
+            return JSON.stringify(item);
+          }
+        }
+
+        if (typeof raw === "number" || (typeof raw === "string" && /^\d+$/.test(raw.trim()))) {
+          const idx = typeof raw === "number" ? raw : parseInt(raw.trim(), 10);
+          if (idx >= 0 && idx < criteria.length) {
+            return String(criteria[idx]).trim();
+          }
+          if (idx >= 1 && idx <= criteria.length) {
+            return String(criteria[idx - 1]).trim();
+          }
+          return String(raw).trim();
+        }
+
+        if (typeof raw !== "string") {
+          return String(raw);
+        }
+
+        const trimmed = raw.trim();
+
+        // Check CRITERION: <exact_criterion>[: ...]
+        const colonMatch = trimmed.match(/^CRITERION:\s*([^:\n]+)/i);
+        if (colonMatch) {
+          const rawPrefix = colonMatch[1].trim();
+          for (const crit of criteria) {
+            if (typeof crit === "string" && crit.trim() === rawPrefix) {
+              return crit.trim();
+            }
+          }
+          return rawPrefix;
+        }
+
+        // Check exact match against plan acceptance_criteria
+        for (const crit of criteria) {
+          if (typeof crit === "string" && crit.trim() === trimmed) {
+            return crit.trim();
+          }
+        }
+
+        // Check "<exact_criterion>: <rest>"
+        for (const crit of criteria) {
+          if (typeof crit === "string") {
+            const critTrimmed = crit.trim();
+            if (trimmed.startsWith(critTrimmed + ":")) {
+              return critTrimmed;
+            }
+          }
+        }
+
+        return trimmed;
+      };
+
+      // Order rawEvidenceItems by actual recency:
+      // Candidates in chronological order, with Zen verdicts evaluating candidate C
+      // immediately following candidate C.
+      const candidates = [];
+      if (Array.isArray(entry.candidates)) {
+        for (const cand of entry.candidates) {
+          if (cand) candidates.push(cand);
+        }
+      }
+      if (
+        entry.active_candidate &&
+        typeof entry.active_candidate === "object" &&
+        !candidates.some(
+          (c) =>
+            c === entry.active_candidate ||
+            (c.result_ref && c.result_ref === entry.active_candidate.result_ref)
+        )
+      ) {
+        candidates.push(entry.active_candidate);
+      }
+
+      const verRecords = [];
+      if (Array.isArray(this._verification_history)) {
+        for (const v of this._verification_history) {
+          if (v && (v.milestone_id === mId || v.milestoneId === mId)) {
+            verRecords.push(v);
+          }
+        }
+      }
+      const latestVer = this.verification?.[mId];
+      if (latestVer && !verRecords.includes(latestVer)) {
+        verRecords.push(latestVer);
+      }
+
+      const rawEvidenceItems = [];
+
+      if (entry.verification_evidence) {
+        const ev = entry.verification_evidence;
+        if (Array.isArray(ev)) rawEvidenceItems.push(...ev);
+        else rawEvidenceItems.push(ev);
+      }
+
+      const attachedVerRecords = new Set();
+      for (const cand of candidates) {
+        const ev = cand.verification_evidence ?? cand.payload?.verification_evidence;
+        if (ev) {
+          if (Array.isArray(ev)) rawEvidenceItems.push(...ev);
+          else rawEvidenceItems.push(ev);
+        }
+
+        for (const v of verRecords) {
+          if (v && v.result_ref && cand.result_ref && v.result_ref === cand.result_ref) {
+            attachedVerRecords.add(v);
+            const vEv = v.verification_evidence;
+            if (vEv) {
+              if (Array.isArray(vEv)) rawEvidenceItems.push(...vEv);
+              else rawEvidenceItems.push(vEv);
+            }
+          }
+        }
+      }
+
+      // Any unattached Zen verification records (e.g. synthetic or unmatched)
+      for (const v of verRecords) {
+        if (!attachedVerRecords.has(v)) {
+          const vEv = v.verification_evidence;
+          if (vEv) {
+            if (Array.isArray(vEv)) rawEvidenceItems.push(...vEv);
+            else rawEvidenceItems.push(vEv);
+          }
+        }
+      }
+
+      const evidenceByCriterion = new Map();
+      for (const item of rawEvidenceItems) {
+        if (item === undefined || item === null) continue;
+        const key = getCriterionKey(item);
+        if (key !== null) {
+          evidenceByCriterion.set(key, item);
+        }
+      }
+
+      if (
+        rawEvidenceItems.length > 0 ||
+        entry.verification_evidence !== undefined ||
+        entry.active_candidate ||
+        (Array.isArray(entry.candidates) && entry.candidates.length > 0)
+      ) {
+        projected.verification_evidence = Array.from(evidenceByCriterion.values());
+      }
+
       return deepClone(projected);
     });
   }
