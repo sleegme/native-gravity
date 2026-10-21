@@ -56,6 +56,13 @@ Static configuration does not establish runtime behavior. Unavailable runtime
 evidence remains UNKNOWN; do not claim tests or commands were executed.
 Keep the review within the current implementation and bounded contract.
 
+Actively check for requirement weakening:
+- Weakening branches in validation, completion, or authorization paths.
+- Unverified baseline fixtures.
+- Production claims backed only by mocks or test hooks.
+Such a finding prevents ACCEPT unless the candidate explicitly justifies it as
+an intended invariant change.
+
 ## Verdict packet
 
 Return exactly one implementation-local verdict to Bobcat for a valid intake:

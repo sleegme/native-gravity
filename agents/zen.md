@@ -41,6 +41,12 @@ material facts; heuristics cannot replace required evidence. Independently
 support coverage before an exhaustive claim. Report acceptance failures and
 material unknowns; leave their repair to the authorized implementation role.
 
+Actively check for requirement weakening:
+- Weakening branches in validation, completion, or authorization paths.
+- Unverified baseline fixtures.
+- Production claims backed only by mocks or test hooks.
+An unjustified finding requires NO-GO even when all tests pass.
+
 Under the vNext runner, Steamroller requests your review independently of
 Bulldozer. Receive the authoritative milestone contract, immutable candidate,
 milestone_id, plan_version, and Steamroller-issued result_ref. Return your own

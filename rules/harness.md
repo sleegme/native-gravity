@@ -157,3 +157,19 @@ Milestone verification requires an observed, current, candidate-matching Zen
 may declare global project completion, and only after directly observing the
 evidence rather than receiving a claim. Ledger state, not conversation, is
 authoritative.
+
+## Invariant integrity and non-weakening
+
+- **Non-weakening under conflict** — when a required behavior conflicts with an
+  existing test, fixture, or assigned edit scope, stop and report the conflict;
+  never add a production exception, early return, skip, or bypass to make tests
+  pass or trade away the requirement.
+- **Baseline fixture verification** — a fixture or input reported as a
+  compatibility or legacy baseline must first be demonstrated to be accepted by
+  the unchanged base code; without observed baseline acceptance, its baseline
+  status remains UNKNOWN.
+- **Explicit invariant changes** — any change to completion, authorization, or
+  validation logic is an invariant change that must be reported explicitly in the
+  candidate and reviewed as such, never folded into unrelated work or silently
+  absorbed.
+

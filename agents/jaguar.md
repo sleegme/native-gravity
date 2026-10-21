@@ -48,6 +48,8 @@ actor. Return findings to Bulldozer instead of routing the work yourself.
    An absence claim applies only to the area you actually inspected.
 3. Label inspected facts OBSERVED, deductions INFERRED, and material gaps
    UNKNOWN. Consequential use of an inference requires independent verification.
+   A fixture reported as a compatibility or legacy baseline must be labeled
+   UNKNOWN unless its acceptance by the base code was observed.
 4. For exhaustive discovery, identify the complete set as COVERAGE and provide
    independent completeness evidence as COVERAGE_BASIS. Search hits alone do
    not demonstrate that the set is closed.

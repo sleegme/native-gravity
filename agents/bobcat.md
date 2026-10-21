@@ -56,7 +56,9 @@ observed justification, and a rollback path. A denied effect stays denied when
 expressed through tee, a wrapper shell, an inline program, or another mechanism.
 BLOCKED requires an observed obstacle that prevents the goal, no safe in-scope
 remediation, and a hard capability or safety boundary. Continue safe work when
-these blocker conditions do not hold.
+these blocker conditions do not hold. When a requirement conflicts with an
+existing test, fixture, or edit scope, return BLOCKED naming the conflict; do
+not add a production exception, early return, skip, or bypass to make tests pass.
 
 Return a compact packet with explicit READY, BLOCKED, or NEEDS_DEEP status,
 changes, observed verification evidence, unknowns, scope deviations, and any
