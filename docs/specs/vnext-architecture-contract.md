@@ -219,7 +219,7 @@ Excavator runs this path as a Bulldozer worker inside the delegated milestone (o
 
 ### 2.8 Zen — Independent Verification Gate
 
-**Model:** exact Gemini 4 Argon / High, resolved from the policy table (§6.3) for the native invocation (OQ-2 updated by the 2026-10-16 Argon remap; `--agent zen` selection is unavailable)
+**Model:** exact Claude Opus 5.5 / High, resolved from the policy table (§6.3) for the native invocation (OQ-2 updated by the 2026-10-22 Opus remap; `--agent zen` selection is unavailable)
 
 **vNext invariant.**
 
@@ -544,7 +544,7 @@ Initial target policy (subject to live validation in slice 44B):
 | Bobcat | Flash | native | native AGY subagent |
 | Excavator | Flash | native | native AGY subagent |
 | Strix Halo | Flash | native | native AGY subagent |
-| Zen | Gemini 4 Argon | High | native invocation by `ntg-vnext` (policy-resolved slug, not `--agent`) |
+| Zen | Claude Opus 5.5 | High | native invocation by `ntg-vnext` (policy-resolved slug, not `--agent`) |
 
 **Do NOT hard-code unverified AGY model slugs.** Resolve exact slug from the installed AGY model surface during implementation. If a slug cannot be resolved, runner must fail with a structured error rather than falling back silently.
 
@@ -663,7 +663,7 @@ The following items are explicitly unresolved at the time this contract is froze
 | ID | Item | Relevant Slice |
 |---|---|---|
 | OQ-1 | Exact AGY model slugs for the policy-table families (Gemini 4 Argon, Gemini 3.8 Flash, Claude Opus 5.5, Claude Sonnet 5.5) — must be resolved from the installed AGY surface, not assumed | 44B |
-| OQ-2 | Whether Zen should use an exact model or a native tier — updated by #74 on 2026-10-16: Zen is invoked natively on exact Gemini 4 Argon / High resolved from the policy table, since `--agent` selection no longer resolves | 44B / 44F |
+| OQ-2 | Whether Zen should use an exact model or a native tier — updated by #74 on 2026-10-16: Zen is invoked natively on an exact model resolved from the policy table, since `--agent` selection no longer resolves; superseded 2026-10-22: Zen resolves to exact Claude Opus 5.5 / High | 44B / 44F |
 | OQ-3 | Exact final authority, placement, and model assignment of Excavator in the vNext graph | Resolved (owner decision; pin limitation verified in #74): Bulldozer worker for hard diagnosis/repair, native Flash tier (Argon High pin blocked by AGY native frontmatter), no nested delegation, never invokes Zen — §2.9 |
 | OQ-4 | Exact AGY CLI invocation path for Sonnet (Instinct backend) — must be validated before Instinct is implemented | Resolved #20 |
 | OQ-5 | Ledger persistence format and location (YAML file, sidecar artifact, etc.) — implementation decision for 44C | 44C |

@@ -325,7 +325,7 @@ test('native Zen is model-pinned by policy and never by --agent', t => {
 
   const args = zenArgs(agy);
   assert.equal(args.includes('--agent'), false);
-  assert.equal(args[args.indexOf('--model') + 1], 'gemini-4-argon-high');
+  assert.equal(args[args.indexOf('--model') + 1], 'claude-opus-5-5-high');
   assert.equal(args[args.indexOf('--output-format') + 1], 'json');
   assert.ok(args.includes('--dangerously-skip-permissions'));
   assert.ok(args.includes('-p'));
@@ -339,12 +339,12 @@ test('native Zen is model-pinned by policy and never by --agent', t => {
 });
 
 test('NTG_ZEN_MODEL overrides the resolved Zen slug and fails closed without a matching model', t => {
-  process.env.NTG_ZEN_MODEL = 'claude-opus-5-5-high';
+  process.env.NTG_ZEN_MODEL = 'gemini-4-argon-high';
   try {
     const agy = fakeZen(t, { status: 'SUCCESS', response: zenGo });
     assert.equal(nativeZen({}, { agyPath: agy }).verdict, 'GO');
     const args = zenArgs(agy);
-    assert.equal(args[args.indexOf('--model') + 1], 'claude-opus-5-5-high');
+    assert.equal(args[args.indexOf('--model') + 1], 'gemini-4-argon-high');
     assert.equal(args.includes('--agent'), false);
   } finally {
     delete process.env.NTG_ZEN_MODEL;

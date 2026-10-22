@@ -267,7 +267,7 @@ Model policy, not hard-coded slugs:
 | Bobcat | Flash | native | native subagent |
 | Excavator | Flash | native | native subagent |
 | Strix Halo | Flash | native | native subagent |
-| Zen | Gemini 4 Argon | High | native invocation by `ntg-vnext` (policy-resolved slug) |
+| Zen | Claude Opus 5.5 | High | native invocation by `ntg-vnext` (policy-resolved slug) |
 
 ## Excavator shell boundary
 
