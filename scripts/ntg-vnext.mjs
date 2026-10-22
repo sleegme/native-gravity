@@ -31,6 +31,9 @@ import { fileURLToPath } from 'node:url';
 import { MinimalSpine, recommendNeedsAlt } from './spine.mjs';
 import { AuthoritativeLedger, computeUsageRollup } from './ledger.mjs';
 import { invoke, loadNativeRoleBody, parseResponseEnvelope, parseResponsePacket, resolveSlug } from './runner.mjs';
+import { createInterface } from 'node:readline';
+import { reportIssueCli } from './report-issue.mjs';
+
 
 /** Executor provenance markers inherited by every runner/Zen child (#135 B2). */
 export const SUPERVISOR_PID_ENV = 'NTG_SUPERVISOR_PID';
@@ -578,12 +581,106 @@ function invokedDirectly() {
   }
 }
 
+export const REPORT_PROMPT_QUESTION = 'Report this problem as an issue? (y/N)';
+
+/**
+ * Evaluates whether an issue report prompt should be shown.
+ * Prompts only when both stdin and stderr are TTYs, and skips when CI is set
+ * or NTG_NO_REPORT_PROMPT=1.
+ */
+export function shouldPromptForReport({ stdin = process.stdin, stderr = process.stderr, env = process.env } = {}) {
+  if (Boolean(env.CI)) return false;
+  if (env.NTG_NO_REPORT_PROMPT === '1') return false;
+  return Boolean(stdin?.isTTY && stderr?.isTTY);
+}
+
+/**
+ * Top-level CLI execution for ntg-vnext.
+ * Runs main(argv, deps), then if the command ended with a problem (rejected
+ * promise, or non-zero exit code), prompts interactively or prints the report hint.
+ *
+ * @param {string[]} argv Command-line arguments without node or script path
+ * @param {object} [io={}] Injected I/O, environment, and dependencies for testing
+ * @returns {Promise<{ code: number, out?: object, error?: Error }>}
+ */
+export async function runCli(argv, io = {}) {
+  const stdin = io.stdin ?? process.stdin;
+  const stdout = io.stdout ?? process.stdout;
+  const stderr = io.stderr ?? process.stderr;
+  const env = io.env ?? process.env;
+  const prompt = io.prompt ?? null;
+  const reportIssue = io.reportIssue ?? reportIssueCli;
+  const deps = io.deps ?? {};
+
+  let result = null;
+  let error = null;
+  let exitCode = 0;
+
+  try {
+    result = await main(argv, deps);
+    exitCode = typeof result?.code === 'number' ? result.code : 0;
+    if (result?.out !== undefined) {
+      stdout.write(JSON.stringify(result.out, null, 2) + '\n');
+    }
+  } catch (err) {
+    error = err;
+    exitCode = 1;
+    stderr.write(`ntg-vnext: ${err?.message ?? err}\n`);
+  }
+
+  const isProblem = error !== null || exitCode !== 0;
+  if (isProblem) {
+    const ledgerIdx = argv.indexOf('--ledger');
+    const ledgerPath = (ledgerIdx !== -1 && argv[ledgerIdx + 1]) ? argv[ledgerIdx + 1] : '<path>';
+
+    if (shouldPromptForReport({ stdin, stderr, env })) {
+      stderr.write(`${REPORT_PROMPT_QUESTION}\n`);
+      let answer = '';
+      if (typeof prompt === 'function') {
+        answer = await prompt(REPORT_PROMPT_QUESTION);
+      } else {
+        const rl = createInterface({ input: stdin, output: stderr });
+        answer = await new Promise((res) => {
+          let settled = false;
+          rl.question('', (ans) => {
+            settled = true;
+            rl.close();
+            res(ans);
+          });
+          rl.once('close', () => {
+            if (!settled) res('');
+          });
+        });
+      }
+
+      const normalized = typeof answer === 'string' ? answer.trim().toLowerCase() : '';
+      if (normalized === 'y' || normalized === 'yes') {
+        try {
+          await reportIssue(['--ledger', ledgerPath], {
+            stdin,
+            stdout,
+            stderr,
+            env,
+            prompt: io.reportPrompt ?? prompt,
+            cwd: io.cwd ?? process.cwd(),
+            spawn: io.spawn,
+          });
+        } catch (reportErr) {
+          stderr.write(`ntg-report-issue error: ${reportErr?.message ?? reportErr}\n`);
+        }
+      }
+    } else {
+      stderr.write(`To report this issue: ntg-report-issue --ledger ${ledgerPath}\n`);
+    }
+  }
+
+  return { code: exitCode, out: result?.out, error };
+}
+
 if (invokedDirectly()) {
-  main(process.argv.slice(2)).then(({ code, out }) => {
-    process.stdout.write(JSON.stringify(out, null, 2) + '\n');
+  const argv = process.argv.slice(2);
+  runCli(argv).then(({ code }) => {
     process.exitCode = code;
-  }, (error) => {
-    process.stderr.write(`ntg-vnext: ${error?.message ?? error}\n`);
-    process.exitCode = 1;
   });
 }
+
