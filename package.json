@@ -27,6 +27,8 @@
         "scripts/dag-view.mjs",
         "scripts/navi.mjs",
         "scripts/navi-bridge.mjs",
+        "scripts/navi-validation/",
+        "docs/navi-windows-kit.ko.md",
         "tests/test_dag_view.mjs",
         "scripts/ntg-vnext.mjs",
         "scripts/spine.mjs",

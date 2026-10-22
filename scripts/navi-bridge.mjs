@@ -15,8 +15,15 @@ import { createInterface } from "node:readline";
  *
  * Usage: node navi-bridge.mjs <server-command> [server-args...]
  */
-const [, , server, ...serverArgs] = process.argv;
+const args = process.argv.slice(2);
+const windows = args[0] === "--windows";
+if (windows) args.shift();
+const [server, ...serverArgs] = args;
+const desktopTools = new Set(["Snapshot", "Screenshot", "Click", "Type", "Scroll", "Move", "Shortcut", "WaitFor"]);
+const toolLists = new Set();
+const reply = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 const child = spawn(server, serverArgs, { stdio: ["pipe", "pipe", "inherit"] });
+child.on("error", () => process.exit(1));
 const requests = createInterface({ input: process.stdin, crlfDelay: Infinity });
 requests.on("line", (line) => {
   let message = null;
@@ -32,10 +39,33 @@ requests.on("line", (line) => {
     );
     return;
   }
+  if (windows && message?.method) {
+    const allowed = ["initialize", "notifications/initialized", "ping", "tools/list", "tools/call"];
+    if (!allowed.includes(message.method)
+      || (message.method === "tools/call" && !desktopTools.has(message.params?.name))) {
+      if (message.id !== undefined) reply({
+        jsonrpc: "2.0", id: message.id,
+        error: { code: -32601, message: "Operation is outside the Navi desktop tool boundary" },
+      });
+      return;
+    }
+    if (message.method === "tools/list") toolLists.add(message.id);
+  }
   child.stdin.write(`${line}\n`);
 });
 createInterface({ input: child.stdout, crlfDelay: Infinity })
-  .on("line", (line) => process.stdout.write(`${line}\n`));
+  .on("line", (line) => {
+    if (!windows) {
+      process.stdout.write(`${line}\n`);
+      return;
+    }
+    let message;
+    try { message = JSON.parse(line); } catch { return; }
+    if (toolLists.delete(message.id) && Array.isArray(message.result?.tools)) {
+      message.result.tools = message.result.tools.filter(tool => desktopTools.has(tool.name));
+    }
+    reply(message);
+  });
 
 // Bounded shutdown: SIGTERM the server, escalate to SIGKILL when it is still
 // alive after the grace period, then reap it (await its exit) and exit with
