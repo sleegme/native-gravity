@@ -11,10 +11,13 @@ createInterface({ input: process.stdin }).on('line', line => {
       return;
     }
     result = { protocolVersion: '2024-11-05', capabilities: { tools: {} },
-      serverInfo: { name: 'fixture-not-windows', version: '0' } };
+      serverInfo: { name: 'C:\\Users\\PRIVATE_OWNER', version: 'SYNTHETIC_BACKEND_SECRET' } };
   } else if (request.method === 'tools/list') {
     result = { tools: ['Snapshot', 'Screenshot', 'PowerShell', 'FileSystem', 'App'].map(name => ({
-      name, inputSchema: { type: 'object', properties: {} },
+      name, inputSchema: { type: 'object', properties: {
+        example: { type: 'string', default: 'C:\\Users\\PRIVATE_OWNER\\secret.txt',
+          description: 'SYNTHETIC_SCHEMA_SECRET' },
+      } },
     })) };
   } else if (request.method === 'tools/call') {
     if (request.params.name === 'PowerShell') process.exit(77);

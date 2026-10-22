@@ -1,7 +1,8 @@
 param(
     [string]$Output,
     [string]$Backend,
-    [string]$Steps
+    [string]$Steps,
+    [string]$SchemaOutput
 )
 $ErrorActionPreference = 'Stop'
 $repo = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
@@ -104,11 +105,15 @@ try {
             $backendOutput = Join-Path $fixture 'backend.json'
             $probe = Join-Path $PSScriptRoot 'probe.mjs'
             $arguments = @($probe, '--backend', $application.Source, '--output', $backendOutput)
+            if (-not $SchemaOutput) {
+                $SchemaOutput = [System.IO.Path]::ChangeExtension([System.IO.Path]::GetFullPath($Output), 'schemas.local.json')
+            }
+            $arguments += @('--schemas', [System.IO.Path]::GetFullPath($SchemaOutput))
             if ($Steps) { $arguments += @('--steps', [System.IO.Path]::GetFullPath($Steps)) }
             & $node.Source @arguments
             $backendExit = $LASTEXITCODE
             if (Test-Path -LiteralPath $backendOutput) {
-                $report.backend_probe = Get-Content -LiteralPath $backendOutput -Raw | ConvertFrom-Json
+                $report.backend_probe = Get-Content -LiteralPath $backendOutput -Raw -Encoding UTF8 | ConvertFrom-Json
             }
             if ($backendExit -ne 0) { throw 'BACKEND_PROBE_FAILED' }
         } else {

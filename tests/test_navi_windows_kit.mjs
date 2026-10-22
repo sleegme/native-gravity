@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
+import { createInterface } from 'node:readline';
+import { spawn } from 'node:child_process';
 import { probe } from '../scripts/navi-validation/probe.mjs';
 
 const fixture = fileURLToPath(new URL('./fixtures/navi-windows-mcp.mjs', import.meta.url));
@@ -22,8 +24,47 @@ test('Windows MCP probe filters discovery and blocks direct shell calls before t
   assert.ok(report.native_pending.length > 0);
   assert.ok(!JSON.stringify(report).includes('PRIVATE_DESKTOP_SENTINEL'));
   assert.ok(!JSON.stringify(report).includes('PRIVATE_IMAGE_SENTINEL'));
+  assert.ok(!JSON.stringify(report).includes('PRIVATE_OWNER'));
+  assert.ok(!JSON.stringify(report).includes('SYNTHETIC_SCHEMA_SECRET'));
+  assert.ok(!JSON.stringify(report).includes('SYNTHETIC_BACKEND_SECRET'));
 });
 
+test('raw backend schemas remain locally inspectable but never enter the shareable report', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'ntg-local-schema-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const schemaOutput = join(directory, 'schemas.local.json');
+  const report = await probe({ backend: process.execPath, backendArgs: [fixture], schemaOutput });
+  assert.equal(report.status, 'PASS');
+  assert.ok(readFileSync(schemaOutput, 'utf8').includes('SYNTHETIC_SCHEMA_SECRET'));
+  assert.ok(!JSON.stringify(report).includes('SYNTHETIC_SCHEMA_SECRET'));
+});
+
+test('Windows bridge rejects batch and malformed envelopes without delivering them to the backend', async t => {
+  const bridge = fileURLToPath(new URL('../scripts/navi-bridge.mjs', import.meta.url));
+  const child = spawn(process.execPath, [bridge, '--windows', process.execPath, fixture],
+    { stdio: ['pipe', 'pipe', 'ignore'] });
+  t.after(() => child.kill());
+  const lines = createInterface({ input: child.stdout });
+  t.after(() => lines.close());
+  const replies = [];
+  const received = new Promise((resolveReplies, reject) => {
+    const timer = setTimeout(() => reject(new Error('bridge replies timed out')), 5000);
+    lines.on('line', line => {
+      replies.push(JSON.parse(line));
+      if (replies.length === 4) { clearTimeout(timer); resolveReplies(); }
+    });
+  });
+  child.stdin.write(`${JSON.stringify([{ jsonrpc: '2.0', id: 1, method: 'tools/call',
+    params: { name: 'PowerShell', arguments: {} } }])}\n`);
+  child.stdin.write(`${JSON.stringify([{ jsonrpc: '2.0', id: 2, method: 'tools/list' }])}\n`);
+  child.stdin.write('{not-json\n');
+  child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'initialize' })}\n`);
+  await received;
+  assert.deepEqual(replies.slice(0, 3).map(reply => reply.error.code), [-32600, -32600, -32600]);
+  assert.equal(replies[3].id, 3);
+  assert.ok(replies[3].result.serverInfo);
+  child.stdin.end();
+});
 test('Windows MCP probe reports initialization failure and still closes the bridge', async () => {
   const report = await probe({ backend: process.execPath, backendArgs: [fixture, '--reject-init'] });
   assert.equal(report.status, 'FAIL');

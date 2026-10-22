@@ -66,8 +66,12 @@ powershell.exe -NoProfile -File .\scripts\navi-validation\windows-kit.ps1 `
 PowerShell·파일·레지스트리·앱 실행·프로세스 도구는 노출하지 않는다.
 서버 텔레메트리는 이 프로세스에서 끈다.
 
-키트는 도구 schema를 결과 JSON에 남기고, PowerShell 직접 호출이 backend에
-전달되기 전에 거부되는지 검사한다. 원래 backend의 모든 도구를 허용하지 않는다.
+키트는 PowerShell 직접 호출이 backend에 전달되기 전에 거부되는지 검사한다.
+원래 backend의 모든 도구를 허용하지 않으며 배치/잘못된 JSON도 전달하지 않는다.
+반송 결과에는 허용된 도구 이름만 남긴다. 원시 schema와 serverInfo는 별도의
+`navi-windows-<UTC>.schemas.local.json`에 보관한다(`-SchemaOutput`으로 위치 지정).
+이 로컬 전용 파일에는 backend가 넣은 경로·설명·기본값이 포함될 수 있으므로
+**커밋하거나 반송하지 않는다**. 기본 이름은 Git에서도 무시한다.
 AGY 설정은 수정하지 않으며, 이 단계는 AGY나 유료 모델을 호출하지 않는다.
 
 ## 3. 화면 관찰과 테스트 입력
@@ -78,7 +82,7 @@ AGY 설정은 수정하지 않으며, 이 단계는 AGY나 유료 모델을 호�
 powershell.exe -NoProfile -STA -File .\scripts\navi-validation\scratch.ps1
 ```
 
-Windows OmO는 2단계 결과의 **실제 inputSchema**를 읽고 작업한다.
+Windows OmO는 2단계의 로컬 전용 schema 파일에서 **실제 inputSchema**를 읽고 작업한다.
 Linux의 `get_app_state`/`type_text` 인자를 Windows 도구에 추측 적용하지 않는다.
 단계 파일은 다음 형태의 JSON 배열이다:
 

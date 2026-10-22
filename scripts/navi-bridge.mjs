@@ -21,6 +21,7 @@ if (windows) args.shift();
 const [server, ...serverArgs] = args;
 const desktopTools = new Set(["Snapshot", "Screenshot", "Click", "Type", "Scroll", "Move", "Shortcut", "WaitFor"]);
 const toolLists = new Set();
+const forwarded = new Set();
 const reply = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 const child = spawn(server, serverArgs, { stdio: ["pipe", "pipe", "inherit"] });
 child.on("error", () => process.exit(1));
@@ -31,6 +32,11 @@ requests.on("line", (line) => {
     message = JSON.parse(line);
   } catch {
     // Forward non-JSON lines unchanged; the server decides what to do with them.
+  }
+  if (windows && (!message || typeof message !== "object" || Array.isArray(message)
+    || message.jsonrpc !== "2.0" || typeof message.method !== "string")) {
+    reply({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "A single JSON-RPC request is required" } });
+    return;
   }
   if (message && message.method === "server/discover") {
     const id = message.id === undefined ? null : message.id;
@@ -50,6 +56,7 @@ requests.on("line", (line) => {
       return;
     }
     if (message.method === "tools/list") toolLists.add(message.id);
+    if (message.id !== undefined) forwarded.add(message.id);
   }
   child.stdin.write(`${line}\n`);
 });
@@ -61,6 +68,8 @@ createInterface({ input: child.stdout, crlfDelay: Infinity })
     }
     let message;
     try { message = JSON.parse(line); } catch { return; }
+    if (!message || typeof message !== "object" || Array.isArray(message)
+      || message.jsonrpc !== "2.0" || message.method || !forwarded.delete(message.id)) return;
     if (toolLists.delete(message.id) && Array.isArray(message.result?.tools)) {
       message.result.tools = message.result.tools.filter(tool => desktopTools.has(tool.name));
     }
@@ -84,6 +93,14 @@ function shutdown() {
 
 child.on("exit", (code, signal) => {
   if (escalateTimer) clearTimeout(escalateTimer);
+  // A surviving backend descendant would otherwise outlive the probe. On
+  // POSIX the bridge leads its own group, so kill the remaining group before
+  // exiting; ESRCH means everything already exited.
+  if (windows && process.platform !== "win32") {
+    try { process.kill(-process.pid, "SIGKILL"); } catch (error) {
+      if (error.code !== "ESRCH") throw error;
+    }
+  }
   process.exit(signal ? 1 : (code ?? 0));
 });
 process.stdin.on("close", shutdown);
