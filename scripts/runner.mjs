@@ -37,7 +37,7 @@ export const ROLE_POLICY_TABLE = Object.freeze({
   }),
   zen: Object.freeze({
     role: "zen",
-    family: "Gemini 4 Argon",
+    family: "Claude Opus 5.5",
     effort: "High",
   }),
   bulldozer: Object.freeze({

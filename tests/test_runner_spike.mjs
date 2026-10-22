@@ -121,6 +121,7 @@ runTest("1.4: Deterministic resolution against cached installed models for all r
     { slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" },
     { slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" },
     { slug: "claude-sonnet-5-5-high", description: "Claude Sonnet 5.5 (High)" },
+    { slug: "claude-opus-5-5-high", description: "Claude Opus 5.5 (High)" },
   ];
 
   const piledriverSlug = resolveSlug("piledriver", { installedModels: mockSurface });
@@ -144,9 +145,9 @@ runTest("1.4: Deterministic resolution against cached installed models for all r
   assert.strictEqual(ROLE_POLICY_TABLE.steamroller.family, "Gemini 4 Argon");
   assert.strictEqual(ROLE_POLICY_TABLE.steamroller.effort, "Medium");
   // Zen is policy-resolved for its native invocation without becoming a runner role.
-  assert.strictEqual(ROLE_POLICY_TABLE.zen.family, "Gemini 4 Argon");
+  assert.strictEqual(ROLE_POLICY_TABLE.zen.family, "Claude Opus 5.5");
   assert.strictEqual(ROLE_POLICY_TABLE.zen.effort, "High");
-  assert.strictEqual(resolveSlug("zen", { installedModels: mockSurface }), "gemini-4-argon-high");
+  assert.strictEqual(resolveSlug("zen", { installedModels: mockSurface }), "claude-opus-5-5-high");
 
   // Hard-coded mapping removed from ROLE_MODEL_TABLE
   assert.deepStrictEqual(Object.keys(ROLE_MODEL_TABLE), []);
@@ -181,9 +182,9 @@ runTest("1.6: Live installed surface resolution against system agy models", () =
   const bSlug = resolveSlug("bulldozer");
   assert.strictEqual(bSlug, "gemini-3.8-flash-high");
 
-  // Verify Zen resolves live to gemini-4-argon-high for its native invocation
+  // Verify Zen resolves live to claude-opus-5-5-high for its native invocation
   const zSlug = resolveSlug("zen");
-  assert.strictEqual(zSlug, "gemini-4-argon-high");
+  assert.strictEqual(zSlug, "claude-opus-5-5-high");
 
   for (const role of Object.keys(ROLE_POLICY_TABLE)) {
     const slug = resolveSlug(role, { installedModels: models });
