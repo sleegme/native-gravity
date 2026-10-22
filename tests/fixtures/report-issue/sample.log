@@ -1,0 +1,3 @@
+[INFO] 2026-10-22T00:00:00Z System starting up at /home/fakeuser/app
+[DEBUG] Token present: ghp_12345678901234567890
+[ERROR] Failed authentication with fake-engineer@example.com

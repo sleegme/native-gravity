@@ -7,6 +7,7 @@
     "bin": {
         "native-gravity": "scripts/npm-install.mjs",
         "ntg-dag": "scripts/dag-view.mjs",
+        "ntg-report-issue": "scripts/report-issue.mjs",
         "ntg-vnext": "scripts/ntg-vnext.mjs"
     },
     "files": [
@@ -29,6 +30,7 @@
         "scripts/navi-bridge.mjs",
         "tests/test_dag_view.mjs",
         "scripts/ntg-vnext.mjs",
+        "scripts/report-issue.mjs",
         "scripts/spine.mjs",
         "scripts/runner.mjs",
         "scripts/ledger.mjs",
