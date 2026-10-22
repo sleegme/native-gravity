@@ -1,9 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { resolve, join } from "node:path";
-import { readFileSync, mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";
+import fs, { readFileSync, mkdtempSync, rmSync, existsSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
+import { PassThrough } from "node:stream";
+import { syncBuiltinESMExports } from "node:module";
+
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 import { collectReport, redact, renderIssue, reportIssueCli } from "../scripts/report-issue.mjs";
 import { runCli, shouldPromptForReport, REPORT_PROMPT_QUESTION } from "../scripts/ntg-vnext.mjs";
@@ -443,7 +449,7 @@ test("reportIssueCli: non-TTY never calls gh and prints the manual command", asy
     assert.equal(calls.length, 0, "Non-TTY must never call gh");
     assert.match(
       stdoutBuf,
-      new RegExp(`gh issue create --repo sleegme/native-gravity --title ".*" --body-file ${outPath}`)
+      new RegExp(`gh issue create --repo 'sleegme/native-gravity' --title '.*' --body-file '${escapeRegExp(outPath)}'`)
     );
   } finally {
     rmSync(tmpDir, { recursive: true, force: true });
@@ -477,7 +483,7 @@ test("reportIssueCli: missing gh (ENOENT) prints manual command and GitHub URL",
     assert.equal(code, 1);
     assert.match(
       stderrBuf,
-      new RegExp(`gh issue create --repo custom-owner/custom-repo --title ".*" --body-file ${outPath}`)
+      new RegExp(`gh issue create --repo 'custom-owner/custom-repo' --title '.*' --body-file '${escapeRegExp(outPath)}'`)
     );
     assert.match(stderrBuf, /https:\/\/github\.com\/custom-owner\/custom-repo\/issues\/new/);
   } finally {
@@ -790,3 +796,288 @@ test("ntg-vnext: no prompt can appear before main() settles and releases ledger 
 });
 
 
+
+test("B1: failure args and named-log bodies never reach the preview (source/transcript exclusion)", async () => {
+  const tmpDir = mkdtempSync(join(tmpdir(), "ntg-b1-"));
+  try {
+    const ledgerPath = join(tmpDir, "leak-ledger.json");
+    writeFileSync(ledgerPath, JSON.stringify({
+      plan_version: "v1",
+      milestones: [{ id: "r1", title: "milestone one", dependencies: [] }],
+      evidence: {
+        r1: {
+          failure_evidence: [
+            {
+              status: "FAILED",
+              timestamp: "2026-10-22T00:00:00.000Z",
+              evidence: {
+                failed_step: {
+                  tool: "write",
+                  args: {
+                    path: "src/private.js",
+                    content: "export function confidentialAlgorithm() { return 123; }",
+                  },
+                  transcript: "raw transcript data that must never be leaked",
+                },
+              },
+            },
+            {
+              status: "FAILED",
+              timestamp: "2026-10-22T00:01:00.000Z",
+              evidence: {
+                failed_step: {
+                  tool: "edit",
+                  args: { candidate_payload: { changes_made: "fake secret changes_made body containing proprietary text" } },
+                },
+              },
+            },
+          ],
+        },
+      },
+    }));
+
+    const logPath = join(tmpDir, "run.log");
+    writeFileSync(logPath, [
+      "export function confidentialAlgorithm() { return 123; }",
+      "raw transcript data that must never be leaked",
+      "timeout: role invocation timed out after 30s",
+    ].join("\n") + "\n");
+
+    const report = collectReport({ ledgerPath, logPaths: [logPath], cwd: tmpDir });
+    const reportJson = JSON.stringify(report);
+    assert.doesNotMatch(reportJson, /confidentialAlgorithm/);
+    assert.doesNotMatch(reportJson, /raw transcript data/);
+    assert.doesNotMatch(reportJson, /src\/private\.js/);
+    assert.doesNotMatch(reportJson, /changes_made/);
+
+    // failed_step is summarized as tool name + step index only
+    assert.equal(report.failure_evidence.length, 2);
+    const first = report.failure_evidence[0];
+    assert.equal(first.failed_step.tool, "write");
+    assert.equal(first.failed_step.step_index, 0);
+    assert.equal(first.failed_step.args, undefined);
+    assert.equal(first.failed_step.command, undefined);
+    assert.equal(report.failure_evidence[1].failed_step.step_index, 1);
+
+    // named log: only error-relevant lines survive, each redacted
+    const logSummary = report.logs_summary[0];
+    assert.equal(logSummary.line_count, 4);
+    assert.equal(logSummary.tail.length, 1);
+    assert.match(logSummary.tail[0], /timeout/i);
+
+    const { title, body } = renderIssue(report);
+    const rendered = title + "\n" + body;
+    assert.doesNotMatch(rendered, /confidentialAlgorithm/);
+    assert.doesNotMatch(rendered, /raw transcript data/);
+    assert.match(body, /\*\*Tool\*\*: `write`/);
+    assert.match(body, /\*\*Step Index\*\*: 0/);
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("B2: redact covers the gate's leak matrix without touching ordinary prose", () => {
+  // 32-char mixed-case alphanumeric secret (no provider prefix)
+  const mixed = "aZ9mQ2vN7pL4xR8sT1wK6dF3hJ5cB0uE";
+  const out1 = redact(`credential rejected: ${mixed}`);
+  assert.doesNotMatch(out1, new RegExp(mixed.slice(0, 12)));
+  assert.match(out1, /\[REDACTED\]/);
+
+  // JWT with short-but-valid payload `e30` (base64url of `{}`)
+  const shortJwt = "eyJhbGciOiJIUzI1NiJ9.e30.c2lnbmF0dXJlYXNkZmdoamtscXdlcnR5dWlvcGFzZGY";
+  const out2 = redact(`Received JWT token: ${shortJwt}`);
+  assert.doesNotMatch(out2, /eyJhbGciOiJIUzI1NiJ9\.e30/);
+  assert.match(out2, /\[REDACTED\]/);
+
+  // base64-encoded key material (long high-entropy run)
+  const b64 = "c2stcHJvai1hWjltUTJ2TjdwTDR4UjhzVDF3SzZkRjNoSjVjQjB1RQ==";
+  const out3 = redact(`encoded value ${b64} in log`);
+  assert.doesNotMatch(out3, /c2stcHJvai1hWjltUTJ2/);
+
+  // Authorization: Bearer with a short value
+  const out4 = redact("Authorization: Bearer abc123");
+  assert.doesNotMatch(out4, /abc123/);
+  assert.match(out4, /Authorization: \[REDACTED\]/);
+
+  // KEY/TOKEN/SECRET/PASSWORD env value of any length, 2 chars included
+  assert.equal(redact("q7", { env: { SHORT_PASSWORD: "q7" } }), "[REDACTED]");
+
+  // provider token prefix without a word boundary before it
+  const prefixed = "token_ghp_aZ9mQ2vN7pL4xR8sT1wK6dF3hJ5cB0uE1234";
+  const out5 = redact(prefixed);
+  assert.doesNotMatch(out5, /ghp_/);
+  assert.match(out5, /token_\[REDACTED\]/);
+
+  // ordinary prose stays intact (gate false-positive matrix)
+  const prose = [
+    "Build failed at src/app.mjs:17, exit 2",
+    "The quick brown fox jumps over the lazy dog.",
+    "version: 1.2.3",
+    "task-management-system-v2 and risk-analysis-framework-v2 stayed readable",
+    "Error: file not found at src/app.ts:42",
+  ];
+  for (const text of prose) {
+    assert.equal(redact(text), text);
+  }
+});
+
+test("B3: collectReport never reads package.json and omits ntg_version when not user-provided", () => {
+  const tmpDir = mkdtempSync(join(tmpdir(), "ntg-b3-"));
+  try {
+    writeFileSync(join(tmpDir, "package.json"), JSON.stringify({ name: "private-customer-project", version: "99.88.77" }));
+    const ledgerPath = join(tmpDir, "named-ledger.json");
+    writeFileSync(ledgerPath, JSON.stringify({ plan_version: "v1", milestones: [] }));
+
+    const reads = [];
+    const origReadFileSync = fs.readFileSync;
+    fs.readFileSync = function tracedReadFileSync(path, ...rest) {
+      reads.push(String(path));
+      return origReadFileSync.call(this, path, ...rest);
+    };
+    syncBuiltinESMExports();
+    let report;
+    try {
+      report = collectReport({ ledgerPath, cwd: tmpDir });
+    } finally {
+      fs.readFileSync = origReadFileSync;
+      syncBuiltinESMExports();
+    }
+
+    assert.ok(
+      !reads.some((p) => p.endsWith("package.json")),
+      `package.json must never be read (reads: ${reads.join(", ")})`
+    );
+    assert.ok(reads.some((p) => p.endsWith("named-ledger.json")), "the named ledger is read");
+    assert.equal(report.ntg_version, null);
+
+    const { body } = renderIssue(report);
+    assert.match(body, /\*\*NTG Version\*\*: N\/A/);
+    assert.doesNotMatch(body, /99\.88\.77/);
+    assert.doesNotMatch(body, /private-customer-project/);
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("B4: EOF (Ctrl-D) at the submission prompt declines the report and preserves the original exit code", async () => {
+  const tmpDir = mkdtempSync(join(tmpdir(), "ntg-b4-"));
+  try {
+    const stdin = new PassThrough();
+    stdin.isTTY = true;
+    const stdout = new PassThrough();
+    stdout.isTTY = true;
+    const stderr = new PassThrough();
+    stderr.isTTY = true;
+    const stdoutChunks = [];
+    // Collect from the start and end stdin (EOF) exactly when the submission
+    // prompt appears, the way Ctrl-D at the second prompt behaves in a real
+    // terminal.
+    stdout.on("data", (chunk) => {
+      stdoutChunks.push(String(chunk));
+      if (String(chunk).includes("Submit this issue to GitHub?")) stdin.end();
+    });
+    const spawns = [];
+    const spawnRecorder = (cmd, args) => { spawns.push({ cmd, args }); return { status: 0 }; };
+
+    // First prompt answered 'y' through the real readline; the stream then
+    // hits EOF at the second (submission) prompt.
+    stdin.write("y\n");
+
+    const res = await runCli(["invalid-command", "--ledger", join(tmpDir, "ledger.json")], {
+      stdin,
+      stdout,
+      stderr,
+      env: {},
+      cwd: tmpDir,
+      spawn: spawnRecorder,
+    });
+
+    assert.equal(res.code, 1, "original failure exit code must survive EOF at the report prompt");
+    assert.equal(spawns.length, 0, "gh must never be spawned");
+    await new Promise((resolve) => setImmediate(resolve));
+    const out = stdoutChunks.join("");
+    assert.match(out, /Submission aborted/);
+    assert.match(out, /### Failure Evidence/);
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("B5: printed manual command is shell-exact (single-quoted --repo and --body-file)", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "ntg b5-"));
+  try {
+    const ledgerPath = resolve("tests/fixtures/report-issue/fixture.ledger.json");
+    const binDir = join(cwd, "bin");
+    mkdirSync(binDir);
+    const argsFile = join(cwd, "gh-args.txt");
+    writeFileSync(join(binDir, "gh"), '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$GH_ARGS_FILE"\n');
+    chmodSync(join(binDir, "gh"), 0o755);
+
+    let stdoutBuf = "";
+    const code = await reportIssueCli(
+      ["--ledger", ledgerPath, "--out", "issue preview.md"],
+      {
+        cwd,
+        isTTY: false,
+        stdout: { write: (s) => { stdoutBuf += s; } },
+        stderr: { write: () => {} },
+      }
+    );
+    assert.equal(code, 0);
+
+    const m = stdoutBuf.match(/To submit manually, run:\n\s+(.+)/);
+    assert.ok(m, "manual command must be printed");
+    const cmd = m[1];
+    assert.match(cmd, /--repo 'sleegme\/native-gravity'/);
+    assert.match(cmd, /--body-file '.*issue preview\.md'/);
+
+    // Execute the printed line through a real shell with a gh shim and
+    // require the same argument vector as the direct spawn path.
+    const res = spawnSync("bash", ["-c", cmd], {
+      encoding: "utf-8",
+      env: { ...process.env, PATH: `${binDir}:${process.env.PATH}`, GH_ARGS_FILE: argsFile },
+    });
+    assert.equal(res.status, 0, `shell execution failed: ${res.stderr}`);
+    const ghArgs = readFileSync(argsFile, "utf-8").split("\n").filter(Boolean);
+    assert.equal(ghArgs.length, 8);
+    assert.equal(ghArgs[0], "issue");
+    assert.equal(ghArgs[1], "create");
+    assert.equal(ghArgs[2], "--repo");
+    assert.equal(ghArgs[3], "sleegme/native-gravity");
+    assert.equal(ghArgs[4], "--title");
+    assert.match(ghArgs[5], /^\[Bug Report\]/);
+    assert.equal(ghArgs[6], "--body-file");
+    assert.equal(ghArgs[7], join(cwd, "issue preview.md"), "spaced path must arrive as exactly one argument");
+    assert.equal(ghArgs.filter((a) => a === "--body-file").length, 1);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("B6: CI present at all (including empty string) never prompts; NTG_NO_REPORT_PROMPT=1 still never prompts", async () => {
+  const tty = { isTTY: true };
+
+  // Presence check, not truthiness: CI="" must suppress the prompt.
+  assert.equal(shouldPromptForReport({ stdin: tty, stderr: tty, env: { CI: "" } }), false);
+  assert.equal(shouldPromptForReport({ stdin: tty, stderr: tty, env: { CI: undefined } }), false);
+  assert.equal(shouldPromptForReport({ stdin: tty, stderr: tty, env: {} }), true);
+
+  // Integration: the post-run prompt must not appear for CI="" either.
+  for (const env of [{ CI: "" }, { NTG_NO_REPORT_PROMPT: "1" }]) {
+    let promptCalled = false;
+    let reportCalled = false;
+    let stderrBuf = "";
+    const res = await runCli(["invalid-command", "--ledger", "x.json"], {
+      stdin: { isTTY: true },
+      stderr: { isTTY: true, write: (s) => { stderrBuf += s; } },
+      stdout: { write: () => {} },
+      env,
+      prompt: async () => { promptCalled = true; return "yes"; },
+      reportIssue: async () => { reportCalled = true; return 0; },
+    });
+    assert.equal(res.code, 1);
+    assert.equal(promptCalled, false, `prompt must not fire for env ${JSON.stringify(env)}`);
+    assert.equal(reportCalled, false, `reportIssue must not fire for env ${JSON.stringify(env)}`);
+    assert.match(stderrBuf, /To report this issue: ntg-report-issue --ledger x\.json/);
+  }
+});

@@ -589,7 +589,9 @@ export const REPORT_PROMPT_QUESTION = 'Report this problem as an issue? (y/N)';
  * or NTG_NO_REPORT_PROMPT=1.
  */
 export function shouldPromptForReport({ stdin = process.stdin, stderr = process.stderr, env = process.env } = {}) {
-  if (Boolean(env.CI)) return false;
+  // Presence check: CI suppresses the prompt even when set to an empty
+  // string (#168 B6).
+  if ('CI' in env) return false;
   if (env.NTG_NO_REPORT_PROMPT === '1') return false;
   return Boolean(stdin?.isTTY && stderr?.isTTY);
 }
@@ -683,4 +685,3 @@ if (invokedDirectly()) {
     process.exitCode = code;
   });
 }
-

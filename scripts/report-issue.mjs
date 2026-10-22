@@ -16,25 +16,38 @@ const INLINE_ASSIGNMENT_RE =
 const COMMON_SECRET_PATTERNS = [
   // PEM private keys
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
-  // GitHub tokens (ghp_, gho_, ghu_, ghs_, ghr_, github_pat_)
-  /\b(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,})\b/g,
-  // OpenAI / Stripe-style sk- keys (16+ chars)
-  /\bsk-[A-Za-z0-9_-]{16,}\b/g,
+  // GitHub tokens (ghp_, gho_, ghu_, ghs_, ghr_, github_pat_). No leading
+  // word boundary: prefixed forms like `token_ghp_...` must be caught too.
+  /gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}/g,
+  // OpenAI / Stripe-style sk- keys (16+ chars). The lookbehind blocks prose
+  // like "task-management-..." / "risk-analysis-..." while still matching
+  // `token_sk-...` and string-initial occurrences.
+  /(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{16,}/g,
   // Google API keys (AIza + 35 chars)
-  /\bAIza[0-9A-Za-z-_]{35}\b/g,
+  /AIza[0-9A-Za-z-_]{35,}/g,
   // Slack tokens (xoxb-, xoxa-, xoxp-, xoxr-, xoxs-)
-  /\bxox[abprs]-[A-Za-z0-9-]{8,}\b/g,
+  /xox[abprs]-[A-Za-z0-9-]{8,}/g,
   // AWS access key IDs
-  /\bAKIA[0-9A-Z]{16}\b/g,
+  /AKIA[0-9A-Z]{16}/g,
   // High entropy 32+ hex character keys
   /\b[0-9a-fA-F]{32,}\b/g,
-  // JWT tokens (three base64url segments starting with eyJ)
-  /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g,
+  // JWT tokens (three base64url segments starting with eyJ). Payload and
+  // signature may be short: `e30` is the valid base64url of `{}`.
+  /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{1,}\.[A-Za-z0-9_-]{1,}/g,
+  // Generic high-entropy secrets: 20+ chars mixing upper case, lower case
+  // and digits (not only hex; also catches base64-encoded key material).
+  // Runs last so specific provider shapes match their full token first.
+  /(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{20,}/g,
 ];
 
-// Bearer / Authorization headers
-const AUTH_HEADER_RE = /(?:bearer|authorization):\s+(?:bearer\s+)?[A-Za-z0-9._~+/=-]{16,}/gi;
+// Bearer / Authorization headers. Any non-empty value: short tokens like
+// "Authorization: Bearer abc123" leak the same as long ones.
+const AUTH_HEADER_RE = /(?:authorization|bearer)\s*:\s*(?:bearer\s+)?[^\s]+/gi;
 const STANDALONE_BEARER_RE = /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}\b/gi;
+
+// Log lines relevant to failures; named logs are filtered to these before
+// redaction (at most 10 lines survive).
+const ERROR_LINE_RE = /error|fail|exception|denied|timeout/i;
 
 // Email addresses
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
@@ -81,7 +94,8 @@ export function redact(text, { env = process.env } = {}) {
     for (const [k, v] of Object.entries(env)) {
       if (SECRET_ENV_KEY_NAME.test(k) && typeof v === "string") {
         const trimmed = v.trim();
-        if (trimmed.length >= 3) {
+        // Any length, including 2-char values (#168 B2).
+        if (trimmed.length >= 1) {
           envSecretValues.add(trimmed);
         }
       }
@@ -118,31 +132,6 @@ export function redact(text, { env = process.env } = {}) {
   out = out.replace(HOME_PATH_RE, "~");
 
   return out;
-}
-
-/**
- * Deeply redacts any string within an object, array, or primitive.
- *
- * @param {*} val
- * @param {object} [options]
- * @returns {*}
- */
-export function redactValue(val, options) {
-  if (typeof val === "string") {
-    return redact(val, options);
-  }
-  if (Array.isArray(val)) {
-    return val.map((item) => redactValue(item, options));
-  }
-  if (val !== null && typeof val === "object") {
-    const res = {};
-    for (const [k, v] of Object.entries(val)) {
-      const safeKey = typeof k === "string" ? redact(k, options) : k;
-      res[safeKey] = redactValue(v, options);
-    }
-    return res;
-  }
-  return val;
 }
 
 /**
@@ -191,19 +180,11 @@ function computeMilestoneStatus(m, ledger) {
  * @returns {object}
  */
 export function collectReport({ ledgerPath, planPath, logPaths, cwd = process.cwd() } = {}) {
-  // Read NTG version from cwd/package.json if available
-  let ntgVersion = null;
-  try {
-    const pkgPath = resolve(cwd, "package.json");
-    if (existsSync(pkgPath)) {
-      const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-      if (pkg && typeof pkg.version === "string") {
-        ntgVersion = pkg.version;
-      }
-    }
-  } catch {
-    ntgVersion = null;
-  }
+  // The NTG version is intentionally not discovered from the caller's
+  // working directory: reading an unnamed package.json both violates the
+  // named-input contract and mislabels the caller's project version as
+  // NTG's (#168 B3). It stays null unless a user-named input carries it.
+  const ntgVersion = null;
 
   // Read ledger if provided
   let ledger = null;
@@ -232,16 +213,19 @@ export function collectReport({ ledgerPath, planPath, logPaths, cwd = process.cw
       if (!mEvidence || typeof mEvidence !== "object" || Array.isArray(mEvidence)) continue;
       const list = mEvidence.failure_evidence;
       if (Array.isArray(list) && list.length > 0) {
-        const sliced = list.slice(-5);
-        for (const entry of sliced) {
+        const start = Math.max(0, list.length - 5);
+        for (let i = start; i < list.length; i++) {
+          const entry = list[i];
           if (!entry || typeof entry !== "object") continue;
           const failedStep = entry.evidence?.failed_step || entry.failed_step || null;
           let safeFailedStep = null;
           if (failedStep && typeof failedStep === "object") {
+            // Tool identity and step position only (#168 B1): arguments and
+            // command lines can carry source code, transcripts, and candidate
+            // payloads, so they are never forwarded.
             safeFailedStep = {
               tool: failedStep.tool ? redact(String(failedStep.tool)) : null,
-              args: failedStep.args ? redactValue(failedStep.args) : null,
-              command: failedStep.command ? redact(String(failedStep.command)) : null,
+              step_index: i,
             };
           }
           failureEvidence.push({
@@ -315,7 +299,12 @@ export function collectReport({ ledgerPath, planPath, logPaths, cwd = process.cw
           const stat = statSync(resolved);
           const raw = readFileSync(resolved, "utf-8");
           const lines = raw.split("\n");
-          const tailLines = lines.slice(-20).map((l) => redact(l));
+          // Error-relevant lines only, capped at 10, each redacted: raw tails
+          // can carry full transcripts and source text (#168 B1).
+          const tailLines = lines
+            .filter((line) => ERROR_LINE_RE.test(line))
+            .slice(-10)
+            .map((line) => redact(line));
           logsSummary.push({
             path: redact(logPath),
             size_bytes: stat.size,
@@ -434,8 +423,9 @@ ${rows.join("\n")}`);
       ];
       if (f.failed_step) {
         if (f.failed_step.tool) lines.push(`  - **Tool**: \`${f.failed_step.tool}\``);
-        if (f.failed_step.command) lines.push(`  - **Command**: \`${f.failed_step.command}\``);
-        if (f.failed_step.args) lines.push(`  - **Args**: \`${JSON.stringify(f.failed_step.args)}\``);
+        if (f.failed_step.step_index !== null && f.failed_step.step_index !== undefined) {
+          lines.push(`  - **Step Index**: ${f.failed_step.step_index}`);
+        }
       }
       if (f.escalation_needs) {
         lines.push(`  - **Escalation**: ${f.escalation_needs}`);
@@ -483,6 +473,15 @@ ${report.plan_summary.preview}
   const body = redact(rawBody);
 
   return { title, body };
+}
+
+/**
+ * Single-quotes a value for a shell command line so the printed manual
+ * command preserves the same argument vector as the direct spawn path
+ * (#168 B5).
+ */
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, "'\\''")}'`;
 }
 
 /**
@@ -541,7 +540,7 @@ export async function reportIssueCli(argv = [], options = {}) {
   writeFileSync(outPath, body, "utf8");
   stdout.write(body + "\n");
 
-  const manualCommand = `gh issue create --repo ${repo} --title "${title}" --body-file ${outPath}`;
+  const manualCommand = `gh issue create --repo ${shellQuote(repo)} --title ${shellQuote(title)} --body-file ${shellQuote(outPath)}`;
 
   if (!isTTY) {
     stdout.write(`Non-interactive session: issue not submitted automatically.\nTo submit manually, run:\n  ${manualCommand}\n`);
@@ -555,9 +554,16 @@ export async function reportIssueCli(argv = [], options = {}) {
   } else {
     const rl = createInterface({ input: stdin, output: stdout });
     answer = await new Promise((res) => {
+      let settled = false;
       rl.question(promptMessage, (ans) => {
+        settled = true;
         rl.close();
         res(ans);
+      });
+      // EOF (Ctrl-D) settles as a decline so this CLI still resolves and the
+      // caller's original exit code survives (#168 B4).
+      rl.once("close", () => {
+        if (!settled) res("");
       });
     });
   }
@@ -607,4 +613,3 @@ if (invokedDirectly()) {
     process.exitCode = 1;
   });
 }
-
