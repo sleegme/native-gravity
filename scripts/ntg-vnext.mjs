@@ -30,6 +30,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { MinimalSpine, recommendNeedsAlt } from './spine.mjs';
 import { AuthoritativeLedger, computeUsageRollup } from './ledger.mjs';
+import { verifyLedgerIntegrity } from './ledger-lock.mjs';
 import { invoke, loadNativeRoleBody, parseResponseEnvelope, parseResponsePacket, resolveSlug } from './runner.mjs';
 
 /** Executor provenance markers inherited by every runner/Zen child (#135 B2). */
@@ -286,6 +287,11 @@ export async function main(argv, deps = {}) {
     try {
       result = await baseInvokeRole(role, packet, runnerOptions);
     } catch (error) {
+      // Incident WQ-5: verify the durable ledger survived the invocation
+      // before recording anything, so a violation is never saved over.
+      verifyLedgerIntegrity(opts.ledger, {
+        role, milestoneId, invocationError: String(error?.message ?? error),
+      });
       const elapsed = Math.max(0, Date.now() - startTime);
       if (milestoneId) {
         const ledger = getLedger();
@@ -304,6 +310,10 @@ export async function main(argv, deps = {}) {
       }
       throw error;
     }
+
+    // Incident WQ-5: the durable ledger must have survived the invocation
+    // before its result is accounted and saved.
+    verifyLedgerIntegrity(opts.ledger, { role, milestoneId });
 
     const elapsed = Math.max(0, Date.now() - startTime);
     const duration_ms = typeof result?.duration_ms === 'number' ? result.duration_ms : elapsed;
@@ -369,6 +379,11 @@ export async function main(argv, deps = {}) {
     try {
       verdict = await baseInvokeZen(request);
     } catch (error) {
+      // Incident WQ-5: verify the durable ledger survived the invocation
+      // before recording anything, so a violation is never saved over.
+      verifyLedgerIntegrity(opts.ledger, {
+        role: 'zen', milestoneId, invocationError: String(error?.message ?? error),
+      });
       const elapsed = Math.max(0, Date.now() - startTime);
       if (milestoneId) {
         const ledger = getLedger();
@@ -387,6 +402,10 @@ export async function main(argv, deps = {}) {
       }
       throw error;
     }
+
+    // Incident WQ-5: the durable ledger must have survived the invocation
+    // before its verdict is accounted and saved.
+    verifyLedgerIntegrity(opts.ledger, { role: 'zen', milestoneId });
 
     const elapsed = Math.max(0, Date.now() - startTime);
     const duration_ms = typeof verdict?.duration_ms === 'number' ? verdict.duration_ms : elapsed;
@@ -431,6 +450,11 @@ export async function main(argv, deps = {}) {
         result = await invoke(role, slice, { ...spineRunnerOptions, ...specialistOptions });
       }
     } catch (error) {
+      // Incident WQ-5: verify the durable ledger survived the invocation
+      // before recording anything, so a violation is never saved over.
+      verifyLedgerIntegrity(opts.ledger, {
+        role, milestoneId, invocationError: String(error?.message ?? error),
+      });
       const elapsed = Math.max(0, Date.now() - startTime);
       if (milestoneId) {
         const ledger = getLedger();
@@ -449,6 +473,10 @@ export async function main(argv, deps = {}) {
       }
       throw error;
     }
+
+    // Incident WQ-5: the durable ledger must have survived the invocation
+    // before its result is accounted and saved.
+    verifyLedgerIntegrity(opts.ledger, { role, milestoneId });
 
     const elapsed = Math.max(0, Date.now() - startTime);
     const duration_ms = typeof result?.duration_ms === 'number' ? result.duration_ms : elapsed;

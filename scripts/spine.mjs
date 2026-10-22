@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { AuthoritativeLedger, deepClone, deepFreeze, normalizeCandidateArtifactRef } from './ledger.mjs';
-import { acquireLedgerLock } from './ledger-lock.mjs';
+import { acquireLedgerLock, LedgerIntegrityError } from './ledger-lock.mjs';
 import { InvalidHandoffPacketError, InvalidResponseFormatError, invoke, parseResponsePacket } from './runner.mjs';
 import { projectFailureRecord, projectFailureTelemetry, redactTelemetryValue } from './telemetry.mjs';
 
@@ -642,6 +642,13 @@ export class MinimalSpine {
       this.#ledger.save(this.#path);
       return { status: 'DONE', result_ref, verdict, verified: verdict.verdict === 'GO' };
     } catch (error) {
+      if (error instanceof LedgerIntegrityError) {
+        // Incident WQ-5: the durable ledger was removed or taken over during
+        // the invocation. Recording this failure would silently recreate
+        // ledger.json from in-memory state and bury the violation; surface it
+        // with disk untouched instead.
+        throw error;
+      }
       if (this.state.current_milestone === milestoneId) {
         const errorText = String(error);
         const evidence = { classification: 'OBSERVED', error: errorText };
