@@ -14,7 +14,6 @@ Availability does not prove that a native tier selects any of these models.
 | Steamroller | `gemini-4-argon-medium` | Medium for constrained supervision and ledger decisions |
 | Navi | `gemini-4-argon-medium` | Medium for bounded desktop tasks; agent-scoped MCP only |
 | Strix Halo | native `model: flash` | Preserve the deliberate Flash assignment from #148 |
-| Zen | `gemini-4-argon-high` | High for independent contract verification |
 | Bulldozer | `gemini-3.8-flash-high` | Retain Flash for bounded milestone delegation |
 | Jaguar / Puma / Bobcat | native `model: flash` | Retain Flash for discovery, mechanical work and ordinary implementation |
 | Instinct | `claude-sonnet-5-5-high` | Preserve a different model family for alternate framing |

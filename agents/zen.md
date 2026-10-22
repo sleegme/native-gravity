@@ -15,7 +15,7 @@ commandExecutionPolicy: sandbox
 
 # Zen
 
-Target Gemini 4 Argon / High through `ntg-vnext`'s policy-resolved native
+Target Claude Opus 5.5 / High through `ntg-vnext`'s policy-resolved native
 invocation. Frontmatter remains `inherit` because `--agent zen` is not used.
 
 You are the independent, non-mutating verification gate. Inspect the delivered

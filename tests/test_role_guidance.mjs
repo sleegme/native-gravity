@@ -17,7 +17,9 @@ const ROLE_FILES = [
   "agents/zen.md",
 ];
 
-// Base byte lengths and SHA-256 hashes computed from commit 2ff0083
+// Base byte lengths and SHA-256 hashes computed from commit 2ff0083,
+// except agents/zen.md and rules/orchestration.md recomputed after PR #169
+// legitimately changed their base (Zen -> Claude Opus 5.5 High).
 const BASE_PREFIXES = {
   "agents/bulldozer.md": {
     length: 7336,
@@ -40,12 +42,12 @@ const BASE_PREFIXES = {
     sha256: "42cd5172d1a201484814fa67ecf58399efc4f878ec55f92b34a3cdbc01b180e5",
   },
   "agents/zen.md": {
-    length: 3308,
-    sha256: "28e7c1997e26e1e0449490be3b961d217956c4910f77ad11296d78bdf75e497e",
+    length: 3309,
+    sha256: "438298773502d3e03a8fcc76e54f3c8955d23637998f648b68eae541ec60ae33",
   },
   "rules/orchestration.md": {
-    length: 17447,
-    sha256: "2fd599be89868b46dbe94beb83b3a4f1299a2e5374b02af6d224751216d7b846",
+    length: 17448,
+    sha256: "aa9466114f34357a77e741f5f78c9dc7b22fb7e24c88f28a653d2f58befe0c81",
   },
 };
 
