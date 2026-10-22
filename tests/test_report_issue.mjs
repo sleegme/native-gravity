@@ -1054,6 +1054,88 @@ test("B5: printed manual command is shell-exact (single-quoted --repo and --body
   }
 });
 
+test("N1: masks credentials in URL userinfo across schemes and host shapes", () => {
+  const cases = [
+    ["mysql://user:pass@10.0.0.5:3306/db", "mysql://[REDACTED]@10.0.0.5:3306/db"],
+    ["postgres://svc_report:Pr0dDbPass99@db-internal.corp:5432/appdb", "postgres://[REDACTED]@db-internal.corp:5432/appdb"],
+    ["https://alice:hunter2Secret@github.com/org/repo.git", "https://[REDACTED]@github.com/org/repo.git"],
+  ];
+  for (const [input, expected] of cases) {
+    assert.equal(redact(input, { env: {} }), expected);
+  }
+  // URLs without userinfo stay intact
+  assert.equal(redact("https://example.com/api/v1/users", { env: {} }), "https://example.com/api/v1/users");
+  assert.equal(redact("see https://github.com/org/repo for details", { env: {} }), "see https://github.com/org/repo for details");
+});
+
+test("N2: masks standalone Bearer tokens with no preceding colon or header name", () => {
+  assert.equal(redact("curl -H Bearer abc123", { env: {} }), "curl -H Bearer [REDACTED]");
+  assert.equal(redact("token is Bearer xyz9", { env: {} }), "token is Bearer [REDACTED]");
+  // header forms keep working
+  const out = redact("AUTHORIZATION: BEARER shorttok123", { env: {} });
+  assert.doesNotMatch(out, /shorttok123/);
+  assert.match(out, /\[REDACTED\]/);
+});
+
+test("N5: standalone Bearer masks only credential-looking values (digit or 20+ chars)", () => {
+  // masked: value contains at least one digit
+  for (const input of ["send Bearer abc123", "token is Bearer xyz9", "curl -H Bearer abc123def"]) {
+    const out = redact(input, { env: {} });
+    assert.doesNotMatch(out, /abc123|xyz9/, `should mask value in '${input}'`);
+    assert.match(out, /Bearer \[REDACTED\]/, `should keep Bearer shape in '${input}'`);
+  }
+  // masked: 20+ chars
+  const jwt = "Bearer eyJhbGciOiJIUzI1NiJ9.e30.sig";
+  assert.doesNotMatch(redact(jwt, { env: {} }), /eyJhbGciOiJIUzI1NiJ9/);
+  // masked: 20+ chars with no digit at all
+  assert.doesNotMatch(redact("Bearer abcdefghijklmnopqrstuvwx", { env: {} }), /abcdefghijklmnopqrstuvwx/);
+  // ordinary prose stays readable
+  assert.equal(redact("use a Bearer token for auth", { env: {} }), "use a Bearer token for auth");
+  assert.equal(redact("Bearer authentication failed", { env: {} }), "Bearer authentication failed");
+  // Authorization-header rule unchanged: any non-empty value still masked
+  assert.doesNotMatch(redact("Authorization: Bearer token", { env: {} }), /Bearer token/);
+});
+
+test("N3: masks 16-31 char lowercase hex behind secret-like keys or =/: but not prose git SHAs", () => {
+  const hex29 = "0123456789abcdef0123456789abcd"; // 29 lowercase hex chars
+  // value of a secret-like key (any of the six)
+  for (const label of ["key", "token", "secret", "password", "auth", "sig"]) {
+    const out = redact(`${label} ${hex29}`, { env: {} });
+    assert.doesNotMatch(out, new RegExp(hex29.slice(0, 12)), `label '${label}'`);
+    assert.match(out, /\[REDACTED\]/);
+  }
+  // directly after = or :
+  assert.doesNotMatch(redact(`session=${hex29}`, { env: {} }), new RegExp(hex29));
+  assert.doesNotMatch(redact(`value: ${hex29}`, { env: {} }), new RegExp(hex29));
+  // git SHAs in prose (no secret-like key, no =/: trigger) stay visible
+  assert.equal(
+    redact("Rebased onto commit 689b337 last night", { env: {} }),
+    "Rebased onto commit 689b337 last night"
+  );
+  assert.equal(
+    redact("Merged a1b2c3d4e5f6a7b8 from the feature branch", { env: {} }),
+    "Merged a1b2c3d4e5f6a7b8 from the feature branch"
+  );
+  // uppercase hex after a colon is outside the lowercase-only rule
+  assert.equal(redact("COLOR: FFEEDDCC00112233", { env: {} }), "COLOR: FFEEDDCC00112233");
+});
+
+test("N4: folds Windows home paths to ~ like POSIX home paths", () => {
+  assert.equal(
+    redact("C:\\Users\\alice\\Documents\\budget.xlsx", { env: {} }),
+    "~\\Documents\\budget.xlsx"
+  );
+  assert.equal(
+    redact("C:/Users/bob/code/repo/index.js", { env: {} }),
+    "~/code/repo/index.js"
+  );
+  // JSON-embedded double-backslash form keeps its separators
+  assert.equal(
+    redact('path: "C:\\\\Users\\\\carol\\\\notes.txt"', { env: {} }),
+    'path: "~\\\\notes.txt"'
+  );
+});
+
 test("B6: CI present at all (including empty string) never prompts; NTG_NO_REPORT_PROMPT=1 still never prompts", async () => {
   const tty = { isTTY: true };
 

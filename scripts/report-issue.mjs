@@ -41,9 +41,12 @@ const COMMON_SECRET_PATTERNS = [
 ];
 
 // Bearer / Authorization headers. Any non-empty value: short tokens like
-// "Authorization: Bearer abc123" leak the same as long ones.
+// "Authorization: Bearer abc123" leak the same as long ones. The standalone
+// (colon-less) form only masks credential-looking values — containing at
+// least one digit or 20+ chars — so prose like "Bearer authentication
+// failed" or "use a Bearer token for auth" stays readable in diagnostics.
 const AUTH_HEADER_RE = /(?:authorization|bearer)\s*:\s*(?:bearer\s+)?[^\s]+/gi;
-const STANDALONE_BEARER_RE = /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}\b/gi;
+const STANDALONE_BEARER_RE = /\bBearer\s+(?:(?=[A-Za-z._~+/=-]*[0-9])[A-Za-z0-9._~+/=-]+|[A-Za-z0-9._~+/=-]{20,})\b/gi;
 
 // Log lines relevant to failures; named logs are filtered to these before
 // redaction (at most 10 lines survive).
@@ -54,6 +57,23 @@ const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 
 // Absolute home paths (/home/<user> or /Users/<user>)
 const HOME_PATH_RE = /(?:\/home|\/Users)\/([^\s/'"`:;,]+)/g;
+
+// Windows home paths (C:\Users\<user>\..., C:/Users/<user>/...). Applied
+// before HOME_PATH_RE so `C:/Users/x` folds to `~/x` instead of `C:~/x`;
+// [\\/]+ also covers JSON-embedded double backslashes.
+const WIN_HOME_PATH_RE = /\b[A-Za-z]:[\\/]+Users[\\/]+[^\s\\/'"`:;,]+/gi;
+
+// Credentials in URL userinfo (scheme://user:password@host), any scheme and
+// any host shape — numeric hosts like 10.0.0.5 defeat the email rule. Runs
+// before the email rule so `user:pass@host` is masked as a unit.
+const URL_USERINFO_RE = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s\/@:]+:[^\s\/@]*@/gi;
+
+// Lowercase hex secrets of 16-31 chars, below the 32+ hex threshold, when
+// they are the value of a secret-like key or directly follow `=` / `:`.
+// Ordinary hex in prose (git SHAs) has no such trigger and stays visible.
+// The `i` flag widens the key spellings; the replace callback then keeps the
+// match only when the hex run is fully lowercase.
+const SHORT_HEX_SECRET_RE = /(?:\b(?:key|token|secret|password|auth|sig)[\s:=]+|[:=]\s*)([0-9a-f]{16,31})(?![0-9a-f])/gi;
 
 const REDACTED_MARKER = "[REDACTED]";
 const REDACTED_EMAIL = "[REDACTED_EMAIL]";
@@ -115,7 +135,13 @@ export function redact(text, { env = process.env } = {}) {
     out = out.replace(pattern, REDACTED_MARKER);
   }
 
-  // 5. Authorization / Bearer headers
+  // 5. Lowercase hex secrets of 16-31 chars as the value of a secret-like
+  // key or right after `=` / `:` (32+ hex runs were already handled above)
+  out = out.replace(SHORT_HEX_SECRET_RE, (match, hex) =>
+    /^[0-9a-f]+$/.test(hex) ? match.slice(0, match.length - hex.length) + REDACTED_MARKER : match
+  );
+
+  // 6. Authorization / Bearer headers
   out = out.replace(AUTH_HEADER_RE, (match) => {
     const colonIdx = match.indexOf(":");
     if (colonIdx !== -1) {
@@ -125,10 +151,18 @@ export function redact(text, { env = process.env } = {}) {
   });
   out = out.replace(STANDALONE_BEARER_RE, `Bearer ${REDACTED_MARKER}`);
 
-  // 6. Email addresses
+  // 7. Credentials in URL userinfo (mysql://user:pass@10.0.0.5/db ->
+  // mysql://[REDACTED]@10.0.0.5/db), before the email rule can mangle the
+  // userinfo into an email-shaped fragment
+  out = out.replace(URL_USERINFO_RE, (_match, scheme) => `${scheme}${REDACTED_MARKER}@`);
+
+  // 8. Email addresses
   out = out.replace(EMAIL_RE, REDACTED_EMAIL);
 
-  // 7. Absolute home paths (/home/alice/x -> ~/x, /Users/bob/y -> ~/y)
+  // 9. Home paths (/home/alice/x, /Users/bob/y, C:\Users\carol\z,
+  // C:/Users/dan/w -> ~/...); the Windows form runs first so the drive
+  // letter folds too
+  out = out.replace(WIN_HOME_PATH_RE, "~");
   out = out.replace(HOME_PATH_RE, "~");
 
   return out;
