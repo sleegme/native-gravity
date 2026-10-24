@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "scope": "native_windows_kit_test_summary",
+  "baseline_sha": "37b685a6c11a5ab3f256ff2496128b8c45730563",
+  "command": "node --test tests/test_navi_windows_kit.mjs",
+  "node": "v20.19.0",
+  "platform": "win32",
+  "exit_code": 1,
+  "tests": 6,
+  "passed": 2,
+  "failed": 3,
+  "skipped": 1,
+  "cancelled": 0,
+  "execution_policy": "Process-only Bypass inherited by child PowerShell; no persistent policy changes",
+  "failures": [
+    {
+      "test": "Windows MCP probe filters discovery and blocks direct shell calls before they reach the backend",
+      "assertion": "Expected report.status PASS; observed FAIL"
+    },
+    {
+      "test": "raw backend schemas remain locally inspectable but never enter the shareable report",
+      "assertion": "Expected report.status PASS; observed FAIL"
+    },
+    {
+      "test": "Windows MCP probe reports initialization failure and still closes the bridge",
+      "assertion": "Expected MCP_REQUEST_REJECTED; observed CLEANUP_UNVERIFIED"
+    }
+  ],
+  "existing_platform_skip": "Windows kit returns UNSUPPORTED rather than PASS on a non-Windows PowerShell host",
+  "source_or_test_changes": false
+}
