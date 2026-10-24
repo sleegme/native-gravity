@@ -1,5 +1,8 @@
 # Navi native Windows validation results
 
+Historical baseline report. The diagnostic rerun and fixes are recorded in
+[`navi-windows-diagnostics-results.md`](navi-windows-diagnostics-results.md).
+
 Date: 2026-10-24 (UTC).
 Branch: `feat/navi-cross-platform`.
 Baseline: `37b685a6c11a5ab3f256ff2496128b8c45730563`.
