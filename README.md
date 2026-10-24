@@ -78,6 +78,17 @@ validated on one host with AGY 1.3.3. Crash recovery works only on Linux, and
 only one session can own a progress file at a time.
 [Usage](docs/usage.md#when-work-stops) explains what to do when work stops.
 
+## Reporting issues
+
+If an NTG execution fails or stops unexpectedly in an interactive terminal, `ntg-vnext` offers to report it directly after the command finishes. You can also generate a sanitized diagnostic report manually to file an issue at any time:
+
+```bash
+ntg-report-issue --ledger .ntg/ledger.json
+```
+
+This previews the issue, redacts detected secrets and user paths, writes a local markdown preview file (`issue-preview.md`), and prompts to submit the issue via GitHub CLI (`gh`) when run in an interactive terminal.
+
+
 ## Documentation
 
 - [Usage](docs/usage.md): everyday workflows, examples and troubleshooting.
