@@ -21,6 +21,11 @@ createInterface({ input: process.stdin }).on('line', line => {
     })) };
   } else if (request.method === 'tools/call') {
     if (request.params.name === 'PowerShell') process.exit(77);
+    if (process.argv.includes('--reject-snapshot')) {
+      process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: request.id,
+        error: { code: -32603, message: 'snapshot failed at C:\\Users\\PRIVATE_OWNER; credential=SYNTHETIC_BACKEND_SECRET' } })}\n`);
+      return;
+    }
     result = { content: [{ type: 'text', text: 'PRIVATE_DESKTOP_SENTINEL' },
       { type: 'image', mimeType: 'image/png', data: 'PRIVATE_IMAGE_SENTINEL' }] };
   }

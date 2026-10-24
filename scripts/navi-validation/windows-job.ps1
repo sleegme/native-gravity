@@ -126,18 +126,24 @@ public static class NaviKitJob {
             if (wait != 0 && wait != 258) throw new Win32Exception(Marshal.GetLastWin32Error());
             uint code = 124;
             if (wait == 0) Check(GetExitCodeProcess(process.Process, out code));
+            Console.Error.WriteLine("NAVI_JOB_CHILD_EXIT_CODE " + code);
             Check(TerminateJobObject(job, 0));
             Stopwatch deadline = Stopwatch.StartNew();
             bool empty = false;
             while (deadline.ElapsedMilliseconds < 10000) {
                 uint message; UIntPtr key; IntPtr overlapped;
                 uint remaining = (uint)Math.Max(1, 10000 - deadline.ElapsedMilliseconds);
-                if (!GetQueuedCompletionStatus(port, out message, out key, out overlapped, remaining))
-                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                bool returned = GetQueuedCompletionStatus(port, out message, out key, out overlapped, remaining);
+                int error = returned ? 0 : Marshal.GetLastWin32Error();
+                Console.Error.WriteLine("NAVI_JOB_DIAGNOSTIC {\"operation\":\"GetQueuedCompletionStatus\",\"returned\":"
+                    + (returned ? "true" : "false") + ",\"win32_error\":" + error + ",\"message\":" + message + "}");
+                if (!returned) throw new Win32Exception(error);
                 if (message == 4) { empty = true; break; } // ACTIVE_PROCESS_ZERO.
             }
             if (!empty) throw new TimeoutException("Job cleanup was not confirmed");
-            return (int)code;
+            // The bridge deliberately returns 1 when its server is terminated.
+            // This wrapper's status certifies job cleanup, not backend success.
+            return wait == 0 ? 0 : 124;
         } finally {
             if (process.Process != IntPtr.Zero && !assigned) TerminateProcess(process.Process, 1);
             if (job != IntPtr.Zero) CloseHandle(job);
@@ -154,6 +160,17 @@ try {
     $data = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Request)) | ConvertFrom-Json
     exit [NaviKitJob]::Run([string]$data.executable, [string[]]$data.arguments, 600000)
 } catch {
+    $exception = $_.Exception
+    while ($exception.InnerException) { $exception = $exception.InnerException }
+    $errorRecord = @{
+        exception_type = $exception.GetType().FullName
+        message = $exception.Message
+        hresult = $exception.HResult
+    }
+    if ($exception -is [System.ComponentModel.Win32Exception]) {
+        $errorRecord.win32_error = $exception.NativeErrorCode
+    }
+    [Console]::Error.WriteLine('NAVI_JOB_EXCEPTION ' + ($errorRecord | ConvertTo-Json -Compress))
     [Console]::Error.WriteLine('NAVI_JOB_FAILED')
     exit 1
 }

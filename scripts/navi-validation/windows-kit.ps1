@@ -2,7 +2,8 @@ param(
     [string]$Output,
     [string]$Backend,
     [string]$Steps,
-    [string]$SchemaOutput
+    [string]$SchemaOutput,
+    [string]$DiagnosticsOutput
 )
 $ErrorActionPreference = 'Stop'
 $repo = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
@@ -27,9 +28,15 @@ if (-not $Output) {
     $Output = Join-Path (Get-Location) ('navi-windows-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ') + '.json')
 }
 if (Test-Path -LiteralPath $Output) { throw 'OUTPUT_ALREADY_EXISTS' }
+if (-not $DiagnosticsOutput) {
+    $DiagnosticsOutput = [System.IO.Path]::ChangeExtension([System.IO.Path]::GetFullPath($Output), 'diagnostics.local.json')
+}
+if (Test-Path -LiteralPath $DiagnosticsOutput) { throw 'DIAGNOSTICS_ALREADY_EXISTS' }
+$diagnostics = [ordered]@{ local_only = $true; fixture_guard_error = $null }
 $exitCode = 2
 $fixture = $null
 $guard = $null
+$aliasGuard = $null
 try {
     if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
         $report.status = 'UNSUPPORTED'
@@ -56,12 +63,16 @@ try {
         [void](New-Item -ItemType HardLink -Path $alias -Target $original)
         $guard = [System.IO.File]::Open($original, [System.IO.FileMode]::Open,
             [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+        $aliasGuard = [System.IO.File]::Open($alias, [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
         foreach ($path in @($original, $alias)) {
             $label = if ($path -eq $original) { 'original' } else { 'alias' }
             foreach ($operation in @('write', 'truncate', 'replace', 'delete', 'rename')) {
                 $replacement = Join-Path $fixture ([Guid]::NewGuid().ToString('N'))
                 [System.IO.File]::WriteAllText($replacement, 'REPLACEMENT_FIXTURE')
                 $blocked = $false
+                $failure = @{ exception_type = $null; message = $null; hresult = $null;
+                    win32_error = $null; operation_returned = $true }
                 try {
                     switch ($operation) {
                         'write' { [System.IO.File]::WriteAllText($path, 'CHANGED') }
@@ -70,7 +81,7 @@ try {
                                 [System.IO.FileAccess]::Write)
                             $stream.Dispose()
                         }
-                        'replace' { [System.IO.File]::Replace($replacement, $path, $null) }
+                        'replace' { [System.IO.File]::Replace($replacement, $path, ($path + '.backup')) }
                         'delete' { [System.IO.File]::Delete($path) }
                         'rename' { [System.IO.File]::Move($path, ($path + '.moved')) }
                     }
@@ -79,12 +90,32 @@ try {
                     while ($exception.InnerException) { $exception = $exception.InnerException }
                     $code = $exception.HResult -band 0xffff
                     $blocked = $code -eq 32 -or $code -eq 33
+                    $failure = @{
+                        exception_type = $exception.GetType().FullName
+                        message = $exception.Message
+                        hresult = $exception.HResult
+                        win32_error = $code
+                        operation_returned = $false
+                    }
                 }
                 $report.checks += @{
                     name = ('fixture_guard_' + $label + '_' + $operation)
                     status = $(if ($blocked) { 'PASS' } else { 'FAIL' })
                 }
-                if (-not $blocked) { throw 'FIXTURE_SHARE_GUARD_FAILED' }
+                if (-not $blocked) {
+                    $diagnostics.fixture_guard_error = $failure
+                    if ($failure) {
+                        # Only fixture paths can occur here; backend text is local-only.
+                        $report.fixture_guard_error = @{
+                            exception_type = $failure.exception_type
+                            message = $(if ($failure.message) { $failure.message.Replace($fixture, '[fixture]') } else { $null })
+                            hresult = $failure.hresult
+                            win32_error = $failure.win32_error
+                            operation_returned = $failure.operation_returned
+                        }
+                    }
+                    throw 'FIXTURE_SHARE_GUARD_FAILED'
+                }
             }
         }
         if ([System.IO.File]::ReadAllText($alias) -ne 'NTG_FIXTURE_NOT_A_CREDENTIAL') {
@@ -92,6 +123,8 @@ try {
         }
         $guard.Dispose()
         $guard = $null
+        $aliasGuard.Dispose()
+        $aliasGuard = $null
         [System.IO.File]::WriteAllText($alias, 'WRITABLE_AFTER_RELEASE')
         if ([System.IO.File]::ReadAllText($original) -ne 'WRITABLE_AFTER_RELEASE') {
             throw 'FIXTURE_ALIAS_IDENTITY_FAILED'
@@ -109,9 +142,14 @@ try {
                 $SchemaOutput = [System.IO.Path]::ChangeExtension([System.IO.Path]::GetFullPath($Output), 'schemas.local.json')
             }
             $arguments += @('--schemas', [System.IO.Path]::GetFullPath($SchemaOutput))
+            $backendDiagnostics = Join-Path $fixture 'backend.diagnostics.local.json'
+            $arguments += @('--diagnostics', $backendDiagnostics)
             if ($Steps) { $arguments += @('--steps', [System.IO.Path]::GetFullPath($Steps)) }
             & $node.Source @arguments
             $backendExit = $LASTEXITCODE
+            if (Test-Path -LiteralPath $backendDiagnostics) {
+                $diagnostics.backend_probe = Get-Content -LiteralPath $backendDiagnostics -Raw -Encoding UTF8 | ConvertFrom-Json
+            }
             if (Test-Path -LiteralPath $backendOutput) {
                 $report.backend_probe = Get-Content -LiteralPath $backendOutput -Raw -Encoding UTF8 | ConvertFrom-Json
             }
@@ -131,6 +169,7 @@ try {
     $exitCode = 1
 } finally {
     if ($guard) { $guard.Dispose() }
+    if ($aliasGuard) { $aliasGuard.Dispose() }
     if ($fixture -and (Test-Path -LiteralPath $fixture)) {
         try { Remove-Item -LiteralPath $fixture -Recurse -Force } catch {
             $report.status = 'FAIL'
@@ -140,6 +179,8 @@ try {
     }
 }
 $json = $report | ConvertTo-Json -Depth 20
+[System.IO.File]::WriteAllText([System.IO.Path]::GetFullPath($DiagnosticsOutput),
+    ($diagnostics | ConvertTo-Json -Depth 30), (New-Object System.Text.UTF8Encoding($false)))
 [System.IO.File]::WriteAllText([System.IO.Path]::GetFullPath($Output), $json,
     (New-Object System.Text.UTF8Encoding($false)))
 Write-Output ('NAVI_WINDOWS_KIT_' + $report.status)

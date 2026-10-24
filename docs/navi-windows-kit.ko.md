@@ -143,3 +143,25 @@ Windows OmO는 기준 SHA, 설치본 버전, 실행 명령/exit code, PASS/FAIL/
 커밋하지 않는다. 생성된 결과에 개인정보가 없는지 직접 확인한다.
 리드에게 최종 SHA가 돌아오면 Linux 재검증과 독립 게이트를 이어간다.
 최종 Windows 실측·게이트 전에는 main 병합이나 Windows 지원 완료를 선언하지 않는다.
+
+## 실패 원문 진단 파일
+
+키트는 공유 결과 JSON과 별도로 `*.diagnostics.local.json`을 생성한다.
+`-DiagnosticsOutput`으로 위치를 지정할 수 있고, 독립 `probe.mjs`에서는
+`--diagnostics`를 사용한다. 기존 파일은 덮어쓰지 않는다.
+이 파일은 Git에서 무시하며 **커밋하거나 반송하지 않는다**.
+backend 에러 메시지와 stderr에는 개인 경로·자격증명이 포함될 수 있다.
+
+- fixture guard 실패: 로컬 `fixture_guard_error`에 예외 타입·원문 메시지·HResult와
+  하위 오류코드를 보존한다. 공유 결과에는 임시 fixture 경로를 제거한 메시지만 남긴다.
+- backend 실패: 로컬 `first_backend_error`는 cleanup 전에 발생한 첫 예외 및
+  JSON-RPC 에러 원문을 보존한다. 공유 결과의 같은 이름 필드는 내부 오류 식별자와
+  숫자 RPC 코드만 담으며 backend 원문은 포함하지 않는다.
+- Job Object: 공유 결과의 `job_events`에 `GetQueuedCompletionStatus` 반환값,
+  숫자 오류코드와 메시지 번호를 기록한다. 원시 stderr와 Job 예외 원문은 로컬에만 남긴다.
+
+`job_exit_code`는 Job wrapper의 cleanup 검증 결과이고,
+`backend_exit_code`는 내부 bridge의 종료코드다. 요청 완료 후 bridge가 backend를
+종료시키면 bridge가 1을 반환할 수 있다. 이를 Job 정리 실패로 혼동하지 않는다.
+wrapper는 `ACTIVE_PROCESS_ZERO`를 실제로 확인해야 성공하고, timeout·Job API 실패는
+여전히 실패다. backend 요청 실패와 `first_backend_error`는 이와 독립적으로 유지된다.

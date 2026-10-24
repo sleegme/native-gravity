@@ -10,7 +10,7 @@ const desktopTools = new Set(['Snapshot', 'Screenshot', 'Click', 'Type', 'Scroll
 
 // This client never starts AGY or reads credentials. Native findings are
 // deliberately separate from the production Navi authentication gate.
-export async function probe({ backend, backendArgs = [], steps = [], timeout = 30000, schemaOutput, signal }) {
+export async function probe({ backend, backendArgs = [], steps = [], timeout = 30000, schemaOutput, diagnosticsOutput, signal }) {
   if (!backend || !Array.isArray(backendArgs) || !backendArgs.every(arg => typeof arg === 'string')) {
     throw new Error('INVALID_BACKEND');
   }
@@ -25,12 +25,14 @@ export async function probe({ backend, backendArgs = [], steps = [], timeout = 3
       Buffer.from(JSON.stringify({ executable: process.execPath, arguments: bridgeArgs })).toString('base64')]
     : bridgeArgs;
   const child = spawn(command, commandArgs, {
-    stdio: ['pipe', 'pipe', 'ignore'], detached: process.platform !== 'win32',
+    stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32',
     env: { ...process.env, ANONYMIZED_TELEMETRY: 'false', PYTHONIOENCODING: 'utf-8' },
   });
   let nextId = 0;
   let closed = false;
   let exitCode = null;
+  const diagnostics = { local_only: true, first_backend_error: null, job_stderr: '' };
+  child.stderr.on('data', chunk => { diagnostics.job_stderr += chunk.toString('utf8'); });
   const pending = new Map();
   const rejectPending = code => {
     for (const entry of pending.values()) {
@@ -53,7 +55,7 @@ export async function probe({ backend, backendArgs = [], steps = [], timeout = 3
     if (!entry) return;
     clearTimeout(entry.timer);
     pending.delete(message.id);
-    if (message.error) entry.reject(new Error('MCP_REQUEST_REJECTED'));
+    if (message.error) entry.reject(Object.assign(new Error('MCP_REQUEST_REJECTED'), { backendError: message.error }));
     else entry.resolve(message.result);
   });
   child.stdin.on('error', () => rejectPending('BACKEND_PIPE_CLOSED'));
@@ -113,12 +115,18 @@ export async function probe({ backend, backendArgs = [], steps = [], timeout = 3
         outcome_verified: false });
       // Tool content can contain screenshots, desktop text and private paths.
       // Never copy it to the return-to-owner artifact.
-      if (result?.isError) throw new Error('DESKTOP_TOOL_FAILED');
+      if (result?.isError) throw Object.assign(new Error('DESKTOP_TOOL_FAILED'), {
+        backendError: result.content?.filter(item => item.type === 'text'),
+      });
     }
     report.status = 'PASS';
   } catch (error) {
     report.status = 'FAIL';
-    report.error = error.message;
+    // Backend payloads can contain credentials or desktop text. Never share them.
+    diagnostics.first_backend_error = { type: error.name, message: error.message, backend_error: error.backendError };
+    report.error = /^[A-Z][A-Z0-9_]+$/.test(error.message) ? error.message : 'PROBE_ERROR';
+    report.first_backend_error = { type: 'Error', message: report.error };
+    if (typeof error.backendError?.code === 'number') report.first_backend_error.rpc_code = error.backendError.code;
   } finally {
     signal?.removeEventListener('abort', abort);
     child.stdin.end();
@@ -157,10 +165,24 @@ export async function probe({ backend, backendArgs = [], steps = [], timeout = 3
     rejectPending('PROBE_CLOSED');
     report.checks.push({ name: 'bridge_exit', status: closed ? 'PASS' : 'FAIL' });
     if (process.platform === 'win32') {
+      report.job_exit_code = exitCode;
+      const backendExit = diagnostics.job_stderr.match(/^NAVI_JOB_CHILD_EXIT_CODE (\d+)\r?$/m);
+      report.backend_exit_code = backendExit ? Number(backendExit[1]) : null;
+      report.job_events = diagnostics.job_stderr.split(/\r?\n/).flatMap(line => {
+        if (!line.startsWith('NAVI_JOB_DIAGNOSTIC ')) return [];
+        let event;
+        try { event = JSON.parse(line.slice('NAVI_JOB_DIAGNOSTIC '.length)); } catch { return []; }
+        if (event.operation !== 'GetQueuedCompletionStatus' || typeof event.returned !== 'boolean'
+          || !Number.isInteger(event.win32_error) || !Number.isInteger(event.message)) return [];
+        return [{ operation: 'GetQueuedCompletionStatus', returned: event.returned,
+          win32_error: event.win32_error, message: event.message }];
+      });
       report.checks.push({ name: 'job_cleanup', status: closed && exitCode === 0 ? 'PASS' : 'UNVERIFIED' });
       if (exitCode !== 0) { report.status = 'FAIL'; report.error = 'CLEANUP_UNVERIFIED'; }
     }
     if (!closed) { report.status = 'FAIL'; report.error = 'CLEANUP_UNVERIFIED'; }
+    if (diagnosticsOutput) writeFileSync(diagnosticsOutput, `${JSON.stringify(diagnostics, null, 2)}\n`,
+      { flag: 'wx', mode: 0o600 });
   }
   return report;
 }
@@ -184,6 +206,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         '--tools', [...desktopTools].join(',')],
       steps,
       schemaOutput: value('--schemas'),
+      diagnosticsOutput: value('--diagnostics') ?? output.replace(/\.json$/i, '') + '.diagnostics.local.json',
       signal: cancellation.signal,
     });
     writeFileSync(output, `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx' });
