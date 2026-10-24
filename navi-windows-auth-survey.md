@@ -418,3 +418,160 @@ explicitly retrieved, changed, or deleted. Original application-generated
 state was not manually edited or deleted; CLI-created and CLI-updated state
 was left in place. Only this Markdown report is included in the follow-up
 commit.
+
+## 2026-10-24 follow-up: child-only USERPROFILE and HOME
+
+Starting commit: `9af76d2`, branch `feat/navi-cross-platform`, clean
+working tree. This experiment changes different variables from the
+previous home-variable experiment; its results are recorded separately.
+
+### Authentication and storage verdicts
+
+Requested authentication classification: **로그인 공유** (login shared).
+OBSERVED: the requested Flash prompt returned `OK`, exit 0, with no
+detected login requirement, no stderr, no quota error, and no timeout.
+No login/logout command or login input was supplied. No new login window
+was observed during or after the run, so none required cancellation.
+
+Storage separation: **PASS for the requested original-folder criterion**.
+The original `%USERPROFILE%\.gemini\antigravity-cli` had no new, removed,
+or metadata-changed entry, including no new conversation or log file.
+The temporary profile instead acquired its own `.gemini` tree.
+
+These are separate conclusions: the prompt reused accessible
+authentication while its observed agy state was written under the
+temporary profile. Successful authentication does not identify the
+credential source or prove that every Windows storage location is isolated.
+`APPDATA`, `LOCALAPPDATA`, and the Windows user identity were not deliberately
+changed by this experiment. No credential value or configuration/log/
+database content was retrieved or printed.
+
+### Exact execution scope
+
+The owned directory was created empty:
+
+```text
+%USERPROFILE%\AppData\Local\Temp\navi-profile-survey-5a951f64-f9d5-4e57-a13b-fe1a371039cb
+```
+
+`%USERPROFILE%` in report paths always denotes the original parent profile.
+Only the child PowerShell 7.6.8 process set these environment variables:
+
+```powershell
+$env:USERPROFILE = $runRoot
+$env:HOME = $runRoot
+Set-Location -LiteralPath $runRoot
+# Original installed executable, resolved before changing the child profile:
+& $agyExe -p "reply OK" --model gemini-3.8-flash --effort low
+```
+
+`$agyExe` was `%USERPROFILE%\AppData\Local\agy\bin\agy.exe` under the
+original profile. `ANTIGRAVITY_HOME` and `GEMINI_CLI_HOME` were absent in
+the parent and were not set for this run. Parent `USERPROFILE` and `HOME`
+were checked unchanged afterward; no persistent environment setting was
+modified.
+
+The runner registered output/process events before starting agy, captured
+command output only in memory, and emitted fixed status markers. Stdin
+was closed without supplying input. An explicit login requirement would
+stop the owned CLI process tree; a 90-second bound also applied. The run
+completed normally without either stop condition.
+
+### Before/after comparison
+
+Only names and filesystem metadata were examined. The comparison included
+entry type, size, last-write/change times, file identifier, and mode.
+Symbolic links were not followed; file contents and content hashes were
+not read.
+
+| Observation | Result |
+| --- | --- |
+| Baseline, UTC | `2026-10-24T05:32:47.550Z` |
+| After, UTC | `2026-10-24T05:34:03.021Z` |
+| Original agy-tree entries | 116 before / 116 after |
+| Original new / removed / metadata-changed names | 0 / 0 / 0 |
+| Original new conversation / log files | None |
+| Temporary profile initial child count | 0 |
+| Temporary profile final files / links | 45 / 1 |
+| Temporary profile final directories | 35 below the root, plus the root itself |
+| Temporary snapshot records | 82, including the root |
+| Enumeration errors | 0 in original and temporary trees |
+
+The unchanged original metadata supports the requested observed storage
+separation criterion, not byte-for-byte integrity or a general sandbox
+guarantee.
+
+All temporary file/link names follow, relative to the owned root. `cli.log`
+is a symbolic link; all other listed entries are regular files.
+
+```text
+.gemini\antigravity-cli\annotations\32e7a880-92ed-4670-a441-092dc9c57b2e.pbtxt
+.gemini\antigravity-cli\bin\webm_encoder.exe
+.gemini\antigravity-cli\brain\32e7a880-92ed-4670-a441-092dc9c57b2e\.system_generated\logs\chunks\transcript\00000000.jsonl
+.gemini\antigravity-cli\brain\32e7a880-92ed-4670-a441-092dc9c57b2e\.system_generated\logs\chunks\transcript_full\00000000.jsonl
+.gemini\antigravity-cli\brain\32e7a880-92ed-4670-a441-092dc9c57b2e\.system_generated\logs\transcript.jsonl
+.gemini\antigravity-cli\brain\32e7a880-92ed-4670-a441-092dc9c57b2e\.system_generated\logs\transcript_full.jsonl
+.gemini\antigravity-cli\builtin\.checksum
+.gemini\antigravity-cli\builtin\keep.txt
+.gemini\antigravity-cli\builtin\skills\agy-customizations\docs\hooks.md
+.gemini\antigravity-cli\builtin\skills\agy-customizations\docs\json_configs.md
+.gemini\antigravity-cli\builtin\skills\agy-customizations\docs\mcp_servers.md
+.gemini\antigravity-cli\builtin\skills\agy-customizations\docs\plugins.md
+.gemini\antigravity-cli\builtin\skills\agy-customizations\docs\rules.md
+.gemini\antigravity-cli\builtin\skills\agy-customizations\docs\skills.md
+.gemini\antigravity-cli\builtin\skills\agy-customizations\SKILL.md
+.gemini\antigravity-cli\builtin\skills\antigravity_guide\references\app.md
+.gemini\antigravity-cli\builtin\skills\antigravity_guide\references\cli.md
+.gemini\antigravity-cli\builtin\skills\antigravity_guide\references\ide.md
+.gemini\antigravity-cli\builtin\skills\antigravity_guide\references\sdk.md
+.gemini\antigravity-cli\builtin\skills\antigravity_guide\SKILL.md
+.gemini\antigravity-cli\builtin\skills\automation\SKILL.md
+.gemini\antigravity-cli\builtin\skills\generative_ui\SKILL.md
+.gemini\antigravity-cli\builtin\skills\migrate-workflows\SKILL.md
+.gemini\antigravity-cli\builtin\skills\permissioned-github\SKILL.md
+.gemini\antigravity-cli\builtin\skills\plugin\SKILL.md
+.gemini\antigravity-cli\builtin\skills\run-workflow\SKILL.md
+.gemini\antigravity-cli\builtin\skills\ui-plugin-navigation\SKILL.md
+.gemini\antigravity-cli\cache\default_project_id.txt
+.gemini\antigravity-cli\cache\last_conversations.json
+.gemini\antigravity-cli\cache\onboarding.json
+.gemini\antigravity-cli\cli.log
+.gemini\antigravity-cli\conversations\32e7a880-92ed-4670-a441-092dc9c57b2e.db
+.gemini\antigravity-cli\conversation_summaries.db
+.gemini\antigravity-cli\crashes\crash_34160_ca6f2c81-a880-4cb0-b8a8-3ea500e5dfe6.log
+.gemini\antigravity-cli\implicit\a84b53b2-561e-4b4c-a4f1-8c38fb94db24.pb
+.gemini\antigravity-cli\installation_id
+.gemini\antigravity-cli\jetbox_summaries_proto.pb
+.gemini\antigravity-cli\jetski_state.pbtxt
+.gemini\antigravity-cli\last_check.timestamp
+.gemini\antigravity-cli\log\cli-20261024_143337.log
+.gemini\antigravity-cli\presence\32e7a880-92ed-4670-a441-092dc9c57b2e.lock
+.gemini\antigravity-cli\updater\update.lock
+.gemini\antigravity-cli\updater\update_status.json
+.gemini\config\.migrated
+.gemini\config\mcp_config.json
+.gemini\config\projects\default-cli-project.json
+```
+
+The crash-named file is recorded by filename only; its cause or contents
+were not investigated and do not override the observed prompt exit 0.
+
+### Credential target names
+
+`cmdkey.exe /list` exited 0 before and after. Only target-name fields
+matching `gemini|antigravity`, case-insensitively, were retained:
+
+| Before | After |
+| --- | --- |
+| `LegacyGeneric:target=gemini:antigravity` | `LegacyGeneric:target=gemini:antigravity` |
+
+Added target names: none. Removed target names: none. Values were not
+retrieved, so unchanged names do not establish unchanged values.
+
+### Cleanup and repository scope
+
+The owned temporary root, including its generated `.gemini` tree and
+symbolic link, was removed without following the link. Its absence was
+checked after removal. The original agy folder was not manually edited,
+deleted, or used as a cleanup target. Only this Markdown report is included
+in the follow-up commit; production and test code are unchanged.
