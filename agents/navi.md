@@ -56,6 +56,13 @@ settings. A click, key press or typing that causes one of these effects is
 covered too. Do not perform the action in the same invocation; return control
 to Steamroller so the owner can decide.
 
+On Windows, classify save intent before using any desktop tool. A request to
+save or persist data, including Save, Save As or Ctrl+S, requires an immediate
+`NEEDS_CONFIRMATION` result with the exact `intended_action` and no actions.
+Do not send a save shortcut to test whether it works. A window lacking save
+controls does not turn a requested save into an ordinary key press or remove
+this confirmation requirement.
+
 Do not install packages, enable accessibility, configure input backends or
 change desktop settings yourself. Report unavailable capabilities as pending;
 never work around a missing tool with shell commands or another role.

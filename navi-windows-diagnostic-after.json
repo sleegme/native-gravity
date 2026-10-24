@@ -1,0 +1,75 @@
+{
+    "schema_version":  1,
+    "scope":  "navi_windows_validation_kit",
+    "status":  "PENDING",
+    "production_windows_support":  "PENDING",
+    "os":  "Microsoft Windows NT 10.0.26200.0",
+    "powershell":  "5.1.26100.9711",
+    "baseline_sha":  "56d77a4510d5ed1190f1b601a92f73a612659e55",
+    "checks":  [
+                   {
+                       "name":  "native_windows",
+                       "status":  "PASS"
+                   },
+                   {
+                       "name":  "node_and_baseline",
+                       "status":  "PASS"
+                   },
+                   {
+                       "name":  "fixture_guard_original_write",
+                       "status":  "PASS"
+                   },
+                   {
+                       "name":  "fixture_guard_original_truncate",
+                       "status":  "PASS"
+                   },
+                   {
+                       "name":  "fixture_guard_original_replace",
+                       "status":  "PASS"
+                   },
+                   {
+                       "name":  "fixture_guard_original_delete",
+                       "status":  "PASS"
+                   },
+                   {
+                       "name":  "fixture_guard_original_rename",
+                       "status":  "PASS"
+                   },
+                   {
+                       "name":  "fixture_guard_alias_write",
+                       "status":  "PASS"
+                   },
+                   {
+                       "name":  "fixture_guard_alias_truncate",
+                       "status":  "PASS"
+                   },
+                   {
+                       "name":  "fixture_guard_alias_replace",
+                       "status":  "PASS"
+                   },
+                   {
+                       "name":  "fixture_guard_alias_delete",
+                       "status":  "PASS"
+                   },
+                   {
+                       "name":  "fixture_guard_alias_rename",
+                       "status":  "PASS"
+                   },
+                   {
+                       "name":  "fixture_alias_identity_and_release",
+                       "status":  "PASS"
+                   },
+                   {
+                       "name":  "backend_protocol",
+                       "status":  "PENDING"
+                   }
+               ],
+    "native_pending":  [
+                           "Real AGY private-profile authentication and no owner-keyring fallback",
+                           "Original credential protection during real AGY calls",
+                           "Production Navi Windows runtime, confirmation and ledger invariants",
+                           "Timeout/cancellation descendant cleanup during real AGY calls",
+                           "Packaged installation in spaces and non-ASCII paths"
+                       ],
+    "node":  "v20.19.0"
+}

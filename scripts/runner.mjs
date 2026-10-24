@@ -214,7 +214,7 @@ export function listInstalledModels(opts = {}) {
   const agyPath = opts.agyPath || process.env.AGY_PATH || "agy";
   const timeout = typeof opts.timeout === "number" ? opts.timeout : 15000;
 
-  const result = spawnSync(agyPath, ["models"], {
+  const result = (opts.naviSpawn || spawnSync)(agyPath, ["models"], {
     timeout,
     env: { ...process.env, ...(opts.env || {}) },
     cwd: opts.cwd || process.cwd(),
@@ -226,6 +226,7 @@ export function listInstalledModels(opts = {}) {
     throw new Error(`Failed to list installed models: ${result.error.message}`);
   }
   if (result.status !== 0) {
+    if (opts.naviSpawn) throw new Error("NAVI_MODEL_DISCOVERY_FAILED");
     throw new Error(
       `Failed to list installed models (exit code ${result.status}): ${result.stderr || ""}`
     );
@@ -305,7 +306,11 @@ export function resolveSlug(role, opts = {}) {
   let installed = opts.installedModels;
   if (!installed) {
     try {
-      installed = listInstalledModels(opts);
+      installed = normalized === "navi" && process.platform === "win32"
+        ? withNaviHome(opts, (env, prefix, windows) => listInstalledModels({
+          ...opts, env, agyPath: windows.agyPath, naviSpawn: windows.spawn,
+        }))
+        : listInstalledModels(opts);
     } catch (err) {
       throw new UnresolvedModelSlugError(
         role,
@@ -696,7 +701,10 @@ export function invokeTransport(slugOrOpts, maybePrompt, maybeOpts) {
     result = invokeAgyTransport(request);
   } else {
     try {
-      result = withNaviHome(request, (env, prefix) => invokeAgyTransport({ ...request, env }, prefix));
+      result = withNaviHome(request, (env, prefix, windows) => invokeAgyTransport({
+        ...request, env,
+        ...(windows ? { agyPath: windows.agyPath, naviSpawn: windows.spawn } : {}),
+      }, prefix));
     } catch (error) {
       result = {
         ok: false, error: "NAVI_SETUP_ERROR", role: "navi",
@@ -797,6 +805,9 @@ function invokeAgyTransport(opts, prefix = []) {
   if (normalizedRole === "bulldozer") {
     args.push("--dangerously-skip-permissions");
   }
+  if (normalizedRole === "navi" && process.platform === "win32" && opts.effort) {
+    args.push("--effort", opts.effort);
+  }
   args.push("--print", prompt);
 
   // Linux caps a single argv element at MAX_ARG_STRLEN (128 KiB); oversize
@@ -817,7 +828,7 @@ function invokeAgyTransport(opts, prefix = []) {
 
   let result;
   try {
-    result = spawnSync(prefix.length ? "bwrap" : agyPath, prefix.length ? [...prefix, agyPath, ...args] : args, {
+    result = (opts.naviSpawn || spawnSync)(prefix.length ? "bwrap" : agyPath, prefix.length ? [...prefix, agyPath, ...args] : args, {
       timeout,
       killSignal: "SIGKILL",
       detached: process.platform !== "win32",
