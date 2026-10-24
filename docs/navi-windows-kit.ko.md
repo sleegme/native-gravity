@@ -2,9 +2,11 @@
 
 ## 현재 상태
 
-이 브랜치는 **Windows 실측을 위한 초기 키트**다. 운영 Navi 실행부는 아직
-Linux 전용이며, Windows 지원 완료나 main 병합 후보가 아니다.
-Linux Navi의 모델·원장·역할 권한은 바꾸지 않는다.
+이 문서는 **Windows 실측을 위한 초기 키트**의 사용법과 당시 인계 계획이다.
+현재 Windows 전용 프로필·Job Object 실행 경로는 `scripts/navi.mjs`에 구현되어 있다.
+최신 구현 범위와 실제 검증 결과는 저장소 루트의
+`navi-windows-port-results.md`를 기준으로 본다. 전체 Windows 데스크톱 지원 완료나
+main 병합 후보를 선언하지 않으며, Linux Navi의 모델·원장·역할 권한은 바꾸지 않는다.
 
 Windows-MCP 연결, AGY discovery probe 대응, 제한된 도구 목록 및 직접 호출
 차단을 실제 Windows에서 검증할 수 있다. 파일 공유 잠금의 원본/하드링크
@@ -111,7 +113,9 @@ scratch 창은 검증 후 사용자가 닫는다.
 
 ## 4. Windows OmO가 이어서 할 작업
 
-다음은 아직 구현/실측 완료가 아니다. fixture나 Linux 테스트 결과로 채우지 않는다.
+다음은 초기 키트 작성 당시의 인계 계획이다. 이후 구현된 Windows 실행부 범위는
+`navi-windows-port-results.md`에서 별도로 구분한다. 아직 남은 검증을 fixture나
+Linux 테스트 결과로 채우지 않는다.
 
 1. Windows AGY가 사용하는 실제 HOME/USERPROFILE/APPDATA/LOCALAPPDATA 설정·인증
    경로와 keyring fallback 유무를 확인한다. 토큰 값을 출력하지 않는다.
