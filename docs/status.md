@@ -29,12 +29,17 @@ stages.
 
 ## Limits and not yet available
 
-- **TEMPORARY: Excavator is disabled.** AGY 1.3.6 native subagents cannot
+- **TEMPORARY: Excavator is headless-only.** AGY 1.3.6 native subagents cannot
   select Argon: `pro` and `flash` both run `gemini-3.8-flash-tiered`.
-  Ordinary repairs stay with Bobcat. A hard repair with no safe in-scope route
-  returns evidenced BLOCKED to Steamroller; architectural questions use
-  NEEDS_DEEP. There is no runner workaround. The retained
-  `agents/excavator.md` documents re-enablement after native Argon is verified.
+  Ordinary repairs stay with Bobcat. A hard repair beyond Bobcat is
+  delegated by Bulldozer through `scripts/excavator-agy.mjs`, which runs
+  the retained contract on the exact `gemini-4-argon-high` slug and
+  records every call in `.ntg/excavator-agy-calls.jsonl`. When that script
+  fails (agy missing, Argon quota exhausted/429, timeout, unparseable
+  output) or no safe in-scope route remains, Bulldozer returns evidenced
+  BLOCKED to Steamroller; architectural questions use NEEDS_DEEP. Native
+  re-enablement after Argon is verified is documented in
+  `agents/excavator.md`, which also removes the headless path.
 - **Alpha:** validated on one host with AGY 1.3.3. That's not a broad claim
   about reliability or performance.
 - **You write the plan file.** There's no way yet to turn a natural-language

@@ -20,11 +20,13 @@ const ROLE_FILES = [
 // Base byte lengths and SHA-256 hashes computed from commit 2ff0083,
 // except agents/zen.md and rules/orchestration.md recomputed after PR #169
 // legitimately changed their base (Zen -> Claude Opus 5.5 High).
-// Bulldozer and orchestration baselines also reflect temporary Excavator disablement.
+// Bulldozer and orchestration baselines reflect the temporary Excavator
+// disablement (#173) and its follow-up TEMPORARY headless path
+// (scripts/excavator-agy.mjs, exact Argon High via run_command).
 const BASE_PREFIXES = {
   "agents/bulldozer.md": {
-    length: 7888,
-    sha256: "9329025553194aa5e648cdb0a76b2cd04c7a0afc948ce5cbdd9ddccfcf12cf03",
+    length: 9135,
+    sha256: "0cd2c971391478eb9fda2499a1c62f13c83ecd0744ec721abea798be922ae86d",
   },
   "agents/jaguar.md": {
     length: 3489,
@@ -47,8 +49,8 @@ const BASE_PREFIXES = {
     sha256: "438298773502d3e03a8fcc76e54f3c8955d23637998f648b68eae541ec60ae33",
   },
   "rules/orchestration.md": {
-    length: 18000,
-    sha256: "76b0dd9e46ff8c7517d775ffb889aebd38d019150e1259d7d849e2b594706f87",
+    length: 18524,
+    sha256: "b2995705908e100485dff2ec0755c0c609968f18fdfde9c977e7b05d518a96e4",
   },
 };
 
@@ -103,9 +105,19 @@ test("Tool authority: non-run_command roles omit wf and ctx tools from guidance"
     const base = BASE_PREFIXES[relPath];
     const appended = currentBuf.subarray(base.length).toString("utf8");
 
-    if (["agents/bulldozer.md", "agents/jaguar.md", "agents/puma.md", "agents/strix-halo.md"].includes(relPath)) {
+    if (["agents/jaguar.md", "agents/puma.md", "agents/strix-halo.md"].includes(relPath)) {
       assert.ok(!tools.includes("run_command"), `${relPath} must not have run_command`);
       // Non-run_command roles must not mention wf.search, tools/ctx, or wf.ctx outside permitted negative notice
+      const PROHIBITION = "(no `wf.search` or `tools/ctx` or `wf.ctx`)";
+      const outsideNegativeNotice = appended.replace(PROHIBITION, "");
+      assert.doesNotMatch(outsideNegativeNotice, /wf\.search/, `${relPath} must not mention wf.search`);
+      assert.doesNotMatch(outsideNegativeNotice, /tools\/ctx/, `${relPath} must not mention tools/ctx`);
+      assert.doesNotMatch(outsideNegativeNotice, /wf\.ctx/, `${relPath} must not mention wf.ctx`);
+    } else if (relPath === "agents/bulldozer.md") {
+      // TEMPORARY (#173 follow-up): Bulldozer carries run_command solely to
+      // dispatch the headless Excavator script; remove together with that path.
+      assert.ok(tools.includes("run_command"), `${relPath} must have run_command for the TEMPORARY headless excavator dispatch`);
+      assert.match(readFileSync(fullPath, "utf8"), /scripts\/excavator-agy\.mjs/, `${relPath} must scope run_command to scripts/excavator-agy.mjs`);
       const PROHIBITION = "(no `wf.search` or `tools/ctx` or `wf.ctx`)";
       const outsideNegativeNotice = appended.replace(PROHIBITION, "");
       assert.doesNotMatch(outsideNegativeNotice, /wf\.search/, `${relPath} must not mention wf.search`);

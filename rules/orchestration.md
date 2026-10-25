@@ -18,7 +18,7 @@ User
   Steamroller — supervisor / authoritative ledger owner
     Piledriver — bounded planning, architecture and difficult decisions
     Bulldozer — one bounded milestone
-      Jaguar / Puma / Bobcat (Excavator temporarily disabled)
+      Jaguar / Puma / Bobcat (Excavator: TEMPORARY headless-only path)
                        Strix Halo — Bobcat-local gate
     Instinct — alternate-framing advisory on NEEDS_ALT
     Zen — independent milestone verification
@@ -45,7 +45,7 @@ Choose by kind of work, not apparent task size:
 | Milestone verification, independent completion review | Zen (via Steamroller) |
 | Full Linux desktop observation and bounded interaction | Navi (via Steamroller's exact-model runner) |
 | Multi-milestone project work | Steamroller through the runner |
-| Hard diagnosis/repair with no safe in-scope route left | BLOCKED with evidence to Steamroller; Excavator temporarily disabled |
+| Hard broken-behavior diagnosis/repair beyond Bobcat | TEMPORARY headless Excavator via `scripts/excavator-agy.mjs` (exact Argon High); on script failure BLOCKED with evidence to Steamroller |
 
 ## Steamroller — supervision and ledger ownership
 
@@ -112,15 +112,22 @@ Worker routing inside the milestone:
   not milestone completion, `REVISE` is corrected through Bobcat, and
   `NEEDS_DEEP` routes `Strix Halo -> Bobcat -> Bulldozer -> Steamroller ->
   optional Piledriver` — never directly to Piledriver.
-- **Excavator — TEMPORARILY disabled** until native subagents can select
-  Argon. AGY 1.3.6 native `pro` and `flash` both run
-  `gemini-3.8-flash-tiered`; do not spawn it or add a runner workaround.
-  Keep ordinary repairs with Bobcat and its advisor gate. If hard repair has
-  no safe in-scope route left, return BLOCKED under the harness gate with the
-  observed failure, attempted remediation, missing capability and repair need.
-  Steamroller persists the blocker and evidence through the existing ledger
-  path. Architectural ambiguity returns NEEDS_DEEP instead. The disabled
-  contract and re-enablement steps remain in `agents/excavator.md`.
+- **Excavator — TEMPORARY headless-only path** until native subagents can
+  select Argon. AGY 1.3.6 native `pro` and `flash` both run
+  `gemini-3.8-flash-tiered`, so the role stays `subagent: false` and is not
+  spawnable. Bulldozer instead invokes `scripts/excavator-agy.mjs` through
+  `run_command` for a hard repair beyond Bobcat: the script runs the
+  retained contract headlessly on the policy-resolved `gemini-4-argon-high`
+  slug and returns the worker result; each call is recorded in
+  `.ntg/excavator-agy-calls.jsonl`. Keep ordinary repairs with Bobcat and
+  its advisor gate. If the script fails (missing agy, exhausted Argon
+  quota/429, timeout, unparseable output) or has no safe in-scope route
+  left, return BLOCKED under the harness gate with the observed failure,
+  the script error code, attempted remediation, missing capability and
+  repair need. Steamroller persists the blocker and evidence through the
+  existing ledger path. Architectural ambiguity returns NEEDS_DEEP instead.
+  The retained contract and native re-enablement steps remain in
+  `agents/excavator.md`.
 
 Bulldozer drives repair loops only inside the received scope, inspects actual
 worker results, and gathers observed evidence per acceptance criterion. Worker
@@ -233,7 +240,7 @@ Zen -> Steamroller verdict packet: `milestone_id`, `plan_version`,
 `result_ref` (echoed unchanged), `verdict` (`GO | NO-GO`),
 `verification_evidence` (criterion-linked, classified OBSERVED/INFERRED/UNKNOWN).
 
-Retained disabled Excavator -> Bulldozer worker result: `ROOT_CAUSE` (`CONFIRMED | LIKELY |
+Retained headless-only Excavator -> Bulldozer worker result: `ROOT_CAUSE` (`CONFIRMED | LIKELY |
 SPECULATIVE`), `CHANGES`, `VERIFICATION_EVIDENCE`, `ROLLBACK` (when
 persistent changes were made), `RESIDUAL_RISK` (residual risk and remaining
 UNKNOWNs), `STATUS` (`READY | BLOCKED`) — a local signal after its own
@@ -271,7 +278,7 @@ Model policy, not hard-coded slugs:
 | Jaguar | Flash | native | native subagent |
 | Puma | Flash | native | native subagent |
 | Bobcat | Flash | native | native subagent |
-| Excavator | Argon required; native selection unavailable | disabled | TEMPORARY; not a native subagent |
+| Excavator | Gemini 4 Argon | High | TEMPORARY headless `scripts/excavator-agy.mjs` (not a native subagent) |
 | Strix Halo | Flash | native | native subagent |
 | Zen | Claude Opus 5.5 | High | native invocation by `ntg-vnext` (policy-resolved slug) |
 

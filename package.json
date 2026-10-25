@@ -34,6 +34,7 @@
         "scripts/ntg-vnext.mjs",
         "scripts/report-issue.mjs",
         "scripts/spine.mjs",
+        "scripts/excavator-agy.mjs",
         "scripts/runner.mjs",
         "scripts/ledger.mjs",
         "scripts/telemetry.mjs",

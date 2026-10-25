@@ -200,7 +200,7 @@ runTest("1.6: Live installed surface resolution against system agy models", () =
 });
 
 runTest("1.7: Argon policies fail closed on a retired Pro or wrong-effort surface", () => {
-  for (const role of ["piledriver", "steamroller", "zen"]) {
+  for (const role of ["piledriver", "steamroller", "zen", "excavator"]) {
     for (const installedModels of [["gemini-3.1-pro-high"], ["gemini-4-argon-low"]]) {
       assert.throws(() => resolveSlug(role, { installedModels }),
         err => err instanceof UnresolvedModelSlugError && err.reason === "NOT_FOUND");
