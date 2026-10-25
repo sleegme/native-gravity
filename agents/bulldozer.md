@@ -101,10 +101,13 @@ Excavator contract on the exact policy-resolved `gemini-4-argon-high` slug,
 prints Excavator's worker result (`ROOT_CAUSE`, `CHANGES`,
 `VERIFICATION_EVIDENCE`, `ROLLBACK`, `RESIDUAL_RISK`, `STATUS`) and appends
 a visible call record to `.ntg/excavator-agy-calls.jsonl`. Relay that
-result inside your packet fields; the call is delegation, and Excavator
+result inside your packet fields and declare the call in your `delegations`
+array as `{ "role": "excavator", "transport": "scripts/excavator-agy.mjs" }`
+with the worker outcome, so the receiver can distinguish the sanctioned
+headless transport from a native spawn claim. The call is delegation, and Excavator
 still grants no completion or review authority. If the script exits
 non-zero (`AGY_MISSING`, `RATE_LIMITED`, `TIMEOUT`, `UNPARSEABLE_OUTPUT`,
-...), do not retry silently: fall back to the existing path — return
+`TELEMETRY_LOG_FAILED`, ...), do not retry silently: fall back to the existing path — return
 BLOCKED under the harness gate recording the observed failure, the script's
 error code, attempted remediation, missing capability and repair need in the
 result packet (Steamroller records that blocker in the ledger), or return

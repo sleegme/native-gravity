@@ -25,8 +25,8 @@ const ROLE_FILES = [
 // (scripts/excavator-agy.mjs, exact Argon High via run_command).
 const BASE_PREFIXES = {
   "agents/bulldozer.md": {
-    length: 9135,
-    sha256: "0cd2c971391478eb9fda2499a1c62f13c83ecd0744ec721abea798be922ae86d",
+    length: 9396,
+    sha256: "6a77d960d597f4124a6da4f39733b63fcc2625ebf28c88b3f26fe480e1b7367f",
   },
   "agents/jaguar.md": {
     length: 3489,

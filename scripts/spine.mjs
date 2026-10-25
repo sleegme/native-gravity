@@ -7,6 +7,13 @@ import { InvalidHandoffPacketError, InvalidResponseFormatError, invoke, parseRes
 import { projectFailureRecord, projectFailureTelemetry, redactTelemetryValue } from './telemetry.mjs';
 
 const NEEDS_ALT_MIN_ATTEMPTS = 3;
+/**
+ * TEMPORARY (#174): the sanctioned headless Excavator transport marker. A
+ * Bulldozer delegation entry carrying exactly this transport declares the
+ * scripts/excavator-agy.mjs call; a bare "excavator" role still claims native
+ * spawning and is rejected. Remove together with the headless path.
+ */
+export const HEADLESS_EXCAVATOR_TRANSPORT = 'scripts/excavator-agy.mjs';
 const MAX_HANDOFF_CORRECTIONS = 2;
 
 /**
@@ -579,6 +586,9 @@ export class MinimalSpine {
       }
       // The runner loads the bounded vNext Bulldozer contract, not a released
       // primary agent: Jaguar, Puma and Bobcat are the enabled milestone children.
+      // Excavator is TEMPORARILY headless-only (#174): a declared delegation is
+      // accepted only with the sanctioned transport marker, distinguishing the
+      // headless script call from a native spawn claim, which stays rejected.
       if ('delegations' in candidate) {
         if (!Array.isArray(candidate.delegations)) {
           throw new InvalidHandoffPacketError('Bulldozer delegations must be an array');
@@ -589,7 +599,10 @@ export class MinimalSpine {
             throw new InvalidHandoffPacketError('Each Bulldozer delegation must have a non-empty role');
           }
           const role = delegation.role.trim().toLowerCase();
-          if (!['jaguar', 'puma', 'bobcat'].includes(role)) {
+          const headlessExcavator = role === 'excavator'
+            && typeof delegation.transport === 'string'
+            && delegation.transport.trim() === HEADLESS_EXCAVATOR_TRANSPORT;
+          if (!['jaguar', 'puma', 'bobcat'].includes(role) && !headlessExcavator) {
             throw new InvalidHandoffPacketError(`Bulldozer cannot delegate to "${role}" within a milestone`);
           }
         }

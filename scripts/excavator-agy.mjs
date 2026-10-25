@@ -18,11 +18,16 @@
  *
  * Every failure mode is loud: the script exits non-zero with a typed error
  * (AGY_MISSING | RATE_LIMITED | TIMEOUT | UNRESOLVED_MODEL_SLUG |
- * UNPARSEABLE_OUTPUT | INVALID_WORKER_RESULT | ...) so Bulldozer falls back to
- * the existing BLOCKED/NEEDS_DEEP path instead of proceeding silently. Each
+ * UNPARSEABLE_OUTPUT | INVALID_WORKER_RESULT | TELEMETRY_LOG_FAILED | ...) so
+ * Bulldozer falls back to the existing BLOCKED/NEEDS_DEEP path instead of
+ * proceeding silently. Worker results are validated against the full
+ * contract (ROOT_CAUSE, CHANGES, VERIFICATION_EVIDENCE, ROLLBACK when
+ * changes were made, RESIDUAL_RISK, STATUS). Each
  * attempt — success or failure — is appended to
  * <workspace>/.ntg/excavator-agy-calls.jsonl with start/end/model/exit so the
- * call is visible in runner telemetry.
+ * call is visible in runner telemetry; if that required log write fails, the
+ * call reports TELEMETRY_LOG_FAILED (exit 1) with the worker result preserved
+ * in `worker_result`, never a silent success.
  *
  * Usage (from the milestone workspace; Bulldozer via run_command):
  *   node scripts/excavator-agy.mjs --milestone <id> --blocker "<one-line observed failure>"
@@ -302,22 +307,44 @@ export function parseStreamJson(stdout) {
 }
 
 /**
- * Validates a parsed worker result against the contract shape Bulldozer
- * expects. Returns an error message or null.
+ * Validates a parsed worker result against the full contract shape Bulldozer
+ * expects (gate B2, #174): STATUS, labeled ROOT_CAUSE, material CHANGES and
+ * VERIFICATION_EVIDENCE (both required for READY), RESIDUAL_RISK always, and
+ * ROLLBACK whenever persistent changes were made (non-empty CHANGES).
+ * Returns an error message or null.
  *
  * @param {object} result
  * @returns {string|null}
  */
 export function validateWorkerResult(result) {
-  if (typeof result.STATUS !== "string" || !["READY", "BLOCKED"].includes(result.STATUS.trim().toUpperCase())) {
+  const status = typeof result.STATUS === "string" ? result.STATUS.trim().toUpperCase() : "";
+  if (!['READY', 'BLOCKED'].includes(status)) {
     return 'STATUS must be "READY" or "BLOCKED"';
   }
   if (typeof result.ROOT_CAUSE !== "string" || !result.ROOT_CAUSE.trim()) {
     return "ROOT_CAUSE must be a non-empty string";
   }
-  if (result.STATUS.trim().toUpperCase() === "READY"
-      && !/\b(CONFIRMED|LIKELY|SPECULATIVE)\b/.test(result.ROOT_CAUSE)) {
+  if (status === 'READY' && !/\b(CONFIRMED|LIKELY|SPECULATIVE)\b/.test(result.ROOT_CAUSE)) {
     return "ROOT_CAUSE for READY must be labeled CONFIRMED, LIKELY or SPECULATIVE";
+  }
+  if (!Array.isArray(result.CHANGES)) {
+    return "CHANGES must be an array of files, edits or artifacts produced";
+  }
+  if (status === 'READY' && result.CHANGES.length === 0) {
+    return "CHANGES for READY must be a non-empty array (files, edits or artifacts produced)";
+  }
+  if (!Array.isArray(result.VERIFICATION_EVIDENCE)) {
+    return "VERIFICATION_EVIDENCE must be an array";
+  }
+  if (status === 'READY' && result.VERIFICATION_EVIDENCE.length === 0) {
+    return "VERIFICATION_EVIDENCE for READY must be a non-empty array of OBSERVED results";
+  }
+  if (typeof result.RESIDUAL_RISK !== "string" || !result.RESIDUAL_RISK.trim()) {
+    return "RESIDUAL_RISK must be a non-empty string";
+  }
+  if (result.CHANGES.length > 0
+      && (typeof result.ROLLBACK !== "string" || !result.ROLLBACK.trim())) {
+    return "ROLLBACK is required whenever persistent changes were made (non-empty CHANGES)";
   }
   return null;
 }
@@ -426,10 +453,12 @@ export function runExcavatorHeadless(options, deps = {}) {
     try {
       mkdirSync(join(cwd, ".ntg"), { recursive: true });
       (deps.appendFile ?? appendFileSync)(telemetryPath, `${JSON.stringify(record)}\n`);
-    } catch {
-      // Telemetry is best-effort visibility; never mask the real outcome.
+      return { record, logged: true, logError: null };
+    } catch (err) {
+      // Required audit logging (gate B3, #174): never silent. The outcome is
+      // surfaced by the callers; the record is still returned in memory.
+      return { record, logged: false, logError: err?.message ?? String(err) };
     }
-    return record;
   };
 
   let packet;
@@ -530,7 +559,23 @@ export function runExcavatorHeadless(options, deps = {}) {
         ? stream.resultEvent.usage
         : null,
     });
-    return { ...outcome, telemetry: recordTelemetry({ ...outcome, model: slug }) };
+    const telemetry = recordTelemetry({ ...outcome, model: slug });
+    if (!telemetry.logged) {
+      // The worker result is valid but this call cannot satisfy its required
+      // audit logging: report an explicit unsuccessful outcome while keeping
+      // the worker result for Bulldozer's fallback evidence (gate B3).
+      return {
+        ...outcome,
+        ok: false,
+        error: "TELEMETRY_LOG_FAILED",
+        message: `worker result obtained but the required call log could not be written: ${telemetry.logError}`,
+        worker_result: outcome.result,
+        telemetry_logged: false,
+        telemetry_error: telemetry.logError,
+        telemetry: telemetry.record,
+      };
+    }
+    return { ...outcome, telemetry_logged: true, telemetry: telemetry.record };
   } catch (err) {
     const failure = err instanceof ExcavatorHeadlessError
       ? err
@@ -544,7 +589,13 @@ export function runExcavatorHeadless(options, deps = {}) {
       ...(failure.exit_status !== undefined ? { exit_status: failure.exit_status } : {}),
       ...(failure.reason !== undefined ? { reason: failure.reason } : {}),
     });
-    return { ...outcome, telemetry: recordTelemetry({ ...outcome, model: failure.slug ?? slug ?? null }) };
+    const telemetry = recordTelemetry({ ...outcome, model: failure.slug ?? slug ?? null });
+    return {
+      ...outcome,
+      telemetry_logged: telemetry.logged,
+      ...(telemetry.logged ? {} : { telemetry_error: telemetry.logError }),
+      telemetry: telemetry.record,
+    };
   }
 }
 
@@ -590,7 +641,15 @@ export function main(argv, deps = {}) {
     process.stdout.write(`${JSON.stringify(outcome)}\n`);
     return { ...outcome, exitCode: 0 };
   }
-  process.stderr.write(`${JSON.stringify({ ok: false, error: outcome.error, message: outcome.message, ...(outcome.slug ? { slug: outcome.slug } : {}), ...(outcome.milestone_id ? { milestone_id: outcome.milestone_id } : {}) })}\n`);
+  process.stderr.write(`${JSON.stringify({
+    ok: false,
+    error: outcome.error,
+    message: outcome.message,
+    ...(outcome.slug ? { slug: outcome.slug } : {}),
+    ...(outcome.milestone_id ? { milestone_id: outcome.milestone_id } : {}),
+    ...(outcome.worker_result ? { worker_result: outcome.worker_result } : {}),
+    ...(outcome.telemetry_logged === false ? { telemetry_logged: false, telemetry_error: outcome.telemetry_error } : {}),
+  })}\n`);
   return { ...outcome, exitCode: 1 };
 }
 

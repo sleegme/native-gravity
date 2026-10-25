@@ -217,7 +217,44 @@ test("extractWorkerResult fails typed on garbage, empty and contract-invalid res
   assert.equal(extractWorkerResult("the repair is done, trust me").error, "UNPARSEABLE_OUTPUT");
   assert.equal(extractWorkerResult('{"STATUS":"MAYBE"}').error, "INVALID_WORKER_RESULT");
   assert.equal(extractWorkerResult('{"STATUS":"READY","ROOT_CAUSE":"unlabeled"}').error, "INVALID_WORKER_RESULT");
-  assert.equal(extractWorkerResult('{"STATUS":"BLOCKED","ROOT_CAUSE":"CONFIRMED cannot proceed"}').ok, true);
+  assert.equal(extractWorkerResult('{"STATUS":"BLOCKED","ROOT_CAUSE":"CONFIRMED cannot proceed","CHANGES":[],"VERIFICATION_EVIDENCE":[],"RESIDUAL_RISK":"capability missing"}').ok, true);
+});
+
+// Gate B2 (#174): READY must carry the full worker-result contract Bulldozer
+// relies on, not just STATUS and ROOT_CAUSE.
+test("READY without CHANGES, VERIFICATION_EVIDENCE and RESIDUAL_RISK is invalid (gate B2)", () => {
+  const incomplete = extractWorkerResult('{"STATUS":"READY","ROOT_CAUSE":"CONFIRMED repaired"}');
+  assert.equal(incomplete.ok, false);
+  assert.equal(incomplete.error, "INVALID_WORKER_RESULT");
+  assert.match(incomplete.message, /CHANGES/);
+});
+
+for (const [name, patch] of [
+  ["READY missing ROLLBACK while persistent changes were made", { ROLLBACK: undefined }],
+  ["READY missing RESIDUAL_RISK", { RESIDUAL_RISK: undefined }],
+  ["READY with empty VERIFICATION_EVIDENCE", { VERIFICATION_EVIDENCE: [] }],
+  ["READY with non-array CHANGES", { CHANGES: "counter.mjs" }],
+  ["BLOCKED with changes but no ROLLBACK", { STATUS: "BLOCKED", VERIFICATION_EVIDENCE: [], ROLLBACK: undefined }],
+]) {
+  test(`worker-result contract enforcement rejects ${name} (gate B2)`, () => {
+    const result = {
+      ROOT_CAUSE: "CONFIRMED off-by-one", CHANGES: ["counter.mjs: one-line repair"],
+      VERIFICATION_EVIDENCE: ["node check.mjs exited 0"], ROLLBACK: "revert counter.mjs",
+      RESIDUAL_RISK: "none observed", STATUS: "READY", ...patch,
+    };
+    const cleaned = JSON.parse(JSON.stringify(result));
+    const extracted = extractWorkerResult(JSON.stringify(cleaned));
+    assert.equal(extracted.ok, false, JSON.stringify(cleaned));
+    assert.equal(extracted.error, "INVALID_WORKER_RESULT");
+  });
+}
+
+test("BLOCKED without changes needs no ROLLBACK but keeps RESIDUAL_RISK (gate B2)", () => {
+  const ok = extractWorkerResult(JSON.stringify({
+    STATUS: "BLOCKED", ROOT_CAUSE: "CONFIRMED capability unavailable",
+    CHANGES: [], VERIFICATION_EVIDENCE: [], RESIDUAL_RISK: "hard repair needs Argon",
+  }));
+  assert.equal(ok.ok, true);
 });
 
 // ---------------------------------------------------------------------------
@@ -438,4 +475,58 @@ test("main resolves the ledger from NTG_SUPERVISOR_LEDGER for --milestone", asyn
   });
   assert.equal(out.exitCode, 0);
   assert.equal(out.milestone_id, "m-fix");
+});
+
+// ---------------------------------------------------------------------------
+// Required call-log persistence (gate B3): a call that cannot be audited is
+// never reported as a clean success, and the worker outcome is preserved.
+// ---------------------------------------------------------------------------
+
+test("successful worker result with a failed call-log write is an explicit unsuccessful outcome (gate B3)", (t) => {
+  const dir = workspace(t);
+  const out = runExcavatorHeadless(
+    { assignment: { packetObject: PACKET }, blocker: "b", cwd: dir, installedModels: ARGON_SURFACE },
+    {
+      spawn: () => ({ status: 0, stdout: resultEvent(READY_TEXT), stderr: "" }),
+      appendFile: () => { throw new Error("EACCES: permission denied"); },
+      env: {},
+    },
+  );
+  assert.equal(out.ok, false);
+  assert.equal(out.error, "TELEMETRY_LOG_FAILED");
+  assert.match(out.message, /EACCES/);
+  assert.equal(out.worker_result.STATUS, "READY");
+  assert.equal(out.worker_status, "READY");
+  assert.equal(out.telemetry_logged, false);
+  assert.equal(out.slug, "gemini-4-argon-high");
+});
+
+test("transport failure with a failed call-log write keeps its error and reports the log failure (gate B3)", (t) => {
+  const dir = workspace(t);
+  const out = runExcavatorHeadless(
+    { assignment: { packetObject: PACKET }, blocker: "b", cwd: dir, installedModels: ARGON_SURFACE },
+    {
+      spawn: () => ({ status: 1, stdout: "", stderr: "HTTP 429 quota exceeded" }),
+      appendFile: () => { throw new Error("EACCES: permission denied"); },
+      env: {},
+    },
+  );
+  assert.equal(out.ok, false);
+  assert.equal(out.error, "RATE_LIMITED");
+  assert.equal(out.telemetry_logged, false);
+  assert.match(out.telemetry_error, /EACCES/);
+});
+
+test("main exits 1 with the preserved worker result when the call log cannot be written (gate B3)", (t) => {
+  const dir = workspace(t);
+  const out = main(["--packet", "-", "--blocker", "b", "--cwd", dir], {
+    spawn: () => ({ status: 0, stdout: resultEvent(READY_TEXT), stderr: "" }),
+    installedModels: ARGON_SURFACE,
+    readStdin: () => JSON.stringify(PACKET),
+    appendFile: () => { throw new Error("EACCES: permission denied"); },
+    env: {},
+  });
+  assert.equal(out.exitCode, 1);
+  assert.equal(out.error, "TELEMETRY_LOG_FAILED");
+  assert.equal(out.worker_result.STATUS, "READY");
 });
