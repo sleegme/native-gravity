@@ -28,7 +28,7 @@ import { existsSync, readFileSync, readdirSync, realpathSync, unlinkSync } from 
 import { basename, dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { MinimalSpine, recommendNeedsAlt } from './spine.mjs';
+import { MinimalSpine, HEADLESS_EXCAVATOR_TRANSPORT, recommendNeedsAlt } from './spine.mjs';
 import { AuthoritativeLedger, computeUsageRollup } from './ledger.mjs';
 import { verifyLedgerIntegrity } from './ledger-lock.mjs';
 import { invoke, loadNativeRoleBody, parseResponseEnvelope, parseResponsePacket, resolveSlug } from './runner.mjs';
@@ -149,10 +149,16 @@ function nativeDelegations(candidate, role) {
     return [];
   }
   const allowed = new Set(['jaguar', 'puma', 'bobcat']);
+  // TEMPORARY (#174): the headless Excavator call is declared with the
+  // sanctioned transport marker; a bare excavator role still claims native
+  // spawning and stays out of the declared-delegation projection.
   return candidate.delegations.filter(delegation => delegation
     && typeof delegation === 'object' && !Array.isArray(delegation)
     && typeof delegation.role === 'string'
-    && allowed.has(delegation.role.trim().toLowerCase()));
+    && (allowed.has(delegation.role.trim().toLowerCase())
+      || (delegation.role.trim().toLowerCase() === 'excavator'
+        && typeof delegation.transport === 'string'
+        && delegation.transport.trim() === HEADLESS_EXCAVATOR_TRANSPORT)));
 }
 
 /**

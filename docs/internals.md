@@ -54,7 +54,7 @@ User
   Steamroller — supervisor / authoritative ledger owner
     Piledriver — bounded planning, architecture and difficult decisions
     Bulldozer — one bounded milestone
-      Jaguar / Puma / Bobcat (Excavator temporarily disabled)
+      Jaguar / Puma / Bobcat (Excavator: TEMPORARY headless-only path)
                        Strix Halo — Bobcat-local advisor gate
     Instinct — alternate-framing advisory on NEEDS_ALT
     Zen — independent milestone verification
@@ -67,16 +67,17 @@ project work. Navi is selectable only for the runner's agent-scoped MCP load,
 not as a project primary. Bulldozer, Piledriver and Instinct are runner-only roles: Bulldozer
 executes exactly one bounded milestone per invocation, Piledriver returns
 advisory plans to Steamroller, and Instinct returns alternate-framing advice on
-NEEDS_ALT. Excavator's disabled contract is for difficult broken-behavior work
+NEEDS_ALT. Excavator's retained contract is for difficult broken-behavior work
 (diagnose -> reproduce -> root-cause -> repair -> verify), with no nested
-delegation and no Zen invocation.
+delegation and no Zen invocation; TEMPORARILY it is headless-only, invoked
+by Bulldozer through `scripts/excavator-agy.mjs` on exact Argon High.
 
 Routing is based on the kind of work:
 
 - find/inspect -> Jaguar
 - small + clear + low-risk / writing -> Puma
 - ordinary implementation -> Bobcat (-> Strix Halo)
-- hard diagnosis/repair with no safe in-scope route -> evidenced BLOCKED to Steamroller (Excavator temporarily disabled)
+- hard diagnosis/repair beyond Bobcat -> TEMPORARY headless Excavator via `scripts/excavator-agy.mjs`; on script failure, evidenced BLOCKED to Steamroller
 - planning / architecture / trade-off -> Piledriver (via Steamroller under the runner)
 - stalled same-class failures / a different framing -> Instinct (NEEDS_ALT, via Steamroller under the runner)
 - independent verification -> Zen
@@ -96,7 +97,7 @@ shell or privilege sandboxes.
 | Jaguar | Read-only factual discovery; no delegation |
 | Puma | Small, explicit, low-risk writing/formatting/presentation/mechanical text or config; no delegation or advisor ceremony |
 | Bobcat | Ordinary bounded implementation; may invoke only Strix Halo; parent chooses `ADVISOR_GATE: REQUIRED \| NONE`, REQUIRED for substantive code/behavior/API/state/lifecycle/test work or uncertainty, NONE only for clearly low-risk mechanical work |
-| Excavator | TEMPORARILY disabled pending native Argon selection; contract and shell guard retained for re-enablement |
+| Excavator | TEMPORARY headless-only path (`scripts/excavator-agy.mjs`, Argon High); not a native subagent; contract and shell guard retained for native re-enablement |
 | Strix Halo (`strix-halo`) | Bobcat-only read-only advice/CHECK gate; `ACCEPT \| REVISE \| NEEDS_DEEP`; corrections go through Bobcat |
 | Zen | Independent non-mutating milestone review for Steamroller, not Bulldozer's child; `GO \| NO-GO`; may run verification commands |
 | Instinct | Runner-only heterogeneous alternate-framing advice, not a ritual reviewer; no implementation, orchestration, ledger, adoption or verdict/completion authority |
@@ -147,12 +148,16 @@ from `agents/`; critical roles are runner-invoked, not natively selectable.
 - The 2026-10-16 Argon mapping (#74) changes the policy-resolved roles only;
   native workers retain Flash. The original claim that native Pro selected
   Argon was disproved by child metadata.
-- Excavator is TEMPORARILY disabled (`subagent: false`) because AGY 1.3.6
-  native `pro` and `flash` both run `gemini-3.8-flash-tiered`. There is no
-  runner workaround. Ordinary repairs stay with Bobcat and its advisor gate;
-  a hard repair with no safe in-scope route left returns BLOCKED under the
-  harness gate, with the observed failure, attempted remediation, missing
-  capability and repair need persisted by Steamroller. Architectural questions
+- Excavator is TEMPORARILY headless-only (`subagent: false`) because AGY 1.3.6
+  native `pro` and `flash` both run `gemini-3.8-flash-tiered`. Bulldozer
+  invokes `scripts/excavator-agy.mjs` via `run_command` for hard repairs
+  beyond Bobcat: the script resolves `gemini-4-argon-high` from the same
+  policy table, runs the retained contract headlessly in the milestone
+  workspace, appends each call to `.ntg/excavator-agy-calls.jsonl`, and
+  returns the worker result; any failure (agy missing, Argon quota/429,
+  timeout, unparseable output) exits non-zero so Bulldozer falls back to
+  the BLOCKED/NEEDS_DEEP path with the typed error recorded. Ordinary
+  repairs stay with Bobcat and its advisor gate; architectural questions
   use NEEDS_DEEP. See `agents/excavator.md` for re-enablement after a native
   child proves Argon selection.
 - `NTG_ZEN_MODEL` optionally pins the independently invoked Zen model.
@@ -257,8 +262,9 @@ workflow. The canonical obligations remain in [AGENTS.md](../AGENTS.md#validatio
 4. Fresh-context resume uses the ledger, not conversation.
 5. Bobcat invokes only Strix Halo (include negative delegation coverage).
 6. Excavator is not registered as a native subagent and delegation validation
-   rejects it. Hard-repair BLOCKED/NEEDS_DEEP evidence persists without
-   promotion or Zen review.
+   rejects it; hard repairs reach it only through the TEMPORARY headless
+   `scripts/excavator-agy.mjs` path, whose failures fall back to evidenced
+   BLOCKED/NEEDS_DEEP packets that persist without promotion or Zen review.
 7. Zen verification uses its marker and rejects common intentional mutations.
 8. Excavator-marked calls preserve ordinary sudo diagnostics while rejecting
    privilege drift and full upgrades.

@@ -9,7 +9,7 @@ Availability does not prove that a native tier selects any of these models.
 
 | Role | Selection | Effort rationale |
 |---|---|---|
-| Excavator | TEMPORARILY disabled (`subagent: false`) | Argon required; native `pro`/`flash` both select Flash on AGY 1.3.6 |
+| Excavator | TEMPORARY headless path: `gemini-4-argon-high` via `scripts/excavator-agy.mjs` | High for difficult broken-behavior diagnosis/repair; native subagent stays disabled (`subagent: false`) |
 | Piledriver | `gemini-4-argon-high` | High for bounded architecture and difficult decisions |
 | Steamroller | `gemini-4-argon-medium` | Medium for constrained supervision and ledger decisions |
 | Navi | `gemini-4-argon-medium` | Medium for bounded desktop tasks; agent-scoped MCP only |
@@ -37,17 +37,23 @@ registered it and created a child whose generation and executor metadata both
 record `gemini-3.8-flash-tiered`. Full probe and control evidence is in
 [the correction receipt](../../.omo/evidence/74-argon-routing.md).
 
-Excavator is therefore **TEMPORARILY disabled**, not routed to native Flash.
-Native delegation does not consult `ROLE_POLICY_TABLE`:
-adding a policy entry and a resolver-only test would not fix the actual path.
-No test claims that the native worker resolves to Argon.
+Excavator is therefore **TEMPORARILY headless-only**, not routed to native
+Flash and not spawnable as a subagent. Native delegation does not consult
+`ROLE_POLICY_TABLE`, so a policy entry alone could not fix the native path.
+Instead `scripts/excavator-agy.mjs` consumes the same frozen policy table:
+it resolves the exact `gemini-4-argon-high` slug at runtime (fail-closed),
+runs the retained contract headlessly through the agy CLI in the milestone
+workspace, and returns the worker result to Bulldozer. No test claims that
+a native worker resolves to Argon.
 
-The temporary workaround uses existing paths: ordinary repairs stay with
-Bobcat; a hard repair with no safe in-scope route left returns evidenced
-BLOCKED to Steamroller, while architectural questions use NEEDS_DEEP.
-No runner-dispatched Excavator role is added. Re-enable when native child
+The temporary fallback path is unchanged where it matters: ordinary repairs
+stay with Bobcat; a hard repair whose headless call fails (missing agy,
+exhausted Argon quota/429, timeout, unparseable output) or has no safe
+in-scope route left returns evidenced BLOCKED to Steamroller, while
+architectural questions use NEEDS_DEEP. Re-enable natively when native child
 model metadata proves Argon selection, using the registration switch and
-routing restoration documented in `agents/excavator.md`.
+routing restoration documented in `agents/excavator.md`, and remove the
+headless path in the same change.
 
 ## Cost guidance
 

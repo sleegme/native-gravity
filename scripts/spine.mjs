@@ -7,6 +7,13 @@ import { InvalidHandoffPacketError, InvalidResponseFormatError, invoke, parseRes
 import { projectFailureRecord, projectFailureTelemetry, redactTelemetryValue } from './telemetry.mjs';
 
 const NEEDS_ALT_MIN_ATTEMPTS = 3;
+/**
+ * TEMPORARY (#174): the sanctioned headless Excavator transport marker. A
+ * Bulldozer delegation entry carrying exactly this transport declares the
+ * scripts/excavator-agy.mjs call; a bare "excavator" role still claims native
+ * spawning and is rejected. Remove together with the headless path.
+ */
+export const HEADLESS_EXCAVATOR_TRANSPORT = 'scripts/excavator-agy.mjs';
 const MAX_HANDOFF_CORRECTIONS = 2;
 
 /**
@@ -520,9 +527,11 @@ export class MinimalSpine {
       const instruction = 'Execute only this milestone. Delegate bounded work to specialists by kind: '
         + 'Jaguar for read-only factual retrieval, Puma for low-risk writing and '
         + 'mechanical text/config edits and Bobcat for bounded implementation and repair. '
-        + 'Excavator is TEMPORARILY DISABLED pending native Argon selection; do not spawn it. '
-        + 'For a hard repair with no safe in-scope route left, return BLOCKED under '
-        + 'the harness gate with observed failure, attempted remediation and repair need. '
+        + 'Excavator is TEMPORARILY headless-only (not a native subagent): for a hard repair '
+        + 'beyond Bobcat, invoke scripts/excavator-agy.mjs via run_command exactly as '
+        + 'agents/bulldozer.md directs; if that script fails, return BLOCKED under the '
+        + 'harness gate with observed failure, script error code, attempted remediation '
+        + 'and repair need. '
         + 'Return architectural questions as NEEDS_DEEP through Steamroller. '
         + 'For Bobcat, set ADVISOR_GATE REQUIRED for substantive work or NONE only '
         + 'for low-risk mechanical work; Bobcat may invoke only Strix Halo when required. '
@@ -577,6 +586,9 @@ export class MinimalSpine {
       }
       // The runner loads the bounded vNext Bulldozer contract, not a released
       // primary agent: Jaguar, Puma and Bobcat are the enabled milestone children.
+      // Excavator is TEMPORARILY headless-only (#174): a declared delegation is
+      // accepted only with the sanctioned transport marker, distinguishing the
+      // headless script call from a native spawn claim, which stays rejected.
       if ('delegations' in candidate) {
         if (!Array.isArray(candidate.delegations)) {
           throw new InvalidHandoffPacketError('Bulldozer delegations must be an array');
@@ -587,7 +599,10 @@ export class MinimalSpine {
             throw new InvalidHandoffPacketError('Each Bulldozer delegation must have a non-empty role');
           }
           const role = delegation.role.trim().toLowerCase();
-          if (!['jaguar', 'puma', 'bobcat'].includes(role)) {
+          const headlessExcavator = role === 'excavator'
+            && typeof delegation.transport === 'string'
+            && delegation.transport.trim() === HEADLESS_EXCAVATOR_TRANSPORT;
+          if (!['jaguar', 'puma', 'bobcat'].includes(role) && !headlessExcavator) {
             throw new InvalidHandoffPacketError(`Bulldozer cannot delegate to "${role}" within a milestone`);
           }
         }

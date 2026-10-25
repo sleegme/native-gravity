@@ -178,6 +178,7 @@ for (const delegations of [null, {}, 'bobcat', [{}], [null], [[]], ['bobcat'],
 
 for (const delegations of [[], [{ role: 'bobcat' }, { role: 'jaguar' }],
   [{ role: 'puma' }],
+  [{ role: ' Excavator ', transport: 'scripts/excavator-agy.mjs', status: 'READY' }],
   [{ role: ' Bobcat ', task: 'bounded implementation' }]]) {
   test(`allowed native delegations enter independent review: ${JSON.stringify(delegations)}`, async t => {
     const f = fixture(t, {
@@ -187,6 +188,66 @@ for (const delegations of [[], [{ role: 'bobcat' }, { role: 'jaguar' }],
     assert.equal((await f.spine.runMilestone('one')).verified, true);
     assert.deepEqual(f.calls, ['bulldozer', 'zen']);
     assert.deepEqual(AuthoritativeLedger.load(f.ledgerPath).getState().completed_milestones, ['one']);
+  });
+}
+
+// TEMPORARY headless Excavator transport (#174, gate B1): Bulldozer relays the
+// headless worker outcome in its packet. The declared delegation is accepted
+// only with the sanctioned transport marker; a bare excavator role would claim
+// native spawning, which stays rejected below.
+for (const status of ['DONE', 'BLOCKED', 'NEEDS_DEEP']) {
+  test(`declared headless excavator delegation preserves the ${status} outcome`, async t => {
+    const delegation = { role: 'excavator', transport: 'scripts/excavator-agy.mjs', status: 'BLOCKED' };
+    if (status === 'DONE') {
+      const f = fixture(t, {
+        output: contract => candidate(contract, { delegations: [delegation] }),
+        review: request => verdict(request),
+      });
+      assert.equal((await f.spine.runMilestone('one')).verified, true);
+      assert.deepEqual(f.calls, ['bulldozer', 'zen']);
+      assert.deepEqual(AuthoritativeLedger.load(f.ledgerPath).getState().completed_milestones, ['one']);
+    } else {
+      const f = fixture(t, {
+        output: contract => candidate(contract, {
+          status,
+          delegations: [delegation],
+          ...(status === 'BLOCKED'
+            ? { blockers: ['headless excavator returned RATE_LIMITED for the hard repair'] }
+            : { escalation_needs: ['repair question the headless worker could not settle'] }),
+        }),
+      });
+      const result = await f.spine.runMilestone('one');
+      assert.equal(result.status, status);
+      assert.equal(result.verified, false);
+      assert.ok(!f.calls.includes('zen'));
+      const disk = AuthoritativeLedger.load(f.ledgerPath).getState();
+      assert.deepEqual(disk.completed_milestones, []);
+      assert.equal(disk.current_milestone, null);
+      assert.equal(disk.evidence.one.failure_evidence[0].status, status);
+      if (status === 'BLOCKED') {
+        assert.match(disk.blockers[0].description, /RATE_LIMITED/);
+      }
+    }
+  });
+}
+
+for (const delegation of [
+  { role: 'excavator' },
+  { role: 'excavator', transport: 'invoke_subagent' },
+  { role: 'excavator', transport: 'scripts/other.mjs' },
+  { role: 'excavator', transport: 42 },
+]) {
+  test(`excavator delegation without the sanctioned headless transport stays rejected: ${JSON.stringify(delegation)}`, async t => {
+    const f = fixture(t, {
+      output: contract => candidate(contract, { delegations: [delegation] }),
+    });
+    await assert.rejects(f.spine.runMilestone('one'), error =>
+      error instanceof InvalidHandoffPacketError
+      && error.error === 'INVALID_HANDOFF_PACKET'
+      && error.message.includes('"excavator"'));
+    assert.deepEqual(f.calls, ['bulldozer']);
+    const disk = AuthoritativeLedger.load(f.ledgerPath).getState();
+    assert.equal(disk.evidence.one.failure_evidence[0].status, 'INVOCATION_FAILURE');
   });
 }
 

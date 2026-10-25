@@ -26,8 +26,10 @@ state, adopt its proposal, or announce completion. Steamroller chooses whether
 to adopt the advice.
 
 Bulldozer coordinates one milestone using the current packet version. Its
-enabled children are Jaguar, Puma and Bobcat. Excavator is temporarily disabled
-pending native Argon selection in agy. Bulldozer does not directly
+enabled native children are Jaguar, Puma and Bobcat. Excavator is
+temporarily headless-only: not a native subagent until agy can select
+Argon, invoked by Bulldozer through `scripts/excavator-agy.mjs` on the
+exact Argon High slug. Bulldozer does not directly
 modify application code, update the ledger, or announce project completion.
 Its returned candidate still needs independent review.
 
@@ -64,20 +66,26 @@ Route according to the operation, not just its size:
 | Locate code or establish codebase facts | Jaguar, a read-only Flash worker |
 | Explicit, small, low-risk edits, formatting, or writing | Puma, Flash, without child calls |
 | Ordinary implementation | Bobcat, Flash |
-| Hard diagnosis and repair with no safe in-scope route left | BLOCKED with evidence to Steamroller; Excavator temporarily disabled |
+| Hard broken-behavior diagnosis/repair beyond Bobcat | TEMPORARY headless Excavator via `scripts/excavator-agy.mjs`; on script failure BLOCKED with evidence to Steamroller |
 | Planning or an unsettled architectural decision | Piledriver through Steamroller |
 | Repeated failures needing a different causal framing | Instinct through Steamroller, using NEEDS_ALT |
 | Independent milestone acceptance | Zen through Steamroller |
 | Full Linux desktop observation and bounded interaction | Navi through Steamroller's exact-model runner |
 | Durable multi-milestone execution | Steamroller through the runner |
 
-Excavator is TEMPORARILY disabled: AGY 1.3.6 native `pro` and `flash` both
-run `gemini-3.8-flash-tiered`, not Argon. Do not spawn it or add a runner
-workaround. Keep ordinary repairs with Bobcat; return evidenced BLOCKED under
-the harness gate when no safe in-scope route remains, or NEEDS_DEEP for an
-architectural question. Steamroller records blockers through the existing
-ledger path. Re-enable only after actual child metadata proves native Argon
-selection; `agents/excavator.md` documents the switch and routing restoration.
+Excavator is TEMPORARILY headless-only: AGY 1.3.6 native `pro` and `flash`
+both run `gemini-3.8-flash-tiered`, not Argon, so the role stays
+`subagent: false` and must not be spawned natively. Bulldozer instead
+invokes `scripts/excavator-agy.mjs` via `run_command` for hard repairs
+beyond Bobcat; the script resolves the exact `gemini-4-argon-high` slug
+from the same policy table the runner uses and records every call in
+`.ntg/excavator-agy-calls.jsonl`. Keep ordinary repairs with Bobcat. If the
+script fails (agy missing, Argon quota exhausted/429, timeout, unparseable
+output), return evidenced BLOCKED under the harness gate, or NEEDS_DEEP for
+an architectural question. Steamroller records blockers through the existing
+ledger path. Re-enable natively only after actual child metadata proves
+Argon selection, then remove the headless path in the same change;
+`agents/excavator.md` documents the switch and routing restoration.
 
 The retained Excavator contract investigates, reproduces, determines the cause,
 repairs, and checks the result within its assignment. It has no children and cannot call Zen.
@@ -99,7 +107,9 @@ can run commands to independently check evidence.
 Runner policy resolves exact models and effort rather than guessing slugs
 from frontmatter: Steamroller uses Gemini 4 Argon at Medium; Bulldozer uses Gemini 3.8 Flash
 at High; Piledriver uses Gemini 4 Argon at High. Zen is invoked natively on the same
-policy table, resolving Claude Opus 5.5 at High. Instinct normally uses
+policy table, resolving Claude Opus 5.5 at High. The TEMPORARY headless
+Excavator path resolves Gemini 4 Argon at High from that same table through
+`scripts/excavator-agy.mjs`. Instinct normally uses
 Claude Sonnet 5.5 at High; switching it to Claude Opus 5.5 High requires
 explicit escalation. Native workers retain their tier contracts.
 
@@ -174,7 +184,9 @@ Exercise actual delegation paths rather than assuming configuration works:
    source mutations under its marker.
 8. Keep deterministic Excavator shell-guard coverage for ordinary sudo
    diagnosis and denial of reproduced privilege drift and system upgrades.
-   Do not invoke the disabled role for live release probes.
+   Live hard-repair probes go through the TEMPORARY headless
+   `scripts/excavator-agy.mjs` path only, bounded to one call at a time
+   (Argon quota is scarce); never spawn the role natively.
 
 Keep the graph shallow: Steamroller's planning and milestone execution
 branches must not grow into an open-ended coordinator. Navi is a bounded

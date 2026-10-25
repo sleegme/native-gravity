@@ -9,11 +9,13 @@ import { withNaviHome } from "./navi.mjs";
 // Explicitly bounded to the runner roles; native specialists stay native.
 const ROLE_BODY_ROLES = Object.freeze(["steamroller", "piledriver", "bulldozer", "instinct", "navi"]);
 // Zen is not runner-supervised: ntg-vnext invokes it natively, outside the
-// supervisor's role packets. It is listed here because its exact slug resolves
-// from the same frozen policy table and its body loads through the same loader.
-// invoke() and composeBoundedPrompt() still reject every role outside
-// ROLE_BODY_ROLES, so this grants no runner or delegation authority.
-const NATIVE_ROLE_BODY_ROLES = Object.freeze(["zen"]);
+// supervisor's role packets. Excavator is TEMPORARILY not a native subagent
+// (#173): scripts/excavator-agy.mjs loads its body for a headless agy call on
+// the policy-resolved Argon slug. Both are listed because their exact slugs
+// resolve from the same frozen policy table and their bodies load through the
+// same loader. invoke() and composeBoundedPrompt() still reject every role
+// outside ROLE_BODY_ROLES, so this grants no runner or delegation authority.
+const NATIVE_ROLE_BODY_ROLES = Object.freeze(["zen", "excavator"]);
 const MODEL_RESOLUTION_ROLES = Object.freeze([...ROLE_BODY_ROLES, ...NATIVE_ROLE_BODY_ROLES]);
 const RUNNER_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -43,6 +45,17 @@ export const ROLE_POLICY_TABLE = Object.freeze({
   bulldozer: Object.freeze({
     role: "bulldozer",
     family: "Gemini 3.8 Flash",
+    effort: "High",
+  }),
+  // TEMPORARY headless path (#173 follow-up): not a runner role. The entry
+  // exists so scripts/excavator-agy.mjs resolves the exact Argon slug through
+  // the same fail-closed policy resolution as the runner roles; invoke() and
+  // composeBoundedPrompt() still reject "excavator" (it is not in
+  // ROLE_BODY_ROLES). Effort High matches Piledriver's difficult-decision
+  // tier: hard broken-behavior diagnosis/repair.
+  excavator: Object.freeze({
+    role: "excavator",
+    family: "Gemini 4 Argon",
     effort: "High",
   }),
   steamroller: Object.freeze({
@@ -160,7 +173,7 @@ function loadRoleBody(role, opts) {
  * native invocation, not a runner packet, and frontmatter keys are not prompt
  * text. Directory precedence and fail-closed validation match loadRoleBody.
  *
- * @param {string} role - Native role name (currently only "zen")
+ * @param {string} role - Native role name ("zen" for ntg-vnext, "excavator" for its headless script)
  * @param {object} [opts] - roleBodyDir / env options (see readRoleBody)
  * @returns {string} Role body without frontmatter
  */

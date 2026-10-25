@@ -27,12 +27,17 @@
 
 ## 한계와 아직 없는 것
 
-- **TEMPORARY: Excavator 임시 비활성화.** AGY 1.3.6 native subagent는
+- **TEMPORARY: Excavator 임시 headless 전용.** AGY 1.3.6 native subagent는
   Argon을 선택하지 못하고 `pro`와 `flash` 모두 `gemini-3.8-flash-tiered`로
-  실행됩니다. 일반 수리는 Bobcat이 맡고, 안전한 범위 내 해결 경로가 없는
-  어려운 수리는 증거와 함께 BLOCKED로 Steamroller에 반환합니다. 설계 판단은
-  기존 NEEDS_DEEP 경로를 사용합니다. 러너 우회 호출은 추가하지 않습니다.
-  native Argon 선택 검증 후 재활성화 절차는 보존한 `agents/excavator.md`에 있습니다.
+  실행됩니다. 일반 수리는 Bobcat이 맡고, Bobcat로 해결되지 않는 어려운
+  수리는 Bulldozer가 `scripts/excavator-agy.mjs`를 통해 위임합니다. 이
+  스크립트는 보존된 계약을 정확한 `gemini-4-argon-high` 슬러그로 실행하고
+  모든 호출을 `.ntg/excavator-agy-calls.jsonl`에 기록합니다. 스크립트가
+  실패하면(agy 없음, Argon 쿼터 소진/429, 시간 초과, 파싱 불가 출력)
+  증거와 함께 BLOCKED로 Steamroller에 반환하고 설계 판단은 기존
+  NEEDS_DEEP 경로를 사용합니다. native Argon 선택 검증 후 재활성화
+  절차는 보존한 `agents/excavator.md`에 있으며, 그때 headless 경로도
+  함께 제거합니다.
 - **alpha:** AGY 1.3.3이 설치된 호스트 한 대에서 검증했습니다. 신뢰성이나
   성능을 폭넓게 보장한다는 뜻은 아닙니다.
 - **플랜 파일은 사용자가 씁니다.** 자연어 목표를 바로 채택된 플랜으로 바꾸는
