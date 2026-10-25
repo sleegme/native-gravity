@@ -20,6 +20,13 @@ test("every agent file is found", () => {
   assert.ok(agentFiles.length > 0);
 });
 
+test("Excavator remains shipped but is not registered as primary or subagent", () => {
+  const lines = frontmatterLines(readFileSync(new URL("excavator.md", AGENTS_DIR), "utf8"));
+  for (const key of ["mainAgent", "subagent"]) {
+    assert.equal(lines.find(line => line.startsWith(`${key}:`)), `${key}: false`);
+  }
+});
+
 for (const file of agentFiles) {
   test(`${file}: top-level scalar values are valid plain YAML`, () => {
     const lines = frontmatterLines(readFileSync(new URL(file, AGENTS_DIR), "utf8"));

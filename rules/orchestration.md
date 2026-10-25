@@ -18,7 +18,7 @@ User
   Steamroller — supervisor / authoritative ledger owner
     Piledriver — bounded planning, architecture and difficult decisions
     Bulldozer — one bounded milestone
-      Jaguar / Puma / Bobcat / Excavator
+      Jaguar / Puma / Bobcat (Excavator temporarily disabled)
                        Strix Halo — Bobcat-local gate
     Instinct — alternate-framing advisory on NEEDS_ALT
     Zen — independent milestone verification
@@ -45,7 +45,7 @@ Choose by kind of work, not apparent task size:
 | Milestone verification, independent completion review | Zen (via Steamroller) |
 | Full Linux desktop observation and bounded interaction | Navi (via Steamroller's exact-model runner) |
 | Multi-milestone project work | Steamroller through the runner |
-| Hard broken-behavior diagnosis and repair inside a milestone | Excavator (Bulldozer worker) |
+| Hard diagnosis/repair with no safe in-scope route left | BLOCKED with evidence to Steamroller; Excavator temporarily disabled |
 
 ## Steamroller — supervision and ledger ownership
 
@@ -112,15 +112,21 @@ Worker routing inside the milestone:
   not milestone completion, `REVISE` is corrected through Bobcat, and
   `NEEDS_DEEP` routes `Strix Halo -> Bobcat -> Bulldozer -> Steamroller ->
   optional Piledriver` — never directly to Piledriver.
-- **Excavator** — difficult broken-behavior work: diagnose, reproduce,
-  root-cause, repair, verify (see the shell boundary below). Prefer Bobcat for
-  ordinary implementation; choose Excavator only for hard diagnosis/repair.
+- **Excavator — TEMPORARILY disabled** until native subagents can select
+  Argon. AGY 1.3.6 native `pro` and `flash` both run
+  `gemini-3.8-flash-tiered`; do not spawn it or add a runner workaround.
+  Keep ordinary repairs with Bobcat and its advisor gate. If hard repair has
+  no safe in-scope route left, return BLOCKED under the harness gate with the
+  observed failure, attempted remediation, missing capability and repair need.
+  Steamroller persists the blocker and evidence through the existing ledger
+  path. Architectural ambiguity returns NEEDS_DEEP instead. The disabled
+  contract and re-enablement steps remain in `agents/excavator.md`.
 
 Bulldozer drives repair loops only inside the received scope, inspects actual
 worker results, and gathers observed evidence per acceptance criterion. Worker
 `READY` and Strix `ACCEPT` are local signals, never completion. `NEEDS_DEEP`
 goes to Steamroller, which decides whether to invoke Piledriver. Delegation
-validation accepts worker roles (Jaguar, Puma, Bobcat, Excavator) and rejects
+validation accepts enabled worker roles (Jaguar, Puma, Bobcat) and rejects
 anything else.
 
 ## Instinct — NEEDS_ALT advisory
@@ -227,7 +233,7 @@ Zen -> Steamroller verdict packet: `milestone_id`, `plan_version`,
 `result_ref` (echoed unchanged), `verdict` (`GO | NO-GO`),
 `verification_evidence` (criterion-linked, classified OBSERVED/INFERRED/UNKNOWN).
 
-Excavator -> Bulldozer worker result: `ROOT_CAUSE` (`CONFIRMED | LIKELY |
+Retained disabled Excavator -> Bulldozer worker result: `ROOT_CAUSE` (`CONFIRMED | LIKELY |
 SPECULATIVE`), `CHANGES`, `VERIFICATION_EVIDENCE`, `ROLLBACK` (when
 persistent changes were made), `RESIDUAL_RISK` (residual risk and remaining
 UNKNOWNs), `STATUS` (`READY | BLOCKED`) — a local signal after its own
@@ -265,7 +271,7 @@ Model policy, not hard-coded slugs:
 | Jaguar | Flash | native | native subagent |
 | Puma | Flash | native | native subagent |
 | Bobcat | Flash | native | native subagent |
-| Excavator | Flash | native | native subagent |
+| Excavator | Argon required; native selection unavailable | disabled | TEMPORARY; not a native subagent |
 | Strix Halo | Flash | native | native subagent |
 | Zen | Claude Opus 5.5 | High | native invocation by `ntg-vnext` (policy-resolved slug) |
 

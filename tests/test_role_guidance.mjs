@@ -20,10 +20,11 @@ const ROLE_FILES = [
 // Base byte lengths and SHA-256 hashes computed from commit 2ff0083,
 // except agents/zen.md and rules/orchestration.md recomputed after PR #169
 // legitimately changed their base (Zen -> Claude Opus 5.5 High).
+// Bulldozer and orchestration baselines also reflect temporary Excavator disablement.
 const BASE_PREFIXES = {
   "agents/bulldozer.md": {
-    length: 7336,
-    sha256: "ee771398c62d21bbe934e1a9d7fda3b8fad105c40c4e3c43ca4efc1f36896830",
+    length: 7888,
+    sha256: "9329025553194aa5e648cdb0a76b2cd04c7a0afc948ce5cbdd9ddccfcf12cf03",
   },
   "agents/jaguar.md": {
     length: 3489,
@@ -46,8 +47,8 @@ const BASE_PREFIXES = {
     sha256: "438298773502d3e03a8fcc76e54f3c8955d23637998f648b68eae541ec60ae33",
   },
   "rules/orchestration.md": {
-    length: 17448,
-    sha256: "aa9466114f34357a77e741f5f78c9dc7b22fb7e24c88f28a653d2f58befe0c81",
+    length: 18000,
+    sha256: "76b0dd9e46ff8c7517d775ffb889aebd38d019150e1259d7d849e2b594706f87",
   },
 };
 

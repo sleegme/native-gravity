@@ -81,6 +81,47 @@ test('run --all promotes milestones in dependency order and declares completion 
   assert.ok(out.global_completion);
 });
 
+for (const status of ['BLOCKED', 'NEEDS_DEEP']) {
+  test(`disabled repair capability returns ${status} through the existing durable ledger path`, async t => {
+    const h = harness(t);
+    await h.cli('init', '--plan', h.write('plan.json', plan('v1', ['one'])));
+    const calls = [];
+    const deps = {
+      handleSignals: false,
+      runnerOptions: { installedModels: ['gemini-3.8-flash-high'] },
+      invokeRole: async (role, packet) => {
+        calls.push(role);
+        const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+        return envelope({
+          milestone_id: contract.milestone_id, plan_version: contract.plan_version,
+          status, changes_made: [], verification_evidence: observed,
+          unresolved_unknowns: ['root cause requires unavailable repair capability'],
+          scope_deviations: [],
+          blockers: ['Reproduction persists after bounded Bobcat remediation; Excavator is unavailable'],
+          escalation_needs: ['Diagnose the failed invariant without weakening acceptance'],
+        });
+      },
+      invokeSpecialist: () => assert.fail('must not dispatch a disabled repair worker'),
+      invokeZen: () => assert.fail('blocked or escalated work must not reach Zen'),
+    };
+    const result = await main(['run', '--ledger', h.ledger], deps);
+    assert.equal(result.code, 2);
+    assert.deepEqual(calls, ['bulldozer']);
+    const state = AuthoritativeLedger.load(h.ledger).getState();
+    assert.equal(state.current_milestone, null);
+    assert.deepEqual(state.completed_milestones, []);
+    assert.deepEqual(state.verification, {});
+    assert.equal(state.blockers.length, 1);
+    assert.match(state.blockers[0].description, /Excavator is unavailable/);
+    assert.equal(state.evidence.one.failure_evidence[0].status, status);
+    assert.deepEqual(state.evidence.one.failure_evidence[0].evidence.verification_evidence, observed);
+    assert.deepEqual(state.evidence.one.failure_evidence[0].escalation_needs,
+      ['Diagnose the failed invariant without weakening acceptance']);
+    assert.deepEqual(state.usage.one.map(entry => entry.role), ['bulldozer']);
+    assert.deepEqual((await h.cli('status')).out.state, state);
+  });
+}
+
 test('Zen NO-GO stops the run with exit 2, leaves the milestone incomplete, and a rerun needs a fresh GO', async t => {
   let verdicts = ['NO-GO', 'GO'];
   const h = harness(t, { zen: () => verdicts.shift() });

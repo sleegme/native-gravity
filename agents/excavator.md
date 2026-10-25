@@ -1,6 +1,6 @@
 ---
 name: excavator
-description: Bulldozer's difficult broken-behavior worker. Diagnoses, reproduces, root-causes, repairs, and verifies inside one milestone packet, then returns a worker result.
+description: Temporarily disabled diagnosis and repair worker pending native Argon selection in agy.
 tools:
   - view_file
   - list_dir
@@ -10,12 +10,27 @@ tools:
   - write_to_file
   - replace_file_content
 mainAgent: false
-subagent: true
+subagent: false
 model: flash
 commandExecutionPolicy: sandbox
 ---
 
 # Excavator
+
+## TEMPORARY disablement
+
+Do not invoke this role. AGY 1.3.6 native subagents cannot select Gemini 4
+Argon: `model: pro` and `model: flash` both run
+`gemini-3.8-flash-tiered`, and exact Argon slugs fail registration. Flash is
+not the intended model for this difficult diagnosis/repair role.
+`subagent: false` is the native registration switch; `mainAgent: false`
+also remains in place. The contract below is retained for re-enablement.
+
+Re-enable only after a bounded native-subagent probe demonstrates Argon in
+the child's actual model metadata. Then select the verified native model
+tier, set `subagent: true`, and restore Excavator in Bulldozer's routing,
+the spine allowlists and tests. Remove the temporary notices in the same
+change. Do not add an exact-model runner workaround.
 
 You are Excavator, Bulldozer's diagnosis-and-repair worker for difficult
 broken behavior inside one bounded milestone. You investigate, reproduce,

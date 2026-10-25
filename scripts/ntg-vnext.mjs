@@ -148,7 +148,7 @@ function nativeDelegations(candidate, role) {
       || Array.isArray(candidate) || !Array.isArray(candidate.delegations)) {
     return [];
   }
-  const allowed = new Set(['jaguar', 'puma', 'bobcat', 'excavator']);
+  const allowed = new Set(['jaguar', 'puma', 'bobcat']);
   return candidate.delegations.filter(delegation => delegation
     && typeof delegation === 'object' && !Array.isArray(delegation)
     && typeof delegation.role === 'string'

@@ -71,9 +71,6 @@ function fixture(t, { output, review, initialPlan = plan(), invokeSpecialist } =
       writeFileSync(artifact, packet.milestone_id);
       return { status: 'READY', artifact };
     }
-    if (role === 'excavator') {
-      return { root_cause: 'CONFIRMED', status: 'READY', verification: [`diagnosed ${packet.milestone_id}`] };
-    }
     if (role === 'strix-halo') {
       return { verdict: 'ACCEPT', notes: 'contract verified locally' };
     }
@@ -142,7 +139,7 @@ for (const status of ['READY', undefined, null, '', 'ACCEPT', 'GO', 'done']) {
   });
 }
 
-for (const role of ['zen', 'piledriver', 'steamroller', 'strix-halo', 'unknown']) {
+for (const role of ['zen', 'piledriver', 'steamroller', 'strix-halo', 'excavator', 'unknown']) {
   for (const status of ['DONE', 'BLOCKED', 'NEEDS_DEEP']) {
     test(`native packet delegation to ${role} rejects ${status} before review`, async t => {
       const f = fixture(t, {
@@ -180,7 +177,7 @@ for (const delegations of [null, {}, 'bobcat', [{}], [null], [[]], ['bobcat'],
 }
 
 for (const delegations of [[], [{ role: 'bobcat' }, { role: 'jaguar' }],
-  [{ role: 'puma' }], [{ role: 'excavator' }],
+  [{ role: 'puma' }],
   [{ role: ' Bobcat ', task: 'bounded implementation' }]]) {
   test(`allowed native delegations enter independent review: ${JSON.stringify(delegations)}`, async t => {
     const f = fixture(t, {
@@ -985,10 +982,14 @@ test('specialist routing strictly enforces caller-role boundaries', async t => {
         );
       }
 
-      // 6. Bulldozer delegates hard diagnosis/repair to the Excavator worker
-      const repaired = await spine.invokeSpecialist('excavator', { task: 'diagnose and repair' }, { caller: 'bulldozer' });
-      assert.equal(repaired.status, 'READY');
-      assert.equal(repaired.root_cause, 'CONFIRMED');
+      // 6. Disabled Excavator cannot reach any invocation adapter.
+      for (const role of ['excavator', ' Excavator ']) {
+        await assert.rejects(
+          spine.invokeSpecialist(role, { task: 'diagnose and repair' }, { caller: 'bulldozer' }),
+          /Unknown or disallowed specialist role/
+        );
+      }
+      assert.ok(!f.calls.includes('excavator'));
       writeFileSync(join(f.dir, `${contract.milestone_id}.txt`), contract.milestone_id);
       const hash = createHash('sha256').update(contract.milestone_id).digest('hex');
       return candidate(contract, { candidate_artifact_ref: `sha256:${hash}` });

@@ -27,6 +27,12 @@
 
 ## 한계와 아직 없는 것
 
+- **TEMPORARY: Excavator 임시 비활성화.** AGY 1.3.6 native subagent는
+  Argon을 선택하지 못하고 `pro`와 `flash` 모두 `gemini-3.8-flash-tiered`로
+  실행됩니다. 일반 수리는 Bobcat이 맡고, 안전한 범위 내 해결 경로가 없는
+  어려운 수리는 증거와 함께 BLOCKED로 Steamroller에 반환합니다. 설계 판단은
+  기존 NEEDS_DEEP 경로를 사용합니다. 러너 우회 호출은 추가하지 않습니다.
+  native Argon 선택 검증 후 재활성화 절차는 보존한 `agents/excavator.md`에 있습니다.
 - **alpha:** AGY 1.3.3이 설치된 호스트 한 대에서 검증했습니다. 신뢰성이나
   성능을 폭넓게 보장한다는 뜻은 아닙니다.
 - **플랜 파일은 사용자가 씁니다.** 자연어 목표를 바로 채택된 플랜으로 바꾸는
@@ -51,7 +57,7 @@ AGY 1.3.3에서 검증 완료 (증거: `.omo/evidence/113-live-probe-results.md`
 
 - 러너 end-to-end: 마일스톤별 독립 Zen GO를 가진 멀티 마일스톤 의존성 순서 실행, 관측된 중단 후 fresh-context 재개, `plan_version` 증가와 fresh current-version 재검증을 가진 material replan, 그리고 라이브 Zen NO-GO -> 수정 -> fresh GO 사이클(의도적으로 변조한 결과물이 반려되었고 수정된 후보는 새 GO가 필요했음)
 - specialist 위임: Bulldozer -> Jaguar / Puma / Bobcat과 중첩 Bobcat -> Strix Halo(`ACCEPT`) gate가 transcript 수준 `invoke_subagent` dispatch로 관측됨
-- Bulldozer -> Excavator worker: 실제 `ntg-vnext run` 마일스톤이 `~/.cache`의 고장 난 fixture에 대한 bounded 진단+수리를 Excavator에 위임했고(Bulldozer transcript에서 `invoke_subagent` `TypeName: excavator` 관측; Excavator는 Zen을 호출하지 않고 worker 결과를 반환), Steamroller의 matching Zen GO가 마일스톤을 global completion까지 승격; 증거: `.omo/evidence/20-instinct-results.md`
+- 과거 Bulldozer -> Excavator worker (현재 임시 비활성화): 실제 `ntg-vnext run` 마일스톤이 `~/.cache`의 고장 난 fixture에 대한 bounded 진단+수리를 Excavator에 위임했고(Bulldozer transcript에서 `invoke_subagent` `TypeName: excavator` 관측; Excavator는 Zen을 호출하지 않고 worker 결과를 반환), Steamroller의 matching Zen GO가 마일스톤을 global completion까지 승격; 증거: `.omo/evidence/20-instinct-results.md`
 - 러너 exact-model 해석: piledriver `claude-opus-5-5-high`, bulldozer/steamroller `gemini-3.8-flash-high`, instinct `claude-sonnet-5-5-high` (명시적 escalation에서만 `claude-opus-5-5-high`), 네이티브 호출에서 zen `claude-sonnet-5-5-high` (2026-10-15 Piledriver/Zen/Excavator 재매핑은 위 end-to-end 실행 이후입니다)
 - Instinct NEEDS_ALT: 작은 ledger에 대해 Sonnet으로 실제 `ntg-vnext alt` 호출 1회, `adopted: false`와 함께 advisory JSON 반환; 증거: `.omo/evidence/20-instinct-results.md`
 - 네이티브 Excavator (강등 이전, #137): 실제 인터랙티브 NO-GO -> 수정 -> fresh GO 이후 같은 세션에서 GO 뒤 직접 write -> fresh 독립 검수 -> READY를 관측했습니다. 실제 terminal Stop 이벤트는 fresh GO 뒤 완료를 허용했습니다. Stale verdict 거부는 캡처한 post-write transcript를 별도로 재생해 확인했으며, 조기 READY 시도의 live 관측은 아닙니다. 이 경로는 네이티브 primary와 함께 제거되었습니다. 증거: `.omo/evidence/137-excavator-validation.md`.

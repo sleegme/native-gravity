@@ -54,7 +54,7 @@ User
   Steamroller — supervisor / authoritative ledger owner
     Piledriver — bounded planning, architecture and difficult decisions
     Bulldozer — one bounded milestone
-      Jaguar / Puma / Bobcat / Excavator
+      Jaguar / Puma / Bobcat (Excavator temporarily disabled)
                        Strix Halo — Bobcat-local advisor gate
     Instinct — alternate-framing advisory on NEEDS_ALT
     Zen — independent milestone verification
@@ -67,7 +67,7 @@ project work. Navi is selectable only for the runner's agent-scoped MCP load,
 not as a project primary. Bulldozer, Piledriver and Instinct are runner-only roles: Bulldozer
 executes exactly one bounded milestone per invocation, Piledriver returns
 advisory plans to Steamroller, and Instinct returns alternate-framing advice on
-NEEDS_ALT. Excavator is a Bulldozer worker for difficult broken-behavior work
+NEEDS_ALT. Excavator's disabled contract is for difficult broken-behavior work
 (diagnose -> reproduce -> root-cause -> repair -> verify), with no nested
 delegation and no Zen invocation.
 
@@ -76,7 +76,7 @@ Routing is based on the kind of work:
 - find/inspect -> Jaguar
 - small + clear + low-risk / writing -> Puma
 - ordinary implementation -> Bobcat (-> Strix Halo)
-- hard broken-behavior diagnosis/repair -> Excavator (Bulldozer worker)
+- hard diagnosis/repair with no safe in-scope route -> evidenced BLOCKED to Steamroller (Excavator temporarily disabled)
 - planning / architecture / trade-off -> Piledriver (via Steamroller under the runner)
 - stalled same-class failures / a different framing -> Instinct (NEEDS_ALT, via Steamroller under the runner)
 - independent verification -> Zen
@@ -96,7 +96,7 @@ shell or privilege sandboxes.
 | Jaguar | Read-only factual discovery; no delegation |
 | Puma | Small, explicit, low-risk writing/formatting/presentation/mechanical text or config; no delegation or advisor ceremony |
 | Bobcat | Ordinary bounded implementation; may invoke only Strix Halo; parent chooses `ADVISOR_GATE: REQUIRED \| NONE`, REQUIRED for substantive code/behavior/API/state/lifecycle/test work or uncertainty, NONE only for clearly low-risk mechanical work |
-| Excavator | Native Flash difficult diagnose/reproduce/root-cause/repair/verify worker under Bulldozer; edits inside its scope, no nested delegation, never invokes Zen |
+| Excavator | TEMPORARILY disabled pending native Argon selection; contract and shell guard retained for re-enablement |
 | Strix Halo (`strix-halo`) | Bobcat-only read-only advice/CHECK gate; `ACCEPT \| REVISE \| NEEDS_DEEP`; corrections go through Bobcat |
 | Zen | Independent non-mutating milestone review for Steamroller, not Bulldozer's child; `GO \| NO-GO`; may run verification commands |
 | Instinct | Runner-only heterogeneous alternate-framing advice, not a ritual reviewer; no implementation, orchestration, ledger, adoption or verdict/completion authority |
@@ -137,17 +137,24 @@ from `agents/`; critical roles are runner-invoked, not natively selectable.
 - Navi targets Gemini 4 Argon / Medium; see [desktop dispatch](navi.md).
 - Instinct targets Claude Sonnet 5.5 / High; Claude Opus 5.5 / High is selected
   only on explicit `--escalate`.
-- Jaguar/Puma/Bobcat/Excavator/Strix Halo use native Flash. Exact Argon
+- Jaguar/Puma/Bobcat/Strix Halo use native Flash. Exact Argon
   frontmatter is rejected by AGY 1.3.6, and native `pro` did not select Argon
   in stored child metadata. See the [Argon profile](model-profiles/gemini-4-argon.md)
-  for the failed probes and proposed exact-invocation alternative. Zen is invoked
+  for the failed probes and temporary disablement. Zen is invoked
   natively by `ntg-vnext`, which resolves Gemini 4 Argon / High from the
   same policy table and prepends the `agents/zen.md` body (frontmatter
   stripped) instead of selecting `--agent zen`.
 - The 2026-10-16 Argon mapping (#74) changes the policy-resolved roles only;
   native workers retain Flash. The original claim that native Pro selected
-  Argon was disproved by child metadata. Excavator escalation uses the existing NEEDS_ALT ->
-  Instinct path; there is no model escalation for Excavator.
+  Argon was disproved by child metadata.
+- Excavator is TEMPORARILY disabled (`subagent: false`) because AGY 1.3.6
+  native `pro` and `flash` both run `gemini-3.8-flash-tiered`. There is no
+  runner workaround. Ordinary repairs stay with Bobcat and its advisor gate;
+  a hard repair with no safe in-scope route left returns BLOCKED under the
+  harness gate, with the observed failure, attempted remediation, missing
+  capability and repair need persisted by Steamroller. Architectural questions
+  use NEEDS_DEEP. See `agents/excavator.md` for re-enablement after a native
+  child proves Argon selection.
 - `NTG_ZEN_MODEL` optionally pins the independently invoked Zen model.
   Comparative behavioral evidence remains open; model discovery proves
   availability, not quality.
@@ -249,15 +256,15 @@ workflow. The canonical obligations remain in [AGENTS.md](../AGENTS.md#validatio
 3. A NO-GO leaves work incomplete; a repaired candidate needs a fresh GO.
 4. Fresh-context resume uses the ledger, not conversation.
 5. Bobcat invokes only Strix Halo (include negative delegation coverage).
-6. Bulldozer may delegate bounded diagnosis/repair to Excavator; the worker
-   edits, invokes no child (including Zen), and returns its worker result;
-   delegation validation accepts it and rejects non-worker roles.
+6. Excavator is not registered as a native subagent and delegation validation
+   rejects it. Hard-repair BLOCKED/NEEDS_DEEP evidence persists without
+   promotion or Zen review.
 7. Zen verification uses its marker and rejects common intentional mutations.
 8. Excavator-marked calls preserve ordinary sudo diagnostics while rejecting
    privilege drift and full upgrades.
 
 Items 1–4 passed in prior AGY 1.3.3 live runner probes. Items 5–8 have deterministic
-coverage and prior live observations; the later Excavator worker probe is linked
+coverage and prior live observations; the historical Excavator worker probe is linked
 in [Status](status.md#live-validation). Revalidate the full gate after an AGY
 runtime change.
 
