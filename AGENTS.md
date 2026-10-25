@@ -26,7 +26,8 @@ state, adopt its proposal, or announce completion. Steamroller chooses whether
 to adopt the advice.
 
 Bulldozer coordinates one milestone using the current packet version. Its
-children are Jaguar, Puma, Bobcat, and Excavator. Bulldozer does not directly
+enabled children are Jaguar, Puma and Bobcat. Excavator is temporarily disabled
+pending native Argon selection in agy. Bulldozer does not directly
 modify application code, update the ledger, or announce project completion.
 Its returned candidate still needs independent review.
 
@@ -63,15 +64,23 @@ Route according to the operation, not just its size:
 | Locate code or establish codebase facts | Jaguar, a read-only Flash worker |
 | Explicit, small, low-risk edits, formatting, or writing | Puma, Flash, without child calls |
 | Ordinary implementation | Bobcat, Flash |
-| Hard diagnosis and repair within the milestone | Excavator, Flash |
+| Hard diagnosis and repair with no safe in-scope route left | BLOCKED with evidence to Steamroller; Excavator temporarily disabled |
 | Planning or an unsettled architectural decision | Piledriver through Steamroller |
 | Repeated failures needing a different causal framing | Instinct through Steamroller, using NEEDS_ALT |
 | Independent milestone acceptance | Zen through Steamroller |
 | Full Linux desktop observation and bounded interaction | Navi through Steamroller's exact-model runner |
 | Durable multi-milestone execution | Steamroller through the runner |
 
-Excavator investigates, reproduces, determines the cause, repairs, and checks
-the result within its assignment. It has no children and cannot call Zen.
+Excavator is TEMPORARILY disabled: AGY 1.3.6 native `pro` and `flash` both
+run `gemini-3.8-flash-tiered`, not Argon. Do not spawn it or add a runner
+workaround. Keep ordinary repairs with Bobcat; return evidenced BLOCKED under
+the harness gate when no safe in-scope route remains, or NEEDS_DEEP for an
+architectural question. Steamroller records blockers through the existing
+ledger path. Re-enable only after actual child metadata proves native Argon
+selection; `agents/excavator.md` documents the switch and routing restoration.
+
+The retained Excavator contract investigates, reproduces, determines the cause,
+repairs, and checks the result within its assignment. It has no children and cannot call Zen.
 It returns `ROOT_CAUSE`, `CHANGES`, `VERIFICATION_EVIDENCE`, `ROLLBACK`,
 `RESIDUAL_RISK`, and `STATUS` to Bulldozer; READY or BLOCKED describes the
 worker's local result, not project completion.
@@ -141,7 +150,7 @@ mutation tools are absent. Treat this as a narrow behavioral control, not a
 complete read-only sandbox or universal model restriction.
 
 The removed plugin Stop gate belonged to Excavator's former native-primary
-role. Today's repair worker checks its own work and returns to Bulldozer;
+role. The retained repair-worker contract checks its own work and returns to Bulldozer;
 Steamroller separately owns Zen review. Likewise #137's former
 `inheritCustomizations: true` choice no longer applies after worker demotion.
 Worker definitions omit `inheritCustomizations`.
@@ -158,14 +167,14 @@ Exercise actual delegation paths rather than assuming configuration works:
    candidate needs a new GO.
 4. Resume in a fresh context using durable ledger state.
 5. Demonstrate Bobcat's Strix call and rejection of other child roles.
-6. Delegate difficult repair from Bulldozer to Excavator; observe edits,
-   zero child invocations including Zen, and the returned worker result.
-   Confirm delegation permits Excavator but rejects non-worker roles.
+6. Confirm Excavator is not registered as a native subagent and delegation
+   validation rejects it. Hard-repair BLOCKED/NEEDS_DEEP packets must persist
+   their evidence without promotion or Zen review.
 7. Let Zen execute verification and demonstrate denial of common deliberate
    source mutations under its marker.
-8. Let Excavator perform normal sudo diagnosis and demonstrate denial of
-   reproduced privilege drift and system upgrades under its marker, without
-   imposing those denials on other roles.
+8. Keep deterministic Excavator shell-guard coverage for ordinary sudo
+   diagnosis and denial of reproduced privilege drift and system upgrades.
+   Do not invoke the disabled role for live release probes.
 
 Keep the graph shallow: Steamroller's planning and milestone execution
 branches must not grow into an open-ended coordinator. Navi is a bounded

@@ -9,7 +9,7 @@ Availability does not prove that a native tier selects any of these models.
 
 | Role | Selection | Effort rationale |
 |---|---|---|
-| Excavator | native `model: flash`; Argon High pin blocked | Exact-slug native frontmatter is not accepted; see below |
+| Excavator | TEMPORARILY disabled (`subagent: false`) | Argon required; native `pro`/`flash` both select Flash on AGY 1.3.6 |
 | Piledriver | `gemini-4-argon-high` | High for bounded architecture and difficult decisions |
 | Steamroller | `gemini-4-argon-medium` | Medium for constrained supervision and ledger decisions |
 | Navi | `gemini-4-argon-medium` | Medium for bounded desktop tasks; agent-scoped MCP only |
@@ -24,7 +24,7 @@ against the installed catalog and failing closed on missing or ambiguous
 models. Piledriver, Steamroller and Zen keep `model: inherit` frontmatter
 because their invocation supplies the policy-resolved slug.
 
-## Native model limitation and proposed alternative
+## Native model limitation and temporary disablement
 
 The original PR claim that native `pro` selects Argon was wrong. The stored
 metadata of its child `19e9cab6-5c09-4228-ba03-ff70b1cb0cd9` contains
@@ -37,17 +37,17 @@ registered it and created a child whose generation and executor metadata both
 record `gemini-3.8-flash-tiered`. Full probe and control evidence is in
 [the correction receipt](../../.omo/evidence/74-argon-routing.md).
 
-Excavator therefore remains native Flash; its requested Argon High pin is
-**not implemented**. Native delegation does not consult `ROLE_POLICY_TABLE`:
+Excavator is therefore **TEMPORARILY disabled**, not routed to native Flash.
+Native delegation does not consult `ROLE_POLICY_TABLE`:
 adding a policy entry and a resolver-only test would not fix the actual path.
 No test claims that the native worker resolves to Argon.
 
-The proposed alternative is a bounded explicit-model Excavator invocation,
-using `agy --model` with a policy-resolved slug and the shipped worker body,
-as Zen already does. It must be wired into real worker dispatch, preserving
-the Bulldozer caller, milestone slice, tools, shell marker, and no-child
-boundary. Merely injecting a spine test adapter does not intercept AGY's
-native `invoke_subagent` calls. This routing change is proposed, not shipped.
+The temporary workaround uses existing paths: ordinary repairs stay with
+Bobcat; a hard repair with no safe in-scope route left returns evidenced
+BLOCKED to Steamroller, while architectural questions use NEEDS_DEEP.
+No runner-dispatched Excavator role is added. Re-enable when native child
+model metadata proves Argon selection, using the registration switch and
+routing restoration documented in `agents/excavator.md`.
 
 ## Cost guidance
 
