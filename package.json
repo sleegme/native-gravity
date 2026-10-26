@@ -32,6 +32,7 @@
         "docs/navi-windows-kit.ko.md",
         "tests/test_dag_view.mjs",
         "scripts/ntg-vnext.mjs",
+        "scripts/events.mjs",
         "scripts/report-issue.mjs",
         "scripts/spine.mjs",
         "scripts/excavator-agy.mjs",
