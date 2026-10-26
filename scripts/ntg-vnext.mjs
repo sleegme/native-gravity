@@ -29,6 +29,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { MinimalSpine, HEADLESS_EXCAVATOR_TRANSPORT, recommendNeedsAlt } from './spine.mjs';
+import { createEventLog, makeEvent } from './events.mjs';
 import { AuthoritativeLedger, computeUsageRollup } from './ledger.mjs';
 import { verifyLedgerIntegrity } from './ledger-lock.mjs';
 import { invoke, loadNativeRoleBody, parseResponseEnvelope, parseResponsePacket, resolveSlug } from './runner.mjs';
@@ -270,6 +271,19 @@ export async function main(argv, deps = {}) {
 
   let spine;
 
+  // Display-only GUI event stream (#175): one events.jsonl line beside the
+  // ledger per runner-dispatched role invocation start/end. Best-effort: an
+  // append failure warns and never changes the invocation outcome. The
+  // authoritative ledger is untouched by this path.
+  const eventLog = deps.eventLog ?? createEventLog({ dir: dirname(resolve(opts.ledger)) });
+  const emitEvent = async (fields) => {
+    try {
+      await eventLog.append(makeEvent(fields));
+    } catch (error) {
+      console.error(`events.jsonl append failed: ${error?.code || error?.name || 'ERROR'}`);
+    }
+  };
+
   const wrappedInvokeRole = async (role, packet, runnerOptions = {}) => {
     const startTime = Date.now();
     let milestoneId = packet?.milestone_id ?? packet?.milestoneId ?? null;
@@ -290,6 +304,8 @@ export async function main(argv, deps = {}) {
     try {
       slug = resolveSlug(role, runnerOptions);
     } catch {}
+
+    await emitEvent({ role, milestone: milestoneId, event: 'start' });
 
     const baseInvokeRole = deps.invokeRole ?? invoke;
     let result;
@@ -317,6 +333,14 @@ export async function main(argv, deps = {}) {
           } catch {}
         }
       }
+      // Same error-code string the ledger usage entry records for this
+      // invocation; emitted before the rethrow so the actor never stays
+      // working because the invocation failed.
+      await emitEvent({
+        role, milestone: milestoneId, event: 'end',
+        status: error?.code || error?.name || 'ERROR',
+        durationMs: elapsed,
+      });
       throw error;
     }
 
@@ -372,6 +396,12 @@ export async function main(argv, deps = {}) {
         } catch {}
       }
     }
+    // Same status string the ledger usage entry records for this invocation.
+    await emitEvent({
+      role, milestone: milestoneId, event: 'end',
+      status: String(status || 'UNKNOWN'),
+      durationMs: duration_ms,
+    });
     return result;
   };
 
@@ -382,6 +412,8 @@ export async function main(argv, deps = {}) {
     try {
       slug = resolveZenModel();
     } catch {}
+
+    await emitEvent({ role: 'zen', milestone: milestoneId, event: 'start' });
 
     const baseInvokeZen = deps.invokeZen ?? (req => nativeZen(req));
     let verdict;
@@ -409,6 +441,13 @@ export async function main(argv, deps = {}) {
           } catch {}
         }
       }
+      // Same error-code string the ledger usage entry records; emitted
+      // before the rethrow so a failed review cannot stay active.
+      await emitEvent({
+        role: 'zen', milestone: milestoneId, event: 'end',
+        status: error?.code || error?.name || 'ERROR',
+        durationMs: elapsed,
+      });
       throw error;
     }
 
@@ -437,6 +476,12 @@ export async function main(argv, deps = {}) {
         } catch {}
       }
     }
+    // Same verdict string the ledger usage entry records for this review.
+    await emitEvent({
+      role: 'zen', milestone: milestoneId, event: 'end',
+      status: String(status),
+      durationMs: duration_ms,
+    });
     return verdict;
   };
 
@@ -448,6 +493,8 @@ export async function main(argv, deps = {}) {
     try {
       slug = resolveSlug(role, specialistOptions) ?? slug;
     } catch {}
+
+    await emitEvent({ role, milestone: milestoneId, event: 'start' });
 
     let result;
     try {
@@ -480,6 +527,14 @@ export async function main(argv, deps = {}) {
           } catch {}
         }
       }
+      // Same error-code string the ledger usage entry records for this
+      // invocation; emitted before the rethrow so the actor never stays
+      // working because the invocation failed.
+      await emitEvent({
+        role, milestone: milestoneId, event: 'end',
+        status: error?.code || error?.name || 'ERROR',
+        durationMs: elapsed,
+      });
       throw error;
     }
 
@@ -524,6 +579,12 @@ export async function main(argv, deps = {}) {
         } catch {}
       }
     }
+    // Same status string the ledger usage entry records for this invocation.
+    await emitEvent({
+      role, milestone: milestoneId, event: 'end',
+      status: String(status || 'UNKNOWN'),
+      durationMs: duration_ms,
+    });
     return result;
   };
 
@@ -578,10 +639,17 @@ export async function main(argv, deps = {}) {
         };
       case 'replan':
         return { code: 0, out: { state: spine.adoptReplan(readJson(opts.plan)) } };
-      case 'recover':
+      case 'recover': {
         if (!opts.evidence) throw new Error('--evidence is required');
+        // #175: the interrupted invocation's end is observed here, not by its
+        // dead supervisor. The ledger records no active role and no duration,
+        // so the end line carries null for both; the status mirrors the
+        // ledger's INVOCATION_FAILURE record for the same milestone.
+        const interruptedMilestone = spine.state.current_milestone;
         spine.endInterruptedInvocation({ classification: 'OBSERVED', detail: opts.evidence, stale_lock: staleLock });
+        await emitEvent({ role: null, milestone: interruptedMilestone, event: 'end', status: 'INVOCATION_FAILURE' });
         return { code: 0, out: { stale_lock_removed: staleLock, state: spine.state } };
+      }
       case 'run': {
         const results = [];
         let id = opts.milestone ?? nextEligible(spine.state);
