@@ -184,6 +184,41 @@ excluded candidate/verdict blobs and redaction rules have one normative home in
 [contract §4.3](specs/vnext-architecture-contract.md#43-steamroller--piledriver-planning-packet).
 `scripts/telemetry.mjs` applies redaction both when recording and projecting.
 
+## Display-only event stream (#175)
+
+The vNext runner appends one JSON line per runner-dispatched role invocation
+to `events.jsonl` in the ledger's directory, created lazily on first append.
+This feeds the Tauri Office GUI's per-role activity view; the ledger remains
+the only source of truth for completion, blockers and promotion.
+
+Line shapes (exactly these fields, nothing else):
+
+- `{"ts", "role", "milestone", "event": "start"}` — emitted immediately
+  before each runner-dispatched invocation (planning, execution, review,
+  alt, desktop, and adapter-invoked specialists).
+- `{"ts", "role", "milestone", "event": "end", "status", "duration_ms"}` —
+  emitted after the invocation settles, including throw, transport failure
+  and timeout paths, so an actor never stays working because an invocation
+  failed. `status` and `duration_ms` are exactly the strings and numbers the
+  ledger's usage entry records for the same invocation (e.g. Bulldozer
+  `DONE`/`BLOCKED`/`NEEDS_DEEP`, Zen `GO`/`NO-GO`, runner transport codes
+  like `TIMEOUT`/`INVALID_RESPONSE_FORMAT`, or a thrown error's code such as
+  `ETIMEDOUT`). Planning and alt calls carry `milestone: null` and normally
+  end with `SUCCESS`.
+
+Native workers inside an AGY process (Jaguar, Puma, Bobcat, Strix Halo and
+the headless Excavator script) are invisible to the runner and never produce
+events; their declared `delegations` are claims, not observed invocations.
+`recover` appends one end line (`role: null`, `duration_ms: null`, status
+`INVOCATION_FAILURE`, mirroring the ledger record) to close the dangling
+start a killed supervisor left, because the ledger records no active role.
+
+Every string passes through the `scripts/telemetry.mjs` redaction list before
+the line is written. Appends are serialized through a per-file queue, so a
+single-writer runner never interleaves lines. The stream is best-effort: an
+append failure logs `events.jsonl append failed: <code>` to stderr and never
+changes the invocation or milestone outcome.
+
 ## Result packets
 
 Machine invocations request a bare JSON object; Bulldozer is instructed to start
