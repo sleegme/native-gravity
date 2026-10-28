@@ -1,0 +1,1 @@
+{"conversation_id":"ee6f6c17-7081-49bf-9ff9-f88e1418e528","status":"SUCCESS","response":"BULLDOZER_NO_SHELL_PASS\n","duration_seconds":4.2317150550000004,"num_turns":1,"usage":{"input_tokens":16273,"output_tokens":194,"thinking_tokens":183,"cache_read_tokens":0,"total_tokens":16467}}
