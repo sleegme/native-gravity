@@ -6,13 +6,13 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
-import { main, nativeZen } from '../scripts/ntg-vnext.mjs';
+import { main, nativeZen, parseZenEnvelope } from '../scripts/ntg-vnext.mjs';
 import { AuthoritativeLedger, computeUsageRollup } from '../scripts/ledger.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { symlinkSync } from 'node:fs';
 
 const CLI = new URL('../scripts/ntg-vnext.mjs', import.meta.url).pathname;
-import { parseResponseEnvelope } from '../scripts/runner.mjs';
+import { parseResponseEnvelope, parseResponsePacket } from '../scripts/runner.mjs';
 
 const observed = [{ classification: 'OBSERVED', criterion: 'content', result: 'inspected' }];
 const plan = (version = 'v1', ids = ['one', 'two']) => ({
@@ -334,6 +334,212 @@ if (argv[0] === 'models') {
 /** argv the fake agy received for the Zen invocation (never the `models` probe). */
 const zenArgs = agy => JSON.parse(readFileSync(join(dirname(agy), 'zen-args.json'), 'utf8'));
 const zenGo = JSON.stringify({ milestone_id: 'one', plan_version: 'v1', result_ref: 'r', verdict: 'GO', verification_evidence: observed });
+
+test('Zen extracts one verdict from narration and fences (#180)', () => {
+  // The issue's two stderr captures retain only the exact prefix "Hashes mat".
+  // Reconstruct the rest rather than claiming an unavailable full transcript.
+  for (const verdict of ['GO', 'NO-GO']) {
+    const packet = { ...JSON.parse(zenGo), verdict,
+      ...(verdict === 'NO-GO' ? { repair_needs: 'fix content' } : {}) };
+    const json = JSON.stringify(packet);
+    for (const response of [
+      `Hashes match.\n${json}`,
+      `Hashes match for \`bin/change-snap\`.\n${json}`,
+      `I've verified \`reviewer's-check\`. The candidate's hashes match.\n${json}`,
+      `Hashes match.\n\`\`\`json\n${json}\n\`\`\``,
+      `\`\`\`json\n${json}\n\`\`\``,
+    ]) {
+      assert.deepEqual(parseZenEnvelope(JSON.stringify({ status: 'SUCCESS', response })), packet, response);
+    }
+    for (const response of [
+      `I've verified \`reviewer's-check\`.\n${json}\nThe candidate's hashes match.`,
+      `${json}\nVerified \`tests/test.sh\`.`,
+      `Hashes match.\n\`\`\`json\n${json}\n\`\`\`\nReview complete.`,
+    ]) {
+      assert.throws(
+        () => parseZenEnvelope(JSON.stringify({ status: 'SUCCESS', response })),
+        /zen response is not a JSON packet/,
+        response,
+      );
+    }
+  }
+});
+
+test('Zen accepts only its terminal verdict envelope allowlist (#180)', () => {
+  const packet = JSON.parse(zenGo);
+  for (const response of [
+    zenGo,
+    ` \t${zenGo}\r\n `,
+    `Hashes match.\n${zenGo}\n \t`,
+    `Hashes match.\r\n${zenGo}\r\n`,
+    `Hashes match.\n\`\`\`json\n${zenGo}\n\`\`\`\n \t`,
+    `Hashes match.\n\`\`\`\n${zenGo}\n\`\`\``,
+    `Hashes match.\r\n\`\`\`json\r\n  ${zenGo}\r\n\`\`\`\r\n`,
+    `Hashes match.\n\`\`\`json\n${zenGo}\n\`\`\`\``,
+    `Hashes match.\n\`\`\`\n${zenGo}\n  \`\`\`\` \t\n`,
+    `~~~text\nAn earlier example without a verdict.\n~~~~\n\n${zenGo}`,
+    `> An earlier note, not an envelope.\n\n${zenGo}`,
+    `- An earlier note, not an envelope.\n\n${zenGo}`,
+  ]) {
+    assert.deepEqual(parseZenEnvelope(JSON.stringify({ status: 'SUCCESS', response })), packet, response);
+  }
+});
+
+test('Zen rejects nested quotes and forbidden verdict envelope placements (#180)', () => {
+  const noGo = JSON.stringify({ ...JSON.parse(zenGo), verdict: 'NO-GO', repair_needs: 'fix' });
+  const relay = 'Subagent `0c63109b-326b-44a1-a1d6-f72a8440e586` has sent the following message:';
+  for (const response of [
+    ...['- > ', '1. > ', '- > Example packet:\n  '].map(
+      prefix => `Example only, not my verdict:\n${prefix}${zenGo}\n\nNo verdict issued.`),
+    ...['- > ', '1. > ', '- > Example packet:\n  ', '- > Example packet:\n',
+      '> Example packet:\n', '1. > Example packet:\n'].map(prefix => `${prefix}${zenGo}`),
+    ...[' ', '  ', '    ', '\t', '- ', '1. '].map(prefix => `Hashes match.\n${prefix}${zenGo}`),
+    `Hashes match. ${zenGo}`,
+    `${zenGo}\nMore prose.`,
+    `Hashes match.\n\`\`\`json\n${zenGo}\n\`\`\`\nMore prose.`,
+    `Hashes match.\n  \`\`\`json\n${zenGo}\n  \`\`\``,
+    `Hashes match.\n\`\`\`javascript\n${zenGo}\n\`\`\``,
+    `\`\`\`\n\`\`\`\n\`\`\`json\n${zenGo}\n\`\`\``,
+    `\`\`\`json\n${zenGo}\n\`\`\`\n\`\`\`json\n${noGo}\n\`\`\``,
+    `Example: '${zenGo}'`,
+    `Example: "${zenGo}"`,
+    `Example: \`${zenGo}\``,
+    `Example: '${zenGo}'\n${noGo}`,
+    `${relay}\n${noGo}\n${zenGo}`,
+  ]) {
+    assert.throws(
+      () => parseZenEnvelope(JSON.stringify({ status: 'SUCCESS', response })),
+      /zen response is not a JSON packet/,
+      response,
+    );
+  }
+});
+
+test('Zen rejects verdicts inside open or unclosed fenced examples (#180 C2)', () => {
+  for (const response of [
+    ...['~~~text', '```text', '~~~~text', '````text', '  ~~~text', '  ```text'].flatMap(opener => [
+      `${opener}\nExample only, no verdict issued.\n\n${zenGo}`,
+      `${opener}\nExample only, no verdict issued.\n\`\`\`json\n${zenGo}\n\`\`\``,
+    ]),
+    `~~~~text\nExample only.\n~~~\n\`\`\`json\n${zenGo}\n\`\`\``,
+    `~~~text\nExample only.\n\`\`\`\n\`\`\`json\n${zenGo}\n\`\`\``,
+    `\`\`\`\`text\nExample only.\n\`\`\`\n\`\`\`json\n${zenGo}\n\`\`\``,
+    `~~~~text\nExample only.\n~~~~not-a-closer\n\`\`\`json\n${zenGo}\n\`\`\``,
+    `~~~text\nExample only.\n\n${zenGo}\n~~~`,
+    `\`\`\`text\nExample only.\n\n${zenGo}\n\`\`\``,
+    `\`\`\`json\n${zenGo}`,
+  ]) {
+    assert.throws(
+      () => parseZenEnvelope(JSON.stringify({ status: 'SUCCESS', response })),
+      /zen response is not a JSON packet/,
+      response,
+    );
+  }
+});
+
+test('runner retains historical narration and relay packets independently of Zen (#180 C3/C4)', () => {
+  const packet = { milestone_id: 'm-1', plan_version: 3, status: 'DONE' };
+  const json = JSON.stringify(packet);
+  const inlinePacket = { status: 'DONE' };
+  const inlineJson = JSON.stringify(inlinePacket);
+  const relay = 'Subagent `0c63109b-326b-44a1-a1d6-f72a8440e586` has sent the following message:';
+  for (const [response, expected, relayed] of [
+    [`Result follows:\n${json}\nEnd.`, packet, false],
+    [`Result follows:\n\`\`\`json\n${json}\n\`\`\`\nEnd.`, packet, false],
+    [`${inlineJson}\nVerified \`tests/test.sh\`.`, inlinePacket, false],
+    [`Updated \`change-snap\`.\n\`\`\`json\n${inlineJson}\n\`\`\`\nVerified \`tests/test.sh\`.`, inlinePacket, false],
+    [`${relay}\nFindings: parseResponsePacket() slices \`{\` to \`}\` in \`scripts/runner.mjs\`; see {"path":"scripts/runner.mjs"}.\n${json}`, packet, true],
+    [`${relay}\nReport: \`{"budget": [], "nested": {"depth": 1}}\`\n\`\`\`json\n${json}\n\`\`\``, packet, true],
+    [`${relay}\n{\n  "fragment": "preamble block that never parses through to the end"\n}\nFindings continued.\n${json}`, packet, true],
+    [`${relay}\nFindings: see {"path":"scripts/runner.mjs"}.\nx${' '.repeat(80000)}y.\n${json}`, packet, true],
+  ]) {
+    const envelope = parseResponseEnvelope(JSON.stringify({ status: 'SUCCESS', response }));
+    const result = parseResponsePacket(envelope);
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.packet, expected);
+    assert.equal(result.relayPreambleStripped, relayed ? true : undefined);
+    assert.equal(result.response, response);
+    assert.equal(result.raw, envelope.raw);
+    assert.equal(result.raw.response, response);
+  }
+});
+
+test('Zen rejects missing or ambiguous narrated verdict packets (#180)', () => {
+  const noGo = JSON.stringify({ ...JSON.parse(zenGo), verdict: 'NO-GO', repair_needs: 'fix' });
+  for (const response of [
+    'Hashes match. GO.',
+    'Hashes match.\n{"verdict":',
+    `Hashes match.\n${zenGo}\n${zenGo}`,
+    `${zenGo}\n${noGo}`,
+    `\`\`\`json\n${zenGo}\n\`\`\`\n\`\`\`json\n${noGo}\n\`\`\``,
+    `Inspected \`{"verdict":"NO-GO"}\`.\n${zenGo}`,
+    `Inspected \`bin/change-snap.\n${zenGo}`,
+    ...['null', 'true', '42', '[', '"GO"'].map(value => `${value}\n${zenGo}`),
+    `[\n${zenGo}\n]`,
+    `{"review":${zenGo}}`,
+    // Zen must not use the runner's relay-tail exception to choose a verdict.
+    `Subagent \`12345678-abcd\` has sent the following message:\n${noGo}\n${zenGo}`,
+  ]) {
+    assert.throws(
+      () => parseZenEnvelope(JSON.stringify({ status: 'SUCCESS', response })),
+      /zen response is not a JSON packet|explicit GO or NO-GO/,
+      response,
+    );
+  }
+});
+
+test('Zen rejects sole quoted examples rather than issuing their verdict (#180 C2)', () => {
+  for (const response of [
+    `Example only: '${zenGo}'. No verdict issued.`,
+    `Example only:\n'\n${zenGo}\n'\nNo verdict issued.`,
+    `Example only: '\n\`\`\`json\n${zenGo}\n\`\`\`\n'. No verdict issued.`,
+    `Example only: "${zenGo}". No verdict issued.`,
+    `Example only: \`${zenGo}\`. No verdict issued.`,
+    `Example only: \u2018${zenGo}\u2019. No verdict issued.`,
+    `Example only: \u201c${zenGo}\u201d. No verdict issued.`,
+    `Example only: '${zenGo}'.\nActual verdict:\n${zenGo}`,
+  ]) {
+    assert.throws(
+      () => parseZenEnvelope(JSON.stringify({ status: 'SUCCESS', response })),
+      /zen response is not a JSON packet/,
+      response,
+    );
+  }
+});
+
+test('Zen rejects Markdown blockquoted example verdicts (#180 C2)', () => {
+  for (const response of [
+    `Example only, not my verdict:\n> ${zenGo}\nNo verdict issued.`,
+    `Example only, not my verdict:\n   >${zenGo}\nNo verdict issued.`,
+    `Example only, not my verdict:\n>> ${zenGo}\nNo verdict issued.`,
+    `> Example only, not my verdict:\n${zenGo}\nNo verdict issued.`,
+    `> \`\`\`json\n> ${zenGo}\n> \`\`\`\nNo verdict issued.`,
+  ]) {
+    assert.throws(
+      () => parseZenEnvelope(JSON.stringify({ status: 'SUCCESS', response })),
+      /zen response is not a JSON packet/,
+      response,
+    );
+  }
+});
+
+test('narrated native Zen preserves envelope authority and provider usage (#180)', t => {
+  const packet = { ...JSON.parse(zenGo), usage: { total_tokens: 999 } };
+  const response = `Hashes match.\n${JSON.stringify(packet)}`;
+  const usage = { input_tokens: 10, output_tokens: 2, total_tokens: 12 };
+  const result = nativeZen({}, { agyPath: fakeZen(t, { status: 'SUCCESS', response, usage }) });
+  assert.deepEqual(result.verification_evidence, observed);
+  assert.equal(result.result_ref, packet.result_ref);
+  assert.deepEqual(result.usage, usage);
+  assert.equal(parseZenEnvelope(JSON.stringify({ status: 'SUCCESS', response })).usage, undefined);
+  assert.throws(() => parseZenEnvelope(JSON.stringify({
+    status: 'SUCCESS', response: `${response}\nReview complete.`,
+  })), /zen response is not a JSON packet/);
+  assert.throws(() => parseZenEnvelope(JSON.stringify({ status: 'ERROR', response })), /MODEL_ERROR/);
+  assert.throws(() => parseZenEnvelope(JSON.stringify({
+    status: 'SUCCESS', response, denied_actions: [{ action: 'command' }],
+  })), /TOOL_PERMISSION_DENIED/);
+});
 
 test('native Zen GO is accepted only from a SUCCESS envelope with an explicit verdict (#135 B3)', t => {
   const ok = nativeZen({}, { agyPath: fakeZen(t, { status: 'SUCCESS', response: zenGo }) });
