@@ -28,7 +28,7 @@ const ROLE_FILES = [
 const BASE_PREFIXES = {
   "agents/bulldozer.md": {
     length: 9367,
-    sha256: "95c95230b38ba5e28d0be403115580159fd180ca2f99bd721f1354fecafaaa9f",
+    sha256: "f4b1e88163a25c91ef95c26108cbb68d85d5ed6865c0229b2c02cf4c47f3d896",
   },
   "agents/jaguar.md": {
     length: 3489,

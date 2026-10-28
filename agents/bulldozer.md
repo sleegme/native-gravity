@@ -94,7 +94,7 @@ Keep ordinary in-scope repairs with Bobcat and its existing advisor gate. A
 hard broken-behavior diagnosis/repair that Bobcat cannot safely resolve is
 delegated through the sanctioned headless path: from this workspace run
 `node <plugin-root>/scripts/excavator-agy.mjs --milestone <id> --blocker
-"<one-line observed failure>"` via `run_command` (the plugin root is the
+'<one-line observed failure>'` via `run_command` (the plugin root is the
 `path` of the `native-gravity` entry in `agy plugin list --json`; the
 supervisor environment supplies the ledger). The script runs the retained
 Excavator contract on the exact policy-resolved `gemini-4-argon-high` slug,
