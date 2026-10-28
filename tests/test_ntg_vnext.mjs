@@ -365,7 +365,7 @@ test('Zen extracts one verdict from narration and fences (#180)', () => {
   }
 });
 
-test('Zen and runner accept the same terminal envelope allowlist (#180)', () => {
+test('Zen accepts only its terminal verdict envelope allowlist (#180)', () => {
   const packet = JSON.parse(zenGo);
   for (const response of [
     zenGo,
@@ -375,20 +375,17 @@ test('Zen and runner accept the same terminal envelope allowlist (#180)', () => 
     `Hashes match.\n\`\`\`json\n${zenGo}\n\`\`\`\n \t`,
     `Hashes match.\n\`\`\`\n${zenGo}\n\`\`\``,
     `Hashes match.\r\n\`\`\`json\r\n  ${zenGo}\r\n\`\`\`\r\n`,
+    `Hashes match.\n\`\`\`json\n${zenGo}\n\`\`\`\``,
+    `Hashes match.\n\`\`\`\n${zenGo}\n  \`\`\`\` \t\n`,
+    `~~~text\nAn earlier example without a verdict.\n~~~~\n\n${zenGo}`,
     `> An earlier note, not an envelope.\n\n${zenGo}`,
     `- An earlier note, not an envelope.\n\n${zenGo}`,
   ]) {
     assert.deepEqual(parseZenEnvelope(JSON.stringify({ status: 'SUCCESS', response })), packet, response);
-    const envelope = parseResponseEnvelope(JSON.stringify({ status: 'SUCCESS', response }));
-    const result = parseResponsePacket(envelope);
-    assert.equal(result.ok, true, response);
-    assert.deepEqual(result.packet, packet, response);
-    assert.equal(result.response, response);
-    assert.equal(result.raw, envelope.raw);
   }
 });
 
-test('Zen and runner reject nested quotes and forbidden envelope placements (#180)', () => {
+test('Zen rejects nested quotes and forbidden verdict envelope placements (#180)', () => {
   const noGo = JSON.stringify({ ...JSON.parse(zenGo), verdict: 'NO-GO', repair_needs: 'fix' });
   const relay = 'Subagent `0c63109b-326b-44a1-a1d6-f72a8440e586` has sent the following message:';
   for (const response of [
@@ -415,13 +412,55 @@ test('Zen and runner reject nested quotes and forbidden envelope placements (#18
       /zen response is not a JSON packet/,
       response,
     );
+  }
+});
+
+test('Zen rejects verdicts inside open or unclosed fenced examples (#180 C2)', () => {
+  for (const response of [
+    ...['~~~text', '```text', '~~~~text', '````text', '  ~~~text', '  ```text'].flatMap(opener => [
+      `${opener}\nExample only, no verdict issued.\n\n${zenGo}`,
+      `${opener}\nExample only, no verdict issued.\n\`\`\`json\n${zenGo}\n\`\`\``,
+    ]),
+    `~~~~text\nExample only.\n~~~\n\`\`\`json\n${zenGo}\n\`\`\``,
+    `~~~text\nExample only.\n\`\`\`\n\`\`\`json\n${zenGo}\n\`\`\``,
+    `\`\`\`\`text\nExample only.\n\`\`\`\n\`\`\`json\n${zenGo}\n\`\`\``,
+    `~~~~text\nExample only.\n~~~~not-a-closer\n\`\`\`json\n${zenGo}\n\`\`\``,
+    `~~~text\nExample only.\n\n${zenGo}\n~~~`,
+    `\`\`\`text\nExample only.\n\n${zenGo}\n\`\`\``,
+    `\`\`\`json\n${zenGo}`,
+  ]) {
+    assert.throws(
+      () => parseZenEnvelope(JSON.stringify({ status: 'SUCCESS', response })),
+      /zen response is not a JSON packet/,
+      response,
+    );
+  }
+});
+
+test('runner retains historical narration and relay packets independently of Zen (#180 C3/C4)', () => {
+  const packet = { milestone_id: 'm-1', plan_version: 3, status: 'DONE' };
+  const json = JSON.stringify(packet);
+  const inlinePacket = { status: 'DONE' };
+  const inlineJson = JSON.stringify(inlinePacket);
+  const relay = 'Subagent `0c63109b-326b-44a1-a1d6-f72a8440e586` has sent the following message:';
+  for (const [response, expected, relayed] of [
+    [`Result follows:\n${json}\nEnd.`, packet, false],
+    [`Result follows:\n\`\`\`json\n${json}\n\`\`\`\nEnd.`, packet, false],
+    [`${inlineJson}\nVerified \`tests/test.sh\`.`, inlinePacket, false],
+    [`Updated \`change-snap\`.\n\`\`\`json\n${inlineJson}\n\`\`\`\nVerified \`tests/test.sh\`.`, inlinePacket, false],
+    [`${relay}\nFindings: parseResponsePacket() slices \`{\` to \`}\` in \`scripts/runner.mjs\`; see {"path":"scripts/runner.mjs"}.\n${json}`, packet, true],
+    [`${relay}\nReport: \`{"budget": [], "nested": {"depth": 1}}\`\n\`\`\`json\n${json}\n\`\`\``, packet, true],
+    [`${relay}\n{\n  "fragment": "preamble block that never parses through to the end"\n}\nFindings continued.\n${json}`, packet, true],
+    [`${relay}\nFindings: see {"path":"scripts/runner.mjs"}.\nx${' '.repeat(80000)}y.\n${json}`, packet, true],
+  ]) {
     const envelope = parseResponseEnvelope(JSON.stringify({ status: 'SUCCESS', response }));
     const result = parseResponsePacket(envelope);
-    assert.equal(result.ok, false, response);
-    assert.equal(result.error, 'INVALID_RESPONSE_FORMAT', response);
-    assert.equal(result.packet, undefined, response);
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.packet, expected);
+    assert.equal(result.relayPreambleStripped, relayed ? true : undefined);
     assert.equal(result.response, response);
     assert.equal(result.raw, envelope.raw);
+    assert.equal(result.raw.response, response);
   }
 });
 

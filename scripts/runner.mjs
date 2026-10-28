@@ -549,8 +549,8 @@ export function parseResponseEnvelope(stdout, meta = {}) {
 /**
  * Validates the inner response when a caller requires a JSON object packet.
  * Generic text responses remain supported by the envelope/transport boundary.
- * Only prose before one top-level terminal object or JSON fence may be removed.
- * Relay headers do not permit selecting between candidate objects. Schema and
+ * Only narration/fences around one object may be removed, plus the trailing
+ * packet behind an AGY subagent relay preamble. Role-specific schema and
  * authority checks remain at the spine/ledger boundary, after extraction.
  * response and raw are never rewritten: they retain the original provenance.
  */
@@ -558,12 +558,23 @@ export function parseResponsePacket(result) {
   if (!result.ok) return result;
   if (!result.response.trim()) return { ...result, ok: false, error: "EMPTY_RESPONSE" };
   let packet;
-  try {
-    packet = JSON.parse(result.response);
-  } catch {
-    packet = extractNarratedObject(result.response);
+  let relayPreambleStripped = false;
+  // A relay marker selects relay-tail semantics exclusively: narration
+  // extraction must not bypass them, so there is no narrated fallback here.
+  if (SUBAGENT_RELAY_MARKER.test(result.response)) {
+    packet = extractRelayTailObject(result.response);
     if (packet === undefined) {
       return { ...result, ok: false, error: "INVALID_RESPONSE_FORMAT" };
+    }
+    relayPreambleStripped = true;
+  } else {
+    try {
+      packet = JSON.parse(result.response);
+    } catch {
+      packet = extractNarratedObject(result.response);
+      if (packet === undefined) {
+        return { ...result, ok: false, error: "INVALID_RESPONSE_FORMAT" };
+      }
     }
   }
   if (packet === null || typeof packet !== "object" || Array.isArray(packet)) {
@@ -572,42 +583,22 @@ export function parseResponsePacket(result) {
   return {
     ...result,
     packet,
-    ...(SUBAGENT_RELAY_MARKER.test(result.response) ? { relayPreambleStripped: true } : {}),
+    ...(relayPreambleStripped ? { relayPreambleStripped: true } : {}),
   };
 }
 
-/** One top-level terminal object/fence after prose, or undefined. */
-export function extractNarratedObject(response) {
+/** One object surrounded by narration/fences, or undefined when ambiguous. */
+function extractNarratedObject(response) {
   const start = response.indexOf("{");
   const end = response.lastIndexOf("}");
   if (start === -1 || end < start) return undefined;
   // Do not search for a parsable subset or choose between successive packets.
   // Parsing first-to-last braces rejects multiple objects and malformed outer
   // objects, while JSON.parse handles nested objects and escaped string braces.
-  const before = response.slice(0, start);
-  const after = response.slice(end + 1);
-  const fence = before.match(/(?:^|\n)```(?:json)?[ \t]*\r?\n[ \t\r\n]*$/);
-  let preamble;
-  if (fence && /^[ \t\r\n]*\n```[ \t]*\s*$/.test(after)) {
-    // Exactly one column-zero JSON fence, containing only this object, at EOF.
-    preamble = before.slice(0, fence.index);
-  } else if ((start === 0 || response[start - 1] === "\n") && !after.trim()) {
-    // A bare object must start at column zero and continue through EOF.
-    preamble = before;
-    // Without a blank-line boundary, only ordinary top-level prose may
-    // precede it. This excludes lazy continuations of any Markdown container,
-    // rather than enumerating bullet, ordered-list and quotation prefixes.
-    const paragraph = preamble.split(/\r?\n[ \t]*\r?\n/).at(-1);
-    if (paragraph.split(/\r?\n/).some(line => line
-        && (!/^\p{L}/u.test(line) || /[\r\u2028\u2029]/u.test(line)))) {
-      return undefined;
-    }
-  } else {
-    return undefined;
-  }
-  const narration = preamble
-    // Ignore only single-line inline code without JSON delimiters. Any other
-    // fence or JSON-looking value in the preamble makes the response ambiguous.
+  const surrounding = response.slice(0, start) + "\n" + response.slice(end + 1);
+  const narration = surrounding.replace(/^[ \t]*```(?:json)?[ \t]*$/gim, "")
+    // Ignore only single-line inline code without JSON delimiters. Leave
+    // fences, unmatched backticks and ambiguous code visible to the check.
     .replace(/`[^{}\[\]"`\r\n\u2028\u2029]+`/g, " ");
   // Arrays, quoted JSON, unmatched delimiters and extra JSON scalar values
   // outside the candidate are not narration. Ambiguity must fail closed.
@@ -624,6 +615,78 @@ export function extractNarratedObject(response) {
 
 /** AGY relay header, e.g. "Subagent `<uuid>` has sent the following message:". */
 const SUBAGENT_RELAY_MARKER = /^Subagent `[0-9a-fA-F-]{8,}` has sent the following message:\s*$/m;
+
+/**
+ * The trailing packet behind a relayed subagent message, or undefined.
+ * Only consulted after the two strict paths failed and only when the relay
+ * marker is present, so ordinary narration gains no slack. Everything before
+ * the trailing object is preamble and is discarded; response and raw keep the
+ * original provenance for the caller.
+ */
+function extractRelayTailObject(response) {
+  if (!SUBAGENT_RELAY_MARKER.test(response)) return undefined;
+  // The packet must be the tail: at most one closing fence may follow it.
+  let text = response.trim();
+  if (text.endsWith("```")) text = text.slice(0, -3).trimEnd();
+  if (!text.endsWith("}")) return undefined;
+  // Candidates open a line (optionally after opening fences (``` or ~~~) or relay
+  // headers). Scan first to last, and accept only a slice that parses to one
+  // plain object through the final brace; ambiguous tails keep the strict failure.
+  // Anchor on \n only: a /m ^ also matches after U+2028/U+2029, which JSON
+  // strings may contain raw, so a candidate could sit inside an open string.
+  for (const match of text.matchAll(/(?:^|\n)[ \t]*\{/g)) {
+    const start = match.index + match[0].length - 1;
+    // A candidate nested inside an unfinished outer value ("[\n{...}",
+    // "{\"k\":\n{...}", "[\"]\",\n{...}") is not a tail packet. In JSON a nested
+    // value can follow only '[', ',' or ':' (plus whitespace), so a candidate
+    // after one of those, or after '{', is skipped. This is a local token rule:
+    // it needs no bracket or quote tracking in the free-form preamble.
+    if (mayContinueJsonValue(text.slice(0, start))) continue;
+    let value;
+    try {
+      value = JSON.parse(text.slice(start));
+    } catch {
+      continue;
+    }
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) return value;
+  }
+  return undefined;
+}
+
+/**
+ * True when a value starting right after `before` could be a nested element
+ * of an unfinished JSON container: the last non-whitespace character is one
+ * of [ , : {. Opening fences (``` or ~~~) and relay headers directly before
+ * the candidate are looked through, so fences or headers cannot hide such a
+ * character.
+ */
+function mayContinueJsonValue(before) {
+  // Look through trailing whitespace (\s covers \r, NBSP, BOM and line
+  // separators), fence lines with any info string, and relay header lines.
+  // The last character is checked before every strip (except a header's own
+  // prose ':'), and every logical line inside a stripped fence segment is
+  // checked too, so stripping can never hide a preceding '[', ',', ':' or '{'.
+  // A fence may start after \n, \r, U+2028 or U+2029; its tail runs to the end
+  // like #158's, so this strips at least what #158 stripped and checks more.
+  const fenceLine = /(?:^|[\n\r\u2028\u2029])[^\S\n\r\u2028\u2029]*(?:```|~~~)[^\n]*$/u;
+  // Headers keep the #158 boundary (LF line start only): exempting a header's
+  // ':' after CR/U+2028/U+2029 would accept inputs #158 rejected.
+  const headerLine = /(?:^|\n)[^\S\n]*Subagent `[0-9a-fA-F-]{8,}` has sent the following message:$/u;
+  const continues = text => /[[,:{]$/u.test(text.trimEnd());
+  let rest = before.trimEnd();
+  for (;;) {
+    const isHeader = headerLine.test(rest);
+    if (!isHeader && continues(rest)) return true;
+    if (isHeader) {
+      rest = rest.replace(headerLine, "").trimEnd();
+      continue;
+    }
+    const fence = rest.match(fenceLine);
+    if (!fence) return false;
+    if (fence[0].split(/[\n\r\u2028\u2029]/u).some(continues)) return true;
+    rest = rest.slice(0, fence.index).trimEnd();
+  }
+}
 
 /**
  * Low-level transport helper that executes the `agy` process directly with raw prompt,

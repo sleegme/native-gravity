@@ -32,7 +32,7 @@ import { MinimalSpine, HEADLESS_EXCAVATOR_TRANSPORT, recommendNeedsAlt } from '.
 import { createEventLog, makeEvent } from './events.mjs';
 import { AuthoritativeLedger, computeUsageRollup } from './ledger.mjs';
 import { verifyLedgerIntegrity } from './ledger-lock.mjs';
-import { extractNarratedObject, invoke, loadNativeRoleBody, parseResponseEnvelope, parseResponsePacket, resolveSlug } from './runner.mjs';
+import { invoke, loadNativeRoleBody, parseResponseEnvelope, parseResponsePacket, resolveSlug } from './runner.mjs';
 import { createInterface } from 'node:readline';
 import { reportIssueCli } from './report-issue.mjs';
 
@@ -79,10 +79,72 @@ export function parseZenEnvelope(stdout) {
   }
   let packet;
   try { packet = JSON.parse(envelope.response); } catch (error) {
-    // Both entry points accept only one top-level terminal packet, never a
-    // quoted example or a selected tail behind earlier candidate objects.
-    packet = extractNarratedObject(envelope.response);
-    if (packet === undefined) throw new Error(`zen response is not a JSON packet: ${error.message}`);
+    const invalidResponse = new Error(`zen response is not a JSON packet: ${error.message}`);
+    const response = envelope.response;
+    const start = response.indexOf('{');
+    const end = response.lastIndexOf('}');
+    if (start === -1 || end < start) throw invalidResponse;
+    // A blank line never ends a code fence. Track the actual outer fence:
+    // apparent inner fences are literal content until its matching closer.
+    let openFence;
+    let containingFence;
+    let fenceCount = 0;
+    for (const match of response.matchAll(/[^\r\n]*(?:\r\n|\r|\n|$)/g)) {
+      const rawLine = match[0];
+      if (!rawLine) continue;
+      const line = rawLine.replace(/(?:\r\n|\r|\n)$/, '');
+      const offset = match.index;
+      if (offset <= start && start < offset + rawLine.length) containingFence = openFence;
+      if (openFence) {
+        const closer = line.match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/);
+        if (closer && closer[1][0] === openFence.character
+            && closer[1].length >= openFence.length) {
+          openFence.closeStart = offset;
+          openFence.closeEnd = offset + rawLine.length;
+          openFence = undefined;
+        }
+        continue;
+      }
+      const opener = line.match(/^( {0,3})(`{3,}|~{3,})(.*)$/);
+      if (opener && (opener[2][0] !== '`' || !opener[3].includes('`'))) {
+        fenceCount += 1;
+        openFence = {
+          character: opener[2][0], length: opener[2].length,
+          start: offset, bodyStart: offset + rawLine.length,
+          allowed: opener[1] === '' && opener[2] === '```'
+            && /^(?:json)?[ \t]*$/.test(opener[3]),
+        };
+      }
+    }
+    if (openFence) throw invalidResponse;
+    const before = response.slice(0, start);
+    const after = response.slice(end + 1);
+    let preamble;
+    if (containingFence) {
+      if (!containingFence.allowed || fenceCount !== 1
+          || containingFence.closeStart === undefined || containingFence.closeStart <= end
+          || response.slice(containingFence.bodyStart, start).trim()
+          || response.slice(end + 1, containingFence.closeStart).trim()
+          || response.slice(containingFence.closeEnd).trim()) {
+        throw invalidResponse;
+      }
+      preamble = response.slice(0, containingFence.start);
+    } else if ((start === 0 || /[\r\n]/.test(response[start - 1])) && !after.trim()) {
+      preamble = before;
+      const paragraph = preamble.replace(/\r\n?|\n/g, '\n').split(/\n[ \t]*\n/).at(-1);
+      if (paragraph.split('\n').some(line => line
+          && (!/^\p{L}/u.test(line) || /[\u2028\u2029]/u.test(line)))) {
+        throw invalidResponse;
+      }
+    } else {
+      throw invalidResponse;
+    }
+    const narration = preamble.replace(/`[^{}\[\]"`\r\n\u2028\u2029]+`/g, ' ');
+    if (/[{}\[\]"`]/.test(narration)
+        || /(?:^|\s)(?:null|true|false|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=\s|$)/.test(narration)) {
+      throw invalidResponse;
+    }
+    try { packet = JSON.parse(response.slice(start, end + 1)); } catch { throw invalidResponse; }
   }
   if (!packet || typeof packet !== 'object' || (packet.verdict !== 'GO' && packet.verdict !== 'NO-GO')) {
     throw new Error('zen packet has no explicit GO or NO-GO verdict');
