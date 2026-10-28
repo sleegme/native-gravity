@@ -506,6 +506,68 @@ runTest("2.6g: Unambiguous fenced and narrated objects preserve raw response pro
   }
 });
 
+runTest("2.6g1: #178 real Bulldozer narration preserves packet and provenance", () => {
+  const response = readFileSync(new URL("./fixtures/178-bulldozer-response.txt", import.meta.url), "utf8");
+  const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
+  const result = parseResponsePacket(envelope);
+  assert.strictEqual(result.ok, true);
+  assert.deepStrictEqual(result.packet, JSON.parse(response.slice(response.indexOf("{"), response.lastIndexOf("}") + 1)));
+  assert.strictEqual(result.packet.milestone_id, "m1");
+  assert.strictEqual(result.packet.status, "DONE");
+  assert.strictEqual(result.relayPreambleStripped, undefined);
+  assert.strictEqual(result.response, response);
+  assert.strictEqual(result.raw, envelope.raw);
+  assert.strictEqual(result.raw.response, response);
+  assert.strictEqual(envelope.packet, undefined);
+});
+
+runTest("2.6g2: Single-line inline code in narration is unambiguous", () => {
+  const packet = { status: "DONE" };
+  const json = JSON.stringify(packet);
+  for (const response of [
+    `Updated \`bin/change-snap\` and \`bin/git-snap\`.\n${json}`,
+    `${json}\nVerified \`tests/test.sh\`.`,
+    `Updated \`change-snap\`.\n\`\`\`json\n${json}\n\`\`\`\nVerified \`tests/test.sh\`.`,
+  ]) {
+    const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
+    const result = parseResponsePacket(envelope);
+    assert.strictEqual(result.ok, true, response);
+    assert.deepStrictEqual(result.packet, packet);
+    assert.strictEqual(result.relayPreambleStripped, undefined);
+    assert.strictEqual(result.response, response);
+    assert.strictEqual(result.raw, envelope.raw);
+    assert.strictEqual(result.raw.response, response);
+  }
+});
+
+runTest("2.6g3: Inline code cannot hide ambiguous narration or multiple packets", () => {
+  for (const response of [
+    ...['{', '}', '[', ']', '"', '{}', '{"status":"DONE"}'].map(
+      (content) => `Inspected \`${content}\`.\n{"status":"DONE"}`),
+    'Inspected `bin/change-snap.\n{"status":"DONE"}',
+    'Inspected bin/change-snap`.\n{"status":"DONE"}',
+    'Inspected ``.\n{"status":"DONE"}',
+    ...["\n", "\r", "\r\n", "\u2028", "\u2029"].map(
+      (sep) => `Inspected \`bin/${sep}change-snap\`.\n{"status":"DONE"}`),
+    '```text\n{"status":"DONE"}\n```',
+    '```javascript\nconst x = 1;\n```\n{"status":"DONE"}',
+    '```text```\n{"status":"DONE"}',
+    'Updated `change-snap`.\n{}\n{}',
+    'Updated `change-snap`.\n```json\n{}\n```\n```json\n{}\n```',
+    ...['null', 'true', 'false', '42', '-1.5e+2', '"text"', '[', ']'].map(
+      (token) => `Updated \`change-snap\`.\n${token}\n{"status":"DONE"}`),
+  ]) {
+    const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
+    const result = parseResponsePacket(envelope);
+    assert.strictEqual(result.ok, false, response);
+    assert.strictEqual(result.error, "INVALID_RESPONSE_FORMAT", response);
+    assert.strictEqual(result.packet, undefined, response);
+    assert.strictEqual(result.relayPreambleStripped, undefined, response);
+    assert.strictEqual(result.response, response);
+    assert.strictEqual(result.raw, envelope.raw);
+  }
+});
+
 runTest("2.6h: Multiple objects and malformed or non-object payloads are never unwrapped", () => {
   for (const response of [
     '{}\n{}', 'Before {}\nAfter {}', '```json\n{}\n```\n```json\n{}\n```',

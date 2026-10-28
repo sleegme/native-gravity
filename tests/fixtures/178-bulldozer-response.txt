@@ -1,0 +1,68 @@
+An asynchronous subagent has been dispatched to perform factual discovery on any occurrences of `change-snap` or `worktrees` within the codebase. Standing by for its findings.
+Bobcat has been dispatched to implement `bin/change-snap`, update `bin/git-snap`, and extend `tests/test.sh` under `ADVISOR_GATE: REQUIRED` with Strix Halo review. Standing by for Bobcat's report.
+Standing by for Bobcat to compute and return the exact SHA-256 digests of the delivered artifacts.
+{
+  "milestone_id": "m1",
+  "plan_version": "v1",
+  "status": "DONE",
+  "candidate_artifact_ref": "bin/change-snap:ea6c17f8bdffbb9d67194893f716a1fae1e464156f47d586f44f78fe73b45927,bin/git-snap:58df92a2bdd3c41d5c56af57937dfcadb89bd494e22d9d0cd95959148606bc41,tests/test.sh:504709347b7500bc841d817207eef00525dcc51d0f57965a4cf903a9e2dfa073",
+  "artifact_ref": "bin/change-snap:ea6c17f8bdffbb9d67194893f716a1fae1e464156f47d586f44f78fe73b45927,bin/git-snap:58df92a2bdd3c41d5c56af57937dfcadb89bd494e22d9d0cd95959148606bc41,tests/test.sh:504709347b7500bc841d817207eef00525dcc51d0f57965a4cf903a9e2dfa073",
+  "changes_made": [
+    {
+      "path": "bin/change-snap",
+      "action": "created",
+      "mode": "0755",
+      "description": "Implemented change-snap CLI supporting [repo] [--base REF] [--patch-lines N] with ## repo, ## range, ## stat, ## name-status, ## check, ## staged, ## unstaged, and ## patch sections. Conforms to agent-lib bash conventions (set -u, usage heredoc, -h/--help, exit codes 0/1/2)."
+    },
+    {
+      "path": "bin/git-snap",
+      "action": "modified",
+      "description": "Added optional --worktrees flag printing ## worktrees with path, branch or detached HEAD short sha, and dirty/clean status from git worktree list --porcelain. Default output remains byte-identical when flag is omitted."
+    },
+    {
+      "path": "tests/test.sh",
+      "action": "modified",
+      "description": "Added change-snap to executable list on line 34. Added test asserting default git-snap output is byte-identical to HEAD:bin/git-snap and testing --worktrees with dirty state across two worktrees. Added test section for change-snap covering staged vs unstaged separation, --base range, diff --check whitespace errors vs clean, patch truncation note, non-repo exit 1, and usage error exit 2."
+    }
+  ],
+  "verification_evidence": [
+    {
+      "criterion": "tests/test.sh covers change-snap staged vs unstaged, --base range, diff --check whitespace finding, truncation note, non-repo exit 1, bad option exit 2",
+      "status": "OBSERVED",
+      "details": "Direct inspection of tests/test.sh confirms dedicated assertion blocks for change-snap staged vs unstaged file lists (lines 207-221), --base range merge-base calculation vs working tree (lines 188-206), diff --check trailing whitespace detection vs clean (lines 223-230), patch line truncation note (lines 232-237), non-existent dir and non-git repo exit 1 (lines 239-247), bad options/extra args/non-integer patch lines exit 2 (lines 256-268), and --help exit 0 (lines 252-255)."
+    },
+    {
+      "criterion": "git-snap default output unchanged (test compares against pre-change run on same fixture) and --worktrees lists two worktrees with dirty state",
+      "status": "OBSERVED",
+      "details": "Direct inspection of tests/test.sh lines 138-149 confirms test assertion comparing default output against git show HEAD:bin/git-snap on the test repo fixture byte-for-byte with eq, and testing --worktrees on two worktrees verifying ## worktrees header, $repo [main] clean, and $repo-wt [feature/x] dirty."
+    },
+    {
+      "criterion": "bash tests/test.sh passes; node --test tests/benchmark.test.mjs tests/hints.test.mjs tests/hint-pilot.test.mjs passes",
+      "status": "OBSERVED",
+      "details": "Execution of bash tests/test.sh passed with exit code 0 and ALL PASS: 148 assertions (0 failures). Execution of node --test tests/benchmark.test.mjs tests/hints.test.mjs tests/hint-pilot.test.mjs passed with exit code 0 (10 pass, 0 fail)."
+    },
+    {
+      "criterion": "Preserve all existing uncommitted changes byte-for-byte and respect bounded scope",
+      "status": "OBSERVED",
+      "details": "Only bin/change-snap, bin/git-snap, and tests/test.sh were created/modified. Preexisting uncommitted files (.gitignore, README.md, bench/RESULTS.md, bench/ab.mjs, bench/HINT-PILOT.md, bench/hint*.mjs, tests/hint*.test.mjs) remain byte-identical."
+    }
+  ],
+  "delegations": [
+    {
+      "role": "jaguar",
+      "objective": "Read-only discovery of existing change-snap or worktrees references in agent-lib",
+      "outcome": "Exhaustive search confirmed 0 pre-existing references; change-snap is a brand new command."
+    },
+    {
+      "role": "bobcat",
+      "objective": "Bounded implementation of bin/change-snap, bin/git-snap --worktrees, and tests/test.sh",
+      "advisor_gate": "REQUIRED",
+      "advisor_verdict": "ACCEPT (Strix Halo)",
+      "outcome": "READY; implemented all features and verified test suites exit 0."
+    }
+  ],
+  "unresolved_unknowns": [],
+  "scope_deviations": [],
+  "blockers": [],
+  "escalation_needs": null
+}
