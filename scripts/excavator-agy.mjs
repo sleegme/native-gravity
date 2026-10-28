@@ -29,10 +29,11 @@
  * call reports TELEMETRY_LOG_FAILED (exit 1) with the worker result preserved
  * in `worker_result`, never a silent success.
  *
- * Usage (from the milestone workspace; Bulldozer via run_command):
- *   node scripts/excavator-agy.mjs --milestone <id> --blocker "<one-line observed failure>"
- *   node scripts/excavator-agy.mjs --packet packet.json --blocker "..."     (packet file)
- *   node scripts/excavator-agy.mjs --packet - --blocker "..."              (packet on stdin)
+ * Usage (from the milestone workspace; Bulldozer via run_command; the
+ * Bulldozer shell guard admits single-quoted arguments only):
+ *   node scripts/excavator-agy.mjs --milestone <id> --blocker '<one-line observed failure>'
+ *   node scripts/excavator-agy.mjs --packet packet.json --blocker '...'     (packet file)
+ *   node scripts/excavator-agy.mjs --packet - --blocker '...'              (packet on stdin)
  *
  * Options:
  *   --ledger PATH    Authoritative ledger holding the milestone packet

@@ -233,5 +233,16 @@ class TestExcavatorTransportWhitelist(unittest.TestCase):
             'node scripts/excavator-agy.mjs --blocker "$(rm -rf /tmp/x)"'}}}
         result = self.run_guard(payload)
         self.assertEqual(result["decision"], "deny")
+
+    def test_allows_single_quoted_blocker(self):
+        payload = {"toolCall": {"name": "run_command", "args": {"CommandLine":
+            "node /home/u/p/scripts/excavator-agy.mjs --milestone m1 --blocker 'tests fail: x; y && z'"}}}
+        self.assertEqual(self.run_guard(payload)["decision"], "allow")
+
+    def test_denies_quote_breakout(self):
+        payload = {"toolCall": {"name": "run_command", "args": {"CommandLine":
+            "node /home/u/p/scripts/excavator-agy.mjs --blocker 'a' ; rm -rf /tmp/x"}}}
+        self.assertEqual(self.run_guard(payload)["decision"], "deny")
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

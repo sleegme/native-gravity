@@ -18,17 +18,13 @@ EXCAVATOR_TRANSPORT = "scripts/excavator-agy.mjs"
 
 
 def is_excavator_transport(command):
-    # Strict shape: `node` then plain tokens only. Any shell metacharacter
-    # (redirection, chaining, substitution, quoting tricks, newlines) denies.
-    if not command.startswith("node "):
+    # Strict shape: `node` then plain tokens or single-quoted tokens (no
+    # expansion inside single quotes). Any other shell metacharacter
+    # (redirection, chaining, substitution, double quotes, newlines) denies.
+    token = r"(?:[A-Za-z0-9_./=:@%+,\-]+|'[^'\n\r]*')"
+    if not re.fullmatch(r"node(?: " + token + r")+", command):
         return False
-    tokens = command.split(" ")
-    if any(tok == "" for tok in tokens[1:]):
-        return False
-    if not any(EXCAVATOR_TRANSPORT in tok for tok in tokens[1:]):
-        return False
-    plain = re.compile(r"^[A-Za-z0-9_./=:@%+,\-]+$")
-    return all(plain.match(tok) for tok in tokens[1:])
+    return EXCAVATOR_TRANSPORT in command.split("'")[0]
 
 
 def evaluate(payload):
