@@ -324,7 +324,7 @@ for (const patch of [
         const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
         return parseResponseEnvelope(JSON.stringify({
           status: 'SUCCESS',
-          response: `Result:\n\`\`\`json\n${JSON.stringify(candidate(contract, patch))}\n\`\`\`\nEnd.`,
+          response: `Result:\n\`\`\`json\n${JSON.stringify(candidate(contract, patch))}\n\`\`\``,
         }));
       },
     });
@@ -345,7 +345,7 @@ test('unwrapped candidate still needs an independent matching Zen GO', async t =
       const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
       return parseResponseEnvelope(JSON.stringify({
         status: 'SUCCESS',
-        response: `Result:\n\`\`\`json\n${JSON.stringify(candidate(contract))}\n\`\`\`\nEnd.`,
+        response: `Result:\n\`\`\`json\n${JSON.stringify(candidate(contract))}\n\`\`\``,
       }));
     },
   });
@@ -912,13 +912,16 @@ for (const role of ['jaguar', 'puma', 'bobcat', 'strix-halo']) {
           for (response of [
             '{"status":"READY"}',
             '```json\n{"status":"READY"}\n```',
-            'Result follows:\n{"status":"READY"}\nEnd.',
+            'Result follows:\n{"status":"READY"}',
           ]) {
             const result = await spine.invokeSpecialist(role, { task: 'work' }, options);
             assert.deepEqual(result, { status: 'READY' });
             assert.ok(Object.isFrozen(result));
           }
-          for (response of ['not JSON', '{"status":"READY"}{"status":"BLOCKED"}']) {
+          for (response of [
+            'not JSON', '{"status":"READY"}{"status":"BLOCKED"}',
+            'Result follows:\n{"status":"READY"}\nEnd.',
+          ]) {
             await assert.rejects(
               spine.invokeSpecialist(role, { task: 'work' }, options),
               error => error instanceof InvalidResponseFormatError

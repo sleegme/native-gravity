@@ -12,7 +12,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { symlinkSync } from 'node:fs';
 
 const CLI = new URL('../scripts/ntg-vnext.mjs', import.meta.url).pathname;
-import { parseResponseEnvelope } from '../scripts/runner.mjs';
+import { parseResponseEnvelope, parseResponsePacket } from '../scripts/runner.mjs';
 
 const observed = [{ classification: 'OBSERVED', criterion: 'content', result: 'inspected' }];
 const plan = (version = 'v1', ids = ['one', 'two']) => ({
@@ -345,13 +345,83 @@ test('Zen extracts one verdict from narration and fences (#180)', () => {
     for (const response of [
       `Hashes match.\n${json}`,
       `Hashes match for \`bin/change-snap\`.\n${json}`,
-      `I've verified \`reviewer's-check\`.\n${json}\nThe candidate's hashes match.`,
-      `${json}\nVerified \`tests/test.sh\`.`,
-      `Hashes match.\n\`\`\`json\n${json}\n\`\`\`\nReview complete.`,
+      `I've verified \`reviewer's-check\`. The candidate's hashes match.\n${json}`,
+      `Hashes match.\n\`\`\`json\n${json}\n\`\`\``,
       `\`\`\`json\n${json}\n\`\`\``,
     ]) {
       assert.deepEqual(parseZenEnvelope(JSON.stringify({ status: 'SUCCESS', response })), packet, response);
     }
+    for (const response of [
+      `I've verified \`reviewer's-check\`.\n${json}\nThe candidate's hashes match.`,
+      `${json}\nVerified \`tests/test.sh\`.`,
+      `Hashes match.\n\`\`\`json\n${json}\n\`\`\`\nReview complete.`,
+    ]) {
+      assert.throws(
+        () => parseZenEnvelope(JSON.stringify({ status: 'SUCCESS', response })),
+        /zen response is not a JSON packet/,
+        response,
+      );
+    }
+  }
+});
+
+test('Zen and runner accept the same terminal envelope allowlist (#180)', () => {
+  const packet = JSON.parse(zenGo);
+  for (const response of [
+    zenGo,
+    ` \t${zenGo}\r\n `,
+    `Hashes match.\n${zenGo}\n \t`,
+    `Hashes match.\r\n${zenGo}\r\n`,
+    `Hashes match.\n\`\`\`json\n${zenGo}\n\`\`\`\n \t`,
+    `Hashes match.\n\`\`\`\n${zenGo}\n\`\`\``,
+    `Hashes match.\r\n\`\`\`json\r\n  ${zenGo}\r\n\`\`\`\r\n`,
+    `> An earlier note, not an envelope.\n\n${zenGo}`,
+    `- An earlier note, not an envelope.\n\n${zenGo}`,
+  ]) {
+    assert.deepEqual(parseZenEnvelope(JSON.stringify({ status: 'SUCCESS', response })), packet, response);
+    const envelope = parseResponseEnvelope(JSON.stringify({ status: 'SUCCESS', response }));
+    const result = parseResponsePacket(envelope);
+    assert.equal(result.ok, true, response);
+    assert.deepEqual(result.packet, packet, response);
+    assert.equal(result.response, response);
+    assert.equal(result.raw, envelope.raw);
+  }
+});
+
+test('Zen and runner reject nested quotes and forbidden envelope placements (#180)', () => {
+  const noGo = JSON.stringify({ ...JSON.parse(zenGo), verdict: 'NO-GO', repair_needs: 'fix' });
+  const relay = 'Subagent `0c63109b-326b-44a1-a1d6-f72a8440e586` has sent the following message:';
+  for (const response of [
+    ...['- > ', '1. > ', '- > Example packet:\n  '].map(
+      prefix => `Example only, not my verdict:\n${prefix}${zenGo}\n\nNo verdict issued.`),
+    ...['- > ', '1. > ', '- > Example packet:\n  ', '- > Example packet:\n',
+      '> Example packet:\n', '1. > Example packet:\n'].map(prefix => `${prefix}${zenGo}`),
+    ...[' ', '  ', '    ', '\t', '- ', '1. '].map(prefix => `Hashes match.\n${prefix}${zenGo}`),
+    `Hashes match. ${zenGo}`,
+    `${zenGo}\nMore prose.`,
+    `Hashes match.\n\`\`\`json\n${zenGo}\n\`\`\`\nMore prose.`,
+    `Hashes match.\n  \`\`\`json\n${zenGo}\n  \`\`\``,
+    `Hashes match.\n\`\`\`javascript\n${zenGo}\n\`\`\``,
+    `\`\`\`\n\`\`\`\n\`\`\`json\n${zenGo}\n\`\`\``,
+    `\`\`\`json\n${zenGo}\n\`\`\`\n\`\`\`json\n${noGo}\n\`\`\``,
+    `Example: '${zenGo}'`,
+    `Example: "${zenGo}"`,
+    `Example: \`${zenGo}\``,
+    `Example: '${zenGo}'\n${noGo}`,
+    `${relay}\n${noGo}\n${zenGo}`,
+  ]) {
+    assert.throws(
+      () => parseZenEnvelope(JSON.stringify({ status: 'SUCCESS', response })),
+      /zen response is not a JSON packet/,
+      response,
+    );
+    const envelope = parseResponseEnvelope(JSON.stringify({ status: 'SUCCESS', response }));
+    const result = parseResponsePacket(envelope);
+    assert.equal(result.ok, false, response);
+    assert.equal(result.error, 'INVALID_RESPONSE_FORMAT', response);
+    assert.equal(result.packet, undefined, response);
+    assert.equal(result.response, response);
+    assert.equal(result.raw, envelope.raw);
   }
 });
 
@@ -416,13 +486,16 @@ test('Zen rejects Markdown blockquoted example verdicts (#180 C2)', () => {
 
 test('narrated native Zen preserves envelope authority and provider usage (#180)', t => {
   const packet = { ...JSON.parse(zenGo), usage: { total_tokens: 999 } };
-  const response = `Hashes match.\n${JSON.stringify(packet)}\nReview complete.`;
+  const response = `Hashes match.\n${JSON.stringify(packet)}`;
   const usage = { input_tokens: 10, output_tokens: 2, total_tokens: 12 };
   const result = nativeZen({}, { agyPath: fakeZen(t, { status: 'SUCCESS', response, usage }) });
   assert.deepEqual(result.verification_evidence, observed);
   assert.equal(result.result_ref, packet.result_ref);
   assert.deepEqual(result.usage, usage);
   assert.equal(parseZenEnvelope(JSON.stringify({ status: 'SUCCESS', response })).usage, undefined);
+  assert.throws(() => parseZenEnvelope(JSON.stringify({
+    status: 'SUCCESS', response: `${response}\nReview complete.`,
+  })), /zen response is not a JSON packet/);
   assert.throws(() => parseZenEnvelope(JSON.stringify({ status: 'ERROR', response })), /MODEL_ERROR/);
   assert.throws(() => parseZenEnvelope(JSON.stringify({
     status: 'SUCCESS', response, denied_actions: [{ action: 'command' }],

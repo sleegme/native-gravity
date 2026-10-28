@@ -492,8 +492,8 @@ runTest("2.6g: Unambiguous fenced and narrated objects preserve raw response pro
   const json = JSON.stringify(packet);
   for (const response of [
     json, `\`\`\`json\n${json}\n\`\`\``, `\`\`\`\n${json}\n\`\`\``,
-    `Result follows:\n${json}\nEnd.`,
-    `Result follows:\n\`\`\`json\n${json}\n\`\`\`\nEnd.`,
+    `Result follows:\n${json}`,
+    `Result follows:\n\`\`\`json\n${json}\n\`\`\``,
   ]) {
     const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
     const result = parseResponsePacket(envelope);
@@ -503,6 +503,14 @@ runTest("2.6g: Unambiguous fenced and narrated objects preserve raw response pro
     assert.strictEqual(result.raw, envelope.raw);
     assert.strictEqual(result.raw.response, response);
     assert.strictEqual(envelope.packet, undefined);
+  }
+  for (const response of [
+    `Result follows:\n${json}\nEnd.`,
+    `Result follows:\n\`\`\`json\n${json}\n\`\`\`\nEnd.`,
+  ]) {
+    const result = parseResponsePacket(parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response })));
+    assert.strictEqual(result.ok, false, response);
+    assert.strictEqual(result.error, "INVALID_RESPONSE_FORMAT", response);
   }
 });
 
@@ -526,8 +534,8 @@ runTest("2.6g2: Single-line inline code in narration is unambiguous", () => {
   const json = JSON.stringify(packet);
   for (const response of [
     `Updated \`bin/change-snap\` and \`bin/git-snap\`.\n${json}`,
-    `${json}\nVerified \`tests/test.sh\`.`,
-    `Updated \`change-snap\`.\n\`\`\`json\n${json}\n\`\`\`\nVerified \`tests/test.sh\`.`,
+    `Verified \`tests/test.sh\`.\n${json}`,
+    `Updated \`change-snap\`.\n\`\`\`json\n${json}\n\`\`\``,
   ]) {
     const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
     const result = parseResponsePacket(envelope);
@@ -537,6 +545,14 @@ runTest("2.6g2: Single-line inline code in narration is unambiguous", () => {
     assert.strictEqual(result.response, response);
     assert.strictEqual(result.raw, envelope.raw);
     assert.strictEqual(result.raw.response, response);
+  }
+  for (const response of [
+    `${json}\nVerified \`tests/test.sh\`.`,
+    `Updated \`change-snap\`.\n\`\`\`json\n${json}\n\`\`\`\nVerified \`tests/test.sh\`.`,
+  ]) {
+    const result = parseResponsePacket(parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response })));
+    assert.strictEqual(result.ok, false, response);
+    assert.strictEqual(result.error, "INVALID_RESPONSE_FORMAT", response);
   }
 });
 
@@ -593,14 +609,13 @@ runTest("2.6h: Multiple objects and malformed or non-object payloads are never u
   assert.strictEqual(denied.error, "TOOL_PERMISSION_DENIED");
 });
 
-runTest("2.6i: AGY relay preambles expose the trailing object packet", () => {
+runTest("2.6i: AGY relay preambles require one terminal object packet", () => {
   const packet = { milestone_id: "m-1", plan_version: 3, status: "DONE" };
   const json = JSON.stringify(packet);
   const relay = "Subagent `0c63109b-326b-44a1-a1d6-f72a8440e586` has sent the following message:";
   for (const response of [
-    `${relay}\nFindings: parseResponsePacket() slices \`{\` to \`}\` in \`scripts/runner.mjs\`; see {"path":"scripts/runner.mjs"}.\n${json}`,
-    `${relay}\nReport: \`{"budget": [], "nested": {"depth": 1}}\`\n\`\`\`json\n${json}\n\`\`\``,
-    `${relay}\n{\n  "fragment": "preamble block that never parses through to the end"\n}\nFindings continued.\n${json}`,
+    `${relay}\n${json}`,
+    `${relay}\n\`\`\`json\n${json}\n\`\`\``,
     `Findings first.\n${relay}\n${json}`,
   ]) {
     const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
@@ -608,6 +623,21 @@ runTest("2.6i: AGY relay preambles expose the trailing object packet", () => {
     assert.strictEqual(result.ok, true, response);
     assert.deepStrictEqual(result.packet, packet);
     assert.strictEqual(result.relayPreambleStripped, true, response);
+    assert.strictEqual(result.response, response);
+    assert.strictEqual(result.raw, envelope.raw);
+    assert.strictEqual(result.raw.response, response);
+  }
+  for (const response of [
+    `${relay}\nFindings: parseResponsePacket() slices \`{\` to \`}\` in \`scripts/runner.mjs\`; see {"path":"scripts/runner.mjs"}.\n${json}`,
+    `${relay}\nReport: \`{"budget": [], "nested": {"depth": 1}}\`\n\`\`\`json\n${json}\n\`\`\``,
+    `${relay}\n{\n  "fragment": "preamble block that never parses through to the end"\n}\nFindings continued.\n${json}`,
+  ]) {
+    const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
+    const result = parseResponsePacket(envelope);
+    assert.strictEqual(result.ok, false, response);
+    assert.strictEqual(result.error, "INVALID_RESPONSE_FORMAT", response);
+    assert.strictEqual(result.packet, undefined);
+    assert.strictEqual(result.relayPreambleStripped, undefined, response);
     assert.strictEqual(result.response, response);
     assert.strictEqual(result.raw, envelope.raw);
     assert.strictEqual(result.raw.response, response);
@@ -693,7 +723,7 @@ runTest("2.6k: backticked narration without the relay marker keeps the strict bo
   assert.strictEqual(result.raw, envelope.raw);
 });
 
-runTest("2.6l: relay response with an 80,000-space interior run parses in under 200 ms", () => {
+runTest("2.6l: ambiguous relay with an 80,000-space interior run rejects in under 200 ms", () => {
   const packet = { milestone_id: "m-1", plan_version: 3, status: "DONE" };
   const json = JSON.stringify(packet);
   const relay = "Subagent `0c63109b-326b-44a1-a1d6-f72a8440e586` has sent the following message:";
@@ -706,9 +736,10 @@ runTest("2.6l: relay response with an 80,000-space interior run parses in under 
   const result = parseResponsePacket(envelope);
   const duration = performance.now() - start;
   assert.ok(duration < 200, `Expected parseResponsePacket to return in under 200 ms, took ${duration.toFixed(2)} ms`);
-  assert.strictEqual(result.ok, true, response);
-  assert.deepStrictEqual(result.packet, packet);
-  assert.strictEqual(result.relayPreambleStripped, true);
+  assert.strictEqual(result.ok, false, response);
+  assert.strictEqual(result.error, "INVALID_RESPONSE_FORMAT");
+  assert.strictEqual(result.packet, undefined);
+  assert.strictEqual(result.relayPreambleStripped, undefined);
 });
 
 
