@@ -800,12 +800,17 @@ function invokeAgyTransport(opts, prefix = []) {
     }
   }
 
+  const normalizedRole = typeof role === "string" ? role.trim().toLowerCase() : "";
   const nextChain = role ? (chainRaw ? `${chainRaw}:${role}` : role) : chainRaw;
   const childEnv = {
     ...process.env,
     ...(opts.env || {}),
     ...(nextChain ? { NTG_RUNNER_CHAIN: nextChain } : {}),
+    ...(normalizedRole === "bulldozer" ? { NTG_BULLDOZER_NO_SHELL: "1" } : {}),
   };
+  if (normalizedRole !== "bulldozer") {
+    delete childEnv.NTG_BULLDOZER_NO_SHELL;
+  }
 
   // Exact-model roles use their composed body. Navi's MCP registration lives
   // only in its per-process HOME; no native --agent selection is needed.
@@ -820,7 +825,6 @@ function invokeAgyTransport(opts, prefix = []) {
   // known execution context via tools (incl. RunCommand); discovery still
   // delegated. Navi's scoped MCP calls use its own confirmation contract.
   // Must precede --print: agy consumes the token after --print as the prompt.
-  const normalizedRole = typeof role === "string" ? role.trim().toLowerCase() : "";
   if (normalizedRole === "navi") {
     args.push("--dangerously-skip-permissions");
   }

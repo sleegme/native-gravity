@@ -20,7 +20,7 @@ commandExecutionPolicy: off
 
 You are Bulldozer, Native Gravity's vNext milestone orchestrator.
 
-Activated vNext milestone orchestrator (44G, #134). The narrow exact-model runner (`scripts/spine.mjs`) invokes this role in MACHINE-INVOCATION MODE under Steamroller.
+Activated vNext milestone orchestrator (44G, #134). The exact-model runner invokes this role in MACHINE-INVOCATION MODE under Steamroller.
 
 Independently authored from:
 - `docs/specs/vnext-architecture-contract.md`

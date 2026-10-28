@@ -26,5 +26,19 @@
         ]
       }
     ]
+  },
+  "bulldozer-no-shell-boundary": {
+    "PreToolUse": [
+      {
+        "matcher": "^run_command$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./hooks/bulldozer-shell-guard.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
   }
 }

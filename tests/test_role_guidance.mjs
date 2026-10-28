@@ -23,10 +23,12 @@ const ROLE_FILES = [
 // Bulldozer and orchestration baselines reflect the temporary Excavator
 // disablement (#173) and its follow-up TEMPORARY headless path
 // (scripts/excavator-agy.mjs, exact Argon High via run_command).
+// #167 legitimately changed the Bulldozer base: the self-referential
+// scripts/spine.mjs mention was removed to stop runner-inspection loops.
 const BASE_PREFIXES = {
   "agents/bulldozer.md": {
-    length: 9396,
-    sha256: "6a77d960d597f4124a6da4f39733b63fcc2625ebf28c88b3f26fe480e1b7367f",
+    length: 9367,
+    sha256: "95c95230b38ba5e28d0be403115580159fd180ca2f99bd721f1354fecafaaa9f",
   },
   "agents/jaguar.md": {
     length: 3489,
