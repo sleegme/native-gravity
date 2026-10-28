@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
-import { main, nativeZen } from '../scripts/ntg-vnext.mjs';
+import { main, nativeZen, parseZenEnvelope } from '../scripts/ntg-vnext.mjs';
 import { AuthoritativeLedger, computeUsageRollup } from '../scripts/ledger.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { symlinkSync } from 'node:fs';
@@ -334,6 +334,64 @@ if (argv[0] === 'models') {
 /** argv the fake agy received for the Zen invocation (never the `models` probe). */
 const zenArgs = agy => JSON.parse(readFileSync(join(dirname(agy), 'zen-args.json'), 'utf8'));
 const zenGo = JSON.stringify({ milestone_id: 'one', plan_version: 'v1', result_ref: 'r', verdict: 'GO', verification_evidence: observed });
+
+test('Zen extracts one verdict from narration and fences (#180)', () => {
+  // The issue's two stderr captures retain only the exact prefix "Hashes mat".
+  // Reconstruct the rest rather than claiming an unavailable full transcript.
+  for (const verdict of ['GO', 'NO-GO']) {
+    const packet = { ...JSON.parse(zenGo), verdict,
+      ...(verdict === 'NO-GO' ? { repair_needs: 'fix content' } : {}) };
+    const json = JSON.stringify(packet);
+    for (const response of [
+      `Hashes match.\n${json}`,
+      `Hashes match for \`bin/change-snap\`.\n${json}`,
+      `${json}\nVerified \`tests/test.sh\`.`,
+      `Hashes match.\n\`\`\`json\n${json}\n\`\`\`\nReview complete.`,
+      `\`\`\`json\n${json}\n\`\`\``,
+    ]) {
+      assert.deepEqual(parseZenEnvelope(JSON.stringify({ status: 'SUCCESS', response })), packet, response);
+    }
+  }
+});
+
+test('Zen rejects missing or ambiguous narrated verdict packets (#180)', () => {
+  const noGo = JSON.stringify({ ...JSON.parse(zenGo), verdict: 'NO-GO', repair_needs: 'fix' });
+  for (const response of [
+    'Hashes match. GO.',
+    'Hashes match.\n{"verdict":',
+    `Hashes match.\n${zenGo}\n${zenGo}`,
+    `${zenGo}\n${noGo}`,
+    `\`\`\`json\n${zenGo}\n\`\`\`\n\`\`\`json\n${noGo}\n\`\`\``,
+    `Inspected \`{"verdict":"NO-GO"}\`.\n${zenGo}`,
+    `Inspected \`bin/change-snap.\n${zenGo}`,
+    ...['null', 'true', '42', '[', '"GO"'].map(value => `${value}\n${zenGo}`),
+    `[\n${zenGo}\n]`,
+    `{"review":${zenGo}}`,
+    // Zen must not use the runner's relay-tail exception to choose a verdict.
+    `Subagent \`12345678-abcd\` has sent the following message:\n${noGo}\n${zenGo}`,
+  ]) {
+    assert.throws(
+      () => parseZenEnvelope(JSON.stringify({ status: 'SUCCESS', response })),
+      /zen response is not a JSON packet|explicit GO or NO-GO/,
+      response,
+    );
+  }
+});
+
+test('narrated native Zen preserves envelope authority and provider usage (#180)', t => {
+  const packet = { ...JSON.parse(zenGo), usage: { total_tokens: 999 } };
+  const response = `Hashes match.\n${JSON.stringify(packet)}\nReview complete.`;
+  const usage = { input_tokens: 10, output_tokens: 2, total_tokens: 12 };
+  const result = nativeZen({}, { agyPath: fakeZen(t, { status: 'SUCCESS', response, usage }) });
+  assert.deepEqual(result.verification_evidence, observed);
+  assert.equal(result.result_ref, packet.result_ref);
+  assert.deepEqual(result.usage, usage);
+  assert.equal(parseZenEnvelope(JSON.stringify({ status: 'SUCCESS', response })).usage, undefined);
+  assert.throws(() => parseZenEnvelope(JSON.stringify({ status: 'ERROR', response })), /MODEL_ERROR/);
+  assert.throws(() => parseZenEnvelope(JSON.stringify({
+    status: 'SUCCESS', response, denied_actions: [{ action: 'command' }],
+  })), /TOOL_PERMISSION_DENIED/);
+});
 
 test('native Zen GO is accepted only from a SUCCESS envelope with an explicit verdict (#135 B3)', t => {
   const ok = nativeZen({}, { agyPath: fakeZen(t, { status: 'SUCCESS', response: zenGo }) });

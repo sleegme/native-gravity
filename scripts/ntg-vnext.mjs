@@ -32,7 +32,7 @@ import { MinimalSpine, HEADLESS_EXCAVATOR_TRANSPORT, recommendNeedsAlt } from '.
 import { createEventLog, makeEvent } from './events.mjs';
 import { AuthoritativeLedger, computeUsageRollup } from './ledger.mjs';
 import { verifyLedgerIntegrity } from './ledger-lock.mjs';
-import { invoke, loadNativeRoleBody, parseResponseEnvelope, parseResponsePacket, resolveSlug } from './runner.mjs';
+import { extractNarratedObject, invoke, loadNativeRoleBody, parseResponseEnvelope, parseResponsePacket, resolveSlug } from './runner.mjs';
 import { createInterface } from 'node:readline';
 import { reportIssueCli } from './report-issue.mjs';
 
@@ -77,9 +77,13 @@ export function parseZenEnvelope(stdout) {
   if (!envelope.ok) {
     throw new Error(`zen envelope rejected: ${envelope.error}${envelope.denied_actions ? ` ${JSON.stringify(envelope.denied_actions)}` : ''}`);
   }
-  const inner = envelope.response.trim().replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/, '');
   let packet;
-  try { packet = JSON.parse(inner); } catch (error) { throw new Error(`zen response is not a JSON packet: ${error.message}`); }
+  try { packet = JSON.parse(envelope.response); } catch (error) {
+    // Zen may narrate one packet, but must never select a trailing verdict
+    // from a relay containing multiple packets (parseResponsePacket's exception).
+    packet = extractNarratedObject(envelope.response);
+    if (packet === undefined) throw new Error(`zen response is not a JSON packet: ${error.message}`);
+  }
   if (!packet || typeof packet !== 'object' || (packet.verdict !== 'GO' && packet.verdict !== 'NO-GO')) {
     throw new Error('zen packet has no explicit GO or NO-GO verdict');
   }

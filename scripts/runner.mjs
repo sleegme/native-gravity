@@ -588,7 +588,7 @@ export function parseResponsePacket(result) {
 }
 
 /** One object surrounded by narration/fences, or undefined when ambiguous. */
-function extractNarratedObject(response) {
+export function extractNarratedObject(response) {
   const start = response.indexOf("{");
   const end = response.lastIndexOf("}");
   if (start === -1 || end < start) return undefined;
