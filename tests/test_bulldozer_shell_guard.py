@@ -186,7 +186,7 @@ class TestExcavatorTransportWhitelist(unittest.TestCase):
 
     def test_allows_excavator_transport(self):
         payload = {"toolCall": {"name": "run_command", "args": {"CommandLine":
-            "node <plugin-root>/scripts/excavator-agy.mjs --milestone m1 --blocker b"}}}
+            "node /home/u/.gemini/config/plugins/native-gravity/scripts/excavator-agy.mjs --milestone m1 --blocker b"}}}
         result = self.run_guard(payload)
         self.assertEqual(result["decision"], "allow")
         self.assertIn("Excavator transport", result["reason"])
@@ -209,5 +209,29 @@ class TestExcavatorTransportWhitelist(unittest.TestCase):
         result = self.run_guard(payload)
         self.assertEqual(result["decision"], "deny")
 
+
+    def test_denies_backgrounding_after_transport(self):
+        payload = {"toolCall": {"name": "run_command", "args": {"CommandLine":
+            "node scripts/excavator-agy.mjs --milestone m1 & rm -rf /tmp/x"}}}
+        result = self.run_guard(payload)
+        self.assertEqual(result["decision"], "deny")
+
+    def test_denies_redirection_after_transport(self):
+        payload = {"toolCall": {"name": "run_command", "args": {"CommandLine":
+            "node scripts/excavator-agy.mjs --milestone m1 > /tmp/pwn"}}}
+        result = self.run_guard(payload)
+        self.assertEqual(result["decision"], "deny")
+
+    def test_denies_newline_in_transport_command(self):
+        payload = {"toolCall": {"name": "run_command", "args": {"CommandLine":
+            "node scripts/excavator-agy.mjs --milestone m1\nrm -rf /tmp/x"}}}
+        result = self.run_guard(payload)
+        self.assertEqual(result["decision"], "deny")
+
+    def test_denies_quoted_argument_bypass(self):
+        payload = {"toolCall": {"name": "run_command", "args": {"CommandLine":
+            'node scripts/excavator-agy.mjs --blocker "$(rm -rf /tmp/x)"'}}}
+        result = self.run_guard(payload)
+        self.assertEqual(result["decision"], "deny")
 if __name__ == "__main__":
     unittest.main(verbosity=2)

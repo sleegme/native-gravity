@@ -8,6 +8,7 @@ Other tools and unmarked processes are allowed untouched.
 
 import json
 import os
+import re
 import sys
 
 ENV_MARKER = "NTG_BULLDOZER_NO_SHELL"
@@ -17,9 +18,17 @@ EXCAVATOR_TRANSPORT = "scripts/excavator-agy.mjs"
 
 
 def is_excavator_transport(command):
-    if not (EXCAVATOR_TRANSPORT in command and "node " in command):
+    # Strict shape: `node` then plain tokens only. Any shell metacharacter
+    # (redirection, chaining, substitution, quoting tricks, newlines) denies.
+    if not command.startswith("node "):
         return False
-    return not any(sep in command for sep in (";", "&&", "||", "|", "`", "$("))
+    tokens = command.split(" ")
+    if any(tok == "" for tok in tokens[1:]):
+        return False
+    if not any(EXCAVATOR_TRANSPORT in tok for tok in tokens[1:]):
+        return False
+    plain = re.compile(r"^[A-Za-z0-9_./=:@%+,\-]+$")
+    return all(plain.match(tok) for tok in tokens[1:])
 
 
 def evaluate(payload):

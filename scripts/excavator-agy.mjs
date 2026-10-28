@@ -494,6 +494,9 @@ export function runExcavatorHeadless(options, deps = {}) {
       ...env,
       NTG_RUNNER_CHAIN: [...parts, EXCAVATOR_ROLE].join(":"),
     };
+    // The Bulldozer no-shell marker must not cross the transport boundary:
+    // Excavator owns shell authority inside its own headless session.
+    delete childEnv.NTG_BULLDOZER_NO_SHELL;
 
     const result = spawn(agyPath, args, {
       cwd,
