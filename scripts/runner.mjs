@@ -588,7 +588,7 @@ export function parseResponsePacket(result) {
 }
 
 /** One object surrounded by narration/fences, or undefined when ambiguous. */
-export function extractNarratedObject(response) {
+export function extractNarratedObject(response, { rejectQuoted = false } = {}) {
   const start = response.indexOf("{");
   const end = response.lastIndexOf("}");
   if (start === -1 || end < start) return undefined;
@@ -600,6 +600,12 @@ export function extractNarratedObject(response) {
     // Ignore only single-line inline code without JSON delimiters. Leave
     // fences, unmatched backticks and ambiguous code visible to the check.
     .replace(/`[^{}\[\]"`\r\n\u2028\u2029]+`/g, " ");
+  // Authority callers must not turn quoted examples into issued packets.
+  // Word-internal apostrophes are narration, not quotation boundaries.
+  if (rejectQuoted
+      && /(?:^|[^a-z0-9])['\u2018\u2019]|['\u2018\u2019](?:[^a-z0-9]|$)|[\u201c\u201d]|^[ \t]*>/im.test(narration)) {
+    return undefined;
+  }
   // Arrays, quoted JSON, unmatched delimiters and extra JSON scalar values
   // outside the candidate are not narration. Ambiguity must fail closed.
   if (/[{}\[\]"`]/.test(narration)

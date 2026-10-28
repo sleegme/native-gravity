@@ -345,6 +345,7 @@ test('Zen extracts one verdict from narration and fences (#180)', () => {
     for (const response of [
       `Hashes match.\n${json}`,
       `Hashes match for \`bin/change-snap\`.\n${json}`,
+      `I've verified \`reviewer's-check\`.\n${json}\nThe candidate's hashes match.`,
       `${json}\nVerified \`tests/test.sh\`.`,
       `Hashes match.\n\`\`\`json\n${json}\n\`\`\`\nReview complete.`,
       `\`\`\`json\n${json}\n\`\`\``,
@@ -373,6 +374,41 @@ test('Zen rejects missing or ambiguous narrated verdict packets (#180)', () => {
     assert.throws(
       () => parseZenEnvelope(JSON.stringify({ status: 'SUCCESS', response })),
       /zen response is not a JSON packet|explicit GO or NO-GO/,
+      response,
+    );
+  }
+});
+
+test('Zen rejects sole quoted examples rather than issuing their verdict (#180 C2)', () => {
+  for (const response of [
+    `Example only: '${zenGo}'. No verdict issued.`,
+    `Example only:\n'\n${zenGo}\n'\nNo verdict issued.`,
+    `Example only: '\n\`\`\`json\n${zenGo}\n\`\`\`\n'. No verdict issued.`,
+    `Example only: "${zenGo}". No verdict issued.`,
+    `Example only: \`${zenGo}\`. No verdict issued.`,
+    `Example only: \u2018${zenGo}\u2019. No verdict issued.`,
+    `Example only: \u201c${zenGo}\u201d. No verdict issued.`,
+    `Example only: '${zenGo}'.\nActual verdict:\n${zenGo}`,
+  ]) {
+    assert.throws(
+      () => parseZenEnvelope(JSON.stringify({ status: 'SUCCESS', response })),
+      /zen response is not a JSON packet/,
+      response,
+    );
+  }
+});
+
+test('Zen rejects Markdown blockquoted example verdicts (#180 C2)', () => {
+  for (const response of [
+    `Example only, not my verdict:\n> ${zenGo}\nNo verdict issued.`,
+    `Example only, not my verdict:\n   >${zenGo}\nNo verdict issued.`,
+    `Example only, not my verdict:\n>> ${zenGo}\nNo verdict issued.`,
+    `> Example only, not my verdict:\n${zenGo}\nNo verdict issued.`,
+    `> \`\`\`json\n> ${zenGo}\n> \`\`\`\nNo verdict issued.`,
+  ]) {
+    assert.throws(
+      () => parseZenEnvelope(JSON.stringify({ status: 'SUCCESS', response })),
+      /zen response is not a JSON packet/,
       response,
     );
   }

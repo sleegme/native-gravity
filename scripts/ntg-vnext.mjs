@@ -81,7 +81,7 @@ export function parseZenEnvelope(stdout) {
   try { packet = JSON.parse(envelope.response); } catch (error) {
     // Zen may narrate one packet, but must never select a trailing verdict
     // from a relay containing multiple packets (parseResponsePacket's exception).
-    packet = extractNarratedObject(envelope.response);
+    packet = extractNarratedObject(envelope.response, { rejectQuoted: true });
     if (packet === undefined) throw new Error(`zen response is not a JSON packet: ${error.message}`);
   }
   if (!packet || typeof packet !== 'object' || (packet.verdict !== 'GO' && packet.verdict !== 'NO-GO')) {
