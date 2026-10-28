@@ -559,16 +559,22 @@ export function parseResponsePacket(result) {
   if (!result.response.trim()) return { ...result, ok: false, error: "EMPTY_RESPONSE" };
   let packet;
   let relayPreambleStripped = false;
-  try {
-    packet = JSON.parse(result.response);
-  } catch {
-    packet = extractNarratedObject(result.response);
+  // A relay marker selects relay-tail semantics exclusively: narration
+  // extraction must not bypass them, so there is no narrated fallback here.
+  if (SUBAGENT_RELAY_MARKER.test(result.response)) {
+    packet = extractRelayTailObject(result.response);
     if (packet === undefined) {
-      packet = extractRelayTailObject(result.response);
+      return { ...result, ok: false, error: "INVALID_RESPONSE_FORMAT" };
+    }
+    relayPreambleStripped = true;
+  } else {
+    try {
+      packet = JSON.parse(result.response);
+    } catch {
+      packet = extractNarratedObject(result.response);
       if (packet === undefined) {
         return { ...result, ok: false, error: "INVALID_RESPONSE_FORMAT" };
       }
-      relayPreambleStripped = true;
     }
   }
   if (packet === null || typeof packet !== "object" || Array.isArray(packet)) {
@@ -590,7 +596,10 @@ function extractNarratedObject(response) {
   // Parsing first-to-last braces rejects multiple objects and malformed outer
   // objects, while JSON.parse handles nested objects and escaped string braces.
   const surrounding = response.slice(0, start) + "\n" + response.slice(end + 1);
-  const narration = surrounding.replace(/^[ \t]*```(?:json)?[ \t]*$/gim, "");
+  const narration = surrounding.replace(/^[ \t]*```(?:json)?[ \t]*$/gim, "")
+    // Ignore only single-line inline code without JSON delimiters. Leave
+    // fences, unmatched backticks and ambiguous code visible to the check.
+    .replace(/`[^{}\[\]"`\r\n\u2028\u2029]+`/g, " ");
   // Arrays, quoted JSON, unmatched delimiters and extra JSON scalar values
   // outside the candidate are not narration. Ambiguity must fail closed.
   if (/[{}\[\]"`]/.test(narration)
