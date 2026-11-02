@@ -59,6 +59,8 @@ class ZenShellGuardTests(unittest.TestCase):
             "NTG_ZEN_VERIFY=1 node --test tests/fixtures/helper.js",
             "NTG_ZEN_VERIFY=1 node --test test/runtime/scheduler.test.ts",
             "NTG_ZEN_VERIFY=1 node --test tests/a.mts",
+            "NTG_ZEN_VERIFY=1 bunx vitest run packages/coding-agent/test/cmd-cli/parser.test.ts",
+            "NTG_ZEN_VERIFY=1 node --test packages/x/test/a.test.ts",
             "NTG_ZEN_VERIFY=1 python3 --version",
             "NTG_ZEN_VERIFY=1 cat 'file with spaces.txt'",
         ]
@@ -77,6 +79,13 @@ class ZenShellGuardTests(unittest.TestCase):
             "node --test tests//a.mjs",
             "node --test tests/~a.mjs",
             "node --test tests/a..b.mjs",
+            "bunx vitest run",
+            "bunx vitest",
+            "bunx vitest watch tests/a.test.ts",
+            "bunx vitest run --config evil.ts tests/a.test.ts",
+            "bunx vitest run src/a.ts",
+            "bunx evil run tests/a.test.ts",
+            "node --test ../test/a.mjs",
         ]
         for command in patterns:
             marked = "NTG_ZEN_VERIFY=1 " + command
