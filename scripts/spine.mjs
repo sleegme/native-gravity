@@ -645,10 +645,13 @@ export class MinimalSpine {
           || verdict.result_ref !== result_ref) {
         throw new Error('Zen verdict does not match the current candidate binding');
       }
-      if (!Array.isArray(verdict.verification_evidence)
-          || !verdict.verification_evidence.length
-          || !verdict.verification_evidence.every(item => item?.classification === 'OBSERVED')) {
+      if (!Array.isArray(verdict.verification_evidence) || !verdict.verification_evidence.length) {
         throw new Error('Zen must supply directly observed verification evidence');
+      }
+      const unobserved = verdict.verification_evidence.filter(item => item?.classification !== 'OBSERVED');
+      if (unobserved.length) {
+        const named = unobserved.map(item => `${item?.classification ?? 'UNCLASSIFIED'}: ${item?.criterion ?? 'unnamed criterion'}`);
+        throw new Error(`Zen must supply directly observed verification evidence; not observed: ${named.join('; ')}`);
       }
       if (verdict.verdict === 'NO-GO'
           && (typeof verdict.repair_needs !== 'string' || !verdict.repair_needs.trim())) {

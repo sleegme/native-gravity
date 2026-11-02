@@ -431,6 +431,14 @@ for (const patch of [
   });
 }
 
+test('unobserved Zen evidence error names the criterion', async t => {
+  const f = fixture(t, { review: request => verdict(request, {
+    verification_evidence: [...observed, { classification: 'INFERRED', criterion: 'AC1 command' }],
+  }) });
+  await assert.rejects(f.spine.runMilestone('one'), /not observed: INFERRED: AC1 command/);
+  assert.deepEqual(f.spine.state.completed_milestones, []);
+});
+
 for (const repair_needs of [undefined, null, '', '   ', [], {}, 42]) {
   test(`NO-GO rejects unactionable repair needs: ${JSON.stringify(repair_needs)}`, async t => {
     const f = fixture(t, { review: request => verdict(request, {
