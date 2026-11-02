@@ -602,7 +602,11 @@ export class MinimalSpine {
           const headlessExcavator = role === 'excavator'
             && typeof delegation.transport === 'string'
             && delegation.transport.trim() === HEADLESS_EXCAVATOR_TRANSPORT;
-          if (!['jaguar', 'puma', 'bobcat'].includes(role) && !headlessExcavator) {
+          // Strix Halo is Bobcat's child, so Bulldozer may only relay it as a
+          // nested record beside the Bobcat delegation that owns the call.
+          const relayedStrix = role === 'strix-halo' && candidate.delegations.some(other =>
+            typeof other?.role === 'string' && other.role.trim().toLowerCase() === 'bobcat');
+          if (!['jaguar', 'puma', 'bobcat'].includes(role) && !headlessExcavator && !relayedStrix) {
             throw new InvalidHandoffPacketError(`Bulldozer cannot delegate to "${role}" within a milestone`);
           }
         }
