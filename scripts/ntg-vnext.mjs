@@ -187,7 +187,11 @@ export function nativeZen(request, { agyPath = process.env.AGY_PATH || 'agy', cw
     '--model', slug,
     '--output-format', 'json', '--dangerously-skip-permissions', '-p', prompt,
   ];
-  const r = spawnSync(agyPath, args, { cwd, encoding: 'utf8', timeout, killSignal: 'SIGKILL', maxBuffer: 20 * 1024 * 1024 });
+  // Zen is independent of the execution tree, including ambient runner state.
+  const env = { ...process.env };
+  delete env.NTG_BULLDOZER_NO_SHELL;
+  delete env.NTG_BULLDOZER_CONVERSATION_FILE;
+  const r = spawnSync(agyPath, args, { cwd, env, encoding: 'utf8', timeout, killSignal: 'SIGKILL', maxBuffer: 20 * 1024 * 1024 });
   const duration_ms = Math.max(0, Date.now() - startTime);
   if (r.error) throw r.error;
   if (r.status !== 0) throw new Error(`zen invocation exited ${r.status}: ${(r.stderr || '').slice(-500)}`);

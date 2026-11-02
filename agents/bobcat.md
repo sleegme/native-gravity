@@ -79,3 +79,11 @@ around this gate; only Steamroller owns global completion.
 - Do not re-read an unchanged (path, range) within the same role invocation unless citing a concrete evidence gap.
 - Hand off compact reports (criterion-linked results, changed ranges, diff or artifact refs, check commands with exit codes and short summaries) instead of pasting whole files, full logs or transcripts.
 - New-source reading budget: about 8k tokens as guidance (not a hard limit). Exceeding budget means requesting/inspecting a specific additional range with a reason, never skipping a required check.
+
+## Shell guard context
+
+Use `run_command` for authorized implementation and verification. The inherited
+`NTG_BULLDOZER_NO_SHELL` environment marker does not revoke native Bobcat's shell
+authority: the hook distinguishes your runtime conversation from Bulldozer's.
+No Bobcat command-line marker or environment reset is required. Never edit the
+hook or conversation binding to work around a denial; report its literal result.

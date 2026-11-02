@@ -28,6 +28,13 @@
     ]
   },
   "bulldozer-no-shell-boundary": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "python3 ./hooks/bulldozer-shell-guard.py --session-start",
+        "timeout": 10
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "^run_command$",

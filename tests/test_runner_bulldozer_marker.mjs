@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import childProcess from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import process from "node:process";
 import { test } from "node:test";
 import { invokeTransport, parseResponseEnvelope } from "../scripts/runner.mjs";
@@ -62,6 +62,33 @@ test("runner: bulldozer invocation env carries NTG_BULLDOZER_NO_SHELL=1", (t) =>
   assert.equal(calls.length, 1);
   const call = calls[0];
   assert.equal(call.options.env.NTG_BULLDOZER_NO_SHELL, "1");
+  assert.ok(call.options.env.NTG_BULLDOZER_CONVERSATION_FILE);
+  assert.equal(existsSync(dirname(call.options.env.NTG_BULLDOZER_CONVERSATION_FILE)), false);
+});
+
+test("runner: each Bulldozer invocation owns fresh context and cleans up after spawn failure", (t) => {
+  const paths = [];
+  t.mock.method(childProcess, "spawnSync", (command, args, options) => {
+    const path = options.env.NTG_BULLDOZER_CONVERSATION_FILE;
+    assert.ok(existsSync(dirname(path)));
+    assert.equal(existsSync(path), false);
+    assert.notEqual(path, "ambient-parent-binding");
+    paths.push(path);
+    writeFileSync(path, "28cef410-65b7-4009-858a-3dc9fe05c53a");
+    throw new Error("fixture spawn failure");
+  });
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+
+  for (let i = 0; i < 2; i++) {
+    const result = invokeTransport({
+      role: "bulldozer", slug: "test-slug", prompt: "task", agyPath: "agy",
+      env: { NTG_BULLDOZER_CONVERSATION_FILE: "ambient-parent-binding" },
+    });
+    assert.equal(result.error, "SPAWN_ERROR");
+    assert.equal(existsSync(dirname(paths[i])), false);
+  }
+  assert.notEqual(paths[0], paths[1]);
 });
 
 test("runner: non-bulldozer roles (piledriver, instinct, steamroller, zen) do NOT carry NTG_BULLDOZER_NO_SHELL", (t) => {
@@ -157,11 +184,12 @@ test("runner: ambient NTG_BULLDOZER_NO_SHELL in opts.env is also stripped for no
     role: "piledriver",
     slug: "gemini-4-argon-high",
     prompt: "plan",
-    env: { NTG_BULLDOZER_NO_SHELL: "1" },
+    env: { NTG_BULLDOZER_NO_SHELL: "1", NTG_BULLDOZER_CONVERSATION_FILE: "ambient-parent-binding" },
     agyPath: "agy",
   });
   assert.equal(res.ok, true);
   assert.equal("NTG_BULLDOZER_NO_SHELL" in calls[0].options.env, false);
+  assert.equal("NTG_BULLDOZER_CONVERSATION_FILE" in calls[0].options.env, false);
 });
 
 test("runner: real process execution validates environment marker presence and absence", (t) => {

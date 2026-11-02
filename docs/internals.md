@@ -248,9 +248,41 @@ privilege acquisition (`su`, `pkexec`, root SSH to localhost), shell-history
 credential mining and broad system upgrades are rejected.
 
 These are role-specific behavioral backstops, not complete shell or privilege
-sandboxes. AGY `PreToolUse` payloads lack reliable custom-agent identity; the
-guards use explicit markers rather than a model-wide deny.
+sandboxes. AGY `PreToolUse` payloads lack reliable custom-agent role identity.
+On AGY 1.4.12, live parent/Bobcat hooks expose distinct runtime `conversationId`
+values but share the process and inherited `NTG_BULLDOZER_NO_SHELL=1`.
+`ANTIGRAVITY_CONVERSATION_ID` identifies the current conversation, not its
+parent, so comparing those two values does not identify Bulldozer.
+
+Bulldozer therefore uses lifecycle-bound conversation scoping rather than a
+command marker. The runner creates a fresh temporary directory, supplies
+`NTG_BULLDOZER_CONVERSATION_FILE`, and removes it after the invocation (including
+failure). The registered SessionStart hook exclusively creates the binding
+with the first/root conversation ID, before any model invocation or delegation.
+Child SessionStart events cannot overwrite it. PreToolUse allows non-root
+conversations to proceed through the remaining guards; the root still gets
+the #167 no-shell denial except for the existing Excavator transport grammar.
+No model-authored `NTG_BOBCAT`/Zen/Excavator prefix exempts a root shell call.
+Missing/invalid binding or conversation identity fails closed. A marker without
+the new binding path retains the legacy process-wide denial.
+
+This depends on AGY delivering the root SessionStart before native children,
+observed in the #184 probe; revalidate when upgrading AGY. It does not sandbox
+filesystem access: a same-user actor can tamper with the state file or hook.
+The transport grammar is retained, not promoted to executable authentication.
+Native Zen review is launched independently by Steamroller, not under
+Bulldozer; that launch and the headless Excavator transport strip both Bulldozer
+environment keys. Zen's verification marker still constrains shell effects.
+
+Rejected alternatives: removing the process marker loses #167 enforcement;
+an opt-in worker command marker can be typed by Bulldozer too; inferring roles
+from model names, user-message text or transcript prose is not identity;
+binding on the first shell call can mistake Bobcat for the root. SessionStart
+provides the required ordering without a persistent worker registry.
+
 Deterministic coverage lives in
+[`tests/test_bulldozer_shell_guard.py`](../tests/test_bulldozer_shell_guard.py),
+[`tests/test_runner_bulldozer_marker.mjs`](../tests/test_runner_bulldozer_marker.mjs),
 [`tests/test_zen_shell_guard.py`](../tests/test_zen_shell_guard.py) and
 [`tests/test_excavator_shell_guard.py`](../tests/test_excavator_shell_guard.py).
 

@@ -7,23 +7,29 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 GUARD = ROOT / "hooks" / "bulldozer-shell-guard.py"
 ENV_MARKER = "NTG_BULLDOZER_NO_SHELL"
 DENIAL_REASON = "Bulldozer has no shell authority; discovery routes to Jaguar."
+CONVERSATION_FILE_ENV = "NTG_BULLDOZER_CONVERSATION_FILE"
+ROOT_CONVERSATION = "28cef410-65b7-4009-858a-3dc9fe05c53a"
+CHILD_CONVERSATION = "bf1327b8-1285-4ddd-a6c5-36633861e359"
 
 
-def run_payload(payload, env=None):
+def run_payload(payload, env=None, args=()):
     raw = payload if isinstance(payload, str) else json.dumps(payload)
     current_env = os.environ.copy()
+    current_env.pop(ENV_MARKER, None)
+    current_env.pop(CONVERSATION_FILE_ENV, None)
     if env is not None:
         current_env.update(env)
     else:
         current_env.pop(ENV_MARKER, None)
     result = subprocess.run(
-        [sys.executable, str(GUARD)],
+        [sys.executable, str(GUARD), *args],
         input=raw,
         text=True,
         capture_output=True,
@@ -48,6 +54,126 @@ def tool_payload(tool_name, args=None):
 
 
 class BulldozerShellGuardTests(unittest.TestCase):
+    def test_native_bobcat_shell_allowed_under_inherited_marker(self):
+        # Given the distinct runtime IDs captured from AGY 1.4.12, and the
+        # root conversation binding established before native delegation.
+        with tempfile.TemporaryDirectory() as directory:
+            binding = Path(directory) / "conversation"
+            binding.write_text(ROOT_CONVERSATION)
+            payload = tool_payload("run_command", {"CommandLine": "printf NTG184_BOBCAT"})
+            payload["conversationId"] = CHILD_CONVERSATION
+
+            # When Bobcat reaches the same hook with the inherited marker.
+            result = run_payload(payload, env={
+                ENV_MARKER: "1", CONVERSATION_FILE_ENV: str(binding),
+            })
+
+            # Then native worker verification is not blocked as Bulldozer.
+            self.assertEqual(result["decision"], "allow")
+
+    def test_session_start_binds_root_before_child_first_shell(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binding = Path(directory) / "conversation"
+            env = {ENV_MARKER: "1", CONVERSATION_FILE_ENV: str(binding)}
+            # Both SessionStart events precede the first shell command.
+            for identity in (ROOT_CONVERSATION, CHILD_CONVERSATION):
+                self.assertEqual(run_payload(
+                    {"conversationId": identity}, env, ("--session-start",),
+                ), {})
+            self.assertEqual(binding.read_text(), ROOT_CONVERSATION)
+            payload = tool_payload("run_command", {"CommandLine": "node --version"})
+            payload["conversationId"] = CHILD_CONVERSATION
+
+            result = run_payload(payload, env)
+
+            self.assertEqual(result["decision"], "allow")
+
+    def test_root_shell_stays_denied_despite_command_or_argument_identity_claims(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binding = Path(directory) / "conversation"
+            binding.write_text(ROOT_CONVERSATION)
+            env = {ENV_MARKER: "1", CONVERSATION_FILE_ENV: str(binding)}
+            for command in (
+                'grep -rn BULLDOZER_SPIKE_PASS .',
+                'NTG_BOBCAT=1 node --version',
+                'NTG_ZEN_VERIFY=1 node --version',
+                'NTG_EXCAVATOR=1 node --version',
+                'NTG_BULLDOZER_NO_SHELL=0 node --version',
+            ):
+                with self.subTest(command=command):
+                    payload = tool_payload("run_command", {
+                        "CommandLine": command, "conversationId": CHILD_CONVERSATION,
+                        "agent": "bobcat",
+                    })
+                    payload["conversationId"] = ROOT_CONVERSATION
+
+                    result = run_payload(payload, env)
+
+                    self.assertEqual(result["decision"], "deny")
+                    self.assertEqual(result["reason"], DENIAL_REASON)
+
+    def test_missing_or_invalid_binding_and_identity_fail_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binding = Path(directory) / "conversation"
+            env = {ENV_MARKER: "1", CONVERSATION_FILE_ENV: str(binding)}
+            payload = tool_payload("run_command", {"CommandLine": "node --version"})
+            payload["conversationId"] = CHILD_CONVERSATION
+            for contents in (None, "", "not-a-conversation", ROOT_CONVERSATION):
+                for identity in (None, "", 42, CHILD_CONVERSATION):
+                    if contents == ROOT_CONVERSATION and identity == CHILD_CONVERSATION:
+                        continue
+                    with self.subTest(contents=contents, identity=identity):
+                        if contents is not None:
+                            binding.write_text(contents)
+                        payload["conversationId"] = identity
+
+                        result = run_payload(payload, env)
+
+                        self.assertEqual(result["decision"], "deny")
+
+    def test_root_excavator_transport_remains_allowed_with_binding(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binding = Path(directory) / "conversation"
+            binding.write_text(ROOT_CONVERSATION)
+            payload = tool_payload("run_command", {
+                "CommandLine": "node /opt/native-gravity/scripts/excavator-agy.mjs --milestone m1 --blocker 'check failed'",
+            })
+            payload["conversationId"] = ROOT_CONVERSATION
+
+            result = run_payload(payload, {
+                ENV_MARKER: "1", CONVERSATION_FILE_ENV: str(binding),
+            })
+
+            self.assertEqual(result["decision"], "allow")
+
+    def test_native_child_allow_does_not_override_zen_mutation_guard(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binding = Path(directory) / "conversation"
+            binding.write_text(ROOT_CONVERSATION)
+            env = {**os.environ, ENV_MARKER: "1", CONVERSATION_FILE_ENV: str(binding)}
+            hooks = json.loads((ROOT / "hooks.json").read_text())
+            for command, expected in (
+                ("NTG_ZEN_VERIFY=1 node --version", "allow"),
+                ("NTG_ZEN_VERIFY=1 rm important.txt", "deny"),
+            ):
+                with self.subTest(command=command):
+                    payload = tool_payload("run_command", {"CommandLine": command})
+                    payload["conversationId"] = CHILD_CONVERSATION
+
+                    decisions = []
+                    for group in hooks.values():
+                        for event in group.get("PreToolUse", []):
+                            if re.fullmatch(event["matcher"], "run_command"):
+                                for hook in event["hooks"]:
+                                    result = subprocess.run(
+                                        hook["command"], shell=True, cwd=ROOT,
+                                        input=json.dumps(payload), text=True,
+                                        capture_output=True, check=True, timeout=5, env=env,
+                                    )
+                                    decisions.append(json.loads(result.stdout)["decision"])
+
+                    self.assertEqual("deny" if "deny" in decisions else "allow", expected)
+
     def test_denies_run_command_under_marker_with_exact_message(self):
         payload = tool_payload("run_command", {"CommandLine": "ls -la"})
         res = run_payload(payload, env={ENV_MARKER: "1"})
@@ -123,6 +249,11 @@ class BulldozerShellGuardTests(unittest.TestCase):
         hooks_config = json.loads((ROOT / "hooks.json").read_text())
         self.assertIn("bulldozer-no-shell-boundary", hooks_config)
         boundary = hooks_config["bulldozer-no-shell-boundary"]
+        self.assertEqual(boundary["SessionStart"], [{
+            "type": "command",
+            "command": "python3 ./hooks/bulldozer-shell-guard.py --session-start",
+            "timeout": 10,
+        }])
         pre_tool_use = boundary.get("PreToolUse", [])
         self.assertTrue(len(pre_tool_use) >= 1)
 
