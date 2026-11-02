@@ -606,6 +606,44 @@ test('native Zen is model-pinned by policy and never by --agent', t => {
   assert.match(prompt, /"milestone_id":"one"/);
 });
 
+function quotaZen(t, models = ZEN_MODELS) {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-vnext-zen-quota-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const agy = join(dir, 'agy');
+  writeFileSync(agy, `#!/usr/bin/env node
+const { appendFileSync } = require('node:fs');
+const argv = process.argv.slice(2);
+if (argv[0] === 'models') {
+  process.stdout.write(${JSON.stringify(`${models}\n`)});
+} else {
+  const slug = argv[argv.indexOf('--model') + 1];
+  appendFileSync(${JSON.stringify(join(dir, 'calls.txt'))}, slug + '\\n');
+  if (slug === 'claude-opus-5-5-high' || slug === 'pinned-slug') {
+    process.stderr.write('AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429}\\n');
+    process.exit(3);
+  }
+  process.stdout.write(${JSON.stringify(JSON.stringify({ status: 'SUCCESS', response: zenGo }))});
+}
+`, { mode: 0o755 });
+  return { agy, calls: () => readFileSync(join(dir, 'calls.txt'), 'utf8').trim().split('\n') };
+}
+
+test('native Zen retries once on Argon High when Opus is out of quota', t => {
+  const { agy, calls } = quotaZen(t, 'claude-opus-5-5-high\tClaude Opus 5.5 (High)\ngemini-4-argon-high\tGemini 4 Argon (High)');
+  const result = nativeZen({}, { agyPath: agy });
+  assert.equal(result.verdict, 'GO');
+  assert.equal(result.slug, 'gemini-4-argon-high');
+  assert.deepEqual(calls(), ['claude-opus-5-5-high', 'gemini-4-argon-high']);
+});
+
+test('a pinned NTG_ZEN_MODEL does not fall back on quota', t => {
+  const { agy, calls } = quotaZen(t, 'gemini-4-argon-high\tGemini 4 Argon (High)');
+  process.env.NTG_ZEN_MODEL = 'pinned-slug';
+  t.after(() => { delete process.env.NTG_ZEN_MODEL; });
+  assert.throws(() => nativeZen({}, { agyPath: agy }), /RESOURCE_EXHAUSTED/);
+  assert.deepEqual(calls(), ['pinned-slug']);
+});
+
 test('NTG_ZEN_MODEL overrides the resolved Zen slug and fails closed without a matching model', t => {
   process.env.NTG_ZEN_MODEL = 'gemini-4-argon-high';
   try {

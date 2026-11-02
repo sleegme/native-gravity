@@ -42,6 +42,11 @@ export const ROLE_POLICY_TABLE = Object.freeze({
     role: "zen",
     family: "Claude Opus 5.5",
     effort: "High",
+    // Used only after the primary model reports exhausted quota; never by default.
+    quotaFallback: Object.freeze({
+      family: "Gemini 4 Argon",
+      effort: "High",
+    }),
   }),
   bulldozer: Object.freeze({
     role: "bulldozer",
@@ -309,11 +314,13 @@ export function resolveSlug(role, opts = {}) {
   }
   // Escalation is explicit and role-scoped: only a policy defining an escalated
   // family (instinct) changes target models, and only on an explicit request.
-  const policy = basePolicy?.escalated && opts?.escalate
+  const override = (opts?.escalate && basePolicy?.escalated)
+    || (opts?.quotaFallback && basePolicy?.quotaFallback);
+  const policy = override
     ? Object.freeze({
       ...basePolicy,
-      family: basePolicy.escalated.family,
-      effort: basePolicy.escalated.effort,
+      family: override.family,
+      effort: override.effort,
     })
     : basePolicy;
 
