@@ -43,6 +43,9 @@ if (cmd === 'run' && process.env.STUB_RUN_EXIT) {
 if (process.env.STUB_EXIT_CODE) {
   process.exit(Number(process.env.STUB_EXIT_CODE));
 }
+if (process.env.STUB_SIGNAL) {
+  process.kill(process.pid, process.env.STUB_SIGNAL);
+}
 process.exit(0);
 `;
   writeFileSync(stubScript, stubCode, 'utf8');
@@ -361,6 +364,20 @@ test('direct CLI invocation: runs spawnSync on ntg-command.mjs with NTG_VNEXT_SC
     });
     assert.equal(badRes.status, 1);
     assert.match(badRes.stderr, /Unknown command: invalid-cmd/);
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test('signal-killed runner exits nonzero instead of 0', () => {
+  const harness = createTestHarness();
+  try {
+    const code = runNtgCommand(['status', '--ledger', 'sig-ledger.json'], {
+      vnextScript: harness.stubScript,
+      env: { STUB_SIGNAL: 'SIGKILL' },
+      stdio: 'pipe',
+    });
+    assert.notEqual(code, 0);
   } finally {
     harness.cleanup();
   }

@@ -47,7 +47,7 @@ function executeVnext(vnextScript, args, spawn, options, spawnEnv, errStream) {
     }
     return 1;
   }
-  return res.status ?? (res.error ? 1 : 0);
+  return res.status ?? (res.error || res.signal ? 1 : 0);
 }
 
 /**
