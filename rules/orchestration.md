@@ -330,3 +330,23 @@ Shared read and handoff discipline applies across all roles:
   * Zen: about 8k tokens
 - Exceeding budget means requesting/inspecting a specific additional range with a reason, never skipping a required check.
 - Zen explicitly keeps unrestricted inspection and the requirement to check beyond the supplied diff; no role loses a required check or review.
+
+## Bulldozer shell enforcement
+
+`NTG_BULLDOZER_NO_SHELL=1` enables a conversation-scoped hook, not a ban on
+the whole native execution tree. The runner gives each fresh Bulldozer process
+a private temporary `NTG_BULLDOZER_CONVERSATION_FILE`; the first SessionStart
+binds its root conversation before it can delegate. Later child SessionStart
+events cannot replace it. PreToolUse compares the runtime `conversationId`,
+not a role name or command-line claim. Root shell calls remain denied except
+the sanctioned Excavator transport; distinct native children retain their
+own tool authority and all other guards still apply. Missing or malformed
+binding/identity denies shell use rather than exempting an unknown caller.
+Without a binding path, the legacy process-wide deny remains.
+
+Bobcat needs no new marker. Zen remains Steamroller's independent verifier,
+never a Bulldozer child, and its separate invocation clears ambient Bulldozer
+context; its `NTG_ZEN_VERIFY=1` guard remains in force. The Excavator transport
+also clears the context. Never modify hook state to evade a denial.
+This is a direct-tool behavioral control, not an OS sandbox: agents with
+same-user file access could tamper with the binding or installed hooks.

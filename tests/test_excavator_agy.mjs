@@ -290,7 +290,7 @@ test("runExcavatorHeadless resolves the Argon slug and returns the worker result
         return { status: 0, stdout: resultEvent(READY_TEXT, { usage: { input_tokens: 9, output_tokens: 4, total_tokens: 13 } }), stderr: "" };
       },
       now: () => clock,
-      env: {},
+      env: { NTG_BULLDOZER_NO_SHELL: "1", NTG_BULLDOZER_CONVERSATION_FILE: "parent-binding" },
     },
   );
   clock += 5_000;
@@ -314,6 +314,8 @@ test("runExcavatorHeadless resolves the Argon slug and returns the worker result
   assert.equal(invocation.opts.timeout, 120000);
   assert.equal(invocation.opts.cwd, dir);
   assert.equal(invocation.opts.env.NTG_RUNNER_CHAIN, "excavator");
+  assert.equal(invocation.opts.env.NTG_BULLDOZER_NO_SHELL, undefined);
+  assert.equal(invocation.opts.env.NTG_BULLDOZER_CONVERSATION_FILE, undefined);
 
   const records = readCalls(dir);
   assert.equal(records.length, 1);

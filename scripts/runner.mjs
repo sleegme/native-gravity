@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { TextDecoder } from "node:util";
@@ -811,6 +812,8 @@ function invokeAgyTransport(opts, prefix = []) {
   if (normalizedRole !== "bulldozer") {
     delete childEnv.NTG_BULLDOZER_NO_SHELL;
   }
+  // Never reuse a parent invocation's root-conversation binding.
+  delete childEnv.NTG_BULLDOZER_CONVERSATION_FILE;
 
   // Exact-model roles use their composed body. Navi's MCP registration lives
   // only in its per-process HOME; no native --agent selection is needed.
@@ -821,9 +824,9 @@ function invokeAgyTransport(opts, prefix = []) {
     outputFormat,
   ];
 
-  // Permission grant: owner decision 2026-10-07 — bulldozer may inspect
-  // known execution context via tools (incl. RunCommand); discovery still
-  // delegated. Navi's scoped MCP calls use its own confirmation contract.
+  // Bulldozer's native workers need permission to run verification commands.
+  // The conversation-scoped hook still denies the root's shell calls except
+  // the sanctioned Excavator transport. Navi has its own scoped contract.
   // Must precede --print: agy consumes the token after --print as the prompt.
   if (normalizedRole === "navi") {
     args.push("--dangerously-skip-permissions");
@@ -853,7 +856,12 @@ function invokeAgyTransport(opts, prefix = []) {
   }
 
   let result;
+  let bulldozerContext;
   try {
+    if (normalizedRole === "bulldozer") {
+      bulldozerContext = mkdtempSync(join(tmpdir(), "ntg-bulldozer-"));
+      childEnv.NTG_BULLDOZER_CONVERSATION_FILE = join(bulldozerContext, "conversation");
+    }
     result = (opts.naviSpawn || spawnSync)(prefix.length ? "bwrap" : agyPath, prefix.length ? [...prefix, agyPath, ...args] : args, {
       timeout,
       killSignal: "SIGKILL",
@@ -871,6 +879,8 @@ function invokeAgyTransport(opts, prefix = []) {
       slug,
       message: err.message,
     };
+  } finally {
+    if (bulldozerContext) rmSync(bulldozerContext, { recursive: true, force: true });
   }
 
   if (result.error) {

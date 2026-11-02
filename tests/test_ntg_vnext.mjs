@@ -324,6 +324,10 @@ if (argv[0] === 'models') {
   process.stdout.write(readFileSync(${JSON.stringify(join(dir, 'models.txt'))}, 'utf8'));
 } else {
   writeFileSync(${JSON.stringify(join(dir, 'zen-args.json'))}, JSON.stringify(argv));
+  writeFileSync(${JSON.stringify(join(dir, 'zen-boundary-env.json'))}, JSON.stringify({
+    marker: process.env.NTG_BULLDOZER_NO_SHELL,
+    binding: process.env.NTG_BULLDOZER_CONVERSATION_FILE,
+  }));
   process.stdout.write(readFileSync(${JSON.stringify(join(dir, 'out.json'))}, 'utf8'));
 }
 `);
@@ -334,6 +338,23 @@ if (argv[0] === 'models') {
 /** argv the fake agy received for the Zen invocation (never the `models` probe). */
 const zenArgs = agy => JSON.parse(readFileSync(join(dirname(agy), 'zen-args.json'), 'utf8'));
 const zenGo = JSON.stringify({ milestone_id: 'one', plan_version: 'v1', result_ref: 'r', verdict: 'GO', verification_evidence: observed });
+
+test('independent native Zen strips ambient Bulldozer shell context', t => {
+  const keys = ['NTG_BULLDOZER_NO_SHELL', 'NTG_BULLDOZER_CONVERSATION_FILE'];
+  const saved = keys.map(key => process.env[key]);
+  t.after(() => keys.forEach((key, index) => {
+    if (saved[index] === undefined) delete process.env[key];
+    else process.env[key] = saved[index];
+  }));
+  process.env.NTG_BULLDOZER_NO_SHELL = '1';
+  process.env.NTG_BULLDOZER_CONVERSATION_FILE = 'parent-binding';
+  const agy = fakeZen(t, { status: 'SUCCESS', response: zenGo });
+
+  const result = nativeZen({}, { agyPath: agy });
+
+  assert.equal(result.verdict, 'GO');
+  assert.deepEqual(JSON.parse(readFileSync(join(dirname(agy), 'zen-boundary-env.json'), 'utf8')), {});
+});
 
 test('Zen extracts one verdict from narration and fences (#180)', () => {
   // The issue's two stderr captures retain only the exact prefix "Hashes mat".
