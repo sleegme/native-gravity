@@ -15,6 +15,7 @@ When tasks grow larger, AI coding tools commonly run into the following problems
 - **Tedious process management:** For multi-step work, you normally have to break down the instructions yourself, check the results, and resume interrupted work. With NTG, you just describe what to do and confirm the plan. NTG handles the execution and checks from there.
 - **Claiming "done" on unfinished work:** Even when the AI says it is finished, parts may be missing or differ from your requirements. NTG does not just take the coding AI's word for it—it runs a separate review. A step is marked complete only when its conditions are actually met, and stays incomplete if it fails to pass.
 - **Scope creep:** Each step clearly limits which files to edit, what work to do, and which areas to leave alone, keeping focus on one goal at a time.
+- **Task-specific context separation:** Separates context by role; in an observed initial Flash call sample, NTG Bulldozer used 9,883 input tokens compared to 14,302 for the AGY default agent (~31% fewer).
 - **Broken workflow when interrupted:** The overall plan, verified results, reasons for being blocked, and next steps are saved to a file. If you close a session and reopen it later, you can pick up right where you left off without giving instructions from scratch.
 - **Stale results kept after plan changes:** If the plan changes midway through, even steps that were already finished are re-verified from the beginning to make sure they match the new plan.
 
