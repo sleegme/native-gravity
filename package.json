@@ -12,6 +12,7 @@
     },
     "files": [
         "agents/",
+        "skills/",
         "hooks/",
         "tools/ctx",
         "tools/git-snap",
@@ -31,6 +32,8 @@
         "scripts/navi-validation/",
         "docs/navi-windows-kit.ko.md",
         "tests/test_dag_view.mjs",
+        "tests/test_ntg_command.mjs",
+        "scripts/ntg-command.mjs",
         "scripts/ntg-vnext.mjs",
         "scripts/events.mjs",
         "scripts/report-issue.mjs",

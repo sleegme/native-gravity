@@ -7,6 +7,19 @@ a plan and the criteria for checking the result; NTG picks the internal agents.
 Two terms come up throughout. A **milestone** is one bounded step of your plan.
 The **ledger** is the saved progress file, not a chat transcript.
 
+## Running with /ntg
+
+You can run NTG directly in an `agy` session with:
+
+```text
+/ntg <task>
+```
+
+- **Fresh task (no ledger exists):** When no ledger exists, `/ntg` drafts a milestone plan from your task, displays it, and waits for your confirmation before running anything. Once confirmed, it initializes `.ntg/ledger.json` and runs the plan through the real runner (`run --all`).
+- **Existing task (ledger already exists):** When a ledger already exists, `/ntg` shows current status and resumes execution (`run --all`) without overwriting existing progress.
+- **Packaged helper resolution:** Scripts are resolved from the installed plugin via the packaged helper (`scripts/ntg-command.mjs`), avoiding any need to set `export NTG` or maintain a checkout path.
+- **Real runner adherence:** The real runner (`ntg-vnext.mjs`) and independent Zen verifier govern execution and review; `/ntg` does not promise a different model or bypass runner authority.
+
 ## Set up your project
 
 Install NTG with the [README procedure](../README.md#install). Keep the `NTG`
@@ -251,7 +264,7 @@ These install steps are backed by the
 
 Current release: version 1.1.0, alpha, validated on AGY 1.3.3.
 
-Current limits: NTG needs a plan file and can't turn a one-sentence goal straight into an adopted plan. The product has been validated on one host. Crash recovery works only on Linux, and only one session can own a progress file at a time. `/ntg`, described in the README, is planned in #191 and not available yet; until then, follow [First task](#first-task).
+Current limits: The product has been validated on one host. Crash recovery works only on Linux, and only one session can own a progress file at a time.
 
 ## Reporting issues
 
