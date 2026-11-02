@@ -23,24 +23,24 @@ GIT_READ_COMMANDS = {
 }
 SEPARATORS = {";", "|", "&&", "||"}
 # Only the repository's own named test files: a literal relative path below
-# tests/ that ends in .mjs or .js. A glob is a pattern, not a named file, so
+# tests/ or test/ that ends in .mjs, .js, .ts or .mts. A glob is a pattern, not a named file, so
 # each segment admits only literal characters (letters, digits, '_', '-', '.')
 # and no segment is empty. A path carrying '..' anywhere in its text is not a
 # named file, whether or not the traversal forms a whole segment.
 TEST_FILE = re.compile(
-    r"tests/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.(?:mjs|js)"
+    r"tests?/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.(?:mjs|js|ts|mts)"
 )
 
 
 def is_named_test_file(path):
-    """Named tests/ file only: glob metacharacters cannot stand in for it."""
+    """Named test-directory file only: glob metacharacters cannot stand in for it."""
     if not TEST_FILE.fullmatch(path):
         return False
     return ".." not in path
 
 
 def reads_only_test_files(args):
-    """`node --test <path>...` is read-only only over named tests/ files."""
+    """`node --test <path>...` is read-only only over named test files."""
     if len(args) < 2 or args[0] != "--test":
         return False
     return all(is_named_test_file(arg) for arg in args[1:])
