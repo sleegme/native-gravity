@@ -179,7 +179,8 @@ for (const delegations of [null, {}, 'bobcat', [{}], [null], [[]], ['bobcat'],
 for (const delegations of [[], [{ role: 'bobcat' }, { role: 'jaguar' }],
   [{ role: 'puma' }],
   [{ role: ' Excavator ', transport: 'scripts/excavator-agy.mjs', status: 'READY' }],
-  [{ role: ' Bobcat ', task: 'bounded implementation' }]]) {
+  [{ role: ' Bobcat ', task: 'bounded implementation' }],
+  [{ role: 'bobcat' }, { role: 'strix-halo', verdict: 'ACCEPT' }]]) {
   test(`allowed native delegations enter independent review: ${JSON.stringify(delegations)}`, async t => {
     const f = fixture(t, {
       output: contract => candidate(contract, { delegations }),
