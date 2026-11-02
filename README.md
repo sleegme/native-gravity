@@ -1,100 +1,47 @@
-# Native Gravity
+# Native Gravity (NTG)
 
 [한국어](docs/ko/README.md)
 
-> **Version:** 1.1.0 · **Maturity:** alpha · **Validated runtime:** AGY 1.3.3
+## What is NTG?
 
-Native Gravity (NTG) keeps multi-step coding work in Google Antigravity (AGY)
-honest about what's actually finished. You write a plan made of small steps,
-each with acceptance criteria. NTG runs the steps, has a separate reviewer check
-each result, and saves the verified progress so you can come back to it later.
+Native Gravity (NTG) is a plugin for Google Antigravity (`agy`) that helps complete multi-step coding tasks accurately from start to finish.
 
-**An agent saying "done" doesn't make a step done.** The step has to pass an
-independent review against your criteria.
+Once you enter a task and approve the plan, NTG breaks the work into steps and runs them. Because it separately verifies whether each step is properly finished and records your progress, you do not need to worry about how it works under the hood—just run it, and it carefully keeps track of the work in the background.
 
-## Why add NTG to Antigravity?
+## The problem NTG solves
 
-If a direct coding conversation is enough, plain AGY is all you need. NTG adds
-an explicit workflow for work that stretches across several steps or sessions:
+When tasks grow larger, AI coding tools commonly run into the following problems:
 
-- **Know what's finished.** Every completed step has passed an independent
-  review. Rejected results stay unfinished.
-- **Pick up where you left off.** A saved progress file, called a ledger, keeps
-  the plan, results, blockers and next step.
-- **Keep each step focused.** Your plan says which files a step may touch, what
-  it should deliver and what it must leave alone.
-- **Change the plan without trusting old reviews.** Once the plan changes, every
-  step needs fresh verification, including the ones you kept.
+- **Tedious process management:** For multi-step work, you normally have to break down the instructions yourself, check the results, and resume interrupted work. With NTG, you just describe what to do and confirm the plan. NTG handles the execution and checks from there.
+- **Claiming "done" on unfinished work:** Even when the AI says it is finished, parts may be missing or differ from your requirements. NTG does not just take the coding AI's word for it—it runs a separate review. A step is marked complete only when its conditions are actually met, and stays incomplete if it fails to pass.
+- **Scope creep:** Each step clearly limits which files to edit, what work to do, and which areas to leave alone, keeping focus on one goal at a time.
+- **Broken workflow when interrupted:** The overall plan, verified results, reasons for being blocked, and next steps are saved to a file. If you close a session and reopen it later, you can pick up right where you left off without giving instructions from scratch.
+- **Stale results kept after plan changes:** If the plan changes midway through, even steps that were already finished are re-verified from the beginning to make sure they match the new plan.
 
-You never pick or coordinate internal agents. Antigravity still provides the
-models, tools, sessions and permissions, and NTG adds planning boundaries, saved
-progress and independent review on top. It isn't a replacement coding
-environment. [Status](docs/status.md) lists the observed behavior and its
-evidence.
+## Installation
 
-## Install
-
-You need **Node.js 18+**, **Antigravity CLI (`agy`) 1.3.3** on your `PATH`, and
-working model access. Version 1.1.0 isn't on npm, so install it from the
-repository:
+Node.js 18 or higher and the Antigravity CLI (`agy`) are required.
 
 ```bash
 git clone https://github.com/sleegme/native-gravity.git
 cd native-gravity
-agy plugin uninstall native-gravity
 agy plugin install .
-export NTG="$PWD"
 ```
 
-Running uninstall and then install also handles upgrades, since it clears out
-files that no longer belong to the plugin. Uninstall is harmless if the plugin
-was never installed. `NTG` points at this checkout, so you can run its scripts
-from your own project. Installing the plugin doesn't create a global CLI
-command.
+## Usage
 
-These install steps are backed by the
-[existing release evidence](.omo/evidence/20-instinct-results.md).
+For simple edits or short tasks, a standard `agy` chat is enough. For tasks that require multiple steps, enter the following in an `agy` session:
 
-## Start your first task
-
-Go to your project directory and follow the
-[worked example in Usage](docs/usage.md#first-task). It walks through writing
-`plan.json`, creating the progress file and running the work:
-
-```bash
-node "$NTG/scripts/ntg-vnext.mjs" init --ledger .ntg/ledger.json --plan plan.json
-node "$NTG/scripts/ntg-vnext.mjs" status --ledger .ntg/ledger.json
-node "$NTG/scripts/ntg-vnext.mjs" run --ledger .ntg/ledger.json --all
+```text
+/ntg <task>
 ```
 
-`init` and `status` don't call models. `run` calls real models and uses model
-quota; the [live validation](docs/status.md#live-validation) records execution,
-rejection, repair and resume with real models.
+1. NTG analyzes your request and shows an easy-to-read work plan.
+2. Once you review and approve the plan, step-by-step execution and verification proceed in order.
+3. If you want to see the overall progress visually, you can open the progress graph with the command below:
 
-For now NTG needs a plan file. It can't turn a one-sentence goal straight into
-an adopted plan, but you can ask for planning advice (see
-[Usage](docs/usage.md#ask-for-advice)). The product is alpha and has been
-validated on one host with AGY 1.3.3. Crash recovery works only on Linux, and
-only one session can own a progress file at a time.
-[Usage](docs/usage.md#when-work-stops) explains what to do when work stops.
-
-## Reporting issues
-
-If an NTG execution fails or stops unexpectedly in an interactive terminal, `ntg-vnext` offers to report it directly after the command finishes. You can also generate a sanitized diagnostic report manually to file an issue at any time:
-
-```bash
-ntg-report-issue --ledger .ntg/ledger.json
+```text
+/ntg graph
 ```
 
-This previews the issue, redacts detected secrets and user paths, writes a local markdown preview file (`issue-preview.md`), and prompts to submit the issue via GitHub CLI (`gh`) when run in an interactive terminal.
-
-
-## Documentation
-
-- [Usage](docs/usage.md): everyday workflows, examples and troubleshooting.
-- [Architecture](docs/architecture.md): design choices and the overall shape.
-- [Internals](docs/internals.md): implementation details for maintainers.
-- [Navi](docs/navi.md): isolated, bounded Linux desktop tasks through Steamroller.
-- [Specs](docs/specs/): technical contracts.
-- [Status](docs/status.md): what works, known limits and the evidence.
-- [Versioning](docs/versioning.md): release policy and compatibility history.
+See [docs/usage.md](docs/usage.md) for detailed usage instructions, and [docs/status.md](docs/status.md) for current working status and verification records.
