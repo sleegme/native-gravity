@@ -225,3 +225,50 @@ node "$NTG/scripts/dag-view.mjs" --ledger "$NTG/tests/fixtures/dag-view/all-stat
 
 Internal agent routing, model overrides and maintainer release checks are
 covered in [Internals](internals.md).
+
+## Install details
+
+You need **Node.js 18+**, **Antigravity CLI (`agy`) 1.3.3** on your `PATH`, and
+working model access. Version 1.1.0 isn't on npm, so install it from the
+repository:
+
+```bash
+git clone https://github.com/sleegme/native-gravity.git
+cd native-gravity
+agy plugin uninstall native-gravity
+agy plugin install .
+export NTG="$PWD"
+```
+
+Running uninstall and then install also handles upgrades, since it clears out
+files that no longer belong to the plugin. Uninstall is harmless if the plugin
+was never installed. `NTG` points at this checkout, so you can run its scripts
+from your own project. Installing the plugin doesn't create a global CLI
+command.
+
+These install steps are backed by the
+[existing release evidence](../.omo/evidence/20-instinct-results.md).
+
+Current release: version 1.1.0, alpha, validated on AGY 1.3.3.
+
+Current limits: NTG needs a plan file and can't turn a one-sentence goal straight into an adopted plan. The product has been validated on one host. Crash recovery works only on Linux, and only one session can own a progress file at a time. `/ntg`, described in the README, is planned in #191 and not available yet; until then, follow [First task](#first-task).
+
+## Reporting issues
+
+If an NTG execution fails or stops unexpectedly in an interactive terminal, `ntg-vnext` offers to report it directly after the command finishes. You can also generate a sanitized diagnostic report manually to file an issue at any time:
+
+```bash
+ntg-report-issue --ledger .ntg/ledger.json
+```
+
+This previews the issue, redacts detected secrets and user paths, writes a local markdown preview file (`issue-preview.md`), and prompts to submit the issue via GitHub CLI (`gh`) when run in an interactive terminal.
+
+## More documentation
+
+- [Usage](usage.md): everyday workflows, examples and troubleshooting.
+- [Architecture](architecture.md): design choices and the overall shape.
+- [Internals](internals.md): implementation details for maintainers.
+- [Navi](navi.md): isolated, bounded Linux desktop tasks through Steamroller.
+- [Specs](specs/): technical contracts.
+- [Status](status.md): what works, known limits and the evidence.
+- [Versioning](versioning.md): release policy and compatibility history.
