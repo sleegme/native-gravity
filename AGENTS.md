@@ -101,7 +101,7 @@ or uncertain implementation. NONE is reserved for clearly mechanical,
 low-risk work that still belongs with Bobcat. Most quick writing belongs
 with Puma and does not need this advisor loop.
 
-Zen uses Claude Opus 5.5 at High and has no mutation authority, although it
+Zen uses Claude Opus 5.5 at High (Gemini 4 Argon High only after an Opus quota error) and has no mutation authority, although it
 can run commands to independently check evidence.
 
 Runner policy resolves exact models and effort rather than guessing slugs

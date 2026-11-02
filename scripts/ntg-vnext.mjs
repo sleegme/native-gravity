@@ -43,6 +43,7 @@ export const SUPERVISOR_LEDGER_ENV = 'NTG_SUPERVISOR_LEDGER';
 const EXECUTOR_EXIT_WAIT_MS = 10000;
 /** Native verification gate: invoked here, never supervised as a runner role. */
 const ZEN_ROLE = 'zen';
+const ZEN_QUOTA_ERROR = /RESOURCE_EXHAUSTED|Individual quota reached/;
 
 export const DEFAULT_RUNNER_TIMEOUT_S = 600;
 const USAGE = 'usage: ntg-vnext <init|plan|run|replan|recover|alt|status|navi> --ledger PATH [options]';
@@ -172,11 +173,13 @@ export function resolveZenModel({ agyPath = process.env.AGY_PATH || 'agy', insta
  * `--agent zen`: the agent is not natively selectable, so the shipped role body
  * (frontmatter stripped) is prepended to the prompt and the exact slug comes
  * from the same frozen policy table the runner roles use. NTG_ZEN_MODEL
- * overrides the resolved slug.
+ * overrides the resolved slug. When the policy model reports exhausted quota,
+ * the review retries once on the policy's quotaFallback model; a pinned slug
+ * never falls back.
  */
 export function nativeZen(request, { agyPath = process.env.AGY_PATH || 'agy', cwd = process.cwd(), timeout = 600000, installedModels } = {}) {
   const startTime = Date.now();
-  const slug = resolveZenModel({ agyPath, installedModels });
+  let slug = resolveZenModel({ agyPath, installedModels });
   const instruction = 'Independently verify the candidate against its milestone contract. '
     + 'Return only a bare JSON object with milestone_id, plan_version and result_ref echoed unchanged, '
     + 'verdict (GO or NO-GO), verification_evidence (non-empty array of '
@@ -191,7 +194,15 @@ export function nativeZen(request, { agyPath = process.env.AGY_PATH || 'agy', cw
   const env = { ...process.env };
   delete env.NTG_BULLDOZER_NO_SHELL;
   delete env.NTG_BULLDOZER_CONVERSATION_FILE;
-  const r = spawnSync(agyPath, args, { cwd, env, encoding: 'utf8', timeout, killSignal: 'SIGKILL', maxBuffer: 20 * 1024 * 1024 });
+  const spawnZen = () => spawnSync(agyPath, args, { cwd, env, encoding: 'utf8', timeout, killSignal: 'SIGKILL', maxBuffer: 20 * 1024 * 1024 });
+  let r = spawnZen();
+  if (!r.error && r.status !== 0 && !process.env.NTG_ZEN_MODEL && ZEN_QUOTA_ERROR.test(`${r.stderr}\n${r.stdout}`)) {
+    const fallback = resolveSlug(ZEN_ROLE, { agyPath, installedModels, quotaFallback: true });
+    process.stderr.write(`ntg-vnext: zen model ${slug} is out of quota; retrying on ${fallback}\n`);
+    slug = fallback;
+    args[args.indexOf('--model') + 1] = slug;
+    r = spawnZen();
+  }
   const duration_ms = Math.max(0, Date.now() - startTime);
   if (r.error) throw r.error;
   if (r.status !== 0) throw new Error(`zen invocation exited ${r.status}: ${(r.stderr || '').slice(-500)}`);
