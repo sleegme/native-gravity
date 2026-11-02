@@ -28,7 +28,7 @@ SEPARATORS = {";", "|", "&&", "||"}
 # and no segment is empty. A path carrying '..' anywhere in its text is not a
 # named file, whether or not the traversal forms a whole segment.
 TEST_FILE = re.compile(
-    r"tests?/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.(?:mjs|js|ts|mts)"
+    r"(?:[A-Za-z0-9_.-]+/)*tests?/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.(?:mjs|js|ts|mts)"
 )
 
 
@@ -90,6 +90,13 @@ def read_only_command(words):
             (arg.split("=", 1)[0] in safe_long_options if arg.startswith("--")
              else not arg.startswith("-o") or (args[0] == "ls-files" and arg == "-o"))
             for arg in args[1:]
+        )
+    if command == "bunx":
+        # Vitest single run over named test files; flags and other packages stay denied.
+        return (
+            len(args) >= 3
+            and args[:2] == ["vitest", "run"]
+            and all(is_named_test_file(arg) for arg in args[2:])
         )
     if command in {"node", "python3", "python"}:
         if args in (["--version"], ["-V"]):
