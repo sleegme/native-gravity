@@ -135,7 +135,7 @@ from `agents/`; critical roles are runner-invoked, not natively selectable.
 
 - Steamroller targets Gemini 4 Argon / Medium; Bulldozer stays on Gemini 3.8 Flash / High.
 - Piledriver targets Gemini 4 Argon / High.
-- Navi targets Gemini 4 Argon / Medium; see [desktop dispatch](navi.md).
+- Navi targets Gemini 4 Argon / Medium; see [desktop dispatch](navi/README.md).
 - Instinct targets Claude Sonnet 5.5 / High; Claude Opus 5.5 / High is selected
   only on explicit `--escalate`.
 - Jaguar/Puma/Bobcat/Strix Halo use native Flash. Exact Argon

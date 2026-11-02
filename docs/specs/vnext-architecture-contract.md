@@ -65,7 +65,7 @@ USER
   global MCP scope contains that server. It has no children or
   ledger/completion authority. External or irreversible effects return
   NEEDS_CONFIRMATION with the exact intended action before acting.
-  See [desktop dispatch](../navi.md).
+  See [desktop dispatch](../navi/README.md).
 
 ### 1.2 Failure / Recovery Path (post-P0)
 

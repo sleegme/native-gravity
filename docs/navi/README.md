@@ -7,7 +7,7 @@ registers only the desktop server `cu`; the model reaches its tools through
 AGY's generic `call_mcp_tool` dispatcher, because AGY does not list MCP tools
 by name. No agent frontmatter, plugin, global or workspace MCP configuration
 contains that server. Live evidence through the real runner is recorded in
-[live evidence](navi-evidence.md).
+[live evidence](evidence.md).
 
 Bulldozer and its workers return desktop needs upstream instead of invoking
 Navi. This preserves AGENTS.md's shallow graph: one bounded leaf, no new
