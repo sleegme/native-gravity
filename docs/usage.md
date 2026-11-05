@@ -17,24 +17,15 @@ You can run NTG directly in an `agy` session with:
 
 - **Fresh task (no ledger exists):** When no ledger exists, `/ntg` drafts a milestone plan from your task, displays it, and waits for your confirmation before running anything. Once confirmed, it initializes `.ntg/ledger.json` and runs the plan through the real runner (`run --all`).
 - **Existing task (ledger already exists):** When a ledger already exists, `/ntg` shows current status and resumes execution (`run --all`) without overwriting existing progress.
-- **Packaged helper resolution:** Scripts are resolved from the installed plugin via the packaged helper (`scripts/ntg-command.mjs`), avoiding any need to set `export NTG` or maintain a checkout path.
+- **Packaged helper resolution:** Scripts are resolved from the installed plugin via the packaged helper (`scripts/ntg-command.mjs`), avoiding any need to set `NTG` or maintain a checkout path.
 - **Real runner adherence:** The real runner (`ntg-vnext.mjs`) and independent Zen verifier govern execution and review; `/ntg` does not promise a different model or bypass runner authority.
 
 ## Set up your project
 
-Install NTG with the [README procedure](../README.md#installation). Keep the `NTG`
-variable from that terminal, or set it to the absolute path of your Native
-Gravity checkout:
-
-```bash
-export NTG="$HOME/work/native-gravity"
-```
-
-That path is just an example, so use wherever your checkout actually lives.
+Install NTG with the [README procedure](../README.md#installation).
 Then change into your target project the way you normally would. Every `.ntg/`
-and plan path below is relative to that project. Quoting `"$NTG/..."` keeps
-things working even if the checkout path has spaces in it. Installing the plugin
-on its own doesn't give you global `ntg-vnext` or `ntg-dag` commands.
+and plan path below is relative to that project. Commands (`ntg-vnext`, `ntg-dag`)
+resolve directly from your environment or via the packaged helper in `/ntg`.
 
 ## First task
 
@@ -82,8 +73,8 @@ revise later.
 Create the progress file and check what comes next:
 
 ```bash
-node "$NTG/scripts/ntg-vnext.mjs" init --ledger .ntg/ledger.json --plan plan.json
-node "$NTG/scripts/ntg-vnext.mjs" status --ledger .ntg/ledger.json
+ntg-vnext init --ledger .ntg/ledger.json --plan plan.json
+ntg-vnext status --ledger .ntg/ledger.json
 ```
 
 With the plan above, the output includes these fields (an excerpt, not the full
@@ -105,7 +96,7 @@ response):
 Now run the plan:
 
 ```bash
-node "$NTG/scripts/ntg-vnext.mjs" run --ledger .ntg/ledger.json --all
+ntg-vnext run --ledger .ntg/ledger.json --all
 ```
 
 > **Model usage:** `run`, `plan` and `alt` call real AGY models and use model
@@ -125,22 +116,22 @@ plan.
 To run just the next milestone that's ready:
 
 ```bash
-node "$NTG/scripts/ntg-vnext.mjs" run --ledger .ntg/ledger.json
+ntg-vnext run --ledger .ntg/ledger.json
 ```
 
 Or pick a specific milestone whose dependencies are already done:
 
 ```bash
-node "$NTG/scripts/ntg-vnext.mjs" run --ledger .ntg/ledger.json --milestone m1
+ntg-vnext run --ledger .ntg/ledger.json --milestone m1
 ```
 
 `--all` keeps going in dependency order. If you pass `--milestone`, only that
 milestone runs, even when `--all` is there too.
 
 After a normal exit, you can come back any time. Open a new terminal in the same
-project, set `NTG` to your checkout again, check `status`, and repeat `run` or
-`run --all`. Each call reads the saved progress, so you don't need the earlier
-chat. Don't run `init` again on a ledger that already exists.
+project, check `status`, and repeat `run` or `run --all`. Each call reads the
+saved progress, so you don't need the earlier chat. Don't run `init` again on a
+ledger that already exists.
 
 ## Change the plan
 
@@ -148,7 +139,7 @@ Save the revised plan as `plan-v2.json`, in the same shape as the example, with
 `plan_version` set to `"v2"`. Then run:
 
 ```bash
-node "$NTG/scripts/ntg-vnext.mjs" replan --ledger .ntg/ledger.json --plan plan-v2.json
+ntg-vnext replan --ledger .ntg/ledger.json --plan plan-v2.json
 ```
 
 This adopts the new plan, clears the current completion state and marks the old
@@ -162,13 +153,13 @@ before you replan.
 When you're stuck on a design choice:
 
 ```bash
-node "$NTG/scripts/ntg-vnext.mjs" plan --ledger .ntg/ledger.json --task "How should we test the health endpoint?"
+ntg-vnext plan --ledger .ntg/ledger.json --task "How should we test the health endpoint?"
 ```
 
 When the same failure keeps coming back and a different angle might help:
 
 ```bash
-node "$NTG/scripts/ntg-vnext.mjs" alt --ledger .ntg/ledger.json --milestone m1 --task "Challenge our current diagnosis of the failing health endpoint"
+ntg-vnext alt --ledger .ntg/ledger.json --milestone m1 --task "Challenge our current diagnosis of the failing health endpoint"
 ```
 
 The output says `adopted: false`. Advice gets recorded, but it never edits your
@@ -201,7 +192,7 @@ they'll stop safely, it refuses to run. Once you've seen that the previous
 process was interrupted, describe what happened:
 
 ```bash
-node "$NTG/scripts/ntg-vnext.mjs" recover --ledger .ntg/ledger.json --evidence "Observed the previous supervisor exit during milestone execution"
+ntg-vnext recover --ledger .ntg/ledger.json --evidence "Observed the previous supervisor exit during milestone execution"
 ```
 
 Swap the evidence text for what you actually saw. Recovery from a killed owner
@@ -218,7 +209,7 @@ that, pass a positive number of seconds with `--timeout` or the
 ## View progress as a graph
 
 ```bash
-node "$NTG/scripts/dag-view.mjs" --ledger .ntg/ledger.json --width 80 --no-color
+ntg-dag --ledger .ntg/ledger.json --width 80 --no-color
 ```
 
 This read-only command draws your milestones, their dependencies and their
@@ -233,7 +224,7 @@ states. It never changes your progress.
 To try it on a display fixture that ships with NTG instead of your own project:
 
 ```bash
-node "$NTG/scripts/dag-view.mjs" --ledger "$NTG/tests/fixtures/dag-view/all-states.ledger.json" --width 80 --no-color
+ntg-dag --ledger tests/fixtures/dag-view/all-states.ledger.json --width 80 --no-color
 ```
 
 Internal agent routing, model overrides and maintainer release checks are
@@ -241,26 +232,16 @@ covered in [Internals](internals.md).
 
 ## Install details
 
-You need **Node.js 18+**, **Antigravity CLI (`agy`) 1.3.3** on your `PATH`, and
-working model access. Version 1.1.0 isn't on npm, so install it from the
-repository:
+You need **Node.js 18+**, **Antigravity CLI (`agy`) >= 1.3.0** on your `PATH`, and
+working model access. Install or upgrade Native Gravity with a single command:
 
 ```bash
-git clone https://github.com/sleegme/native-gravity.git
-cd native-gravity
-agy plugin uninstall native-gravity
-agy plugin install .
-export NTG="$PWD"
+npx --yes native-gravity
 ```
 
-Running uninstall and then install also handles upgrades, since it clears out
-files that no longer belong to the plugin. Uninstall is harmless if the plugin
-was never installed. `NTG` points at this checkout, so you can run its scripts
-from your own project. Installing the plugin doesn't create a global CLI
-command.
+You can also use `bunx native-gravity`, the curl installer (`curl -fsSL https://raw.githubusercontent.com/sleegme/native-gravity/v1.1.0/scripts/install.sh | sh`), or PowerShell (`irm https://raw.githubusercontent.com/sleegme/native-gravity/v1.1.0/scripts/install.ps1 | iex`).
 
-These install steps are backed by the
-[existing release evidence](../.omo/evidence/20-instinct-results.md).
+Running the installer handles clean upgrades automatically (uninstalling the previous version before installing the new package).
 
 Current release: version 1.1.0, alpha, validated on AGY 1.3.3.
 
