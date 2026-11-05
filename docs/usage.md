@@ -1,6 +1,6 @@
 # Usage
 
-[한국어](ko/usage.md) · [Product and installation](../README.md#install) · [Current status](status.md)
+[한국어](ko/usage.md) · [Product and installation](../README.md#installation) · [Current status](status.md)
 
 Run NTG from the directory of the project you want to change. You bring a goal,
 a plan and the criteria for checking the result; NTG picks the internal agents.
@@ -9,7 +9,7 @@ The **ledger** is the saved progress file, not a chat transcript.
 
 ## Set up your project
 
-Install NTG with the [README procedure](../README.md#install). Keep the `NTG`
+Install NTG with the [README procedure](../README.md#installation). Keep the `NTG`
 variable from that terminal, or set it to the absolute path of your Native
 Gravity checkout:
 

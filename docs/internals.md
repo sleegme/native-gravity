@@ -319,7 +319,7 @@ Jaguar / Puma / Bobcat, including the nested Bobcat -> Strix Halo gate) in live
 probe sessions. Revalidate this compatibility gate when the AGY runtime
 changes. See [Versioning Policy](versioning.md) for versioning details and the
 compatibility matrix. This is a maintainer release gate, not a normal user
-workflow. The canonical obligations remain in [AGENTS.md](../AGENTS.md#validation-required):
+workflow. The canonical obligations remain in [AGENTS.md](../AGENTS.md#release-evidence-required):
 
 1. Runner execution/planning/review reaches a matching independent Zen GO
    before promotion.
