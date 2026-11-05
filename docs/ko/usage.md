@@ -17,23 +17,15 @@ NTG는 수정하려는 프로젝트 디렉터리에서 실행합니다. 여러�
 
 - **새 작업 (ledger가 없을 때):** 할 일을 바탕으로 마일스톤 계획을 작성하여 대화창에 보여주고, 사용자의 확인과 승인을 받은 후에 초기화(`.ntg/ledger.json`) 및 실행(`run --all`)을 진행합니다.
 - **기존 작업 (ledger가 이미 있을 때):** 기존 ledger가 존재할 경우 진행 상태를 확인하여 보여주고, 기존 진행 상황을 덮어쓰지 않고 `run --all`로 안전하게 재개합니다.
-- **패키징된 도우미 자동 해결:** 플러그인 설치 위치에서 패키징된 도우미(`scripts/ntg-command.mjs`)를 자동 해결하므로 별도의 `export NTG` 환경변수 지정이나 체크아웃 경로 유지가 불필요합니다.
+- **패키징된 도우미 자동 해결:** 플러그인 설치 위치에서 패키징된 도우미(`scripts/ntg-command.mjs`)를 자동 해결하므로 별도의 `NTG` 환경변수 지정이나 체크아웃 경로 유지가 불필요합니다.
 - **실제 러너 및 독립 검수 준수:** 모든 실행과 검수는 실제 러너(`ntg-vnext.mjs`)와 독립 Zen 검수를 온전히 거치며, 모델 정책이나 러너 권한을 우회하지 않고 다른 임의의 모델을 약속하지 않습니다.
 
 ## 프로젝트 준비
 
-[README의 설치 절차](README.md#설치-방법)대로 설치하세요. 설치한 터미널의 `NTG`
-변수를 그대로 쓰거나, Native Gravity 저장소의 절대 경로를 직접 지정합니다.
-
-```bash
-export NTG="$HOME/work/native-gravity"
-```
-
-위 경로는 예시일 뿐이니 실제 저장소 위치로 바꾸세요. 그다음 평소처럼 작업할
-프로젝트 디렉터리로 이동합니다. 아래에 나오는 `.ntg/`와 플랜 경로는 모두 그
-프로젝트를 기준으로 합니다. `"$NTG/..."`처럼 따옴표로 감싸 두면 저장소 경로에
-공백이 있어도 문제없습니다. 플러그인만 설치해서는 전역 `ntg-vnext`나 `ntg-dag`
-명령이 생기지 않습니다.
+[README의 설치 절차](README.md#설치-방법)대로 설치하세요.
+그다음 평소처럼 작업할 프로젝트 디렉터리로 이동합니다. 아래에 나오는 `.ntg/`와
+플랜 경로는 모두 그 프로젝트를 기준으로 합니다. 명령(`ntg-vnext`, `ntg-dag`)은
+환경에서 바로 실행하거나 `/ntg`의 패키징된 도우미를 통해 사용할 수 있습니다.
 
 ## 첫 작업
 
@@ -80,8 +72,8 @@ NTG에 들어 있는 것이 아니라 설명을 위한 예시이므로, 경로�
 진행 파일을 만들고 다음 단계를 확인합니다.
 
 ```bash
-node "$NTG/scripts/ntg-vnext.mjs" init --ledger .ntg/ledger.json --plan plan.json
-node "$NTG/scripts/ntg-vnext.mjs" status --ledger .ntg/ledger.json
+ntg-vnext init --ledger .ntg/ledger.json --plan plan.json
+ntg-vnext status --ledger .ntg/ledger.json
 ```
 
 위 플랜이라면 출력에 다음 필드가 들어 있습니다. 전체 응답이 아니라 일부만
@@ -103,7 +95,7 @@ node "$NTG/scripts/ntg-vnext.mjs" status --ledger .ntg/ledger.json
 이제 플랜을 실행합니다.
 
 ```bash
-node "$NTG/scripts/ntg-vnext.mjs" run --ledger .ntg/ledger.json --all
+ntg-vnext run --ledger .ntg/ledger.json --all
 ```
 
 > **모델 사용량:** `run`, `plan`, `alt`는 실제 AGY 모델을 호출하므로 모델
@@ -122,22 +114,22 @@ NTG는 `m1`을 실행하고 완료 기준에 맞는지 독립 검수를 받습�
 지금 실행할 수 있는 마일스톤 하나만 진행하려면:
 
 ```bash
-node "$NTG/scripts/ntg-vnext.mjs" run --ledger .ntg/ledger.json
+ntg-vnext run --ledger .ntg/ledger.json
 ```
 
 의존성이 이미 끝난 마일스톤을 골라서 실행하려면:
 
 ```bash
-node "$NTG/scripts/ntg-vnext.mjs" run --ledger .ntg/ledger.json --milestone m1
+ntg-vnext run --ledger .ntg/ledger.json --milestone m1
 ```
 
 `--all`은 의존성 순서대로 계속 진행합니다. `--milestone`을 주면 `--all`이 함께
 있어도 그 마일스톤 하나만 실행합니다.
 
 정상적으로 끝났다면 언제든 다시 이어갈 수 있습니다. 같은 프로젝트에서 새 터미널을
-열고 `NTG`를 다시 지정한 뒤, `status`로 상태를 보고 `run`이나 `run --all`을 다시
-실행하세요. 매번 저장된 진행 상황을 읽기 때문에 이전 대화는 필요 없습니다.
-이미 있는 ledger에 `init`을 다시 실행하지는 마세요.
+열고 `status`로 상태를 보고 `run`이나 `run --all`을 다시 실행하세요. 매번 저장된
+진행 상황을 읽기 때문에 이전 대화는 필요 없습니다. 이미 있는 ledger에 `init`을
+다시 실행하지는 마세요.
 
 ## 계획 변경
 
@@ -145,7 +137,7 @@ node "$NTG/scripts/ntg-vnext.mjs" run --ledger .ntg/ledger.json --milestone m1
 `"v2"`로 바꿉니다. 그런 다음 실행합니다.
 
 ```bash
-node "$NTG/scripts/ntg-vnext.mjs" replan --ledger .ntg/ledger.json --plan plan-v2.json
+ntg-vnext replan --ledger .ntg/ledger.json --plan plan-v2.json
 ```
 
 새 플랜을 채택하면서 지금까지의 완료 상태를 비우고, 이전 검수는 stale로
@@ -158,13 +150,13 @@ node "$NTG/scripts/ntg-vnext.mjs" replan --ledger .ntg/ledger.json --plan plan-v
 설계 방향을 정하지 못했을 때:
 
 ```bash
-node "$NTG/scripts/ntg-vnext.mjs" plan --ledger .ntg/ledger.json --task "How should we test the health endpoint?"
+ntg-vnext plan --ledger .ntg/ledger.json --task "How should we test the health endpoint?"
 ```
 
 같은 실패가 되풀이되어 다른 시각이 필요할 때:
 
 ```bash
-node "$NTG/scripts/ntg-vnext.mjs" alt --ledger .ntg/ledger.json --milestone m1 --task "Challenge our current diagnosis of the failing health endpoint"
+ntg-vnext alt --ledger .ntg/ledger.json --milestone m1 --task "Challenge our current diagnosis of the failing health endpoint"
 ```
 
 출력에는 `adopted: false`가 찍힙니다. 자문은 기록만 될 뿐 플랜을 고치거나 작업을
@@ -195,7 +187,7 @@ JSON 출력에서 특히 `results`, `state.blockers`, `state.next_action`을 확
 확인했다면, 무슨 일이 있었는지 적어서 실행합니다.
 
 ```bash
-node "$NTG/scripts/ntg-vnext.mjs" recover --ledger .ntg/ledger.json --evidence "Observed the previous supervisor exit during milestone execution"
+ntg-vnext recover --ledger .ntg/ledger.json --evidence "Observed the previous supervisor exit during milestone execution"
 ```
 
 증거 문장은 여러분이 실제로 본 내용으로 바꾸세요. 소유 프로세스가 강제 종료된
@@ -211,7 +203,7 @@ node "$NTG/scripts/ntg-vnext.mjs" recover --ledger .ntg/ledger.json --evidence "
 ## 그래프로 진행 상황 보기
 
 ```bash
-node "$NTG/scripts/dag-view.mjs" --ledger .ntg/ledger.json --width 80 --no-color
+ntg-dag --ledger .ntg/ledger.json --width 80 --no-color
 ```
 
 마일스톤과 의존성, 각 상태를 그려 주는 읽기 전용 명령입니다. 진행 상황은 바꾸지
@@ -226,7 +218,7 @@ node "$NTG/scripts/dag-view.mjs" --ledger .ntg/ledger.json --width 80 --no-color
 내 프로젝트 대신 NTG에 들어 있는 표시용 fixture로 먼저 보고 싶다면:
 
 ```bash
-node "$NTG/scripts/dag-view.mjs" --ledger "$NTG/tests/fixtures/dag-view/all-states.ledger.json" --width 80 --no-color
+ntg-dag --ledger tests/fixtures/dag-view/all-states.ledger.json --width 80 --no-color
 ```
 
 내부 역할 선택, 모델 재정의, 유지보수자용 릴리스 점검은

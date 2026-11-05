@@ -21,12 +21,22 @@ When tasks grow larger, AI coding tools commonly run into the following problems
 
 ## Installation
 
-Node.js 18 or higher and the Antigravity CLI (`agy`) are required.
+Requires Node.js 18+ and Antigravity CLI (`agy`) >= 1.3.0.
 
 ```bash
-git clone https://github.com/sleegme/native-gravity.git
-cd native-gravity
-agy plugin install .
+npx --yes native-gravity
+```
+
+```bash
+bunx native-gravity
+```
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sleegme/native-gravity/v1.1.0/scripts/install.sh | sh
+```
+
+```powershell
+irm https://raw.githubusercontent.com/sleegme/native-gravity/v1.1.0/scripts/install.ps1 | iex
 ```
 
 ## Usage

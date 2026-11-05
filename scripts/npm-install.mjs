@@ -82,12 +82,43 @@ function runCommand(cmd, cmdArgs) {
   }
 }
 
+function verifyPluginInstalled() {
+  const check = spawnSync('agy', ['plugin', 'list', '--json'], { encoding: 'utf8' });
+  if (check.error) {
+    console.error(`Failed to execute 'agy plugin list --json': ${check.error.message}`);
+    process.exit(1);
+  }
+  if (check.status !== 0) {
+    console.error(`'agy plugin list --json' exited with code ${check.status ?? 1}`);
+    process.exit(check.status ?? 1);
+  }
+  let plugins;
+  try {
+    plugins = JSON.parse(check.stdout ?? '');
+  } catch (err) {
+    console.error(`Plugin verification failed: could not parse 'agy plugin list --json' output as JSON: ${err.message}`);
+    process.exit(1);
+  }
+  if (!Array.isArray(plugins)) {
+    console.error("Plugin verification failed: 'agy plugin list --json' did not return a JSON array.");
+    process.exit(1);
+  }
+  const match = plugins.find((item) => item && typeof item === 'object' && item.name === 'native-gravity');
+  if (!match) {
+    console.error("Plugin verification failed: 'native-gravity' not found in 'agy plugin list --json'.");
+    process.exit(1);
+  }
+  if (match.enabled !== true) {
+    console.error("Plugin verification failed: 'native-gravity' is not enabled in 'agy plugin list --json'.");
+    process.exit(1);
+  }
+}
+
 function main() {
   const args = process.argv.slice(2);
-  let subcommand = 'install';
 
   if (args.length === 0) {
-    subcommand = 'install';
+    // default invocation
   } else if (args.length === 1) {
     const arg = args[0];
     if (arg === '--help' || arg === '-h' || arg === 'help') {
@@ -96,10 +127,8 @@ function main() {
     } else if (arg === '--version' || arg === '-v' || arg === 'version') {
       console.log(getVersion());
       process.exit(0);
-    } else if (arg === 'install') {
-      subcommand = 'install';
-    } else if (arg === 'reinstall' || arg === 'update') {
-      subcommand = 'reinstall';
+    } else if (arg === 'install' || arg === 'reinstall' || arg === 'update') {
+      // valid install subcommands
     } else {
       console.error(`Unknown argument: ${arg}\n`);
       printUsage(process.stderr);
@@ -113,11 +142,9 @@ function main() {
 
   checkAgyCli();
 
-  if (subcommand === 'reinstall') {
-    runCommand('agy', ['plugin', 'uninstall', 'native-gravity']);
-  }
-
+  runCommand('agy', ['plugin', 'uninstall', 'native-gravity']);
   runCommand('agy', ['plugin', 'install', packageRoot]);
+  verifyPluginInstalled();
 }
 
 main();
