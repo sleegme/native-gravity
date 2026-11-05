@@ -1,6 +1,6 @@
 # Usage
 
-[한국어](ko/usage.md) · [Product and installation](../README.md#install) · [Current status](status.md)
+[한국어](ko/usage.md) · [Product and installation](../README.md#installation) · [Current status](status.md)
 
 Run NTG from the directory of the project you want to change. You bring a goal,
 a plan and the criteria for checking the result; NTG picks the internal agents.
@@ -22,7 +22,7 @@ You can run NTG directly in an `agy` session with:
 
 ## Set up your project
 
-Install NTG with the [README procedure](../README.md#install). Keep the `NTG`
+Install NTG with the [README procedure](../README.md#installation). Keep the `NTG`
 variable from that terminal, or set it to the absolute path of your Native
 Gravity checkout:
 
@@ -281,7 +281,7 @@ This previews the issue, redacts detected secrets and user paths, writes a local
 - [Usage](usage.md): everyday workflows, examples and troubleshooting.
 - [Architecture](architecture.md): design choices and the overall shape.
 - [Internals](internals.md): implementation details for maintainers.
-- [Navi](navi.md): isolated, bounded Linux desktop tasks through Steamroller.
+- [Navi](navi/README.md): isolated, bounded Linux desktop tasks through Steamroller.
 - [Specs](specs/): technical contracts.
 - [Status](status.md): what works, known limits and the evidence.
 - [Versioning](versioning.md): release policy and compatibility history.
