@@ -23,6 +23,8 @@ When tasks grow larger, AI coding tools commonly run into the following problems
 
 Requires Node.js 18+ and Antigravity CLI (`agy`) >= 1.3.0.
 
+The `curl` and `irm` scripts download directly from GitHub and do not require `npm` or `npx` on PATH (only Node.js or Bun).
+
 ```bash
 npx --yes native-gravity
 ```

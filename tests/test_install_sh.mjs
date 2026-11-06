@@ -3,12 +3,15 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import {
   chmodSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
@@ -20,10 +23,21 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '..');
 const INSTALL_SH = join(REPO_ROOT, 'scripts', 'install.sh');
 const INSTALL_PS1 = join(REPO_ROOT, 'scripts', 'install.ps1');
-const WORKTREE_NPM_INSTALL_SCRIPT = join(REPO_ROOT, 'scripts', 'npm-install.mjs');
 const PACKAGE_JSON = join(REPO_ROOT, 'package.json');
 const LIVE_HOME = homedir();
 const LIVE_GEMINI = join(LIVE_HOME, '.gemini');
+
+function findSystemBinary(name) {
+  const res = spawnSync('which', [name], { encoding: 'utf8' });
+  if (res.status === 0 && res.stdout.trim()) {
+    return res.stdout.trim();
+  }
+  for (const dir of ['/usr/bin', '/bin', '/usr/local/bin']) {
+    const candidate = join(dir, name);
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
 
 function createStubAgyScript() {
   return `#!${process.execPath}
@@ -90,77 +104,77 @@ process.exit(1);
 `;
 }
 
-function createStubNpxScript(targetScript) {
+function createStubBunScript() {
   return `#!${process.execPath}
 import { spawnSync } from 'node:child_process';
-import { appendFileSync } from 'node:fs';
 import process from 'node:process';
 
-const logFile = process.env.STUB_NPX_LOG_FILE;
-if (logFile) {
-  appendFileSync(logFile, JSON.stringify({
-    argv: process.argv.slice(2),
-    env_home: process.env.HOME,
-    timestamp: Date.now(),
-  }) + '\\n');
+const res = spawnSync(process.execPath, process.argv.slice(2), {
+  stdio: 'inherit',
+  env: process.env,
+});
+process.exit(res.status ?? 0);
+`;
 }
 
-const rawArgs = process.argv.slice(2);
-let forwarded = [];
+function createStubWgetScript() {
+  return `#!${process.execPath}
+import { copyFileSync, existsSync } from 'node:fs';
+import process from 'node:process';
+
+const args = process.argv.slice(2);
+let outFile = null;
+let url = null;
+
 let i = 0;
-while (i < rawArgs.length) {
-  const a = rawArgs[i];
-  if (a === '--yes' || a === '-y') {
+while (i < args.length) {
+  if (args[i] === '-qO' || args[i] === '-O') {
+    outFile = args[i + 1];
+    i += 2;
+  } else {
+    url = args[i];
     i++;
-    continue;
   }
-  if (a === 'native-gravity') {
-    forwarded = rawArgs.slice(i + 1);
-    break;
-  }
-  forwarded.push(a);
-  i++;
 }
 
-const target = ${JSON.stringify(targetScript)};
-const res = spawnSync(process.execPath, [target, ...forwarded], {
-  stdio: 'inherit',
-  env: process.env,
-});
-process.exit(res.status ?? 0);
+if (!outFile || !url) {
+  process.stderr.write('wget stub: missing args\\n');
+  process.exit(1);
+}
+
+if (url.startsWith('file://')) {
+  const src = url.slice(7);
+  if (!existsSync(src)) {
+    process.stderr.write('wget stub: file not found: ' + src + '\\n');
+    process.exit(1);
+  }
+  copyFileSync(src, outFile);
+  process.exit(0);
+}
+
+process.stderr.write('wget stub: unsupported non-file URL: ' + url + '\\n');
+process.exit(1);
 `;
 }
 
-function createStubBunxScript(targetScript) {
-  return `#!${process.execPath}
-import { spawnSync } from 'node:child_process';
-import { appendFileSync } from 'node:fs';
-import process from 'node:process';
+function createReleaseArchive(targetDir, ref = 'v1.1.0') {
+  const staging = join(targetDir, 'staging');
+  const prefix = join(staging, `native-gravity-${ref}`);
+  mkdirSync(prefix, { recursive: true });
 
-const logFile = process.env.STUB_BUNX_LOG_FILE;
-if (logFile) {
-  appendFileSync(logFile, JSON.stringify({
-    argv: process.argv.slice(2),
-    env_home: process.env.HOME,
-    timestamp: Date.now(),
-  }) + '\\n');
-}
+  for (const item of ['package.json', 'plugin.json', 'hooks.json']) {
+    cpSync(join(REPO_ROOT, item), join(prefix, item));
+  }
+  for (const d of ['scripts', 'agents', 'rules', 'skills', 'tools']) {
+    cpSync(join(REPO_ROOT, d), join(prefix, d), { recursive: true });
+  }
 
-const rawArgs = process.argv.slice(2);
-let forwarded = [];
-if (rawArgs[0] === 'native-gravity') {
-  forwarded = rawArgs.slice(1);
-} else {
-  forwarded = rawArgs;
-}
-
-const target = ${JSON.stringify(targetScript)};
-const res = spawnSync(process.execPath, [target, ...forwarded], {
-  stdio: 'inherit',
-  env: process.env,
-});
-process.exit(res.status ?? 0);
-`;
+  const archivePath = join(targetDir, `release-${ref}.tar.gz`);
+  const res = spawnSync('tar', ['-czf', archivePath, '-C', staging, `native-gravity-${ref}`]);
+  if (res.status !== 0) {
+    throw new Error(`Failed to create release tarball: ${res.stderr}`);
+  }
+  return archivePath;
 }
 
 function createHarness() {
@@ -168,56 +182,113 @@ function createHarness() {
   const tempHome = join(tempDir, 'home');
   mkdirSync(tempHome, { recursive: true });
 
+  const archivePath = createReleaseArchive(tempDir, 'v1.1.0');
+  const archiveUrl = `file://${archivePath}`;
+
   const binDir = join(tempDir, 'bin');
   mkdirSync(binDir, { recursive: true });
 
   const bunOnlyBinDir = join(tempDir, 'bun-bin');
   mkdirSync(bunOnlyBinDir, { recursive: true });
 
-  const emptyBinDir = join(tempDir, 'empty-bin');
-  mkdirSync(emptyBinDir, { recursive: true });
+  const wgetBinDir = join(tempDir, 'wget-bin');
+  mkdirSync(wgetBinDir, { recursive: true });
+
+  const missingRuntimesBinDir = join(tempDir, 'no-runtime-bin');
+  mkdirSync(missingRuntimesBinDir, { recursive: true });
+
+  const missingTarBinDir = join(tempDir, 'no-tar-bin');
+  mkdirSync(missingTarBinDir, { recursive: true });
+
+  const missingDownloaderBinDir = join(tempDir, 'no-dl-bin');
+  mkdirSync(missingDownloaderBinDir, { recursive: true });
 
   const agyLogFile = join(tempDir, 'agy-invocations.jsonl');
-  const npxLogFile = join(tempDir, 'npx-invocations.jsonl');
-  const bunxLogFile = join(tempDir, 'bunx-invocations.jsonl');
 
-  // Stub agy in binDir, bunOnlyBinDir, and emptyBinDir
+  // Locate system utilities needed for shell scripts
+  const systemTar = findSystemBinary('tar');
+  const systemCurl = findSystemBinary('curl');
+  const systemMkdir = findSystemBinary('mkdir');
+  const systemRm = findSystemBinary('rm');
+  const systemMv = findSystemBinary('mv');
+  const systemCp = findSystemBinary('cp');
+  const systemGzip = findSystemBinary('gzip');
+  const systemSh = findSystemBinary('sh');
+
+  assert.ok(systemTar, 'tar must be available on host');
+  assert.ok(systemCurl, 'curl must be available on host');
+  assert.ok(systemMkdir, 'mkdir must be available on host');
+  assert.ok(systemRm, 'rm must be available on host');
+  assert.ok(systemMv, 'mv must be available on host');
+  assert.ok(systemCp, 'cp must be available on host');
+
   const stubAgy = createStubAgyScript();
-  for (const dir of [binDir, bunOnlyBinDir, emptyBinDir]) {
-    const agyPath = join(dir, 'agy');
+  const stubBun = createStubBunScript();
+  const stubWget = createStubWgetScript();
+
+  function populateBaseUtils(targetDir) {
+    // Stub agy
+    const agyPath = join(targetDir, 'agy');
     writeFileSync(agyPath, stubAgy, 'utf8');
     chmodSync(agyPath, 0o755);
+
+    // Basic filesystem tools
+    symlinkSync(systemMkdir, join(targetDir, 'mkdir'));
+    symlinkSync(systemRm, join(targetDir, 'rm'));
+    symlinkSync(systemMv, join(targetDir, 'mv'));
+    symlinkSync(systemCp, join(targetDir, 'cp'));
+    if (systemGzip) symlinkSync(systemGzip, join(targetDir, 'gzip'));
+    if (systemSh) symlinkSync(systemSh, join(targetDir, 'sh'));
   }
 
-  // Stub npx in binDir
-  const stubNpx = createStubNpxScript(WORKTREE_NPM_INSTALL_SCRIPT);
-  const npxPath = join(binDir, 'npx');
-  writeFileSync(npxPath, stubNpx, 'utf8');
-  chmodSync(npxPath, 0o755);
+  // 1. binDir: node + tar + curl + agy (NO npx, NO npm, NO bunx, NO bun)
+  populateBaseUtils(binDir);
+  symlinkSync(process.execPath, join(binDir, 'node'));
+  symlinkSync(systemTar, join(binDir, 'tar'));
+  symlinkSync(systemCurl, join(binDir, 'curl'));
 
-  // Stub bunx in binDir and bunOnlyBinDir
-  const stubBunx = createStubBunxScript(WORKTREE_NPM_INSTALL_SCRIPT);
-  const bunxInBin = join(binDir, 'bunx');
-  writeFileSync(bunxInBin, stubBunx, 'utf8');
-  chmodSync(bunxInBin, 0o755);
+  // 2. bunOnlyBinDir: bun + tar + curl + agy (NO node, NO npx, NO npm, NO bunx)
+  populateBaseUtils(bunOnlyBinDir);
+  writeFileSync(join(bunOnlyBinDir, 'bun'), stubBun, 'utf8');
+  chmodSync(join(bunOnlyBinDir, 'bun'), 0o755);
+  symlinkSync(systemTar, join(bunOnlyBinDir, 'tar'));
+  symlinkSync(systemCurl, join(bunOnlyBinDir, 'curl'));
 
-  const bunxInBunOnly = join(bunOnlyBinDir, 'bunx');
-  writeFileSync(bunxInBunOnly, stubBunx, 'utf8');
-  chmodSync(bunxInBunOnly, 0o755);
+  // 3. wgetBinDir: node + tar + wget + agy (NO curl, NO npx, NO npm, NO bunx)
+  populateBaseUtils(wgetBinDir);
+  symlinkSync(process.execPath, join(wgetBinDir, 'node'));
+  symlinkSync(systemTar, join(wgetBinDir, 'tar'));
+  writeFileSync(join(wgetBinDir, 'wget'), stubWget, 'utf8');
+  chmodSync(join(wgetBinDir, 'wget'), 0o755);
+
+  // 4. missingRuntimesBinDir: tar + curl + agy (NO node, NO bun)
+  populateBaseUtils(missingRuntimesBinDir);
+  symlinkSync(systemTar, join(missingRuntimesBinDir, 'tar'));
+  symlinkSync(systemCurl, join(missingRuntimesBinDir, 'curl'));
+
+  // 5. missingTarBinDir: node + curl + agy (NO tar)
+  populateBaseUtils(missingTarBinDir);
+  symlinkSync(process.execPath, join(missingTarBinDir, 'node'));
+  symlinkSync(systemCurl, join(missingTarBinDir, 'curl'));
+
+  // 6. missingDownloaderBinDir: node + tar + agy (NO curl, NO wget)
+  populateBaseUtils(missingDownloaderBinDir);
+  symlinkSync(process.execPath, join(missingDownloaderBinDir, 'node'));
+  symlinkSync(systemTar, join(missingDownloaderBinDir, 'tar'));
 
   function runScript(args, targetBinDir, extraEnv = {}, runOptions = {}) {
     const env = {
-      ...process.env,
       PATH: targetBinDir,
       HOME: tempHome,
       STUB_AGY_LOG_FILE: agyLogFile,
-      STUB_NPX_LOG_FILE: npxLogFile,
-      STUB_BUNX_LOG_FILE: bunxLogFile,
+      NATIVE_GRAVITY_ARCHIVE_URL: archiveUrl,
       ...extraEnv,
     };
     delete env.NTG_RUNNER_CHAIN;
     delete env.NTG_SUPERVISOR_LEDGER;
     delete env.NTG_SUPERVISOR_PID;
+    delete env.NTG_BULLDOZER_NO_SHELL;
+    delete env.NTG_BULLDOZER_CONVERSATION_FILE;
 
     return spawnSync(INSTALL_SH, args, {
       cwd: REPO_ROOT,
@@ -235,8 +306,20 @@ function createHarness() {
     return runScript(args, bunOnlyBinDir, extraEnv, runOptions);
   }
 
+  function runInstallShWithWget(args = [], extraEnv = {}, runOptions = {}) {
+    return runScript(args, wgetBinDir, extraEnv, runOptions);
+  }
+
   function runInstallShWithoutRuntimes(args = [], extraEnv = {}, runOptions = {}) {
-    return runScript(args, emptyBinDir, extraEnv, runOptions);
+    return runScript(args, missingRuntimesBinDir, extraEnv, runOptions);
+  }
+
+  function runInstallShWithoutTar(args = [], extraEnv = {}, runOptions = {}) {
+    return runScript(args, missingTarBinDir, extraEnv, runOptions);
+  }
+
+  function runInstallShWithoutDownloader(args = [], extraEnv = {}, runOptions = {}) {
+    return runScript(args, missingDownloaderBinDir, extraEnv, runOptions);
   }
 
   function readLog(filePath) {
@@ -250,16 +333,8 @@ function createHarness() {
     return readLog(agyLogFile);
   }
 
-  function readNpxInvocations() {
-    return readLog(npxLogFile);
-  }
-
-  function readBunxInvocations() {
-    return readLog(bunxLogFile);
-  }
-
   function assertNoLiveGeminiTouched() {
-    for (const inv of [...readAgyInvocations(), ...readNpxInvocations(), ...readBunxInvocations()]) {
+    for (const inv of readAgyInvocations()) {
       assert.equal(inv.env_home, tempHome, 'stub received temporary HOME');
       assert.notEqual(inv.env_home, LIVE_HOME, 'stub never received live HOME');
       assert.notEqual(inv.env_home, LIVE_GEMINI, 'stub never received live .gemini');
@@ -277,15 +352,21 @@ function createHarness() {
   return {
     tempDir,
     tempHome,
+    archivePath,
+    archiveUrl,
     binDir,
     bunOnlyBinDir,
-    emptyBinDir,
+    wgetBinDir,
+    missingRuntimesBinDir,
+    missingTarBinDir,
+    missingDownloaderBinDir,
     runInstallSh,
     runInstallShWithBun,
+    runInstallShWithWget,
     runInstallShWithoutRuntimes,
+    runInstallShWithoutTar,
+    runInstallShWithoutDownloader,
     readAgyInvocations,
-    readNpxInvocations,
-    readBunxInvocations,
     assertNoLiveGeminiTouched,
     cleanup,
   };
@@ -313,25 +394,35 @@ test('scripts/install.sh documents versioned and main raw URLs in header', () =>
     /https:\/\/raw\.githubusercontent\.com\/sleegme\/native-gravity\/main\/scripts\/install\.sh/,
     'must document main raw URL'
   );
+  assert.match(
+    content,
+    /Forwarding arguments:/,
+    'must document forwarding arguments'
+  );
 });
 
-test('offline harness test: drives scripts/install.sh via stub npx against stub agy end-to-end', () => {
+test('acceptance: install.sh succeeds with PATH containing no npx, npm or bunx (only node, tar, curl, agy)', () => {
   const h = createHarness();
   try {
+    const entries = readdirSync(h.binDir);
+    assert.ok(!entries.includes('npx'), 'binDir must not contain npx');
+    assert.ok(!entries.includes('npm'), 'binDir must not contain npm');
+    assert.ok(!entries.includes('bunx'), 'binDir must not contain bunx');
+    assert.ok(!entries.includes('bun'), 'binDir must not contain bun');
+
     const res = h.runInstallSh([]);
     assert.equal(res.status, 0, `install.sh failed with stderr: ${res.stderr}`);
 
-    // Verify stub npx was invoked with --yes and package name
-    const npxCalls = h.readNpxInvocations();
-    assert.equal(npxCalls.length, 1);
-    assert.deepEqual(npxCalls[0].argv, ['--yes', 'native-gravity']);
+    const expectedTarget = join(h.tempHome, '.local', 'share', 'native-gravity', 'v1.1.0');
+    assert.ok(existsSync(expectedTarget), `target directory must exist: ${expectedTarget}`);
+    assert.ok(existsSync(join(expectedTarget, 'package.json')), 'target directory has package.json');
+    assert.ok(existsSync(join(expectedTarget, 'scripts', 'npm-install.mjs')), 'target directory has npm-install.mjs');
 
-    // Verify stub agy calls: version check, uninstall, install, list verification
     const agyCalls = h.readAgyInvocations();
     assert.equal(agyCalls.length, 4);
     assert.deepEqual(agyCalls[0].argv, ['--version']);
     assert.deepEqual(agyCalls[1].argv, ['plugin', 'uninstall', 'native-gravity']);
-    assert.deepEqual(agyCalls[2].argv, ['plugin', 'install', REPO_ROOT]);
+    assert.deepEqual(agyCalls[2].argv, ['plugin', 'install', expectedTarget]);
     assert.deepEqual(agyCalls[3].argv, ['plugin', 'list', '--json']);
 
     h.assertNoLiveGeminiTouched();
@@ -340,25 +431,145 @@ test('offline harness test: drives scripts/install.sh via stub npx against stub 
   }
 });
 
-test('offline harness test: clear failure message and non-zero exit when neither node/npx nor bun/bunx is present', () => {
+test('offline harness test: bun runner executes shared core against stub agy when bun is present and node is not', () => {
+  const h = createHarness();
+  try {
+    const entries = readdirSync(h.bunOnlyBinDir);
+    assert.ok(!entries.includes('node'), 'bunOnlyBinDir must not contain node');
+    assert.ok(!entries.includes('npx'), 'bunOnlyBinDir must not contain npx');
+    assert.ok(!entries.includes('npm'), 'bunOnlyBinDir must not contain npm');
+    assert.ok(!entries.includes('bunx'), 'bunOnlyBinDir must not contain bunx');
+    assert.ok(entries.includes('bun'), 'bunOnlyBinDir must contain bun');
+
+    const res = h.runInstallShWithBun([]);
+    assert.equal(res.status, 0, `install.sh with bun failed with stderr: ${res.stderr}`);
+
+    const expectedTarget = join(h.tempHome, '.local', 'share', 'native-gravity', 'v1.1.0');
+    assert.ok(existsSync(expectedTarget), `target directory must exist: ${expectedTarget}`);
+
+    const agyCalls = h.readAgyInvocations();
+    assert.equal(agyCalls.length, 4);
+    assert.deepEqual(agyCalls[0].argv, ['--version']);
+    assert.deepEqual(agyCalls[1].argv, ['plugin', 'uninstall', 'native-gravity']);
+    assert.deepEqual(agyCalls[2].argv, ['plugin', 'install', expectedTarget]);
+    assert.deepEqual(agyCalls[3].argv, ['plugin', 'list', '--json']);
+
+    h.assertNoLiveGeminiTouched();
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('offline harness test: wget fallback executes shared core when curl is absent', () => {
+  const h = createHarness();
+  try {
+    const entries = readdirSync(h.wgetBinDir);
+    assert.ok(!entries.includes('curl'), 'wgetBinDir must not contain curl');
+    assert.ok(entries.includes('wget'), 'wgetBinDir must contain wget');
+
+    const res = h.runInstallShWithWget([]);
+    assert.equal(res.status, 0, `install.sh with wget failed with stderr: ${res.stderr}`);
+
+    const expectedTarget = join(h.tempHome, '.local', 'share', 'native-gravity', 'v1.1.0');
+    assert.ok(existsSync(expectedTarget), `target directory must exist: ${expectedTarget}`);
+
+    const agyCalls = h.readAgyInvocations();
+    assert.equal(agyCalls.length, 4);
+    assert.deepEqual(agyCalls[2].argv, ['plugin', 'install', expectedTarget]);
+
+    h.assertNoLiveGeminiTouched();
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('offline harness test: clear failure message and exit 1 when neither node nor bun is present', () => {
   const h = createHarness();
   try {
     const res = h.runInstallShWithoutRuntimes([]);
+    assert.equal(res.status, 1);
+    assert.match(
+      res.stderr,
+      /Native Gravity requires Node\.js \(>=18\) or Bun on PATH/
+    );
+    assert.equal(h.readAgyInvocations().length, 0);
+    h.assertNoLiveGeminiTouched();
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('offline harness test: clear failure message and exit 1 when tar is missing', () => {
+  const h = createHarness();
+  try {
+    const res = h.runInstallShWithoutTar([]);
+    assert.equal(res.status, 1);
+    assert.match(
+      res.stderr,
+      /Native Gravity installer requires 'tar' on PATH/
+    );
+    assert.equal(h.readAgyInvocations().length, 0);
+    h.assertNoLiveGeminiTouched();
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('offline harness test: clear failure message and exit 1 when neither curl nor wget is present', () => {
+  const h = createHarness();
+  try {
+    const res = h.runInstallShWithoutDownloader([]);
+    assert.equal(res.status, 1);
+    assert.match(
+      res.stderr,
+      /Native Gravity installer requires 'curl' or 'wget' on PATH/
+    );
+    assert.equal(h.readAgyInvocations().length, 0);
+    h.assertNoLiveGeminiTouched();
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('offline harness test: download failure exits non-zero and prints message containing failed URL', () => {
+  const h = createHarness();
+  try {
+    const fakeUrl = 'file:///path/does/not/exist/release-fake.tar.gz';
+    const res = h.runInstallSh([], { NATIVE_GRAVITY_ARCHIVE_URL: fakeUrl });
     assert.notEqual(res.status, 0);
     assert.equal(res.status, 1);
     assert.match(
       res.stderr,
-      /Native Gravity requires Node\.js \(npx\) or Bun \(bunx\) on PATH to run the installer\./
+      new RegExp(`Failed to download Native Gravity archive from ${fakeUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)
     );
-    assert.match(
-      res.stderr,
-      /Please install Node\.js \(>=18\): https:\/\/nodejs\.org\/ or Bun: https:\/\/bun\.sh\//
-    );
-
-    // No agy or runner calls should have occurred
     assert.equal(h.readAgyInvocations().length, 0);
-    assert.equal(h.readNpxInvocations().length, 0);
-    assert.equal(h.readBunxInvocations().length, 0);
+    h.assertNoLiveGeminiTouched();
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('offline harness test: re-run replaces existing target directory cleanly and atomically', () => {
+  const h = createHarness();
+  try {
+    const res1 = h.runInstallSh([]);
+    assert.equal(res1.status, 0);
+
+    const targetDir = join(h.tempHome, '.local', 'share', 'native-gravity', 'v1.1.0');
+    assert.ok(existsSync(targetDir));
+
+    // Place a marker file to verify clean replacement
+    const markerFile = join(targetDir, 'canary-marker.txt');
+    writeFileSync(markerFile, 'old-version-data', 'utf8');
+    assert.ok(existsSync(markerFile));
+
+    // Re-run installer
+    const res2 = h.runInstallSh(['reinstall']);
+    assert.equal(res2.status, 0);
+
+    // Marker must no longer exist because directory was replaced atomically
+    assert.ok(!existsSync(markerFile), 're-run must atomically replace target directory');
+    assert.ok(existsSync(join(targetDir, 'package.json')), 're-run directory contains fresh files');
 
     h.assertNoLiveGeminiTouched();
   } finally {
@@ -366,24 +577,24 @@ test('offline harness test: clear failure message and non-zero exit when neither
   }
 });
 
-test('offline harness test: bunx executes shared core against stub agy when bunx is present and npx is not', () => {
+test('offline harness test: custom NATIVE_GRAVITY_REF sets persistent directory to ref', () => {
   const h = createHarness();
   try {
-    const res = h.runInstallShWithBun([]);
-    assert.equal(res.status, 0, `install.sh with bun failed with stderr: ${res.stderr}`);
+    // Create archive for custom ref
+    const customArchive = createReleaseArchive(h.tempDir, 'main');
+    const customUrl = `file://${customArchive}`;
 
-    // Verify stub bunx was invoked with package name
-    const bunxCalls = h.readBunxInvocations();
-    assert.equal(bunxCalls.length, 1);
-    assert.deepEqual(bunxCalls[0].argv, ['native-gravity']);
+    const res = h.runInstallSh([], {
+      NATIVE_GRAVITY_REF: 'main',
+      NATIVE_GRAVITY_ARCHIVE_URL: customUrl,
+    });
+    assert.equal(res.status, 0, `install.sh failed with stderr: ${res.stderr}`);
 
-    // Verify stub agy calls executed end-to-end
+    const expectedTarget = join(h.tempHome, '.local', 'share', 'native-gravity', 'main');
+    assert.ok(existsSync(expectedTarget), `target directory must exist: ${expectedTarget}`);
+
     const agyCalls = h.readAgyInvocations();
-    assert.equal(agyCalls.length, 4);
-    assert.deepEqual(agyCalls[0].argv, ['--version']);
-    assert.deepEqual(agyCalls[1].argv, ['plugin', 'uninstall', 'native-gravity']);
-    assert.deepEqual(agyCalls[2].argv, ['plugin', 'install', REPO_ROOT]);
-    assert.deepEqual(agyCalls[3].argv, ['plugin', 'list', '--json']);
+    assert.equal(agyCalls[2].argv[2], expectedTarget);
 
     h.assertNoLiveGeminiTouched();
   } finally {
@@ -435,14 +646,22 @@ test('scripts/install.ps1 consistency check and optional pwsh parse check', () =
     'must document main raw URL'
   );
 
-  // Verify core invocation and missing npx check
-  assert.match(content, /Get-Command\s+npx/i, 'must verify npx availability');
-  assert.match(content, /npx\s+--yes\s+native-gravity/, 'must invoke npx --yes native-gravity');
+  // Verify runner and prerequisites checks
+  assert.match(content, /Get-Command\s+node/i, 'must verify node availability');
+  assert.match(content, /Get-Command\s+bun/i, 'must verify bun availability');
+  assert.match(content, /Get-Command\s+tar/i, 'must check tar availability');
   assert.match(
     content,
-    /Native Gravity requires Node\.js \(npx\) on PATH to run the installer\./,
-    'must contain clear failure message for missing npx'
+    /Native Gravity requires Node\.js \(>=18\) or Bun on PATH to run the installer\./,
+    'must contain clear failure message for missing runtimes'
   );
+
+  // Verify download and persistent target directory logic
+  assert.match(content, /codeload\.github\.com\/sleegme\/native-gravity/, 'must use codeload release archives');
+  assert.match(content, /\$env:LOCALAPPDATA/i, 'must support LOCALAPPDATA');
+  assert.match(content, /native-gravity/, 'must use native-gravity target directory');
+  assert.match(content, /@args/, 'must forward arguments via @args');
+  assert.match(content, /exit \$LASTEXITCODE/, 'must propagate exit code');
 
   // If pwsh exists on PATH, perform AST parse check without runtime execution
   const pwshCheck = spawnSync('which', ['pwsh'], { encoding: 'utf8' });
