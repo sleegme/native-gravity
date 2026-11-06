@@ -521,6 +521,20 @@ runTest("2.6g1: #178 real Bulldozer narration preserves packet and provenance", 
   assert.strictEqual(envelope.packet, undefined);
 });
 
+runTest("2.6g1b: wq30 real Bulldozer narration preserves packet and provenance", () => {
+  const response = readFileSync(new URL("./fixtures/wq30-g1-m2-bulldozer-response.txt", import.meta.url), "utf8");
+  const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
+  const result = parseResponsePacket(envelope);
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.packet.milestone_id, "m2");
+  assert.strictEqual(result.packet.status, "DONE");
+  assert.strictEqual(result.relayPreambleStripped, undefined);
+  assert.strictEqual(result.response, response);
+  assert.strictEqual(result.raw, envelope.raw);
+  assert.strictEqual(result.raw.response, response);
+  assert.strictEqual(envelope.packet, undefined);
+});
+
 runTest("2.6g2: Single-line inline code in narration is unambiguous", () => {
   const packet = { status: "DONE" };
   const json = JSON.stringify(packet);
@@ -540,10 +554,45 @@ runTest("2.6g2: Single-line inline code in narration is unambiguous", () => {
   }
 });
 
+runTest("2.6g2b: Single-line inline code containing braces/brackets/quotes in narration is unambiguous", () => {
+  // Inline code spans with braces, brackets, quotes or JSON snippets on non-fence lines
+  // are unambiguous prose when masked, because they do not represent standalone JSON lines
+  // and the outer candidate object boundaries remain unique.
+  const packet = { status: "DONE" };
+  for (const content of ['{', '}', '[', ']', '"', '{}', '{"status":"DONE"}']) {
+    const response = `Inspected \`${content}\`.\n{"status":"DONE"}`;
+    const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
+    const result = parseResponsePacket(envelope);
+    assert.strictEqual(result.ok, true, response);
+    assert.deepStrictEqual(result.packet, packet);
+    assert.strictEqual(result.relayPreambleStripped, undefined);
+    assert.strictEqual(result.response, response);
+    assert.strictEqual(result.raw, envelope.raw);
+    assert.strictEqual(result.raw.response, response);
+  }
+});
+
+runTest("2.6g2c: Prose containing numbers, quotes, or metric narration is unambiguous", () => {
+  const packet = { status: "DONE" };
+  for (const response of [
+    `charged 4 cost units\n{"status":"DONE"}`,
+    `{"status":"DONE"}\ncharged 4 cost units`,
+    `the task "abc" finished\n{"status":"DONE"}`,
+    `{"status":"DONE"}\nthe task "abc" finished`,
+  ]) {
+    const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
+    const result = parseResponsePacket(envelope);
+    assert.strictEqual(result.ok, true, response);
+    assert.deepStrictEqual(result.packet, packet);
+    assert.strictEqual(result.relayPreambleStripped, undefined);
+    assert.strictEqual(result.response, response);
+    assert.strictEqual(result.raw, envelope.raw);
+    assert.strictEqual(result.raw.response, response);
+  }
+});
+
 runTest("2.6g3: Inline code cannot hide ambiguous narration or multiple packets", () => {
   for (const response of [
-    ...['{', '}', '[', ']', '"', '{}', '{"status":"DONE"}'].map(
-      (content) => `Inspected \`${content}\`.\n{"status":"DONE"}`),
     'Inspected `bin/change-snap.\n{"status":"DONE"}',
     'Inspected bin/change-snap`.\n{"status":"DONE"}',
     'Inspected ``.\n{"status":"DONE"}',
@@ -554,8 +603,11 @@ runTest("2.6g3: Inline code cannot hide ambiguous narration or multiple packets"
     '```text```\n{"status":"DONE"}',
     'Updated `change-snap`.\n{}\n{}',
     'Updated `change-snap`.\n```json\n{}\n```\n```json\n{}\n```',
-    ...['null', 'true', 'false', '42', '-1.5e+2', '"text"', '[', ']'].map(
-      (token) => `Updated \`change-snap\`.\n${token}\n{"status":"DONE"}`),
+    ...['null', 'true', 'false', '42', '-1.5e+2', '"text"', '[', ']', '[1, 2]', '{"extra": true}'].flatMap(
+      (token) => [
+        `Updated \`change-snap\`.\n${token}\n{"status":"DONE"}`,
+        `{"status":"DONE"}\n${token}`,
+      ]),
   ]) {
     const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
     const result = parseResponsePacket(envelope);

@@ -597,28 +597,115 @@ export function parseResponsePacket(result) {
 
 /** One object surrounded by narration/fences, or undefined when ambiguous. */
 function extractNarratedObject(response) {
-  const start = response.indexOf("{");
-  const end = response.lastIndexOf("}");
+  if (typeof response !== "string") return undefined;
+
+  // Split into lines preserving line endings so masked length matches response length exactly.
+  const lines = response.split(/(?<=\r\n|[\n\r\u2028\u2029])/);
+  const maskedLines = [];
+
+  for (const line of lines) {
+    const lineContent = line.replace(/[\r\n\u2028\u2029]+$/, "");
+    const isFenceLine = /^[ \t]*(?:```|~~~)/.test(lineContent);
+
+    if (isFenceLine) {
+      // The only accepted fence lines around candidate are /^[ \t]*```(?:json)?[ \t]*$/
+      if (!/^[ \t]*```(?:json)?[ \t]*$/.test(lineContent)) {
+        return undefined;
+      }
+      maskedLines.push(line);
+      continue;
+    }
+
+    // Empty code spans like `` must cause rejection
+    if (/``/.test(lineContent)) {
+      return undefined;
+    }
+
+    // Check for unmatched backticks or multi-line backticks on any line
+    const strippedCode = lineContent.replace(/`([^`\r\n\u2028\u2029]+)`/g, (m) => " ".repeat(m.length));
+    if (strippedCode.includes("`")) {
+      return undefined;
+    }
+
+    // Mask all matched single-line code spans to same-length spaces
+    const maskedLine = line.replace(/`([^`\r\n\u2028\u2029]+)`/g, (m) => " ".repeat(m.length));
+    maskedLines.push(maskedLine);
+  }
+
+  const masked = maskedLines.join("");
+  const start = masked.indexOf("{");
+  const end = masked.lastIndexOf("}");
   if (start === -1 || end < start) return undefined;
-  // Do not search for a parsable subset or choose between successive packets.
-  // Parsing first-to-last braces rejects multiple objects and malformed outer
-  // objects, while JSON.parse handles nested objects and escaped string braces.
-  const surrounding = response.slice(0, start) + "\n" + response.slice(end + 1);
-  const narration = surrounding.replace(/^[ \t]*```(?:json)?[ \t]*$/gim, "")
-    // Ignore only single-line inline code without JSON delimiters. Leave
-    // fences, unmatched backticks and ambiguous code visible to the check.
-    .replace(/`[^{}\[\]"`\r\n\u2028\u2029]+`/g, " ");
-  // Arrays, quoted JSON, unmatched delimiters and extra JSON scalar values
-  // outside the candidate are not narration. Ambiguity must fail closed.
-  if (/[{}\[\]"`]/.test(narration)
-      || /(?:^|\s)(?:null|true|false|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=\s|$)/.test(narration)) {
+
+  // Candidate line boundary check:
+  // The line containing start must have nothing but whitespace before {
+  const lastNewlineBeforeStart = Math.max(
+    response.lastIndexOf("\n", start),
+    response.lastIndexOf("\r", start),
+    response.lastIndexOf("\u2028", start),
+    response.lastIndexOf("\u2029", start)
+  );
+  if (response.slice(lastNewlineBeforeStart + 1, start).trim() !== "") {
     return undefined;
   }
+
+  // The line containing end must have nothing but whitespace after }
+  let nextNewlineAfterEnd = response.length;
+  for (let i = end + 1; i < response.length; i++) {
+    const ch = response[i];
+    if (ch === "\n" || ch === "\r" || ch === "\u2028" || ch === "\u2029") {
+      nextNewlineAfterEnd = i;
+      break;
+    }
+  }
+  if (response.slice(end + 1, nextNewlineAfterEnd).trim() !== "") {
+    return undefined;
+  }
+
+  // Candidate parse:
+  let packet;
   try {
-    return JSON.parse(response.slice(start, end + 1));
+    packet = JSON.parse(response.slice(start, end + 1));
   } catch {
     return undefined;
   }
+  if (packet === null || typeof packet !== "object" || Array.isArray(packet)) {
+    return undefined;
+  }
+
+  // Narration lines check:
+  // For each line in response outside the candidate packet (lines before start and lines after end),
+  // ignoring fence lines and empty lines:
+  const beforeText = response.slice(0, lastNewlineBeforeStart + 1);
+  const afterText = response.slice(nextNewlineAfterEnd);
+
+  const narrationLines = [
+    ...beforeText.split(/(?:\r\n|[\n\r\u2028\u2029])/),
+    ...afterText.split(/(?:\r\n|[\n\r\u2028\u2029])/),
+  ];
+
+  for (const line of narrationLines) {
+    const t = line.trim();
+    if (t === "") continue;
+    if (/^[ \t]*```(?:json)?[ \t]*$/.test(t)) continue;
+
+    try {
+      JSON.parse(t);
+      return undefined;
+    } catch {
+      // not standalone JSON
+    }
+
+    if (t.startsWith("{") || t.startsWith("[") || t === "]" || t === "}") {
+      return undefined;
+    }
+
+    if (/^(?:null|true|false)(?:\s*[,;]|\s*$)/.test(t)) {
+      return undefined;
+    }
+  }
+
+  return packet;
 }
 
 /** AGY relay header, e.g. "Subagent `<uuid>` has sent the following message:". */
