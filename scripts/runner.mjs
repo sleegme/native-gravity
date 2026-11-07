@@ -456,6 +456,8 @@ export function composeBoundedPrompt(role, packet, opts = {}) {
 /**
  * Validates and parses the JSON response envelope from an AGY execution.
  * Only SUCCESS with valid string response and no explicit tool denials succeeds.
+ * A finished_reason of print_timeout, interrupted or error means the turn ended
+ * early (#203); such envelopes fail typed as TURN_ENDED_EARLY regardless of status.
  * Denials return TOOL_PERMISSION_DENIED; other invalid envelopes return
  * structured INVALID_OUTPUT or MODEL_ERROR failure.
  *
@@ -495,6 +497,23 @@ export function parseResponseEnvelope(stdout, meta = {}) {
   }
 
   const usage = parsed.usage !== null && typeof parsed.usage === "object" ? parsed.usage : undefined;
+
+  // AGY 1.4.11+ sets finished_reason only when the turn ended early. A
+  // truncated turn is not a valid response even when status says SUCCESS (#203).
+  const EARLY_TERMINATION_REASONS = ["print_timeout", "interrupted", "error"];
+  const finishedReason = parsed.finished_reason;
+  if (typeof finishedReason === "string" && EARLY_TERMINATION_REASONS.includes(finishedReason)) {
+    return {
+      ok: false,
+      error: "TURN_ENDED_EARLY",
+      ...(role ? { role } : {}),
+      ...(slug ? { slug } : {}),
+      finished_reason: finishedReason,
+      message: `Turn ended early with finished_reason "${finishedReason}"`,
+      usage,
+      details: parsed,
+    };
+  }
 
   if (parsed.status === "ERROR") {
     return {

@@ -168,7 +168,7 @@
       "verification_evidence": [
         {
           "classification": "OBSERVED",
-          "criterion": "content",
+          "criterion": "content matches",
           "result": "inspected"
         }
       ],
@@ -182,7 +182,7 @@
         "verification_evidence": [
           {
             "classification": "OBSERVED",
-            "criterion": "content",
+            "criterion": "content matches",
             "result": "inspected"
           }
         ]
@@ -247,7 +247,7 @@
       "verification_evidence": [
         {
           "classification": "OBSERVED",
-          "criterion": "content",
+          "criterion": "content matches",
           "result": "inspected"
         }
       ],
@@ -261,7 +261,7 @@
         "verification_evidence": [
           {
             "classification": "OBSERVED",
-            "criterion": "content",
+            "criterion": "content matches",
             "result": "inspected"
           }
         ]

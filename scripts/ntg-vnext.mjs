@@ -76,7 +76,7 @@ function parseArgs(argv) {
 export function parseZenEnvelope(stdout) {
   const envelope = parseResponseEnvelope(stdout, { role: 'zen' });
   if (!envelope.ok) {
-    throw new Error(`zen envelope rejected: ${envelope.error}${envelope.denied_actions ? ` ${JSON.stringify(envelope.denied_actions)}` : ''}`);
+    throw new Error(`zen envelope rejected: ${envelope.error}${envelope.finished_reason ? ` (${envelope.finished_reason})` : ''}${envelope.denied_actions ? ` ${JSON.stringify(envelope.denied_actions)}` : ''}`);
   }
   let packet;
   try { packet = JSON.parse(envelope.response); } catch (error) {

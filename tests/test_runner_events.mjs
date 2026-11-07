@@ -11,7 +11,7 @@ import { parseResponseEnvelope } from '../scripts/runner.mjs';
 
 const CLI = new URL('../scripts/ntg-vnext.mjs', import.meta.url).pathname;
 
-const observed = [{ classification: 'OBSERVED', criterion: 'content', result: 'inspected' }];
+const observed = [{ classification: 'OBSERVED', criterion: 'content matches', result: 'inspected' }];
 const plan = (ids = ['one']) => ({
   goal: 'Deliver bounded artifacts', constraints: [], decision_invariants: [], plan_version: 'v1',
   milestones: ids.map((id, index) => ({

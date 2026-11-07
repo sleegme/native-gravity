@@ -543,6 +543,18 @@ export function runExcavatorHeadless(options, deps = {}) {
         slug, milestone_id: packet.milestone_id, exit_status: result.status,
       });
     }
+    // AGY 1.4.11+ reports why a turn ended early; this transport is the one
+    // caller that passes --print-timeout, so a truncated turn is never a
+    // worker result (#203).
+    const finishedReason = stream.resultEvent.finished_reason;
+    if (typeof finishedReason === "string"
+        && ["print_timeout", "interrupted", "error"].includes(finishedReason)) {
+      throw new ExcavatorHeadlessError(
+        "TURN_ENDED_EARLY",
+        `agy turn ended early with finished_reason "${finishedReason}"`,
+        { slug, milestone_id: packet.milestone_id, exit_status: result.status, reason: finishedReason }
+      );
+    }
     const extracted = extractWorkerResult(stream.resultEvent.response ?? stream.lastAgentText);
     if (!extracted.ok) {
       throw new ExcavatorHeadlessError(extracted.error, extracted.message, {

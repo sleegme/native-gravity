@@ -7,10 +7,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { MinimalSpine, recommendNeedsAlt } from '../scripts/spine.mjs';
-import { AuthoritativeLedger } from '../scripts/ledger.mjs';
+import { AuthoritativeLedger, UncoveredCriteriaError } from '../scripts/ledger.mjs';
 import { InvalidHandoffPacketError, InvalidResponseFormatError, composeBoundedPrompt, invoke, parseResponseEnvelope } from '../scripts/runner.mjs';
 
-const observed = [{ classification: 'OBSERVED', criterion: 'content', result: 'artifact inspected' }];
+const observed = [{ classification: 'OBSERVED', criterion: 'content matches milestone ID', result: 'artifact inspected' }];
 const plan = () => ({
   goal: 'Deliver two bounded artifacts', constraints: ['No default activation'],
   decision_invariants: [], plan_version: 'v1',
@@ -438,6 +438,50 @@ test('unobserved Zen evidence error names the criterion', async t => {
   }) });
   await assert.rejects(f.spine.runMilestone('one'), /not observed: INFERRED: AC1 command/);
   assert.deepEqual(f.spine.state.completed_milestones, []);
+});
+
+test('Zen GO needs criterion-linked OBSERVED evidence for every acceptance criterion (#201)', async t => {
+  const twoCriteria = plan();
+  twoCriteria.milestones[0].acceptance_criteria = ['content matches milestone ID', 'artifact hash bound'];
+  const covered = [
+    { classification: 'OBSERVED', criterion: 'content matches milestone ID', result: 'artifact inspected' },
+    { classification: 'OBSERVED', criterion: 'artifact hash bound', result: 'sha256 verified' },
+  ];
+  const withEvidence = verification_evidence => fixture(t, {
+    initialPlan: twoCriteria,
+    review: request => verdict(request, { verification_evidence }),
+  });
+
+  // Substance-free OBSERVED evidence (issue #201 A6 reproduction)
+  const a6 = withEvidence([{ classification: 'OBSERVED' }]);
+  await assert.rejects(a6.spine.runMilestone('one'), error =>
+    error instanceof UncoveredCriteriaError
+    && JSON.stringify(error.uncovered)
+      === JSON.stringify(['content matches milestone ID', 'artifact hash bound']));
+  assert.deepEqual(a6.spine.state.completed_milestones, []);
+
+  // GO missing one criterion names the uncovered criterion
+  const missing = withEvidence([covered[0]]);
+  await assert.rejects(missing.spine.runMilestone('one'), error =>
+    error instanceof UncoveredCriteriaError
+    && JSON.stringify(error.uncovered) === JSON.stringify(['artifact hash bound']));
+
+  // An all-whitespace result does not cover its criterion
+  const blank = withEvidence([{ ...covered[0], result: '  ' }, covered[1]]);
+  await assert.rejects(blank.spine.runMilestone('one'), UncoveredCriteriaError);
+
+  // The milestone stays incomplete on disk after each rejection (the failure
+  // recording clears the active invocation but never completes the milestone)
+  const disk = AuthoritativeLedger.load(missing.ledgerPath).getState();
+  assert.deepEqual(disk.completed_milestones, []);
+  assert.equal(disk.current_milestone, null);
+  assert.ok(!disk.verification.one);
+
+  // A fully covered GO still promotes and survives restore
+  const full = withEvidence(covered);
+  assert.equal((await full.spine.runMilestone('one')).verified, true);
+  const restored = AuthoritativeLedger.load(full.ledgerPath).getState();
+  assert.deepEqual(restored.completed_milestones, ['one']);
 });
 
 for (const repair_needs of [undefined, null, '', '   ', [], {}, 42]) {

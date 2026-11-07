@@ -9,6 +9,7 @@ import {
   StaleVerdictError,
   MismatchedResultRefError,
   InvariantViolationError,
+  UncoveredCriteriaError,
   RefRebindingError,
   BlockerNotFoundError,
   generateResultRef,
@@ -93,7 +94,14 @@ function sampleVerdict(overrides = {}) {
     milestone_id: "M1",
     plan_version: "v1",
     verdict: "GO",
-    verification_evidence: ["Verified all test assertions passed"],
+    // Criterion-linked OBSERVED evidence for every acceptance criterion of both
+    // sample-plan milestones, as the Zen packet schema prescribes (#201 A6).
+    verification_evidence: [
+      { classification: "OBSERVED", criterion: "Runner resolves slugs", result: "slugs resolved and observed" },
+      { classification: "OBSERVED", criterion: "Process execution works", result: "process executed and observed" },
+      { classification: "OBSERVED", criterion: "Ledger validates invariants", result: "invariants validated and observed" },
+      { classification: "OBSERVED", criterion: "Zen GO promotes milestone", result: "promotion observed" },
+    ],
     ...overrides,
   };
 }
@@ -598,7 +606,10 @@ runTest("4.1: Zen GO verifies and promotes milestone, clears current_milestone, 
       plan_version: "v1",
       result_ref: result_ref,
       verdict: "GO",
-      verification_evidence: ["Verified all tests pass"],
+      verification_evidence: [
+        { classification: "OBSERVED", criterion: "Runner resolves slugs", result: "runner slugs observed" },
+        { classification: "OBSERVED", criterion: "Process execution works", result: "process execution observed" },
+      ],
     })
   );
 
@@ -781,6 +792,72 @@ runTest("4.6: Zen verdict packet fail-closed required fields validation (milesto
   assert.strictEqual(ledger.current_milestone, null);
 });
 
+runTest("4.6: Zen GO requires every acceptance criterion covered by criterion-linked OBSERVED evidence (#201 A6)", () => {
+  const ledger = new AuthoritativeLedger(samplePlan());
+  ledger.delegate("M1");
+  const { result_ref } = ledger.receiveCandidate(sampleCandidate());
+
+  // Evidence with no criterion/result substance cannot promote
+  assert.throws(
+    () => ledger.recordZenGo(sampleVerdict({ result_ref, verification_evidence: [{ classification: "OBSERVED" }] })),
+    UncoveredCriteriaError
+  );
+
+  // GO missing one criterion of M1 names the uncovered criterion
+  assert.throws(
+    () => ledger.recordZenGo(sampleVerdict({
+      result_ref,
+      verification_evidence: [
+        { classification: "OBSERVED", criterion: "Runner resolves slugs", result: "observed" },
+      ],
+    })),
+    err => err instanceof UncoveredCriteriaError
+      && JSON.stringify(err.uncovered) === JSON.stringify(["Process execution works"])
+  );
+
+  // A whitespace-only result does not cover its criterion
+  assert.throws(
+    () => ledger.recordZenGo(sampleVerdict({
+      result_ref,
+      verification_evidence: [
+        { classification: "OBSERVED", criterion: "Runner resolves slugs", result: "observed" },
+        { classification: "OBSERVED", criterion: "Process execution works", result: "   " },
+      ],
+    })),
+    UncoveredCriteriaError
+  );
+
+  // Rejected GOs leave the milestone incomplete and re-reviewable
+  assert.deepStrictEqual(ledger.completed_milestones, []);
+  assert.strictEqual(ledger.current_milestone, "M1");
+  assert.ok(!ledger.verification.M1);
+
+  // A fully covered GO still promotes
+  const go = ledger.recordZenGo(sampleVerdict({ result_ref }));
+  assert.strictEqual(go.verdict, "GO");
+  assert.deepStrictEqual(ledger.completed_milestones, ["M1"]);
+});
+
+runTest("4.7: restored completion requires criterion-covered Zen GO evidence (#201 A6)", () => {
+  const ledger = new AuthoritativeLedger(samplePlan());
+  ledger.delegate("M1");
+  const { result_ref } = ledger.receiveCandidate(sampleCandidate());
+  ledger.recordZenGo(sampleVerdict({ result_ref }));
+
+  // Round-trip of a covered GO restores cleanly
+  const state = ledger.toJSON();
+  assert.ok(AuthoritativeLedger.fromJSON(state));
+
+  // A GO that left a criterion uncovered cannot be accepted back from disk
+  state.verification.M1 = {
+    ...state.verification.M1,
+    verification_evidence: [
+      { classification: "OBSERVED", criterion: "Runner resolves slugs", result: "observed" },
+    ],
+  };
+  assert.throws(() => AuthoritativeLedger.fromJSON(state), InvariantViolationError);
+});
+
 // =============================================================================
 // Section 5: Blockers & Resolution
 // =============================================================================
@@ -918,6 +995,7 @@ runTest("5.1.b: getRelevantEvidence projects evidence, omits superseded per-crit
       verdict: "GO",
       verification_evidence: [
         { classification: "OBSERVED", criterion: "Runner resolves slugs", result: "v2 zen verified slugs pass" },
+        { classification: "OBSERVED", criterion: "Process execution works", result: "v2 process execution repaired" },
       ],
     })
   );
@@ -1390,7 +1468,10 @@ runTest("8.1: Atomic persistence and fresh-context resume without conversational
       sampleVerdict({
         milestone_id: "M2",
         result_ref: cand2.result_ref,
-        verification_evidence: ["test_ledger.mjs passed"],
+        verification_evidence: [
+          { classification: "OBSERVED", criterion: "Ledger validates invariants", result: "test_ledger.mjs passed" },
+          { classification: "OBSERVED", criterion: "Zen GO promotes milestone", result: "M2 promoted after resume" },
+        ],
       })
     );
 
@@ -1472,7 +1553,9 @@ runTest("8.3: Resume invariant validation rejects completed milestones with old 
       plan_version: "v1",
       result_ref: ref,
       verdict: "GO",
-      verification_evidence: ["Tests pass"],
+      verification_evidence: [
+        { classification: "OBSERVED", criterion: "Done", result: "done observed" },
+      ],
       is_stale: false,
       timestamp: new Date().toISOString(),
       details: { verdict: "GO" },
@@ -1630,7 +1713,9 @@ runTest("8.4: fromJSON() and load() result_ref integrity recomputation rejects t
       plan_version: "v1",
       result_ref: ref,
       verdict: "GO",
-      verification_evidence: ["Tests pass"],
+      verification_evidence: [
+        { classification: "OBSERVED", criterion: "Done", result: "done observed" },
+      ],
       is_stale: false,
       timestamp: new Date().toISOString(),
       details: { verdict: "GO" },
@@ -1722,7 +1807,9 @@ runTest("8.5: fromJSON() and load() result_ref integrity recomputation rejects t
       plan_version: "v1",
       result_ref: ref,
       verdict: "GO",
-      verification_evidence: ["Passes all tests"],
+      verification_evidence: [
+        { classification: "OBSERVED", criterion: "Done", result: "done observed" },
+      ],
       is_stale: false,
       timestamp: new Date().toISOString(),
       details: { verdict: "GO" },
@@ -1830,7 +1917,9 @@ runTest("8.6: fromJSON() and load() reject candidate record divergence from payl
       plan_version: "v1",
       result_ref: ref,
       verdict: "GO",
-      verification_evidence: ["Baseline verification"],
+      verification_evidence: [
+        { classification: "OBSERVED", criterion: "Done", result: "done observed" },
+      ],
       is_stale: false,
       timestamp: new Date().toISOString(),
       details: { verdict: "GO" },
@@ -2347,7 +2436,10 @@ runTest("8.12: Persistence save -> load roundtrip happy path continues to succee
       sampleVerdict({
         milestone_id: "M2",
         result_ref: cand2.result_ref,
-        verification_evidence: ["Final verification passed"],
+        verification_evidence: [
+          { classification: "OBSERVED", criterion: "Ledger validates invariants", result: "Final verification passed" },
+          { classification: "OBSERVED", criterion: "Zen GO promotes milestone", result: "M2 promoted on resume" },
+        ],
       })
     );
 

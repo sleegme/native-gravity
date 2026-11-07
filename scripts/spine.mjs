@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { AuthoritativeLedger, deepClone, deepFreeze, normalizeCandidateArtifactRef } from './ledger.mjs';
+import { AuthoritativeLedger, deepClone, deepFreeze, normalizeCandidateArtifactRef, UncoveredCriteriaError, uncoveredAcceptanceCriteria } from './ledger.mjs';
 import { acquireLedgerLock, LedgerIntegrityError } from './ledger-lock.mjs';
 import { InvalidHandoffPacketError, InvalidResponseFormatError, invoke, parseResponsePacket } from './runner.mjs';
 import { projectFailureRecord, projectFailureTelemetry, redactTelemetryValue } from './telemetry.mjs';
@@ -656,6 +656,17 @@ export class MinimalSpine {
       if (unobserved.length) {
         const named = unobserved.map(item => `${item?.classification ?? 'UNCLASSIFIED'}: ${item?.criterion ?? 'unnamed criterion'}`);
         throw new Error(`Zen must supply directly observed verification evidence; not observed: ${named.join('; ')}`);
+      }
+      if (verdict.verdict === 'GO') {
+        // #201 A6: promotion authority needs criterion-linked observed results,
+        // not just non-empty OBSERVED-classified evidence.
+        const uncovered = uncoveredAcceptanceCriteria(contract.acceptance_criteria, verdict.verification_evidence);
+        if (uncovered.length) {
+          throw new UncoveredCriteriaError(
+            `Zen GO must cover every acceptance criterion with OBSERVED evidence naming the criterion and a non-empty result; uncovered: ${JSON.stringify(uncovered)}`,
+            { uncovered }
+          );
+        }
       }
       if (verdict.verdict === 'NO-GO'
           && (typeof verdict.repair_needs !== 'string' || !verdict.repair_needs.trim())) {
