@@ -13,7 +13,16 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
+
+      - name: Install dev dependencies
+        run: npm install --no-package-lock --no-audit --no-fund
+
+      # Same test step the publish job runs, so a CI-only failure shows up on the PR, not at release time.
+      - name: Run tests
+        env:
+          SKIP_LIVE_TESTS: "1"
+        run: node --test tests/*.mjs
 
       - name: Check installer syntax
         run: node --check scripts/npm-install.mjs
