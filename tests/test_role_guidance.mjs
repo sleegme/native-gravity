@@ -47,8 +47,8 @@ const BASE_PREFIXES = {
     sha256: "42cd5172d1a201484814fa67ecf58399efc4f878ec55f92b34a3cdbc01b180e5",
   },
   "agents/zen.md": {
-    length: 3309,
-    sha256: "438298773502d3e03a8fcc76e54f3c8955d23637998f648b68eae541ec60ae33",
+    length: 3328,
+    sha256: "22427f7f64507e7a70d2e76e5581ad90534d359faad814dd74ffc38d4e71860d",
   },
   "rules/orchestration.md": {
     length: 18524,

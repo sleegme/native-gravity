@@ -676,6 +676,7 @@ test('native Zen is model-pinned by policy and never by --agent', t => {
   assert.equal(prompt.startsWith('---'), false);
   assert.match(prompt, /You are the independent, non-mutating verification gate\./);
   assert.match(prompt, /Independently verify the candidate against its milestone contract\./);
+  assert.match(prompt, /criterion by its exact text/);
   assert.match(prompt, /"milestone_id":"one"/);
 });
 

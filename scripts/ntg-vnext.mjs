@@ -182,8 +182,9 @@ export function nativeZen(request, { agyPath = process.env.AGY_PATH || 'agy', cw
   let slug = resolveZenModel({ agyPath, installedModels });
   const instruction = 'Independently verify the candidate against its milestone contract. '
     + 'Return only a bare JSON object with milestone_id, plan_version and result_ref echoed unchanged, '
-    + 'verdict (GO or NO-GO), verification_evidence (non-empty array of '
-    + '{"classification": "OBSERVED", "criterion": "...", "result": "..."}) and, for NO-GO, '
+    + 'verdict (GO or NO-GO), verification_evidence (non-empty array naming each acceptance '
+    + 'criterion by its exact text: {"classification": "OBSERVED", "criterion": "exact acceptance '
+    + 'criterion text", "result": "..."}) and, for NO-GO, '
     + 'repair_needs (non-empty string). Request:\n' + JSON.stringify(request);
   const prompt = `${loadNativeRoleBody(ZEN_ROLE)}\n\n${instruction}`;
   const args = [
