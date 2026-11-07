@@ -2,10 +2,11 @@
 /**
  * ntg-command.mjs — Packaged helper / CLI entry point for native-gravity runner.
  *
- * Resolves ntg-vnext.mjs relative to its own installation directory and invokes
- * ntg-vnext commands (init, status, run, resume) with argv arrays using child_process
- * spawnSync (no shell concatenation). Default ledger is .ntg/ledger.json if --ledger
- * is omitted. Never writes ledger contents directly.
+ * Resolves ntg-vnext.mjs and dag-view.mjs relative to its own installation
+ * directory and invokes ntg-vnext commands (init, status, run, resume) or
+ * dag-view (graph) with argv arrays using child_process spawnSync (no shell
+ * concatenation). Default ledger is .ntg/ledger.json if --ledger is omitted.
+ * Never writes ledger contents directly.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
@@ -15,23 +16,30 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_VNEXT_SCRIPT = resolve(__dirname, 'ntg-vnext.mjs');
+export const DEFAULT_DAG_SCRIPT = resolve(__dirname, 'dag-view.mjs');
 export const DEFAULT_LEDGER = '.ntg/ledger.json';
 
 export function resolveVnextScript() {
   return process.env.NTG_VNEXT_SCRIPT || DEFAULT_VNEXT_SCRIPT;
 }
 
-const USAGE = `Usage: ntg-command <init|status|run|resume> [options]
+export function resolveDagScript() {
+  return process.env.NTG_DAG_SCRIPT || DEFAULT_DAG_SCRIPT;
+}
+
+const USAGE = `Usage: ntg-command <init|status|run|resume|graph> [options]
 
 Commands:
   init    --plan <path> [--ledger <path>]   Initialize ledger and plan
   status  [--ledger <path>]                 Display ledger status
   run     [--ledger <path>] [options]       Run runner milestones
   resume  [--ledger <path>] [options]       Check status and resume execution
+  graph   [--ledger <path>] [--watch]       Display milestone dependency DAG
 
 Options:
   --ledger <path>   Ledger path (default: .ntg/ledger.json)
   --plan <path>     Plan file path (required for init)
+  --watch           Watch mode for graph (redraws on ledger change)
   --help, -h        Show this help message
 `;
 
@@ -56,6 +64,7 @@ function executeVnext(vnextScript, args, spawn, options, spawnEnv, errStream) {
  * @param {string[]} argv CLI arguments after script name
  * @param {object} [options]
  * @param {string} [options.vnextScript] Override vnext script path
+ * @param {string} [options.dagScript] Override dag script path
  * @param {Function} [options.spawnSync] Custom spawn function
  * @param {object} [options.env] Environment variables override
  * @param {string|Array} [options.stdio] Stdio mode ('inherit', 'pipe', 'ignore')
@@ -87,7 +96,7 @@ export function runNtgCommand(argv = [], options = {}) {
     return 0;
   }
 
-  if (!['init', 'status', 'run', 'resume'].includes(command)) {
+  if (!['init', 'status', 'run', 'resume', 'graph'].includes(command)) {
     errStream.write(`Unknown command: ${command}\n\n${USAGE}`);
     return 1;
   }
@@ -118,6 +127,7 @@ export function runNtgCommand(argv = [], options = {}) {
   }
 
   const vnextScript = options.vnextScript || resolveVnextScript();
+  const dagScript = options.dagScript || resolveDagScript();
   const spawn = options.spawnSync || spawnSync;
   const spawnEnv = options.env ? { ...process.env, ...options.env } : process.env;
 
@@ -174,6 +184,17 @@ export function runNtgCommand(argv = [], options = {}) {
     return executeVnext(
       vnextScript,
       ['run', '--ledger', ledger, '--all', ...runRest],
+      spawn,
+      options,
+      spawnEnv,
+      errStream
+    );
+  }
+
+  if (command === 'graph') {
+    return executeVnext(
+      dagScript,
+      ['--ledger', ledger, ...passthrough],
       spawn,
       options,
       spawnEnv,

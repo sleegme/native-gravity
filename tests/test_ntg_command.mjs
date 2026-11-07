@@ -7,8 +7,10 @@ import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import {
+  DEFAULT_DAG_SCRIPT,
   DEFAULT_LEDGER,
   DEFAULT_VNEXT_SCRIPT,
+  resolveDagScript,
   resolveVnextScript,
   runNtgCommand,
 } from '../scripts/ntg-command.mjs';
@@ -77,6 +79,23 @@ test('resolveVnextScript returns default script or respects NTG_VNEXT_SCRIPT', (
       process.env.NTG_VNEXT_SCRIPT = original;
     } else {
       delete process.env.NTG_VNEXT_SCRIPT;
+    }
+  }
+});
+
+test('resolveDagScript returns default script or respects NTG_DAG_SCRIPT', () => {
+  const original = process.env.NTG_DAG_SCRIPT;
+  try {
+    delete process.env.NTG_DAG_SCRIPT;
+    assert.equal(resolveDagScript(), DEFAULT_DAG_SCRIPT);
+
+    process.env.NTG_DAG_SCRIPT = '/custom/path/to/dag-view.mjs';
+    assert.equal(resolveDagScript(), '/custom/path/to/dag-view.mjs');
+  } finally {
+    if (original !== undefined) {
+      process.env.NTG_DAG_SCRIPT = original;
+    } else {
+      delete process.env.NTG_DAG_SCRIPT;
     }
   }
 });
@@ -259,6 +278,63 @@ test('resume: propagates nonzero status exit (1 and 2) and halts without calling
   }
 });
 
+test('graph: spawns dag-view with custom ledger and --watch', () => {
+  const harness = createTestHarness();
+  try {
+    const exitCode = runNtgCommand(
+      ['graph', '--ledger', 'custom-ledger.json', '--watch'],
+      {
+        dagScript: harness.stubScript,
+        env: { STUB_LOG_FILE: harness.logFile },
+        stdio: 'pipe',
+      }
+    );
+    assert.equal(exitCode, 0);
+
+    const invocations = harness.readInvocations();
+    assert.equal(invocations.length, 1);
+    assert.deepEqual(invocations[0].argv, [
+      '--ledger',
+      'custom-ledger.json',
+      '--watch',
+    ]);
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test('graph: uses default ledger when --ledger is omitted', () => {
+  const harness = createTestHarness();
+  try {
+    const exitCode = runNtgCommand(['graph'], {
+      dagScript: harness.stubScript,
+      env: { STUB_LOG_FILE: harness.logFile },
+      stdio: 'pipe',
+    });
+    assert.equal(exitCode, 0);
+
+    const invocations = harness.readInvocations();
+    assert.equal(invocations.length, 1);
+    assert.deepEqual(invocations[0].argv, [
+      '--ledger',
+      DEFAULT_LEDGER,
+    ]);
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test('graph: missing ledger exits with non-zero code and writes ntg-dag error to stderr', () => {
+  const nonExistent = resolve(HERE, 'fixtures', 'non-existent.ledger.json');
+  const res = spawnSync(
+    process.execPath,
+    [COMMAND_SCRIPT, 'graph', '--ledger', nonExistent],
+    { encoding: 'utf8' }
+  );
+  assert.equal(res.status, 1);
+  assert.match(res.stderr, /ntg-dag:/);
+});
+
 test('argv / path behavior with spaces preserves exact path elements', () => {
   const harness = createTestHarness();
   try {
@@ -364,6 +440,37 @@ test('direct CLI invocation: runs spawnSync on ntg-command.mjs with NTG_VNEXT_SC
     });
     assert.equal(badRes.status, 1);
     assert.match(badRes.stderr, /Unknown command: invalid-cmd/);
+    assert.match(badRes.stderr, /<init\|status\|run\|resume\|graph>/);
+    assert.match(badRes.stderr, /graph\s+\[--ledger <path>\]/);
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test('direct CLI invocation: graph forwards arguments using NTG_DAG_SCRIPT', () => {
+  const harness = createTestHarness();
+  try {
+    const res = spawnSync(
+      process.execPath,
+      [COMMAND_SCRIPT, 'graph', '--ledger', 'cli-dag-ledger.json', '--watch'],
+      {
+        env: {
+          ...process.env,
+          NTG_DAG_SCRIPT: harness.stubScript,
+          STUB_LOG_FILE: harness.logFile,
+        },
+        encoding: 'utf8',
+      }
+    );
+    assert.equal(res.status, 0, res.stderr);
+
+    const invocations = harness.readInvocations();
+    assert.equal(invocations.length, 1);
+    assert.deepEqual(invocations[0].argv, [
+      '--ledger',
+      'cli-dag-ledger.json',
+      '--watch',
+    ]);
   } finally {
     harness.cleanup();
   }
@@ -384,13 +491,33 @@ test('signal-killed runner exits nonzero instead of 0', () => {
 });
 
 test('help and invalid option handling', () => {
-  // Help flag returns 0
-  const helpCode = runNtgCommand(['--help'], { stdio: 'pipe' });
+  // Help flag returns 0 and usage mentions graph and --watch
+  let helpOut = '';
+  const helpCode = runNtgCommand(['--help'], {
+    stdout: {
+      write(chunk) {
+        helpOut += chunk;
+      },
+    },
+    stdio: 'pipe',
+  });
   assert.equal(helpCode, 0);
+  assert.match(helpOut, /<init\|status\|run\|resume\|graph>/);
+  assert.match(helpOut, /graph\s+\[--ledger <path>\]/);
+  assert.match(helpOut, /--watch\s+Watch mode for graph/);
 
   // Missing arguments returns 1
-  const emptyCode = runNtgCommand([], { stdio: 'pipe' });
+  let errOut = '';
+  const emptyCode = runNtgCommand([], {
+    stderr: {
+      write(chunk) {
+        errOut += chunk;
+      },
+    },
+    stdio: 'pipe',
+  });
   assert.equal(emptyCode, 1);
+  assert.match(errOut, /<init\|status\|run\|resume\|graph>/);
 
   // Incomplete options return 1
   const badLedgerCode = runNtgCommand(['status', '--ledger'], { stdio: 'pipe' });

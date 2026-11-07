@@ -1,11 +1,11 @@
 ---
 name: ntg
-description: Orchestrates multi-step development tasks with Native Gravity vNext. Drafts and confirms plans for new tasks, or checks status and resumes existing progress via the packaged runner.
+description: Orchestrates multi-step development tasks with Native Gravity vNext. Drafts and confirms plans for new tasks, checks status and resumes existing progress, or visualizes the milestone dependency graph via the packaged runner.
 ---
 
 # Native Gravity Task Entry Point (`/ntg`)
 
-Use this skill when the user invokes `/ntg <task>` or asks Native Gravity to execute a multi-step task.
+Use this skill when the user invokes `/ntg <task>`, `/ntg graph`, or asks Native Gravity to execute a multi-step task or view the progress graph.
 
 ## Responsibilities & Guardrails
 
@@ -15,6 +15,19 @@ Use this skill when the user invokes `/ntg <task>` or asks Native Gravity to exe
 - **Packaged resolution:** Execute scripts via the packaged helper (`scripts/ntg-command.mjs`) resolved relative to this plugin. Do not require `export NTG` or a checkout path.
 - **Preserve role settings:** Keep `mainAgent: false` for all plugin roles.
 - **Real runner adherence:** Execution and verification are handled by the real runner (`ntg-vnext.mjs`) and independent verifier. Never promise a different model or bypass the runner.
+
+## Progress Graph Routing (`/ntg graph`)
+
+When invoked with `/ntg graph` (or when the user asks to view or visualize the progress graph or milestone dependency DAG):
+- **Do NOT** treat `graph` as a task or draft a plan.
+- Instead, run the packaged helper's `graph` subcommand:
+  ```bash
+  node "<helper-path>" graph
+  ```
+  (Where `<helper-path>` is resolved to `scripts/ntg-command.mjs` as described in [Resolving the Packaged Helper](#resolving-the-packaged-helper)).
+- Forward optional flags if specified by the user:
+  - `--ledger <path>` to target a custom ledger path (defaults to `.ntg/ledger.json`)
+  - `--watch` to monitor the ledger and redraw on updates
 
 ## Step 1: Check Project State
 
