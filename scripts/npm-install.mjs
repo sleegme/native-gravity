@@ -241,8 +241,10 @@ function buildSelfUpdateCommand(packageManager, packageName, env = process.env, 
     : ['install', '-g', packageSpec];
   const override = env.NTG_SELF_UPDATE_CMD ? splitCommand(env.NTG_SELF_UPDATE_CMD) : null;
   if (override) return { cmd: override[0], args: [...override.slice(1), ...args] };
-  const cmd = packageManager === 'npm' && platform === 'win32' ? 'npm.cmd' : packageManager;
-  return { cmd, args };
+  // Node >= 18.20 / 20.12 refuses to spawn .cmd files without a shell (CVE-2024-27980).
+  // The args are fixed constants, so running npm.cmd through the shell is safe.
+  if (packageManager === 'npm' && platform === 'win32') return { cmd: 'npm.cmd', args, shell: true };
+  return { cmd: packageManager, args };
 }
 
 function scriptInstallOneLiner(shell) {
@@ -334,7 +336,7 @@ function runSelfUpdate(options = {}) {
 
   stdout.write(`Upgrading ${packageName} with ${upgradeVia}\n`);
 
-  const result = spawn(command.cmd, command.args, { stdio: 'inherit', env });
+  const result = spawn(command.cmd, command.args, { stdio: 'inherit', env, shell: command.shell === true });
   if (result.error) {
     stderr.write(`Self-update failed: could not run '${command.cmd}': ${result.error.message}\n`);
     return { ok: false, status: 1 };

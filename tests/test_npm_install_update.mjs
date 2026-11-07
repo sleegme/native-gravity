@@ -496,8 +496,8 @@ test('win32 npm self-update spawns npm.cmd so the npm shim can execute', () => {
       env: {},
       home: dir,
       platform: 'win32',
-      spawnSync: (cmd, args) => {
-        spawned.push({ cmd, args });
+      spawnSync: (cmd, args, options) => {
+        spawned.push({ cmd, args, shell: options.shell });
         return { status: 0 };
       },
       stdout: { write: (text) => { stdout += text; } },
@@ -505,10 +505,12 @@ test('win32 npm self-update spawns npm.cmd so the npm shim can execute', () => {
     });
 
     assert.equal(result.ok, true);
-    assert.deepEqual(spawned, [{ cmd: 'npm.cmd', args: ['install', '-g', 'native-gravity@latest'] }]);
+    // shell: true is required: Node >= 18.20 / 20.12 refuses to spawn .cmd without it (EINVAL).
+    assert.deepEqual(spawned, [{ cmd: 'npm.cmd', args: ['install', '-g', 'native-gravity@latest'], shell: true }]);
     assert.match(stdout, /Upgrading native-gravity with npm: npm\.cmd install -g native-gravity@latest/);
 
     assert.equal(buildSelfUpdateCommand('npm', 'native-gravity', {}, 'linux').cmd, 'npm');
+    assert.equal(buildSelfUpdateCommand('npm', 'native-gravity', {}, 'linux').shell, undefined);
     assert.equal(buildSelfUpdateCommand('bun', 'native-gravity', {}, 'win32').cmd, 'bun');
   } finally {
     rmSync(dir, { recursive: true, force: true });
