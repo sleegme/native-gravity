@@ -157,7 +157,7 @@ process.exit(1);
 `;
 }
 
-function createReleaseArchive(targetDir, ref = 'v1.1.1') {
+function createReleaseArchive(targetDir, ref = 'v1.1.2') {
   const staging = join(targetDir, 'staging');
   const prefix = join(staging, `native-gravity-${ref}`);
   mkdirSync(prefix, { recursive: true });
@@ -182,7 +182,7 @@ function createHarness() {
   const tempHome = join(tempDir, 'home');
   mkdirSync(tempHome, { recursive: true });
 
-  const archivePath = createReleaseArchive(tempDir, 'v1.1.1');
+  const archivePath = createReleaseArchive(tempDir, 'v1.1.2');
   const archiveUrl = `file://${archivePath}`;
 
   const binDir = join(tempDir, 'bin');
@@ -386,8 +386,8 @@ test('scripts/install.sh documents versioned and main raw URLs in header', () =>
   const content = readFileSync(INSTALL_SH, 'utf8');
   assert.match(
     content,
-    /https:\/\/raw\.githubusercontent\.com\/sleegme\/native-gravity\/v1\.1\.1\/scripts\/install\.sh/,
-    'must document v1.1.1 raw URL'
+    /https:\/\/raw\.githubusercontent\.com\/sleegme\/native-gravity\/v1\.1\.2\/scripts\/install\.sh/,
+    'must document v1.1.2 raw URL'
   );
   assert.match(
     content,
@@ -413,7 +413,7 @@ test('acceptance: install.sh succeeds with PATH containing no npx, npm or bunx (
     const res = h.runInstallSh([]);
     assert.equal(res.status, 0, `install.sh failed with stderr: ${res.stderr}`);
 
-    const expectedTarget = join(h.tempHome, '.local', 'share', 'native-gravity', 'v1.1.1');
+    const expectedTarget = join(h.tempHome, '.local', 'share', 'native-gravity', 'v1.1.2');
     assert.ok(existsSync(expectedTarget), `target directory must exist: ${expectedTarget}`);
     assert.ok(existsSync(join(expectedTarget, 'package.json')), 'target directory has package.json');
     assert.ok(existsSync(join(expectedTarget, 'scripts', 'npm-install.mjs')), 'target directory has npm-install.mjs');
@@ -444,7 +444,7 @@ test('offline harness test: bun runner executes shared core against stub agy whe
     const res = h.runInstallShWithBun([]);
     assert.equal(res.status, 0, `install.sh with bun failed with stderr: ${res.stderr}`);
 
-    const expectedTarget = join(h.tempHome, '.local', 'share', 'native-gravity', 'v1.1.1');
+    const expectedTarget = join(h.tempHome, '.local', 'share', 'native-gravity', 'v1.1.2');
     assert.ok(existsSync(expectedTarget), `target directory must exist: ${expectedTarget}`);
 
     const agyCalls = h.readAgyInvocations();
@@ -470,7 +470,7 @@ test('offline harness test: wget fallback executes shared core when curl is abse
     const res = h.runInstallShWithWget([]);
     assert.equal(res.status, 0, `install.sh with wget failed with stderr: ${res.stderr}`);
 
-    const expectedTarget = join(h.tempHome, '.local', 'share', 'native-gravity', 'v1.1.1');
+    const expectedTarget = join(h.tempHome, '.local', 'share', 'native-gravity', 'v1.1.2');
     assert.ok(existsSync(expectedTarget), `target directory must exist: ${expectedTarget}`);
 
     const agyCalls = h.readAgyInvocations();
@@ -555,7 +555,7 @@ test('offline harness test: re-run replaces existing target directory cleanly an
     const res1 = h.runInstallSh([]);
     assert.equal(res1.status, 0);
 
-    const targetDir = join(h.tempHome, '.local', 'share', 'native-gravity', 'v1.1.1');
+    const targetDir = join(h.tempHome, '.local', 'share', 'native-gravity', 'v1.1.2');
     assert.ok(existsSync(targetDir));
 
     // Place a marker file to verify clean replacement
@@ -613,7 +613,7 @@ test('offline harness test: argument forwarding through scripts/install.sh', () 
     // --version forwarded
     const verRes = h.runInstallSh(['--version']);
     assert.equal(verRes.status, 0);
-    assert.match(verRes.stdout, /^1\.1\.1/);
+    assert.match(verRes.stdout, /^1\.1\.2/);
 
     // reinstall subcommand forwarded
     const reinstallRes = h.runInstallSh(['reinstall']);
@@ -637,8 +637,8 @@ test('scripts/install.ps1 consistency check and optional pwsh parse check', () =
   // Verify documented URLs
   assert.match(
     content,
-    /https:\/\/raw\.githubusercontent\.com\/sleegme\/native-gravity\/v1\.1\.1\/scripts\/install\.ps1/,
-    'must document v1.1.1 raw URL'
+    /https:\/\/raw\.githubusercontent\.com\/sleegme\/native-gravity\/v1\.1\.2\/scripts\/install\.ps1/,
+    'must document v1.1.2 raw URL'
   );
   assert.match(
     content,

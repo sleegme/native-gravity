@@ -1,6 +1,6 @@
 {
   "package_name": "native-gravity",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "registry_404_observation": "npm package 'native-gravity' unclaimed (404 Not Found) observed on registry.npmjs.org on 2026-11-05 pre-lane; network_at_test_time=false",
   "npm_pack_dry_run_files": [
     "LICENSE",
