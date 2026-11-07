@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { buildSelfUpdateCommand, runSelfUpdate } from '../scripts/npm-install.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '..');
@@ -451,3 +452,35 @@ for (const manager of ['sh', 'ps1']) {
     }
   });
 }
+
+test('win32 npm self-update spawns npm.cmd so the npm shim can execute', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-win32-self-update-'));
+  try {
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'native-gravity', version: '1.0.0' }) + '\n');
+    const scriptPath = join(dir, 'scripts', 'npm-install.mjs');
+    const spawned = [];
+    let stdout = '';
+    const result = runSelfUpdate({
+      scriptPath,
+      packageRoot: dir,
+      env: {},
+      home: dir,
+      platform: 'win32',
+      spawnSync: (cmd, args) => {
+        spawned.push({ cmd, args });
+        return { status: 0 };
+      },
+      stdout: { write: (text) => { stdout += text; } },
+      stderr: { write: () => {} },
+    });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(spawned, [{ cmd: 'npm.cmd', args: ['install', '-g', 'native-gravity@latest'] }]);
+    assert.match(stdout, /Upgrading native-gravity with npm: npm\.cmd install -g native-gravity@latest/);
+
+    assert.equal(buildSelfUpdateCommand('npm', 'native-gravity', {}, 'linux').cmd, 'npm');
+    assert.equal(buildSelfUpdateCommand('bun', 'native-gravity', {}, 'win32').cmd, 'bun');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

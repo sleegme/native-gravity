@@ -234,14 +234,15 @@ function splitCommand(value) {
   return trimmed.split(/\s+/);
 }
 
-function buildSelfUpdateCommand(packageManager, packageName, env = process.env) {
+function buildSelfUpdateCommand(packageManager, packageName, env = process.env, platform = process.platform) {
   const packageSpec = `${packageName}@latest`;
   const args = packageManager === 'bun'
     ? ['add', '-g', packageSpec]
     : ['install', '-g', packageSpec];
   const override = env.NTG_SELF_UPDATE_CMD ? splitCommand(env.NTG_SELF_UPDATE_CMD) : null;
-  if (!override) return { cmd: packageManager, args };
-  return { cmd: override[0], args: [...override.slice(1), ...args] };
+  if (override) return { cmd: override[0], args: [...override.slice(1), ...args] };
+  const cmd = packageManager === 'npm' && platform === 'win32' ? 'npm.cmd' : packageManager;
+  return { cmd, args };
 }
 
 function scriptInstallOneLiner(shell) {
@@ -325,7 +326,7 @@ function runSelfUpdate(options = {}) {
   const isScriptInstall = installMethod.type === 'script';
   const command = isScriptInstall
     ? buildScriptInstallCommand(installMethod.shell, env)
-    : buildSelfUpdateCommand(installMethod.manager, packageName, env);
+    : buildSelfUpdateCommand(installMethod.manager, packageName, env, platform);
   const commandLine = [command.cmd, ...command.args].join(' ');
   const upgradeVia = isScriptInstall
     ? `${installMethod.shell === 'ps1' ? 'PowerShell' : 'curl'} installer: ${scriptInstallOneLiner(installMethod.shell)}`
