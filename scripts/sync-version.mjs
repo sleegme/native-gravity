@@ -8,7 +8,7 @@
  * - scripts/install.ps1 (raw GitHub URLs, $ref default)
  * - README.md (curl and irm command URLs)
  * - docs/ko/README.md (curl and irm command URLs)
- * - docs/usage.md (curl and irm command URLs)
+ * - docs/usage.md (curl and irm command URLs, "Current release" line)
  * - docs/status.md and docs/ko/status.md ("Native Gravity" header)
  * - tests/publish-readiness-evidence.json ("version" field)
  *
@@ -96,6 +96,12 @@ export function getSpecs(version) {
     {
       file: 'docs/usage.md',
       rules: [
+        {
+          name: 'docs/usage.md current release line',
+          regex: /(Current release: version )[0-9A-Za-z_.-]+(,)/g,
+          expectedCount: 1,
+          replace: `$1${version}$2`,
+        },
         {
           name: 'docs/usage.md install.sh URL',
           regex: /(https:\/\/raw\.githubusercontent\.com\/sleegme\/native-gravity\/)v[0-9A-Za-z_.-]+(\/scripts\/install\.sh)/g,

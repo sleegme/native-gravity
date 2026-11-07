@@ -372,6 +372,26 @@ test('altering docs/ko/README.md install.ps1 URL causes --check to exit non-zero
   }
 });
 
+// Pinned copy: docs/usage.md "Current release" line
+test('altering docs/usage.md current release line causes --check to exit non-zero', () => {
+  const fixture = createFixture();
+  try {
+    const original = fixture.readFile('docs/usage.md');
+    const altered = original.replace(
+      `Current release: version ${CURRENT_VERSION},`,
+      `Current release: version ${DRIFT_VERSION},`
+    );
+    assert.notEqual(original, altered, 'pattern must be replaced in fixture');
+    fixture.writeFile('docs/usage.md', altered);
+
+    const res = fixture.runSync(['--check']);
+    assert.notEqual(res.status, 0);
+    assert.match(res.stderr, /docs\/usage\.md/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 // Pinned copy 13: docs/usage.md install.sh URL
 test('altering docs/usage.md install.sh URL causes --check to exit non-zero', () => {
   const fixture = createFixture();
