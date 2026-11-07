@@ -25,6 +25,8 @@ Native Gravity follows Semantic Versioning (`MAJOR.MINOR.PATCH`):
 - **MINOR**: new capability (new command/option, new role, model placement change, workflow improvement).
 - **PATCH**: works as intended (bug fixes, verification tightening noted in changelog, wording, internal cleanup).
 
+When a change fits both, MAJOR ("user must change something", e.g. a saved ledger can no longer resume) outranks PATCH "verification tightening".
+
 ## Release Maturity Stages
 
 Release maturity reflects stability and operational confidence independent of the version number:

@@ -22,7 +22,7 @@ function readPackageJson(root = packageRoot) {
 
 function getVersion(root = packageRoot) {
   const pkg = readPackageJson(root);
-  return pkg?.version || '1.1.0';
+  return pkg?.version || '0.0.0';
 }
 
 function getPackageName(root = packageRoot) {
