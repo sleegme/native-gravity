@@ -81,6 +81,8 @@ function createFixture() {
     'README.md',
     'docs/ko/README.md',
     'docs/usage.md',
+    'docs/status.md',
+    'docs/ko/status.md',
     'tests/publish-readiness-evidence.json',
   ];
 
@@ -442,7 +444,7 @@ test('running sync-version updates all pinned copies when package.json version c
     // Run sync-version without --check to perform update
     const syncRes = fixture.runSync([]);
     assert.equal(syncRes.status, 0, `sync-version update failed: ${syncRes.stderr}`);
-    assert.match(syncRes.stdout, new RegExp(`Synced 6 file\\(s\\) to package\\.json version ${escapeRegExp(BUMPED_VERSION)}`));
+    assert.match(syncRes.stdout, new RegExp(`Synced 8 file\\(s\\) to package\\.json version ${escapeRegExp(BUMPED_VERSION)}`));
 
     // Post-check should now succeed
     const postCheck = fixture.runSync(['--check']);
@@ -493,6 +495,19 @@ test('running sync-version updates all pinned copies when package.json version c
     // Verify tests/publish-readiness-evidence.json
     const evidence = JSON.parse(fixture.readFile('tests/publish-readiness-evidence.json'));
     assert.equal(evidence.version, BUMPED_VERSION);
+
+    // Verify status headers
+    for (const statusPath of ['docs/status.md', 'docs/ko/status.md']) {
+      const status = fixture.readFile(statusPath);
+      assert.ok(
+        status.includes(`**Native Gravity**: ${BUMPED_VERSION}`),
+        `${statusPath} must show ${BUMPED_VERSION}`
+      );
+      assert.ok(
+        !status.includes(`**Native Gravity**: ${CURRENT_VERSION}`),
+        `${statusPath} must have no stale ${CURRENT_VERSION} header`
+      );
+    }
   } finally {
     fixture.cleanup();
   }

@@ -24,6 +24,7 @@ const RELEASE_MANIFEST_PATH = join(REPO_ROOT, '.release-please-manifest.json');
 const WORKFLOW_PATH = join(REPO_ROOT, '.github', 'workflows', 'release-please.yml');
 const CHANGELOG_PATH = join(REPO_ROOT, 'CHANGELOG.md');
 const VERSIONING_DOC_PATH = join(REPO_ROOT, 'docs', 'versioning.md');
+const VERSION_FILE_PATH = join(REPO_ROOT, 'VERSION');
 
 const pkg = JSON.parse(readFileSync(PACKAGE_JSON_PATH, 'utf8'));
 const CURRENT_VERSION = pkg.version;
@@ -87,6 +88,8 @@ function createFixture() {
     'README.md',
     'docs/ko/README.md',
     'docs/usage.md',
+    'docs/status.md',
+    'docs/ko/status.md',
     'tests/publish-readiness-evidence.json',
   ];
 
@@ -247,6 +250,7 @@ describe('CHANGELOG.md baseline and convention', () => {
 
 describe('docs/versioning.md policy and lifecycle contract', () => {
   it('specifies package.json as canonical source of truth and no VERSION file', () => {
+    assert.ok(!existsSync(VERSION_FILE_PATH), 'VERSION file must not exist; package.json is the only version source');
     assert.ok(existsSync(VERSIONING_DOC_PATH), 'docs/versioning.md must exist');
     const content = readFileSync(VERSIONING_DOC_PATH, 'utf8');
     assert.match(content, /package\.json/, 'must name package.json');
@@ -353,6 +357,12 @@ describe('release-please version-bump path verification in isolated fixture', ()
 
       const usage = fixture.readFile('docs/usage.md');
       assert.ok(usage.includes(BUMPED_REF), `docs/usage.md must contain ${BUMPED_REF}`);
+
+      const status = fixture.readFile('docs/status.md');
+      assert.ok(status.includes(`**Native Gravity**: ${BUMPED_VERSION}`), 'docs/status.md must show the synced version');
+
+      const koStatus = fixture.readFile('docs/ko/status.md');
+      assert.ok(koStatus.includes(`**Native Gravity**: ${BUMPED_VERSION}`), 'docs/ko/status.md must show the synced version');
     } finally {
       fixture.cleanup();
     }

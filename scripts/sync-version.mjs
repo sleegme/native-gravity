@@ -9,6 +9,7 @@
  * - README.md (curl and irm command URLs)
  * - docs/ko/README.md (curl and irm command URLs)
  * - docs/usage.md (curl and irm command URLs)
+ * - docs/status.md and docs/ko/status.md ("Native Gravity" header)
  * - tests/publish-readiness-evidence.json ("version" field)
  *
  * Usage:
@@ -106,6 +107,28 @@ export function getSpecs(version) {
           regex: /(https:\/\/raw\.githubusercontent\.com\/sleegme\/native-gravity\/)v[0-9A-Za-z_.-]+(\/scripts\/install\.ps1)/g,
           expectedCount: 1,
           replace: `$1v${version}$2`,
+        },
+      ],
+    },
+    {
+      file: 'docs/status.md',
+      rules: [
+        {
+          name: 'docs/status.md Native Gravity version',
+          regex: /(- \*\*Native Gravity\*\*: )[0-9A-Za-z_.-]+/g,
+          expectedCount: 1,
+          replace: `$1${version}`,
+        },
+      ],
+    },
+    {
+      file: 'docs/ko/status.md',
+      rules: [
+        {
+          name: 'docs/ko/status.md Native Gravity version',
+          regex: /(- \*\*Native Gravity\*\*: )[0-9A-Za-z_.-]+/g,
+          expectedCount: 1,
+          replace: `$1${version}`,
         },
       ],
     },
