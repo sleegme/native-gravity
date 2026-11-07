@@ -96,11 +96,52 @@ process.stdout.write('upgrade stub ok\\n');
 `;
 }
 
+function createInstallStubScript() {
+  return `#!/usr/bin/env node
+import { appendFileSync, cpSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import process from 'node:process';
+
+const logFile = process.env.STUB_INSTALL_LOG_FILE;
+if (logFile) {
+  appendFileSync(logFile, JSON.stringify({
+    argv: process.argv.slice(2),
+    env_home: process.env.HOME,
+  }) + '\\n');
+}
+
+if (process.env.STUB_INSTALL_EXIT && process.env.STUB_INSTALL_EXIT !== '0') {
+  process.stderr.write(process.env.STUB_INSTALL_ERR || 'installer failed\\n');
+  process.exit(Number(process.env.STUB_INSTALL_EXIT));
+}
+
+const target = process.env.STUB_INSTALL_TARGET_ROOT;
+const source = process.env.STUB_INSTALL_SOURCE_PATH;
+const version = process.env.STUB_INSTALL_VERSION;
+if (target && source && version) {
+  mkdirSync(join(target, 'scripts'), { recursive: true });
+  cpSync(source, join(target, 'scripts', 'npm-install.mjs'));
+  writeFileSync(join(target, 'package.json'), JSON.stringify({ name: 'native-gravity', version }, null, 2) + '\\n');
+}
+
+process.stdout.write('installer stub ok\\n');
+`;
+}
+
+function createWrongInstallStubScript() {
+  return `#!/usr/bin/env node
+process.stderr.write('wrong installer path selected\\n');
+process.exit(9);
+`;
+}
+
 function createHarness() {
   const tempDir = mkdtempSync(join(tmpdir(), 'ntg-npm-update-test-'));
   const tempHome = join(tempDir, 'home');
+  const tempLocalAppData = join(tempDir, 'localappdata');
   const binDir = join(tempDir, 'bin');
   mkdirSync(tempHome, { recursive: true });
+  mkdirSync(tempLocalAppData, { recursive: true });
   mkdirSync(binDir, { recursive: true });
 
   const agyPath = join(binDir, 'agy');
@@ -110,20 +151,35 @@ function createHarness() {
   const upgradeStubPath = join(tempDir, 'upgrade-stub.mjs');
   writeFileSync(upgradeStubPath, createUpgradeStubScript(), 'utf8');
 
+  const installStubPath = join(tempDir, 'install-stub.mjs');
+  writeFileSync(installStubPath, createInstallStubScript(), 'utf8');
+
+  const wrongInstallStubPath = join(tempDir, 'wrong-install-stub.mjs');
+  writeFileSync(wrongInstallStubPath, createWrongInstallStubScript(), 'utf8');
+
   const agyLog = join(tempDir, 'agy-invocations.jsonl');
   const upgradeLog = join(tempDir, 'upgrade-invocations.jsonl');
+  const installLog = join(tempDir, 'install-invocations.jsonl');
 
   function createFakeInstall({ manager = 'npm', packageName = 'native-gravity', version = '1.1.2', alias = false } = {}) {
-    const modulesRoot = manager === 'bun'
-      ? join(tempHome, '.bun', 'install', 'global', 'node_modules')
-      : join(tempHome, '.npm-global', 'lib', 'node_modules');
-    const root = join(modulesRoot, packageName);
+    let root;
+    if (manager === 'bun') {
+      root = join(tempHome, '.bun', 'install', 'global', 'node_modules', packageName);
+    } else if (manager === 'npm') {
+      root = join(tempHome, '.npm-global', 'lib', 'node_modules', packageName);
+    } else if (manager === 'sh') {
+      root = join(tempHome, '.local', 'share', 'native-gravity', `v${version}`);
+    } else if (manager === 'ps1') {
+      root = join(tempLocalAppData, 'native-gravity', `v${version}`);
+    } else {
+      throw new Error(`unknown manager: ${manager}`);
+    }
     const scriptPath = join(root, 'scripts', 'npm-install.mjs');
     mkdirSync(dirname(scriptPath), { recursive: true });
     writeFileSync(scriptPath, INSTALLER_SOURCE, 'utf8');
     writeFileSync(join(root, 'package.json'), JSON.stringify({ name: packageName, version }, null, 2) + '\n');
     if (alias) {
-      const aliasRoot = join(modulesRoot, '@sleeg', 'ntg');
+      const aliasRoot = join(join(tempHome, '.npm-global', 'lib', 'node_modules'), '@sleeg', 'ntg');
       mkdirSync(aliasRoot, { recursive: true });
       writeFileSync(join(aliasRoot, 'package.json'), JSON.stringify({ name: '@sleeg/ntg', version: '1.1.1' }, null, 2) + '\n');
     }
@@ -131,15 +187,20 @@ function createHarness() {
   }
 
   function runUpdate(install, extraArgs = [], extraEnv = {}) {
-    const env = {
-      ...process.env,
+    const env = { ...process.env };
+    if (!('XDG_DATA_HOME' in extraEnv)) delete env.XDG_DATA_HOME;
+    if (!('LOCALAPPDATA' in extraEnv)) delete env.LOCALAPPDATA;
+    Object.assign(env, {
       HOME: tempHome,
       PATH: `${binDir}:${process.env.PATH}`,
       STUB_AGY_LOG_FILE: agyLog,
       STUB_UPGRADE_LOG_FILE: upgradeLog,
+      STUB_INSTALL_LOG_FILE: installLog,
       NTG_SELF_UPDATE_CMD: `${process.execPath} ${upgradeStubPath}`,
+      NTG_INSTALL_SH_CMD: `${process.execPath} ${installStubPath}`,
+      NTG_INSTALL_PS1_CMD: `${process.execPath} ${installStubPath}`,
       ...extraEnv,
-    };
+    });
     delete env.NTG_RUNNER_CHAIN;
     delete env.NTG_SUPERVISOR_LEDGER;
     delete env.NTG_SUPERVISOR_PID;
@@ -162,13 +223,18 @@ function createHarness() {
 
   return {
     tempHome,
+    tempLocalAppData,
     upgradeStubPath,
+    installStubPath,
+    wrongInstallStubPath,
     agyLog,
     upgradeLog,
+    installLog,
     createFakeInstall,
     runUpdate,
     readAgyCalls: () => readLog(agyLog),
     readUpgradeCalls: () => readLog(upgradeLog),
+    readInstallCalls: () => readLog(installLog),
     cleanup,
   };
 }
@@ -292,3 +358,78 @@ test('update re-spawns the freshly installed CLI with reinstall instead of old i
     h.cleanup();
   }
 });
+
+test('update via curl install re-runs the sh installer and reinstalls from the new version', () => {
+  const h = createHarness();
+  try {
+    const install = h.createFakeInstall({ manager: 'sh', version: '1.1.2' });
+    const newRoot = join(h.tempHome, '.local', 'share', 'native-gravity', 'v1.1.3');
+    const res = h.runUpdate(install, [], {
+      NTG_INSTALL_SH_CMD: `${process.execPath} ${h.installStubPath}`,
+      NTG_INSTALL_PS1_CMD: `${process.execPath} ${h.wrongInstallStubPath}`,
+      STUB_INSTALL_TARGET_ROOT: newRoot,
+      STUB_INSTALL_SOURCE_PATH: INSTALLER_SCRIPT,
+      STUB_INSTALL_VERSION: '1.1.3',
+    });
+    assert.equal(res.status, 0, `failed with stderr: ${res.stderr}`);
+    assert.doesNotMatch(res.stderr, /wrong installer path selected/);
+    assert.equal(h.readInstallCalls().length, 1);
+    assert.match(res.stdout, /Upgrading native-gravity with curl installer: curl -fsSL \S+install\.sh \| sh/);
+    assert.match(res.stdout, /Updated native-gravity 1\.1\.2 -> 1\.1\.3/);
+
+    const calls = h.readAgyCalls();
+    assert.equal(calls.length, 4);
+    assert.deepEqual(calls[1].argv, ['plugin', 'uninstall', 'native-gravity']);
+    assert.deepEqual(calls[2].argv, ['plugin', 'install', newRoot]);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('update via irm install selects the PowerShell one-liner', () => {
+  const h = createHarness();
+  try {
+    const install = h.createFakeInstall({ manager: 'ps1', version: '1.1.2' });
+    const newRoot = join(h.tempLocalAppData, 'native-gravity', 'v1.1.3');
+    const res = h.runUpdate(install, [], {
+      LOCALAPPDATA: h.tempLocalAppData,
+      NTG_INSTALL_SH_CMD: `${process.execPath} ${h.wrongInstallStubPath}`,
+      NTG_INSTALL_PS1_CMD: `${process.execPath} ${h.installStubPath}`,
+      STUB_INSTALL_TARGET_ROOT: newRoot,
+      STUB_INSTALL_SOURCE_PATH: INSTALLER_SCRIPT,
+      STUB_INSTALL_VERSION: '1.1.3',
+    });
+    assert.equal(res.status, 0, `failed with stderr: ${res.stderr}`);
+    assert.doesNotMatch(res.stderr, /wrong installer path selected/);
+    assert.equal(h.readInstallCalls().length, 1);
+    assert.match(res.stdout, /Upgrading native-gravity with PowerShell installer: irm \S+install\.ps1 \| iex/);
+    assert.match(res.stdout, /Updated native-gravity 1\.1\.2 -> 1\.1\.3/);
+
+    const calls = h.readAgyCalls();
+    assert.equal(calls.length, 4);
+    assert.deepEqual(calls[2].argv, ['plugin', 'install', newRoot]);
+  } finally {
+    h.cleanup();
+  }
+});
+
+for (const manager of ['sh', 'ps1']) {
+  test(`update via ${manager} install stops before reinstall when the installer fails`, () => {
+    const h = createHarness();
+    try {
+      const install = h.createFakeInstall({ manager, version: '1.1.2' });
+      const res = h.runUpdate(install, [], {
+        ...(manager === 'ps1' ? { LOCALAPPDATA: h.tempLocalAppData } : {}),
+        STUB_INSTALL_EXIT: '7',
+        STUB_INSTALL_ERR: 'installer unavailable',
+      });
+      assert.equal(res.status, 7);
+      assert.match(res.stderr, /installer unavailable/);
+      assert.match(res.stderr, /Self-update failed: '.*' exited with code 7/);
+      assert.equal(h.readInstallCalls().length, 1);
+      assert.deepEqual(h.readAgyCalls(), []);
+    } finally {
+      h.cleanup();
+    }
+  });
+}
