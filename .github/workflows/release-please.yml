@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+  # Manual re-run of the publish job for an already-released version (e.g. after a failed publish).
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -48,7 +50,7 @@ jobs:
 
   publish:
     needs: release-please
-    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    if: ${{ needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
