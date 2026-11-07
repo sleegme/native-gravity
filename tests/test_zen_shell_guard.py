@@ -59,6 +59,9 @@ class ZenShellGuardTests(unittest.TestCase):
             "NTG_ZEN_VERIFY=1 node --test tests/fixtures/helper.js",
             "NTG_ZEN_VERIFY=1 node --test test/runtime/scheduler.test.ts",
             "NTG_ZEN_VERIFY=1 node --test tests/a.mts",
+            "NTG_ZEN_VERIFY=1 node --test tests/*.mjs",
+            "NTG_ZEN_VERIFY=1 SKIP_LIVE_TESTS=1 node --test tests/*.mjs",
+            "NTG_ZEN_VERIFY=1 node --test test/*.ts",
             "NTG_ZEN_VERIFY=1 bunx vitest run packages/coding-agent/test/cmd-cli/parser.test.ts",
             "NTG_ZEN_VERIFY=1 node --test packages/x/test/a.test.ts",
             "NTG_ZEN_VERIFY=1 python3 --version",
@@ -72,7 +75,10 @@ class ZenShellGuardTests(unittest.TestCase):
         allowed = "NTG_ZEN_VERIFY=1 node --test tests/test_ledger.mjs tests/test_spine.mjs"
         self.assertEqual(run_payload(command_payload(allowed))["decision"], "allow")
         patterns = [
-            "node --test tests/*.mjs",
+            "node --test tests/*",
+            "node --test tests/*/*.mjs",
+            "node --test tests/**/*.mjs",
+            "node --test tests/a*.mjs",
             "node --test tests/test_?.mjs",
             "node --test tests/[a-z].mjs",
             "node --test tests/{a,b}.mjs",
@@ -123,7 +129,7 @@ class ZenShellGuardTests(unittest.TestCase):
             "node --test tests/", "node --test tests/a.mjs --test-reporter=spec",
             "node --test ../x.mjs", "node --test /tmp/x.mjs", "node --test tests/../x.mjs",
             "node --test tests/a.txt", "node --test tests/a.cjs",
-            "node --test test/", "node --test test/*.test.ts", "node --test test/../x.ts",
+            "node --test test/", "node --test test/../x.ts",
             "node --test src/a.ts",
             "node --test --test-name-pattern=zen tests/a.mjs",
             "node --test=tests/a.mjs", "node --test scripts/spine.mjs",
