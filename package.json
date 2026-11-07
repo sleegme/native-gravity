@@ -14,6 +14,7 @@
         "agents/",
         "skills/",
         "hooks/",
+        "!hooks/__pycache__/",
         "tools/ctx",
         "tools/git-snap",
         "tools/wf.py",
