@@ -17,6 +17,7 @@ You can run NTG directly in an `agy` session with:
 
 - **Fresh task (no ledger exists):** When no ledger exists, `/ntg` drafts a milestone plan from your task, displays it, and waits for your confirmation before running anything. Once confirmed, it initializes `.ntg/ledger.json` and runs the plan through the real runner (`run --all`).
 - **Existing task (ledger already exists):** When a ledger already exists, `/ntg` shows current status and resumes execution (`run --all`) without overwriting existing progress.
+- **Progress graph (`/ntg graph`):** When you run `/ntg graph`, it visualizes the milestone dependency graph and their states via the packaged helper's `graph` command instead of drafting a plan.
 - **Packaged helper resolution:** Scripts are resolved from the installed plugin via the packaged helper (`scripts/ntg-command.mjs`), avoiding any need to set `NTG` or maintain a checkout path.
 - **Real runner adherence:** The real runner (`ntg-vnext.mjs`) and independent Zen verifier govern execution and review; `/ntg` does not promise a different model or bypass runner authority.
 
@@ -214,6 +215,14 @@ ntg-dag --ledger .ntg/ledger.json --width 80 --no-color
 
 This read-only command draws your milestones, their dependencies and their
 states. It never changes your progress.
+
+You can also run the graph view via the packaged helper:
+
+```bash
+node scripts/ntg-command.mjs graph
+```
+
+(or `node "<helper-path>" graph`, with optional `--ledger <path>` and `--watch`). In an `agy` session, `/ntg graph` runs this command automatically.
 
 - `--ledger PATH` picks the ledger. You can set `NTG_LEDGER` instead.
 - `--width N` fixes the width. Without it, the terminal width is used.
