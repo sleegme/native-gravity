@@ -248,11 +248,11 @@ working model access. Install or upgrade Native Gravity with a single command:
 npx --yes native-gravity
 ```
 
-You can also use `bunx native-gravity`, the curl installer (`curl -fsSL https://raw.githubusercontent.com/sleegme/native-gravity/v1.1.2/scripts/install.sh | sh`), or PowerShell (`irm https://raw.githubusercontent.com/sleegme/native-gravity/v1.1.2/scripts/install.ps1 | iex`).
+You can also use `bunx native-gravity`, the curl installer (`curl -fsSL https://raw.githubusercontent.com/sleegme/native-gravity/v1.2.0/scripts/install.sh | sh`), or PowerShell (`irm https://raw.githubusercontent.com/sleegme/native-gravity/v1.2.0/scripts/install.ps1 | iex`).
 
 Running the installer handles clean upgrades automatically (uninstalling the previous version before installing the new package).
 
-Current release: version 1.1.2, alpha, validated on AGY 1.3.3.
+Current release: version 1.2.0, alpha, validated on AGY 1.3.3.
 
 Current limits: The product has been validated on one host. Crash recovery works only on Linux, and only one session can own a progress file at a time.
 

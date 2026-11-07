@@ -2,14 +2,14 @@
 # Native Gravity installer (curl | sh)
 #
 # Versioned installation (pinned release):
-#   curl -fsSL https://raw.githubusercontent.com/sleegme/native-gravity/v1.1.2/scripts/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/sleegme/native-gravity/v1.2.0/scripts/install.sh | sh
 #
 # Latest main branch:
 #   curl -fsSL https://raw.githubusercontent.com/sleegme/native-gravity/main/scripts/install.sh | sh
 #
 # Forwarding arguments:
-#   curl -fsSL https://raw.githubusercontent.com/sleegme/native-gravity/v1.1.2/scripts/install.sh | sh -s -- --help
-#   curl -fsSL https://raw.githubusercontent.com/sleegme/native-gravity/v1.1.2/scripts/install.sh | sh -s -- reinstall
+#   curl -fsSL https://raw.githubusercontent.com/sleegme/native-gravity/v1.2.0/scripts/install.sh | sh -s -- --help
+#   curl -fsSL https://raw.githubusercontent.com/sleegme/native-gravity/v1.2.0/scripts/install.sh | sh -s -- reinstall
 
 set -e
 
@@ -41,7 +41,7 @@ else
 fi
 
 # Target & Release configuration
-REF="${NATIVE_GRAVITY_REF:-v1.1.2}"
+REF="${NATIVE_GRAVITY_REF:-v1.2.0}"
 DEFAULT_URL="https://codeload.github.com/sleegme/native-gravity/tar.gz/${REF}"
 ARCHIVE_URL="${NATIVE_GRAVITY_ARCHIVE_URL:-$DEFAULT_URL}"
 
