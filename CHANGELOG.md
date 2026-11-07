@@ -3,6 +3,18 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.3.0](https://github.com/sleegme/native-gravity/compare/native-gravity-v1.2.0...native-gravity-v1.3.0) (2026-11-07)
+
+
+### Features
+
+* **graph:** /ntg graph opens a live DAG beside the user ([#222](https://github.com/sleegme/native-gravity/issues/222)) ([f112a73](https://github.com/sleegme/native-gravity/commit/f112a73866d3004c7f20dbd76f51aa19b733e9dc))
+
+
+### Bug Fixes
+
+* **zen:** Zen must run guard-allowed tests; allow whole-suite run ([#223](https://github.com/sleegme/native-gravity/issues/223)) ([2c72a1a](https://github.com/sleegme/native-gravity/commit/2c72a1aa8ba1fbe579dd5faa5209a8db0ac7af13))
+
 ## [1.2.0](https://github.com/sleegme/native-gravity/compare/native-gravity-v1.1.2...native-gravity-v1.2.0) (2026-11-07)
 
 

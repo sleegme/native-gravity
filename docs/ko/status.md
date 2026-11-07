@@ -2,7 +2,7 @@
 
 [English](../status.md) · [사용법](usage.md) · [내부 동작](../internals.md)
 
-- **Native Gravity**: 1.2.0
+- **Native Gravity**: 1.3.0
 - **상태**: alpha
 - **호환성**:
   - AGY 1.3.3: validated (러너 라이브 프로브: #134, #138; 위임 프로브: #113/#56; Instinct NEEDS_ALT 라이브 호출: #20)
