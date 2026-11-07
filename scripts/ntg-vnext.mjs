@@ -15,9 +15,9 @@
  *   ntg-vnext status  --ledger L
  *   ntg-vnext navi    --ledger L --task "..."         (bounded desktop leaf)
  *
- * --timeout SECONDS bounds each runner invocation (default 600; the runner's own
- * 90s default is too short for bounded High-effort planning).
- * NTG_RUNNER_TIMEOUT_S overrides the default.
+ * --timeout SECONDS bounds each runner invocation and the native Zen review
+ * (default 600; the runner's own 90s default is too short for bounded
+ * High-effort planning). NTG_RUNNER_TIMEOUT_S overrides the default.
  *
  * Every invocation is a fresh context: state is reloaded from the ledger, never
  * from conversation. Output is one JSON object on stdout; exit 0 on success,
@@ -496,7 +496,7 @@ export async function main(argv, deps = {}) {
 
     await emitEvent({ role: 'zen', milestone: milestoneId, event: 'start' });
 
-    const baseInvokeZen = deps.invokeZen ?? (req => nativeZen(req));
+    const baseInvokeZen = deps.invokeZen ?? (req => nativeZen(req, { timeout: opts.timeoutMs }));
     let verdict;
     try {
       verdict = await baseInvokeZen(request);
