@@ -169,7 +169,10 @@ claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)
   assert.strictEqual(parsed[2].description, "Gemini 4 Argon (High)");
 });
 
-runTest("1.6: Live installed surface resolution against system agy models", () => {
+// Needs a real `agy` on PATH, so it is a live test (CI runners have no agy).
+const skipLiveSurface = process.env.SKIP_LIVE_TESTS === "1" || process.env.SKIP_LIVE_TESTS === "true";
+if (skipLiveSurface) console.log("[SKIP] 1.6: live agy model surface skipped via SKIP_LIVE_TESTS=1");
+else runTest("1.6: Live installed surface resolution against system agy models", () => {
   const models = listInstalledModels();
   assert.ok(Array.isArray(models), "Expected models to be an array");
   assert.ok(models.length > 0, "Expected at least one installed model");
@@ -1268,6 +1271,8 @@ process.exit(2);
   }
 });
 
+// Fixed model surface so packet-validation tests do not need a real agy on PATH.
+const OFFLINE_MODELS = [{ slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" }];
 runTest("2.9e: early error returns from invoke() attach duration_ms and usage undefined", () => {
   // 1. INVALID_OUTPUT_FORMAT
   const resFmt = invoke("piledriver", { task: "Test" }, { outputFormat: "text" });
@@ -1286,7 +1291,7 @@ runTest("2.9e: early error returns from invoke() attach duration_ms and usage un
   assert.strictEqual(resSlug.usage, undefined);
 
   // 3. INVALID_HANDOFF_PACKET
-  const resPkt = invoke("piledriver", null);
+  const resPkt = invoke("piledriver", null, { installedModels: OFFLINE_MODELS });
   assert.strictEqual(resPkt.ok, false);
   assert.strictEqual(resPkt.error, "INVALID_HANDOFF_PACKET");
   assert.strictEqual(typeof resPkt.duration_ms, "number");
@@ -1297,7 +1302,7 @@ runTest("2.9e: early error returns from invoke() attach duration_ms and usage un
   const origChain = process.env.NTG_RUNNER_CHAIN;
   try {
     process.env.NTG_RUNNER_CHAIN = "piledriver";
-    const resRec = invoke("piledriver", { task: "Test recursion" });
+    const resRec = invoke("piledriver", { task: "Test recursion" }, { installedModels: OFFLINE_MODELS });
     assert.strictEqual(resRec.ok, false);
     assert.strictEqual(resRec.error, "RECURSION_DETECTED");
     assert.strictEqual(typeof resRec.duration_ms, "number");
@@ -1388,17 +1393,17 @@ runTest("3.5: Strict prohibition of raw conversational state in handoff packet",
 });
 
 runTest("3.6: Contract-level invoke returns structured error for invalid packet", () => {
-  const res1 = invoke("piledriver", null);
+  const res1 = invoke("piledriver", null, { installedModels: OFFLINE_MODELS });
   assert.strictEqual(res1.ok, false);
   assert.strictEqual(res1.error, "INVALID_HANDOFF_PACKET");
   assert.strictEqual(res1.role, "piledriver");
 
-  const res2 = invoke("piledriver", { task: "Do work", messages: ["raw history"] });
+  const res2 = invoke("piledriver", { task: "Do work", messages: ["raw history"] }, { installedModels: OFFLINE_MODELS });
   assert.strictEqual(res2.ok, false);
   assert.strictEqual(res2.error, "INVALID_HANDOFF_PACKET");
   assert.strictEqual(res2.role, "piledriver");
 
-  const res3 = invoke("piledriver", "raw string instead of packet");
+  const res3 = invoke("piledriver", "raw string instead of packet", { installedModels: OFFLINE_MODELS });
   assert.strictEqual(res3.ok, false);
   assert.strictEqual(res3.error, "INVALID_HANDOFF_PACKET");
 });
