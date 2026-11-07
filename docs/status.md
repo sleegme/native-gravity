@@ -47,8 +47,9 @@ stages.
 - **Model usage:** `run`, `plan` and `alt` call real models.
 - **Crash recovery is Linux-only,** and it refuses to run when it can't confirm
   a safe shutdown. Only one session owns a ledger at a time.
-- **Not published to npm:** install from the repository. Installing the plugin
-  doesn't create a global command.
+- **npm publishing is new:** merging a release PR publishes `native-gravity`
+  and `@sleeg/ntg` through Trusted Publishing. Installing the plugin doesn't
+  create a global command.
 - The independent reviewer is pinned by policy to Gemini 4 Argon / High
   (#74, 2026-10-16; exact model resolution checked on AGY 1.3.6);
   comparative evidence for that choice remains open.

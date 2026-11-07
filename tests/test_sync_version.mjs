@@ -73,6 +73,7 @@ function createFixture() {
   mkdirSync(join(tempDir, 'scripts'), { recursive: true });
   mkdirSync(join(tempDir, 'docs', 'ko'), { recursive: true });
   mkdirSync(join(tempDir, 'tests'), { recursive: true });
+  mkdirSync(join(tempDir, 'packages', 'ntg-alias'), { recursive: true });
 
   const files = [
     'package.json',
@@ -84,6 +85,7 @@ function createFixture() {
     'docs/status.md',
     'docs/ko/status.md',
     'tests/publish-readiness-evidence.json',
+    'packages/ntg-alias/package.json',
   ];
 
   for (const f of files) {
@@ -449,6 +451,56 @@ test('altering tests/publish-readiness-evidence.json causes --check to exit non-
   }
 });
 
+test('altering packages/ntg-alias/package.json version causes --check to exit non-zero', () => {
+  const fixture = createFixture();
+  try {
+    const original = fixture.readFile('packages/ntg-alias/package.json');
+    const altered = original.replace(`"version": "${CURRENT_VERSION}"`, `"version": "${DRIFT_VERSION}"`);
+    assert.notEqual(original, altered, 'pattern must be replaced in fixture');
+    fixture.writeFile('packages/ntg-alias/package.json', altered);
+
+    const res = fixture.runSync(['--check']);
+    assert.notEqual(res.status, 0);
+    assert.match(res.stderr, /packages\/ntg-alias\/package\.json/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('altering packages/ntg-alias/package.json native-gravity dependency range causes --check to exit non-zero', () => {
+  const fixture = createFixture();
+  try {
+    const original = fixture.readFile('packages/ntg-alias/package.json');
+    const altered = original.replace(
+      `"native-gravity": "^${CURRENT_VERSION}"`,
+      `"native-gravity": "^${DRIFT_VERSION}"`
+    );
+    assert.notEqual(original, altered, 'pattern must be replaced in fixture');
+    fixture.writeFile('packages/ntg-alias/package.json', altered);
+
+    const res = fixture.runSync(['--check']);
+    assert.notEqual(res.status, 0);
+    assert.match(res.stderr, /packages\/ntg-alias\/package\.json/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('root and alias package.json repository URLs match exactly', () => {
+  const rootPkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8'));
+  const aliasPkg = JSON.parse(readFileSync(join(REPO_ROOT, 'packages', 'ntg-alias', 'package.json'), 'utf8'));
+  assert.equal(
+    rootPkg.repository.url,
+    'git+https://github.com/sleegme/native-gravity',
+    'root repository.url must be the canonical native-gravity URL'
+  );
+  assert.equal(
+    aliasPkg.repository.url,
+    rootPkg.repository.url,
+    'alias repository.url must exactly match the root package'
+  );
+});
+
 test('running sync-version updates all pinned copies when package.json version changes', () => {
   const fixture = createFixture();
   try {
@@ -464,7 +516,7 @@ test('running sync-version updates all pinned copies when package.json version c
     // Run sync-version without --check to perform update
     const syncRes = fixture.runSync([]);
     assert.equal(syncRes.status, 0, `sync-version update failed: ${syncRes.stderr}`);
-    assert.match(syncRes.stdout, new RegExp(`Synced 8 file\\(s\\) to package\\.json version ${escapeRegExp(BUMPED_VERSION)}`));
+    assert.match(syncRes.stdout, new RegExp(`Synced 9 file\\(s\\) to package\\.json version ${escapeRegExp(BUMPED_VERSION)}`));
 
     // Post-check should now succeed
     const postCheck = fixture.runSync(['--check']);
@@ -515,6 +567,16 @@ test('running sync-version updates all pinned copies when package.json version c
     // Verify tests/publish-readiness-evidence.json
     const evidence = JSON.parse(fixture.readFile('tests/publish-readiness-evidence.json'));
     assert.equal(evidence.version, BUMPED_VERSION);
+
+    // Verify packages/ntg-alias/package.json version and dependency range
+    const aliasPkg = JSON.parse(fixture.readFile('packages/ntg-alias/package.json'));
+    assert.equal(aliasPkg.name, '@sleeg/ntg');
+    assert.equal(aliasPkg.version, BUMPED_VERSION, 'alias package version must follow package.json');
+    assert.equal(
+      aliasPkg.dependencies['native-gravity'],
+      `^${BUMPED_VERSION}`,
+      'alias native-gravity dependency range must follow package.json'
+    );
 
     // Verify status headers
     for (const statusPath of ['docs/status.md', 'docs/ko/status.md']) {
