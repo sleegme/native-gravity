@@ -339,6 +339,64 @@ if (argv[0] === 'models') {
 const zenArgs = agy => JSON.parse(readFileSync(join(dirname(agy), 'zen-args.json'), 'utf8'));
 const zenGo = JSON.stringify({ milestone_id: 'one', plan_version: 'v1', result_ref: 'r', verdict: 'GO', verification_evidence: observed });
 
+/** Fake agy whose Zen review would outlive any reasonable configured timeout. */
+function slowZen(t, { delayMs = 2000 } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-vnext-zen-slow-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const agy = join(dir, 'agy');
+  writeFileSync(join(dir, 'out.json'), JSON.stringify({ status: 'SUCCESS', response: zenGo }));
+  writeFileSync(agy, `#!/usr/bin/env node
+const { readFileSync } = require('node:fs');
+const argv = process.argv.slice(2);
+if (argv[0] === 'models') {
+  process.stdout.write(${JSON.stringify(`${ZEN_MODELS}\n`)});
+} else {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${delayMs});
+  process.stdout.write(readFileSync(${JSON.stringify(join(dir, 'out.json'))}, 'utf8'));
+}
+`, { mode: 0o755 });
+  return agy;
+}
+
+test('the configured timeout also bounds the default native Zen review', async t => {
+  const saved = ['AGY_PATH', 'NTG_RUNNER_TIMEOUT_S'].map(key => process.env[key]);
+  t.after(() => ['AGY_PATH', 'NTG_RUNNER_TIMEOUT_S'].forEach((key, index) => {
+    if (saved[index] === undefined) delete process.env[key];
+    else process.env[key] = saved[index];
+  }));
+  process.env.AGY_PATH = slowZen(t);
+
+  // The default Zen invoker (no deps.invokeZen) must carry the supervisor's
+  // timeout into nativeZen's spawn; otherwise agy is killed only at its
+  // built-in 600000 ms and this slow review would return GO.
+  const deps = {
+    handleSignals: false,
+    invokeRole: async (role, packet) => {
+      const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+      return envelope({
+        milestone_id: contract.milestone_id, plan_version: contract.plan_version, status: 'DONE',
+        changes_made: contract.bounded_scope, verification_evidence: observed, unresolved_unknowns: [],
+        scope_deviations: [], candidate_artifact_ref: `sha256:${contract.milestone_id}`,
+      });
+    },
+  };
+
+  for (const [label, timeoutArgs, timeoutEnv] of [
+    ['--timeout', ['--timeout', '0.2'], undefined],
+    ['NTG_RUNNER_TIMEOUT_S', [], '0.2'],
+  ]) {
+    if (timeoutEnv === undefined) delete process.env.NTG_RUNNER_TIMEOUT_S;
+    else process.env.NTG_RUNNER_TIMEOUT_S = timeoutEnv;
+    const dir = mkdtempSync(join(tmpdir(), 'ntg-vnext-zen-timeout-'));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const ledger = join(dir, 'ledger.json');
+    writeFileSync(join(dir, 'plan.json'), JSON.stringify(plan('v1', ['one'])));
+    const cli = (...argv) => main([argv[0], '--ledger', ledger, ...argv.slice(1)], deps);
+    await cli('init', '--plan', join(dir, 'plan.json'));
+    await assert.rejects(cli('run', ...timeoutArgs), /ETIMEDOUT/, label);
+  }
+});
+
 test('independent native Zen strips ambient Bulldozer shell context', t => {
   const keys = ['NTG_BULLDOZER_NO_SHELL', 'NTG_BULLDOZER_CONVERSATION_FILE'];
   const saved = keys.map(key => process.env[key]);
