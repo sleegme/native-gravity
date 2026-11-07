@@ -234,7 +234,7 @@ export function buildLaunchSpec(target, options = {}) {
     return {
       target: 'macos-osascript',
       command: 'osascript',
-      args: ['-e', `tell application "Terminal" to do script "${[dagCommand, ...dagArgs].join(' ')} --watch --ledger ${ledger}"`],
+      args: ['-e', `tell application "Terminal" to do script "${appleScriptString([dagCommand, ...dagArgs, '--watch', '--ledger', ledger].map(shellQuote).join(' '))}"`],
     };
   }
 
@@ -336,4 +336,12 @@ export function launchGraphPane(options = {}) {
   } catch (err) {
     return { ok: false, fallback: true, target: spec.target, error: err };
   }
+}
+
+// POSIX single-quote each word, then escape for an AppleScript string literal.
+function shellQuote(word) {
+  return `'${String(word).replaceAll("'", "'\\''")}'`;
+}
+function appleScriptString(text) {
+  return text.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
 }

@@ -30,6 +30,7 @@
         "docs/navi/evidence.md",
         "scripts/ledger-lock.mjs",
         "scripts/dag-view.mjs",
+        "scripts/graph-pane.mjs",
         "scripts/navi.mjs",
         "scripts/navi-bridge.mjs",
         "scripts/navi-validation/",

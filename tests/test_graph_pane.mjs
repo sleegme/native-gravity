@@ -387,7 +387,7 @@ test('launchGraphPane: macOS osascript branch', () => {
   assert.equal(launched[0].command, 'osascript');
   assert.deepEqual(launched[0].args, [
     '-e',
-    'tell application "Terminal" to do script "ntg-dag --watch --ledger .ntg/mac-ledger.json"',
+    `tell application "Terminal" to do script "'ntg-dag' '--watch' '--ledger' '.ntg/mac-ledger.json'"`,
   ]);
 });
 
@@ -642,4 +642,22 @@ test('runNtgCommand: --pane opens the side pane even without a TTY (AGY run_comm
   } finally {
     harness.cleanup();
   }
+});
+
+test('launchGraphPane: osascript escapes quotes in the ledger path', () => {
+  const launched = [];
+  launchGraphPane({
+    env: {},
+    platform: 'darwin',
+    ledger: `/tmp/a" & do shell script "touch /tmp/pwn" & "'b.json`,
+    commandExists: (cmd) => cmd === 'osascript',
+    launcher(command, args) {
+      launched.push(args);
+      return { unref() {}, on() {} };
+    },
+  });
+  const script = launched[0][1];
+  const literal = script.slice(script.indexOf('do script "') + 11, -1);
+  assert.doesNotMatch(literal, /(^|[^\\])"/);
+  assert.ok(literal.endsWith(String.raw`'/tmp/a\" & do shell script \"touch /tmp/pwn\" & \"'\\''b.json'`));
 });
