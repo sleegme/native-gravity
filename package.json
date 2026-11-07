@@ -68,5 +68,8 @@
     "homepage": "https://github.com/sleegme/native-gravity#readme",
     "publishConfig": {
         "access": "public"
+    },
+    "devDependencies": {
+        "yaml": "^2.8.1"
     }
 }

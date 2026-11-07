@@ -68,9 +68,8 @@ jobs:
           npm install -g npm@latest
           node -e "const [major, minor, patch] = require('child_process').execSync('npm --version').toString().trim().split('.').map(Number); if (major < 11 || (major === 11 && minor < 5) || (major === 11 && minor === 5 && patch < 1)) { throw new Error('npm >= 11.5.1 required for trusted publishing'); }"
 
-      - name: Install dependencies
-        if: ${{ hashFiles('package-lock.json') != '' }}
-        run: npm ci
+      - name: Install dev dependencies (yaml for workflow tests)
+        run: npm install --no-package-lock --no-audit --no-fund
 
       - name: Run tests
         env:
