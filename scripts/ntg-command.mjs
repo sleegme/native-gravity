@@ -14,6 +14,7 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { launchGraphPane } from './graph-pane.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_VNEXT_SCRIPT = resolve(__dirname, 'ntg-vnext.mjs');
@@ -36,13 +37,15 @@ Commands:
   status  [--ledger <path>]                 Display ledger status
   run     [--ledger <path>] [options]       Run runner milestones
   resume  [--ledger <path>] [options]       Check status and resume execution
-  graph   [--ledger <path>] [--watch]       Display milestone dependency DAG
+  graph   [--ledger <path>] [--watch] [--once] [--pane] Display milestone dependency DAG
   version                                   Show native-gravity version
 
 Options:
   --ledger <path>   Ledger path (default: .ntg/ledger.json)
   --plan <path>     Plan file path (required for init)
   --watch           Watch mode for graph (redraws on ledger change)
+  --once            Print graph once without opening a side pane or terminal
+  --pane            Open the side pane even when stdout is not a terminal
   --help, -h        Show this help message
 `;
 
@@ -208,14 +211,58 @@ export function runNtgCommand(argv = [], options = {}) {
   }
 
   if (command === 'graph') {
-    return executeVnext(
+    const isTTY =
+      options.isTTY !== undefined
+        ? Boolean(options.isTTY)
+        : Boolean(options.stdout?.isTTY ?? process.stdout.isTTY);
+    const isOnce = passthrough.includes('--once');
+    // --pane forces the side pane when stdout is not a TTY (AGY run_command).
+    const forcePane = passthrough.includes('--pane');
+    const filteredPassthrough = passthrough.filter((arg) => arg !== '--once' && arg !== '--pane');
+
+    // Non-TTY (unless --pane) or --once prints once as today without opening a pane
+    if ((!isTTY && !forcePane) || isOnce) {
+      return executeVnext(
+        dagScript,
+        ['--ledger', ledger, ...filteredPassthrough],
+        spawn,
+        options,
+        spawnEnv,
+        errStream
+      );
+    }
+
+    const cwd = options.cwd || process.cwd();
+    const launchResult = launchGraphPane({
+      ledger: resolve(cwd, ledger),
+      dagCommand: options.dagCommand || process.execPath,
+      dagArgs: options.dagCommand ? [] : [dagScript],
+      cwd,
+      env: options.env !== undefined ? options.env : spawnEnv,
+      platform: options.platform || process.platform,
+      launcher: options.launcher,
+      commandExists: options.commandExists,
+      readProcVersion: options.readProcVersion,
+      hasHerdrSession: options.hasHerdrSession,
+      spawnSync: options.spawnSync || spawn,
+      isTTY,
+    });
+
+    if (launchResult.ok) {
+      return 0;
+    }
+
+    // Fallback when none works: print graph once as today + print hint
+    const code = executeVnext(
       dagScript,
-      ['--ledger', ledger, ...passthrough],
+      ['--ledger', ledger, ...filteredPassthrough],
       spawn,
       options,
       spawnEnv,
       errStream
     );
+    outStream.write(`\nHint: live view: ntg-dag --watch --ledger ${ledger}\n`);
+    return code;
   }
 
   return 1;
