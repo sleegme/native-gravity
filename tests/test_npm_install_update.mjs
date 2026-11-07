@@ -105,6 +105,7 @@ process.stdout.write('upgrade stub ok\\n');
 
 function createInstallStubScript() {
   return `#!/usr/bin/env node
+import { spawnSync } from 'node:child_process';
 import { appendFileSync, cpSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import process from 'node:process';
@@ -129,6 +130,8 @@ if (target && source && version) {
   mkdirSync(join(target, 'scripts'), { recursive: true });
   cpSync(source, join(target, 'scripts', 'npm-install.mjs'));
   writeFileSync(join(target, 'package.json'), JSON.stringify({ name: 'native-gravity', version }, null, 2) + '\\n');
+  const handoff = spawnSync(process.execPath, [join(target, 'scripts', 'npm-install.mjs')], { stdio: 'inherit', env: process.env });
+  process.exit(handoff.status ?? 1);
 }
 
 process.stdout.write('installer stub ok\\n');
@@ -431,6 +434,33 @@ test('update via irm install selects the PowerShell one-liner', () => {
     h.cleanup();
   }
 });
+
+for (const manager of ['sh', 'ps1']) {
+  test(`update via ${manager} install installs the plugin exactly once through the installer handoff`, () => {
+    const h = createHarness();
+    try {
+      const install = h.createFakeInstall({ manager, version: OLD_VERSION });
+      const newRoot = manager === 'ps1'
+        ? join(h.tempLocalAppData, 'native-gravity', `v${NEW_VERSION}`)
+        : join(h.tempHome, '.local', 'share', 'native-gravity', `v${NEW_VERSION}`);
+      const res = h.runUpdate(install, [], {
+        ...(manager === 'ps1' ? { LOCALAPPDATA: h.tempLocalAppData } : {}),
+        STUB_INSTALL_TARGET_ROOT: newRoot,
+        STUB_INSTALL_SOURCE_PATH: INSTALLER_SCRIPT,
+        STUB_INSTALL_VERSION: NEW_VERSION,
+      });
+      assert.equal(res.status, 0, `failed with stderr: ${res.stderr}`);
+      assert.equal(h.readInstallCalls().length, 1);
+
+      const pluginInstalls = h.readAgyCalls()
+        .map((call) => call.argv)
+        .filter((argv) => argv[0] === 'plugin' && argv[1] === 'install');
+      assert.deepEqual(pluginInstalls, [['plugin', 'install', newRoot]]);
+    } finally {
+      h.cleanup();
+    }
+  });
+}
 
 for (const manager of ['sh', 'ps1']) {
   test(`update via ${manager} install stops before reinstall when the installer fails`, () => {

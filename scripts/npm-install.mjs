@@ -374,6 +374,7 @@ function runReinstallChild(scriptPath, spawn = spawnSync, stderr = process.stder
 function runUpdate() {
   const result = runSelfUpdate();
   if (!result.ok) return result.status;
+  if (result.installMethod?.type === 'script') return 0;
   return runReinstallChild(result.scriptPath);
 }
 
