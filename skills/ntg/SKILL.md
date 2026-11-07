@@ -22,12 +22,19 @@ When invoked with `/ntg graph` (or when the user asks to view or visualize the p
 - **Do NOT** treat `graph` as a task or draft a plan.
 - Instead, run the packaged helper's `graph` subcommand:
   ```bash
-  node "<helper-path>" graph
+  node "<helper-path>" graph --pane
   ```
   (Where `<helper-path>` is resolved to `scripts/ntg-command.mjs` as described in [Resolving the Packaged Helper](#resolving-the-packaged-helper)).
+- `/ntg graph` opens a live DAG (`ntg-dag --watch --ledger <ledger>`) beside the user:
+  - **Inside herdr:** splits a pane running it.
+  - **Inside tmux:** splits a pane horizontally (`tmux split-window -h`).
+  - **In WSL / Windows / macOS / Linux:** opens a new terminal window (Windows Terminal / WSL `wt.exe`, macOS Terminal, Linux terminal emulator).
+  - **Fallback:** prints the graph once with a hint for live viewing.
+- `--pane` (always pass it from AGY) opens the pane even though `run_command` output is not a terminal.
+- In non-TTY environments without `--pane`, or when `--once` is supplied, it prints the graph once without opening a window/pane.
 - Forward optional flags if specified by the user:
-  - `--ledger <path>` to target a custom ledger path (defaults to `.ntg/ledger.json`)
-  - `--watch` to monitor the ledger and redraw on updates
+  - `--ledger <path>` to target a custom ledger path (defaults to `.ntg/ledger.json`).
+  - `--once` to print the graph once without opening a window/pane.
 
 ## Version Routing (`/ntg version`)
 
