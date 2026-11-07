@@ -34,11 +34,11 @@ bunx native-gravity
 ```
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sleegme/native-gravity/v1.1.0/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/sleegme/native-gravity/v1.1.1/scripts/install.sh | sh
 ```
 
 ```powershell
-irm https://raw.githubusercontent.com/sleegme/native-gravity/v1.1.0/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/sleegme/native-gravity/v1.1.1/scripts/install.ps1 | iex
 ```
 
 ## Usage
