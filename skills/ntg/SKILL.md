@@ -71,9 +71,13 @@ Check if `.ntg/ledger.json` already exists in the workspace.
    }
    ```
 2. **Present Plan & Request Confirmation:**
-   Display the drafted plan clearly in the conversation, explaining the milestones, acceptance criteria, and bounded scopes.
-   Ask the user:
-   > "Please review and confirm this plan to proceed with execution."
+   **Never show the raw plan JSON to the user.** The JSON is for the runner; the user approves a plain-language summary. Write it in the user's language, short enough to read in a few seconds:
+   - **What will happen:** one or two sentences stating the goal.
+   - **Steps:** one line per milestone, in everyday words (no ids, field names, or file-path lists unless the user must recognize them).
+   - **What changes / what stays untouched:** name anything deleted, overwritten, or installed, and anything explicitly protected. Call out irreversible actions (deletions, publishing) on their own line.
+   - **How we will know it worked:** one line.
+   End with a single plain question in the user's language asking whether to proceed (for Korean: "이대로 진행할까요?").
+   Show the JSON only if the user explicitly asks for it.
    **DO NOT** run implementation or initialize the ledger before receiving explicit user confirmation.
 3. **Execute upon Confirmation:**
    Once the user approves the plan:
