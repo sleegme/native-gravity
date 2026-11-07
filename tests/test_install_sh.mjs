@@ -386,7 +386,7 @@ test('scripts/install.sh documents versioned and main raw URLs in header', () =>
   const content = readFileSync(INSTALL_SH, 'utf8');
   assert.match(
     content,
-    /https:\/\/raw\.githubusercontent\.com\/sleegme\/native-gravity\/v1\.1\.0\/scripts\/install\.sh/,
+    /https:\/\/raw\.githubusercontent\.com\/sleegme\/native-gravity\/v1\.1\.1\/scripts\/install\.sh/,
     'must document v1.1.1 raw URL'
   );
   assert.match(
@@ -613,7 +613,7 @@ test('offline harness test: argument forwarding through scripts/install.sh', () 
     // --version forwarded
     const verRes = h.runInstallSh(['--version']);
     assert.equal(verRes.status, 0);
-    assert.match(verRes.stdout, /^1\.1\.0/);
+    assert.match(verRes.stdout, /^1\.1\.1/);
 
     // reinstall subcommand forwarded
     const reinstallRes = h.runInstallSh(['reinstall']);
@@ -637,7 +637,7 @@ test('scripts/install.ps1 consistency check and optional pwsh parse check', () =
   // Verify documented URLs
   assert.match(
     content,
-    /https:\/\/raw\.githubusercontent\.com\/sleegme\/native-gravity\/v1\.1\.0\/scripts\/install\.ps1/,
+    /https:\/\/raw\.githubusercontent\.com\/sleegme\/native-gravity\/v1\.1\.1\/scripts\/install\.ps1/,
     'must document v1.1.1 raw URL'
   );
   assert.match(
