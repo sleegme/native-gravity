@@ -858,6 +858,72 @@ runTest("4.7: restored completion requires criterion-covered Zen GO evidence (#2
   assert.throws(() => AuthoritativeLedger.fromJSON(state), InvariantViolationError);
 });
 
+runTest("4.8: pre-#211 ledger without the coverage marker restores and resumes (#211 compat)", () => {
+  const ledger = new AuthoritativeLedger(samplePlan());
+  ledger.delegate("M1");
+  const { result_ref } = ledger.receiveCandidate(sampleCandidate());
+  ledger.recordZenGo(sampleVerdict({ result_ref }));
+
+  // Rewrite the persisted GO into its pre-#211 shape: evidence that does not
+  // name each acceptance criterion, and no criteria_coverage_verified marker.
+  const state = ledger.toJSON();
+  const legacyVerification = {
+    ...state.verification.M1,
+    verification_evidence: ["Verified all test assertions passed"],
+  };
+  delete legacyVerification.criteria_coverage_verified;
+  state.verification.M1 = legacyVerification;
+  state._verification_history = state._verification_history.map((record) => {
+    const legacyRecord = { ...record, verification_evidence: ["Verified all test assertions passed"] };
+    delete legacyRecord.criteria_coverage_verified;
+    return legacyRecord;
+  });
+
+  const restored = AuthoritativeLedger.fromJSON(state);
+  assert.deepStrictEqual(restored.completed_milestones, ["M1"]);
+  assert.strictEqual(restored.verification.M1.verdict, "GO");
+
+  // The grandfathered completion still resumes project work.
+  const handoff = restored.delegate("M2");
+  assert.strictEqual(handoff.milestone_id, "M2");
+});
+
+runTest("4.9: new marker-bearing GO verdict lacking coverage still fails restore (#211 compat)", () => {
+  const ledger = new AuthoritativeLedger(samplePlan());
+  ledger.delegate("M1");
+  const { result_ref } = ledger.receiveCandidate(sampleCandidate());
+  ledger.recordZenGo(sampleVerdict({ result_ref }));
+
+  // Model a verdict written under the coverage rule (the marker new records
+  // carry) whose persisted evidence no longer covers every criterion.
+  const state = ledger.toJSON();
+  state.verification.M1 = {
+    ...state.verification.M1,
+    criteria_coverage_verified: true,
+    verification_evidence: [
+      { classification: "OBSERVED", criterion: "Runner resolves slugs", result: "observed" },
+    ],
+  };
+  assert.throws(
+    () => AuthoritativeLedger.fromJSON(state),
+    err => err instanceof InvariantViolationError && /uncovered/.test(err.message)
+  );
+
+  // Live promotion still rejects uncovered evidence before any record exists.
+  const live = new AuthoritativeLedger(samplePlan());
+  live.delegate("M1");
+  const liveRef = live.receiveCandidate(sampleCandidate()).result_ref;
+  assert.throws(
+    () => live.recordZenGo(sampleVerdict({
+      result_ref: liveRef,
+      verification_evidence: [
+        { classification: "OBSERVED", criterion: "Runner resolves slugs", result: "observed" },
+      ],
+    })),
+    UncoveredCriteriaError
+  );
+});
+
 // =============================================================================
 // Section 5: Blockers & Resolution
 // =============================================================================

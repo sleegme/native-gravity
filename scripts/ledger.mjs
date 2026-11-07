@@ -1670,6 +1670,10 @@ export class AuthoritativeLedger {
       verification_evidence: Array.isArray(verdictPacket.verification_evidence)
         ? [...verdictPacket.verification_evidence]
         : [verdictPacket.verification_evidence],
+      // Marks this GO as recorded under the #201 A6 criterion-coverage rule, so
+      // restore re-checks coverage for it. Pre-#211 records omit the field and
+      // are grandfathered on restore instead of blocking resume.
+      criteria_coverage_verified: true,
       is_stale: false,
       timestamp: new Date().toISOString(),
       details: Object.freeze({ ...verdictPacket }),
@@ -2132,11 +2136,16 @@ export class AuthoritativeLedger {
         );
       }
 
+      // #211 compat: GO records persisted before the #201 A6 coverage rule
+      // carry no criteria_coverage_verified marker. They remain valid authority
+      // for milestones already promoted, so restore accepts them as-is; only
+      // marker-bearing verdicts are re-checked against the current criteria.
+      const milestoneCriteria =
+        data.milestones.find((m) => m.id === completedId)?.acceptance_criteria ?? [];
       validateZenGoSemantics(ver, {
         expectedMilestone: completedId,
         expectedPlanVersion: data.plan_version,
-        expectedCriteria:
-          data.milestones.find((m) => m.id === completedId)?.acceptance_criteria ?? [],
+        expectedCriteria: ver.criteria_coverage_verified === true ? milestoneCriteria : undefined,
         errorClass: InvariantViolationError,
       });
 
