@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { buildSelfUpdateCommand, runSelfUpdate } from '../scripts/npm-install.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '..');
@@ -104,6 +105,7 @@ process.stdout.write('upgrade stub ok\\n');
 
 function createInstallStubScript() {
   return `#!/usr/bin/env node
+import { spawnSync } from 'node:child_process';
 import { appendFileSync, cpSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import process from 'node:process';
@@ -128,6 +130,8 @@ if (target && source && version) {
   mkdirSync(join(target, 'scripts'), { recursive: true });
   cpSync(source, join(target, 'scripts', 'npm-install.mjs'));
   writeFileSync(join(target, 'package.json'), JSON.stringify({ name: 'native-gravity', version }, null, 2) + '\\n');
+  const handoff = spawnSync(process.execPath, [join(target, 'scripts', 'npm-install.mjs')], { stdio: 'inherit', env: process.env });
+  process.exit(handoff.status ?? 1);
 }
 
 process.stdout.write('installer stub ok\\n');
@@ -432,6 +436,33 @@ test('update via irm install selects the PowerShell one-liner', () => {
 });
 
 for (const manager of ['sh', 'ps1']) {
+  test(`update via ${manager} install installs the plugin exactly once through the installer handoff`, () => {
+    const h = createHarness();
+    try {
+      const install = h.createFakeInstall({ manager, version: OLD_VERSION });
+      const newRoot = manager === 'ps1'
+        ? join(h.tempLocalAppData, 'native-gravity', `v${NEW_VERSION}`)
+        : join(h.tempHome, '.local', 'share', 'native-gravity', `v${NEW_VERSION}`);
+      const res = h.runUpdate(install, [], {
+        ...(manager === 'ps1' ? { LOCALAPPDATA: h.tempLocalAppData } : {}),
+        STUB_INSTALL_TARGET_ROOT: newRoot,
+        STUB_INSTALL_SOURCE_PATH: INSTALLER_SCRIPT,
+        STUB_INSTALL_VERSION: NEW_VERSION,
+      });
+      assert.equal(res.status, 0, `failed with stderr: ${res.stderr}`);
+      assert.equal(h.readInstallCalls().length, 1);
+
+      const pluginInstalls = h.readAgyCalls()
+        .map((call) => call.argv)
+        .filter((argv) => argv[0] === 'plugin' && argv[1] === 'install');
+      assert.deepEqual(pluginInstalls, [['plugin', 'install', newRoot]]);
+    } finally {
+      h.cleanup();
+    }
+  });
+}
+
+for (const manager of ['sh', 'ps1']) {
   test(`update via ${manager} install stops before reinstall when the installer fails`, () => {
     const h = createHarness();
     try {
@@ -451,3 +482,37 @@ for (const manager of ['sh', 'ps1']) {
     }
   });
 }
+
+test('win32 npm self-update spawns npm.cmd so the npm shim can execute', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-win32-self-update-'));
+  try {
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'native-gravity', version: '1.0.0' }) + '\n');
+    const scriptPath = join(dir, 'scripts', 'npm-install.mjs');
+    const spawned = [];
+    let stdout = '';
+    const result = runSelfUpdate({
+      scriptPath,
+      packageRoot: dir,
+      env: {},
+      home: dir,
+      platform: 'win32',
+      spawnSync: (cmd, args, options) => {
+        spawned.push({ cmd, args, shell: options.shell });
+        return { status: 0 };
+      },
+      stdout: { write: (text) => { stdout += text; } },
+      stderr: { write: () => {} },
+    });
+
+    assert.equal(result.ok, true);
+    // shell: true is required: Node >= 18.20 / 20.12 refuses to spawn .cmd without it (EINVAL).
+    assert.deepEqual(spawned, [{ cmd: 'npm.cmd', args: ['install', '-g', 'native-gravity@latest'], shell: true }]);
+    assert.match(stdout, /Upgrading native-gravity with npm: npm\.cmd install -g native-gravity@latest/);
+
+    assert.equal(buildSelfUpdateCommand('npm', 'native-gravity', {}, 'linux').cmd, 'npm');
+    assert.equal(buildSelfUpdateCommand('npm', 'native-gravity', {}, 'linux').shell, undefined);
+    assert.equal(buildSelfUpdateCommand('bun', 'native-gravity', {}, 'win32').cmd, 'bun');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

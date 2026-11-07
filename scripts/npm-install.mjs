@@ -22,7 +22,7 @@ function readPackageJson(root = packageRoot) {
 
 function getVersion(root = packageRoot) {
   const pkg = readPackageJson(root);
-  return pkg?.version || '1.1.0';
+  return pkg?.version || '0.0.0';
 }
 
 function getPackageName(root = packageRoot) {
@@ -234,14 +234,17 @@ function splitCommand(value) {
   return trimmed.split(/\s+/);
 }
 
-function buildSelfUpdateCommand(packageManager, packageName, env = process.env) {
+function buildSelfUpdateCommand(packageManager, packageName, env = process.env, platform = process.platform) {
   const packageSpec = `${packageName}@latest`;
   const args = packageManager === 'bun'
     ? ['add', '-g', packageSpec]
     : ['install', '-g', packageSpec];
   const override = env.NTG_SELF_UPDATE_CMD ? splitCommand(env.NTG_SELF_UPDATE_CMD) : null;
-  if (!override) return { cmd: packageManager, args };
-  return { cmd: override[0], args: [...override.slice(1), ...args] };
+  if (override) return { cmd: override[0], args: [...override.slice(1), ...args] };
+  // Node >= 18.20 / 20.12 refuses to spawn .cmd files without a shell (CVE-2024-27980).
+  // The args are fixed constants, so running npm.cmd through the shell is safe.
+  if (packageManager === 'npm' && platform === 'win32') return { cmd: 'npm.cmd', args, shell: true };
+  return { cmd: packageManager, args };
 }
 
 function scriptInstallOneLiner(shell) {
@@ -325,7 +328,7 @@ function runSelfUpdate(options = {}) {
   const isScriptInstall = installMethod.type === 'script';
   const command = isScriptInstall
     ? buildScriptInstallCommand(installMethod.shell, env)
-    : buildSelfUpdateCommand(installMethod.manager, packageName, env);
+    : buildSelfUpdateCommand(installMethod.manager, packageName, env, platform);
   const commandLine = [command.cmd, ...command.args].join(' ');
   const upgradeVia = isScriptInstall
     ? `${installMethod.shell === 'ps1' ? 'PowerShell' : 'curl'} installer: ${scriptInstallOneLiner(installMethod.shell)}`
@@ -333,7 +336,7 @@ function runSelfUpdate(options = {}) {
 
   stdout.write(`Upgrading ${packageName} with ${upgradeVia}\n`);
 
-  const result = spawn(command.cmd, command.args, { stdio: 'inherit', env });
+  const result = spawn(command.cmd, command.args, { stdio: 'inherit', env, shell: command.shell === true });
   if (result.error) {
     stderr.write(`Self-update failed: could not run '${command.cmd}': ${result.error.message}\n`);
     return { ok: false, status: 1 };
@@ -373,6 +376,7 @@ function runReinstallChild(scriptPath, spawn = spawnSync, stderr = process.stder
 function runUpdate() {
   const result = runSelfUpdate();
   if (!result.ok) return result.status;
+  if (result.installMethod?.type === 'script') return 0;
   return runReinstallChild(result.scriptPath);
 }
 

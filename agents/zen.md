@@ -59,7 +59,7 @@ packet directly to Steamroller with this shape:
   "result_ref": "received immutable candidate reference",
   "verdict": "GO",
   "verification_evidence": [
-    {"classification": "OBSERVED", "criterion": "criterion ID", "result": "inspected result"}
+    {"classification": "OBSERVED", "criterion": "exact acceptance criterion text", "result": "inspected result"}
   ]
 }
 ```
