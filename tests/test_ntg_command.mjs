@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import {
   DEFAULT_DAG_SCRIPT,
   DEFAULT_LEDGER,
+  DEFAULT_PACKAGE_JSON,
   DEFAULT_VNEXT_SCRIPT,
   resolveDagScript,
   resolveVnextScript,
@@ -440,7 +441,7 @@ test('direct CLI invocation: runs spawnSync on ntg-command.mjs with NTG_VNEXT_SC
     });
     assert.equal(badRes.status, 1);
     assert.match(badRes.stderr, /Unknown command: invalid-cmd/);
-    assert.match(badRes.stderr, /<init\|status\|run\|resume\|graph>/);
+    assert.match(badRes.stderr, /<init\|status\|run\|resume\|graph\|version>/);
     assert.match(badRes.stderr, /graph\s+\[--ledger <path>\]/);
   } finally {
     harness.cleanup();
@@ -502,9 +503,10 @@ test('help and invalid option handling', () => {
     stdio: 'pipe',
   });
   assert.equal(helpCode, 0);
-  assert.match(helpOut, /<init\|status\|run\|resume\|graph>/);
+  assert.match(helpOut, /<init\|status\|run\|resume\|graph\|version>/);
   assert.match(helpOut, /graph\s+\[--ledger <path>\]/);
   assert.match(helpOut, /--watch\s+Watch mode for graph/);
+  assert.match(helpOut, /version\s+Show native-gravity version/);
 
   // Missing arguments returns 1
   let errOut = '';
@@ -517,7 +519,7 @@ test('help and invalid option handling', () => {
     stdio: 'pipe',
   });
   assert.equal(emptyCode, 1);
-  assert.match(errOut, /<init\|status\|run\|resume\|graph>/);
+  assert.match(errOut, /<init\|status\|run\|resume\|graph\|version>/);
 
   // Incomplete options return 1
   const badLedgerCode = runNtgCommand(['status', '--ledger'], { stdio: 'pipe' });
@@ -525,4 +527,46 @@ test('help and invalid option handling', () => {
 
   const badPlanCode = runNtgCommand(['init', '--plan'], { stdio: 'pipe' });
   assert.equal(badPlanCode, 1);
+});
+
+test('version subcommand writes package.json version and exits 0', () => {
+  const pkg = JSON.parse(readFileSync(DEFAULT_PACKAGE_JSON, 'utf8'));
+
+  let out = '';
+  const code = runNtgCommand(['version'], {
+    stdout: {
+      write(chunk) {
+        out += chunk;
+      },
+    },
+    stdio: 'pipe',
+  });
+  assert.equal(code, 0);
+  assert.equal(out, `${pkg.version}\n`);
+});
+
+test('version subcommand direct CLI invocation prints package version and exits 0', () => {
+  const pkg = JSON.parse(readFileSync(DEFAULT_PACKAGE_JSON, 'utf8'));
+
+  const res = spawnSync(process.execPath, [COMMAND_SCRIPT, 'version'], {
+    encoding: 'utf8',
+  });
+  assert.equal(res.status, 0);
+  assert.equal(res.stdout, `${pkg.version}\n`);
+  assert.equal(res.stderr, '');
+});
+
+test('version subcommand handles missing or invalid package.json cleanly', () => {
+  let err = '';
+  const code = runNtgCommand(['version'], {
+    packageJsonPath: '/nonexistent/package.json',
+    stderr: {
+      write(chunk) {
+        err += chunk;
+      },
+    },
+    stdio: 'pipe',
+  });
+  assert.equal(code, 1);
+  assert.match(err, /Error reading package version:/);
 });

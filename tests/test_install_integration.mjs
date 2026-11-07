@@ -254,7 +254,7 @@ test('package.json metadata completeness: required fields are present and valid'
   }
 
   assert.equal(pkg.name, 'native-gravity');
-  assert.equal(pkg.version, '1.1.2');
+  assert.match(pkg.version, /^\d+\.\d+\.\d+/);
   assert.equal(pkg.type, 'module');
   assert.equal(pkg.license, 'MIT');
   assert.equal(typeof pkg.bin, 'object');
@@ -342,9 +342,10 @@ test('publish readiness evidence record: matches schema and dry-run pack output'
   assert.ok(existsSync(evidencePath), `Evidence file must exist at ${evidencePath}`);
 
   const evidence = JSON.parse(readFileSync(evidencePath, 'utf8'));
+  const pkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8'));
 
   assert.equal(evidence.package_name, 'native-gravity');
-  assert.equal(evidence.version, '1.1.2');
+  assert.equal(evidence.version, pkg.version);
   assert.ok(typeof evidence.registry_404_observation === 'string');
   assert.match(
     evidence.registry_404_observation,

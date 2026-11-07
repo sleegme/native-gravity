@@ -3,13 +3,14 @@
  * ntg-command.mjs — Packaged helper / CLI entry point for native-gravity runner.
  *
  * Resolves ntg-vnext.mjs and dag-view.mjs relative to its own installation
- * directory and invokes ntg-vnext commands (init, status, run, resume) or
- * dag-view (graph) with argv arrays using child_process spawnSync (no shell
- * concatenation). Default ledger is .ntg/ledger.json if --ledger is omitted.
- * Never writes ledger contents directly.
+ * directory and invokes ntg-vnext commands (init, status, run, resume),
+ * dag-view (graph), or prints the installed version (version) with argv
+ * arrays using child_process spawnSync (no shell concatenation). Default
+ * ledger is .ntg/ledger.json if --ledger is omitted. Never writes ledger
+ * contents directly.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +19,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_VNEXT_SCRIPT = resolve(__dirname, 'ntg-vnext.mjs');
 export const DEFAULT_DAG_SCRIPT = resolve(__dirname, 'dag-view.mjs');
 export const DEFAULT_LEDGER = '.ntg/ledger.json';
+export const DEFAULT_PACKAGE_JSON = resolve(__dirname, '..', 'package.json');
 
 export function resolveVnextScript() {
   return process.env.NTG_VNEXT_SCRIPT || DEFAULT_VNEXT_SCRIPT;
@@ -27,7 +29,7 @@ export function resolveDagScript() {
   return process.env.NTG_DAG_SCRIPT || DEFAULT_DAG_SCRIPT;
 }
 
-const USAGE = `Usage: ntg-command <init|status|run|resume|graph> [options]
+const USAGE = `Usage: ntg-command <init|status|run|resume|graph|version> [options]
 
 Commands:
   init    --plan <path> [--ledger <path>]   Initialize ledger and plan
@@ -35,6 +37,7 @@ Commands:
   run     [--ledger <path>] [options]       Run runner milestones
   resume  [--ledger <path>] [options]       Check status and resume execution
   graph   [--ledger <path>] [--watch]       Display milestone dependency DAG
+  version                                   Show native-gravity version
 
 Options:
   --ledger <path>   Ledger path (default: .ntg/ledger.json)
@@ -70,6 +73,7 @@ function executeVnext(vnextScript, args, spawn, options, spawnEnv, errStream) {
  * @param {string|Array} [options.stdio] Stdio mode ('inherit', 'pipe', 'ignore')
  * @param {object} [options.stderr] Stream for error output
  * @param {object} [options.stdout] Stream for standard output
+ * @param {string} [options.packageJsonPath] Override package.json path
  * @returns {number} Exit code (0 on success, nonzero on failure)
  */
 export function runNtgCommand(argv = [], options = {}) {
@@ -96,9 +100,21 @@ export function runNtgCommand(argv = [], options = {}) {
     return 0;
   }
 
-  if (!['init', 'status', 'run', 'resume', 'graph'].includes(command)) {
+  if (!['init', 'status', 'run', 'resume', 'graph', 'version'].includes(command)) {
     errStream.write(`Unknown command: ${command}\n\n${USAGE}`);
     return 1;
+  }
+
+  if (command === 'version') {
+    const pkgPath = options.packageJsonPath || DEFAULT_PACKAGE_JSON;
+    try {
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+      outStream.write(`${pkg.version}\n`);
+      return 0;
+    } catch (err) {
+      errStream.write(`Error reading package version: ${err.message}\n`);
+      return 1;
+    }
   }
 
   let ledger = DEFAULT_LEDGER;
