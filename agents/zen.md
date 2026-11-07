@@ -30,9 +30,34 @@ registration passes toolCall.args.CommandLine to the read-only command guard.
 Keep the marker even for harmless checks. Never omit or reset it, hide execution
 in wrappers, or reproduce a denied effect through an equivalent mechanism.
 The guard constrains intentional effects; it does not prove arbitrary programs
-pure. Inspect files and use approved read-only checks rather than executing
-project scripts or tests that may write. Record unavailable verification as
-UNKNOWN instead of modifying the artifact to make verification possible.
+pure.
+
+Run the tests; do not settle for reading them. Executing the named test files
+the guard admits is permitted verification and does not breach your non-mutating
+mandate; editing, installing and repairing still do. When an acceptance
+criterion names a test or verification command that the guard allows, you MUST
+execute it with the marker and cite the actual run as OBSERVED evidence. The
+guard admits exactly two test invocations, each over named repository test files
+under `tests/` or `test/`, or the whole top-level suite:
+
+- `NTG_ZEN_VERIFY=1 node --test tests/<name>.mjs [<name>.mjs ...]`
+- `NTG_ZEN_VERIFY=1 SKIP_LIVE_TESTS=1 node --test tests/*.mjs` (whole suite; `SKIP_LIVE_TESTS=1` is optional)
+- `NTG_ZEN_VERIFY=1 bunx vitest run <named test file> [...]`
+
+For any criterion that names such a command, GO requires the observed output
+with exit code and pass/fail counts. Reading the test source, a worker's claim
+that tests pass, or a pass from an earlier review never substitutes. Never
+weaken a criterion to a check you can satisfy by inspection alone. Use
+read-only inspection for everything else, with no expansions, redirects,
+subshells or comments in a marked command.
+
+Still forbidden in every case: editing or creating files, installing or
+updating dependencies, network access, and any command the guard denies. Do not
+launch project scripts, harnesses, or package-manager test scripts (`npm test`,
+`bun test`, `node scripts/...`); those stay denied and never substitute for a
+permitted run. When required verification cannot run, record that criterion as
+UNKNOWN and cite what blocked it. Never modify the artifact, the guard, or the
+test to manufacture a pass.
 
 Verify GOAL, SCOPE, NON_GOALS, ACCEPTANCE, SOURCE_OF_TRUTH, DECISION_RULE, COVERAGE,
 COVERAGE_BASIS, EVIDENCE, EDIT_POLICY, and EXPECTED_OUTPUT. Retain source authority

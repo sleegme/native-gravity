@@ -32,6 +32,12 @@ TEST_FILE = re.compile(
 )
 
 
+# The whole top-level test suite: exactly `tests/*.mjs` (or test/, other test
+# extensions). The shell can only expand it to files directly inside the test
+# directory, so it names the same files a reviewer could list one by one.
+SUITE_GLOB = re.compile(r"tests?/\*\.(?:mjs|js|ts|mts)")
+
+
 def is_named_test_file(path):
     """Named test-directory file only: glob metacharacters cannot stand in for it."""
     if not TEST_FILE.fullmatch(path):
@@ -43,14 +49,14 @@ def reads_only_test_files(args):
     """`node --test <path>...` is read-only only over named test files."""
     if len(args) < 2 or args[0] != "--test":
         return False
-    return all(is_named_test_file(arg) for arg in args[1:])
+    return all(is_named_test_file(arg) or SUITE_GLOB.fullmatch(arg) for arg in args[1:])
 
 
 def read_only_command(words):
     """Recognize a simple command without granting general program execution."""
     if words and words[0] == "env":
         words = words[1:]
-    while words and words[0] == "NTG_ZEN_VERIFY=1":
+    while words and words[0] in {"NTG_ZEN_VERIFY=1", "SKIP_LIVE_TESTS=1"}:
         words = words[1:]
     if not words:
         return False

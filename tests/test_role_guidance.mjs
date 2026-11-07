@@ -19,7 +19,9 @@ const ROLE_FILES = [
 
 // Base byte lengths and SHA-256 hashes computed from commit 2ff0083,
 // except agents/zen.md and rules/orchestration.md recomputed after PR #169
-// legitimately changed their base (Zen -> Claude Opus 5.5 High).
+// legitimately changed their base (Zen -> Claude Opus 5.5 High), and
+// agents/zen.md recomputed again so Zen must run the guard-allowed named test
+// files instead of avoiding "tests that may write".
 // Bulldozer and orchestration baselines reflect the temporary Excavator
 // disablement (#173) and its follow-up TEMPORARY headless path
 // (scripts/excavator-agy.mjs, exact Argon High via run_command).
@@ -47,8 +49,8 @@ const BASE_PREFIXES = {
     sha256: "42cd5172d1a201484814fa67ecf58399efc4f878ec55f92b34a3cdbc01b180e5",
   },
   "agents/zen.md": {
-    length: 3328,
-    sha256: "22427f7f64507e7a70d2e76e5581ad90534d359faad814dd74ffc38d4e71860d",
+    length: 4790,
+    sha256: "364c9002bd1e116e22392eb25627c5703b8cbb06d8302b769c19cae49765e772",
   },
   "rules/orchestration.md": {
     length: 18524,
@@ -130,3 +132,4 @@ test("Tool authority: non-run_command roles omit wf and ctx tools from guidance"
     }
   }
 });
+
