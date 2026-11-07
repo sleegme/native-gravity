@@ -4,7 +4,7 @@
 
 Native Gravity strictly decouples three distinct concepts across all documentation, metadata, and communications:
 
-1. **Product Version (`A.B.C`)**: The canonical release number identifying the codebase state (e.g., `1.0.0`).
+1. **Product Version (`MAJOR.MINOR.PATCH`)**: The canonical release number identifying the codebase state (e.g., `1.1.2`).
 2. **Release Maturity**: The operational stability tier of the release (`alpha`, `beta`, `stable`).
    - SemVer prerelease identifiers (such as `1.0.0-alpha.3` or `1.0.0-beta`) are explicitly forbidden.
 3. **Runtime Compatibility**: The validated host versions of Google Antigravity (AGY) alongside their validation status (e.g., `AGY 1.3.3 — validated`).
@@ -13,20 +13,17 @@ These three dimensions must never be conflated into a single composite string (s
 
 ## Canonical Version Source of Truth
 
-- The canonical source of truth for the product version is the `VERSION` file at the repository root.
-- The file contains a single line with the `A.B.C` version followed by a newline (e.g., `1.0.0`).
-- The Antigravity plugin schema (`https://antigravity.google/schemas/v1/plugin.json`) does not officially define or enforce a `version` field in `plugin.json`. Consequently, `plugin.json` is not modified and does not store product version information. All automation, documentation, and release processes read `VERSION` as the sole authoritative reference.
+- The canonical source of truth for the product version is `package.json` at the repository root (`"version"` field).
+- Every other copy is generated or checked against it via `scripts/sync-version.mjs`.
+- The Antigravity plugin schema (`https://antigravity.google/schemas/v1/plugin.json`) does not officially define or enforce a `version` field in `plugin.json`. Consequently, `plugin.json` is not modified and does not store product version information.
 
-## Version Format: `A.B.C` (Non-SemVer)
+## Version Format: Semantic Versioning (MAJOR.MINOR.PATCH)
 
-Native Gravity uses an `A.B.C` progression model tailored to native agent harness layers:
+Native Gravity follows Semantic Versioning (`MAJOR.MINOR.PATCH`):
 
-- **A — Release Version (Major generational architecture / paradigm shift)**:
-  Signifies major architectural overhauls or fundamental paradigm shifts in agent orchestration (e.g., moving from early experimental single-host structures to multi-primary peer topologies, `0.x.x` -> `1.0.0`).
-- **B — Feature Patch (Feature expansion & primary capability)**:
-  Signifies new primary modes, new worker classes, task graph additions, or substantial orchestration capabilities (e.g., introducing Excavator autonomous repair, Piledriver planner, or Puma quick-worker path, `1.0.x` -> `1.1.0`).
-- **C — Minor Patch (Harness refinement & maintenance)**:
-  Signifies harness contract refinements, agent prompt corrections, runtime hook bugfixes, role gate adjustments, host runtime compatibility updates, or documentation updates (e.g., `1.0.0` -> `1.0.1`).
+- **MAJOR**: user must change something (existing ledger/plan cannot resume, command renamed/removed, install method or minimum AGY/Node changes; migration notes required).
+- **MINOR**: new capability (new command/option, new role, model placement change, workflow improvement).
+- **PATCH**: works as intended (bug fixes, verification tightening noted in changelog, wording, internal cleanup).
 
 ## Release Maturity Stages
 
@@ -35,6 +32,13 @@ Release maturity reflects stability and operational confidence independent of th
 - **alpha**: Architecture or harness contracts under active iteration; initial runtime validations underway; behavioral guards may be refined.
 - **beta**: Feature set frozen for the cycle; primary modes, worker delegation, and role gates validated; regression suites stable.
 - **stable**: Fully verified end-to-end against supported host runtimes; behavioral hooks and role boundaries hardened for general production use.
+
+## Release Steps
+
+When changes merge to `main`, release-please maintains a Release PR with updated SemVer version in `package.json`, `.release-please-manifest.json`, `CHANGELOG.md`, and runs the post-bump version sync (`scripts/sync-version.mjs`) to keep pinned copies in sync.
+
+- **Step 1: Review and merge the release PR on GitHub.** Release-please tags the commit and creates the GitHub Release.
+- **Step 2: Release to npm.** Owner runs `npm publish` locally with web approval (manual, owner-approved step using web authentication; `npm publish` is never automated in CI and no npm tokens are stored).
 
 ## Runtime Compatibility Matrix
 

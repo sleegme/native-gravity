@@ -19,6 +19,12 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '..');
 const INSTALLER_SCRIPT = join(REPO_ROOT, 'scripts', 'npm-install.mjs');
 const INSTALLER_SOURCE = readFileSync(INSTALLER_SCRIPT, 'utf8');
+const OLD_VERSION = '0.0.1-old';
+const NEW_VERSION = '0.0.2-new';
+
+function escapeRegExp(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 function createStubAgyScript() {
   return `#!/usr/bin/env node
@@ -161,7 +167,7 @@ function createHarness() {
   const upgradeLog = join(tempDir, 'upgrade-invocations.jsonl');
   const installLog = join(tempDir, 'install-invocations.jsonl');
 
-  function createFakeInstall({ manager = 'npm', packageName = 'native-gravity', version = '1.1.2', alias = false } = {}) {
+  function createFakeInstall({ manager = 'npm', packageName = 'native-gravity', version = OLD_VERSION, alias = false } = {}) {
     let root;
     if (manager === 'bun') {
       root = join(tempHome, '.bun', 'install', 'global', 'node_modules', packageName);
@@ -242,10 +248,10 @@ function createHarness() {
 test('update via bun global install runs bun add -g and prints old -> new version', () => {
   const h = createHarness();
   try {
-    const install = h.createFakeInstall({ manager: 'bun', version: '1.1.2' });
+    const install = h.createFakeInstall({ manager: 'bun', version: OLD_VERSION });
     const res = h.runUpdate(install, [], {
       STUB_UPGRADE_PACKAGE_JSON: install.pkgPath,
-      STUB_UPGRADE_NEW_VERSION: '1.1.3',
+      STUB_UPGRADE_NEW_VERSION: NEW_VERSION,
     });
     assert.equal(res.status, 0, `failed with stderr: ${res.stderr}`);
 
@@ -255,7 +261,10 @@ test('update via bun global install runs bun add -g and prints old -> new versio
     assert.equal(upgrades[0].env_home, h.tempHome);
 
     assert.match(res.stdout, /Upgrading native-gravity with bun: .* add -g native-gravity@latest/);
-    assert.match(res.stdout, /Updated native-gravity 1\.1\.2 -> 1\.1\.3/);
+    assert.match(
+      res.stdout,
+      new RegExp(`Updated native-gravity ${escapeRegExp(OLD_VERSION)} -> ${escapeRegExp(NEW_VERSION)}`)
+    );
 
     const calls = h.readAgyCalls();
     assert.deepEqual(calls.map((call) => call.argv), [
@@ -272,10 +281,10 @@ test('update via bun global install runs bun add -g and prints old -> new versio
 test('update via npm global install runs npm install -g and prints old -> new version', () => {
   const h = createHarness();
   try {
-    const install = h.createFakeInstall({ manager: 'npm', version: '1.1.2' });
+    const install = h.createFakeInstall({ manager: 'npm', version: OLD_VERSION });
     const res = h.runUpdate(install, [], {
       STUB_UPGRADE_PACKAGE_JSON: install.pkgPath,
-      STUB_UPGRADE_NEW_VERSION: '2.0.0',
+      STUB_UPGRADE_NEW_VERSION: NEW_VERSION,
     });
     assert.equal(res.status, 0, `failed with stderr: ${res.stderr}`);
 
@@ -283,7 +292,10 @@ test('update via npm global install runs npm install -g and prints old -> new ve
     assert.equal(upgrades.length, 1);
     assert.deepEqual(upgrades[0].argv, ['install', '-g', 'native-gravity@latest']);
     assert.match(res.stdout, /Upgrading native-gravity with npm: .* install -g native-gravity@latest/);
-    assert.match(res.stdout, /Updated native-gravity 1\.1\.2 -> 2\.0\.0/);
+    assert.match(
+      res.stdout,
+      new RegExp(`Updated native-gravity ${escapeRegExp(OLD_VERSION)} -> ${escapeRegExp(NEW_VERSION)}`)
+    );
 
     const calls = h.readAgyCalls();
     assert.equal(calls.length, 4);
@@ -362,20 +374,23 @@ test('update re-spawns the freshly installed CLI with reinstall instead of old i
 test('update via curl install re-runs the sh installer and reinstalls from the new version', () => {
   const h = createHarness();
   try {
-    const install = h.createFakeInstall({ manager: 'sh', version: '1.1.2' });
-    const newRoot = join(h.tempHome, '.local', 'share', 'native-gravity', 'v1.1.3');
+    const install = h.createFakeInstall({ manager: 'sh', version: OLD_VERSION });
+    const newRoot = join(h.tempHome, '.local', 'share', 'native-gravity', `v${NEW_VERSION}`);
     const res = h.runUpdate(install, [], {
       NTG_INSTALL_SH_CMD: `${process.execPath} ${h.installStubPath}`,
       NTG_INSTALL_PS1_CMD: `${process.execPath} ${h.wrongInstallStubPath}`,
       STUB_INSTALL_TARGET_ROOT: newRoot,
       STUB_INSTALL_SOURCE_PATH: INSTALLER_SCRIPT,
-      STUB_INSTALL_VERSION: '1.1.3',
+      STUB_INSTALL_VERSION: NEW_VERSION,
     });
     assert.equal(res.status, 0, `failed with stderr: ${res.stderr}`);
     assert.doesNotMatch(res.stderr, /wrong installer path selected/);
     assert.equal(h.readInstallCalls().length, 1);
     assert.match(res.stdout, /Upgrading native-gravity with curl installer: curl -fsSL \S+install\.sh \| sh/);
-    assert.match(res.stdout, /Updated native-gravity 1\.1\.2 -> 1\.1\.3/);
+    assert.match(
+      res.stdout,
+      new RegExp(`Updated native-gravity ${escapeRegExp(OLD_VERSION)} -> ${escapeRegExp(NEW_VERSION)}`)
+    );
 
     const calls = h.readAgyCalls();
     assert.equal(calls.length, 4);
@@ -389,21 +404,24 @@ test('update via curl install re-runs the sh installer and reinstalls from the n
 test('update via irm install selects the PowerShell one-liner', () => {
   const h = createHarness();
   try {
-    const install = h.createFakeInstall({ manager: 'ps1', version: '1.1.2' });
-    const newRoot = join(h.tempLocalAppData, 'native-gravity', 'v1.1.3');
+    const install = h.createFakeInstall({ manager: 'ps1', version: OLD_VERSION });
+    const newRoot = join(h.tempLocalAppData, 'native-gravity', `v${NEW_VERSION}`);
     const res = h.runUpdate(install, [], {
       LOCALAPPDATA: h.tempLocalAppData,
       NTG_INSTALL_SH_CMD: `${process.execPath} ${h.wrongInstallStubPath}`,
       NTG_INSTALL_PS1_CMD: `${process.execPath} ${h.installStubPath}`,
       STUB_INSTALL_TARGET_ROOT: newRoot,
       STUB_INSTALL_SOURCE_PATH: INSTALLER_SCRIPT,
-      STUB_INSTALL_VERSION: '1.1.3',
+      STUB_INSTALL_VERSION: NEW_VERSION,
     });
     assert.equal(res.status, 0, `failed with stderr: ${res.stderr}`);
     assert.doesNotMatch(res.stderr, /wrong installer path selected/);
     assert.equal(h.readInstallCalls().length, 1);
     assert.match(res.stdout, /Upgrading native-gravity with PowerShell installer: irm \S+install\.ps1 \| iex/);
-    assert.match(res.stdout, /Updated native-gravity 1\.1\.2 -> 1\.1\.3/);
+    assert.match(
+      res.stdout,
+      new RegExp(`Updated native-gravity ${escapeRegExp(OLD_VERSION)} -> ${escapeRegExp(NEW_VERSION)}`)
+    );
 
     const calls = h.readAgyCalls();
     assert.equal(calls.length, 4);
@@ -417,7 +435,7 @@ for (const manager of ['sh', 'ps1']) {
   test(`update via ${manager} install stops before reinstall when the installer fails`, () => {
     const h = createHarness();
     try {
-      const install = h.createFakeInstall({ manager, version: '1.1.2' });
+      const install = h.createFakeInstall({ manager, version: OLD_VERSION });
       const res = h.runUpdate(install, [], {
         ...(manager === 'ps1' ? { LOCALAPPDATA: h.tempLocalAppData } : {}),
         STUB_INSTALL_EXIT: '7',

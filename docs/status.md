@@ -2,7 +2,7 @@
 
 [한국어](ko/status.md) · [Usage](usage.md) · [Internals](internals.md)
 
-- **Native Gravity**: 1.1.0
+- **Native Gravity**: 1.1.2
 - **Status**: alpha
 - **Compatibility**:
   - AGY 1.3.3: validated (runner live probes: #134, #138; delegation probes: #113/#56; Instinct NEEDS_ALT live call: #20)

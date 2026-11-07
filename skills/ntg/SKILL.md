@@ -5,7 +5,7 @@ description: Orchestrates multi-step development tasks with Native Gravity vNext
 
 # Native Gravity Task Entry Point (`/ntg`)
 
-Use this skill when the user invokes `/ntg <task>`, `/ntg graph`, or asks Native Gravity to execute a multi-step task or view the progress graph.
+Use this skill when the user invokes `/ntg <task>`, `/ntg graph`, `/ntg version`, or asks Native Gravity to execute a multi-step task, view the progress graph, or check the installed version.
 
 ## Responsibilities & Guardrails
 
@@ -28,6 +28,16 @@ When invoked with `/ntg graph` (or when the user asks to view or visualize the p
 - Forward optional flags if specified by the user:
   - `--ledger <path>` to target a custom ledger path (defaults to `.ntg/ledger.json`)
   - `--watch` to monitor the ledger and redraw on updates
+
+## Version Routing (`/ntg version`)
+
+When invoked with `/ntg version` (or when the user asks to view or check the installed Native Gravity version):
+- **Do NOT** treat `version` as a task or draft a plan.
+- Instead, run the packaged helper's `version` subcommand:
+  ```bash
+  node "<helper-path>" version
+  ```
+  (Where `<helper-path>` is resolved to `scripts/ntg-command.mjs` as described in [Resolving the Packaged Helper](#resolving-the-packaged-helper)).
 
 ## Step 1: Check Project State
 
