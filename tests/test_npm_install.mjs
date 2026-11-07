@@ -220,12 +220,12 @@ test('fresh install: install command uninstalls first, then installs, then verif
   }
 });
 
-test('upgrade: reinstall and update commands execute unconditional uninstall then install', () => {
-  for (const cmd of ['reinstall', 'update']) {
+test('upgrade: reinstall and update --no-self-update execute unconditional uninstall then install', () => {
+  for (const args of [['reinstall'], ['update', '--no-self-update']]) {
     const h = createHarness();
     try {
-      const res = h.runInstaller([cmd]);
-      assert.equal(res.status, 0, `cmd ${cmd} failed with stderr: ${res.stderr}`);
+      const res = h.runInstaller(args);
+      assert.equal(res.status, 0, `args ${args.join(' ')} failed with stderr: ${res.stderr}`);
 
       const calls = h.readInvocations();
       assert.equal(calls.length, 4);
