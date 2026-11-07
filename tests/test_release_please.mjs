@@ -78,6 +78,7 @@ function createFixture() {
   mkdirSync(join(tempDir, 'scripts'), { recursive: true });
   mkdirSync(join(tempDir, 'docs', 'ko'), { recursive: true });
   mkdirSync(join(tempDir, 'tests'), { recursive: true });
+  mkdirSync(join(tempDir, 'packages', 'ntg-alias'), { recursive: true });
 
   const filesToCopy = [
     'package.json',
@@ -91,6 +92,7 @@ function createFixture() {
     'docs/status.md',
     'docs/ko/status.md',
     'tests/publish-readiness-evidence.json',
+    'packages/ntg-alias/package.json',
   ];
 
   for (const f of filesToCopy) {
@@ -215,11 +217,119 @@ describe('release-please GitHub Actions workflow (.github/workflows/release-plea
     }
   });
 
-  it('contains NO npm publish commands and NO npm tokens', () => {
+  it('contains NO npm tokens and no publish outside the release_created-gated publish job', () => {
     const raw = readFileSync(WORKFLOW_PATH, 'utf8');
-    assert.doesNotMatch(raw, /\bnpm\s+publish\b/, 'workflow must not contain npm publish');
     assert.doesNotMatch(raw, /\bNODE_AUTH_TOKEN\b/, 'workflow must not contain NODE_AUTH_TOKEN');
     assert.doesNotMatch(raw, /\bNPM_TOKEN\b/, 'workflow must not contain NPM_TOKEN');
+
+    const doc = parseYamlSafely(raw);
+    if (yamlParse && doc.jobs) {
+      for (const [jobName, job] of Object.entries(doc.jobs)) {
+        for (const step of job.steps || []) {
+          const runsPublish = typeof step.run === 'string' && /\bnpm\s+publish\b/.test(step.run);
+          if (runsPublish) {
+            assert.equal(
+              jobName,
+              'publish',
+              `npm publish must only run in the "publish" job, found in "${jobName}"`
+            );
+          }
+        }
+      }
+      assert.ok(doc.jobs.publish, 'workflow must define a "publish" job');
+    } else {
+      assert.match(raw, /\bnpm\s+publish\b/, 'workflow must publish to npm');
+    }
+  });
+
+  it('gates the publish job on release_created == "true" with id-token: write', () => {
+    const raw = readFileSync(WORKFLOW_PATH, 'utf8');
+    const doc = parseYamlSafely(raw);
+    assert.ok(yamlParse, 'yaml package must be available for structural workflow assertions');
+
+    const publishJob = doc.jobs?.publish;
+    assert.ok(publishJob, 'workflow must define a "publish" job');
+
+    assert.match(
+      String(publishJob.if),
+      /release_created\s*==\s*'true'/,
+      'publish job must be gated on release_created == "true"'
+    );
+    const needs = Array.isArray(publishJob.needs) ? publishJob.needs : [publishJob.needs];
+    assert.ok(needs.includes('release-please'), 'publish job must depend on the release-please job');
+
+    const publishPerms = publishJob.permissions ?? {};
+    assert.equal(publishPerms['id-token'], 'write', 'publish job needs id-token: write for OIDC');
+    assert.equal(publishPerms['contents'], 'read', 'publish job needs only contents: read');
+
+    const releasePleaseJob = doc.jobs['release-please'];
+    const rpPerms = releasePleaseJob.permissions;
+    if (rpPerms) {
+      assert.equal(rpPerms['id-token'], undefined, 'release-please job must not request id-token');
+      assert.equal(rpPerms['contents'], 'write', 'release-please job keeps contents: write');
+      assert.equal(rpPerms['pull-requests'], 'write', 'release-please job keeps pull-requests: write');
+    } else {
+      assert.equal(
+        doc.permissions?.['id-token'],
+        undefined,
+        'workflow-level permissions must not grant id-token to release-please'
+      );
+    }
+  });
+
+  it('publishes both packages with Node 24, npm >= 11.5.1, tests, and a version check', () => {
+    const raw = readFileSync(WORKFLOW_PATH, 'utf8');
+    const doc = parseYamlSafely(raw);
+    assert.ok(yamlParse, 'yaml package must be available for structural workflow assertions');
+
+    const steps = doc.jobs?.publish?.steps ?? [];
+    const runText = steps
+      .map(s => (typeof s.run === 'string' ? s.run : ''))
+      .join('\n');
+
+    const setupNode = steps.find(s => typeof s.uses === 'string' && s.uses.startsWith('actions/setup-node'));
+    assert.ok(setupNode, 'publish job must use actions/setup-node');
+    assert.equal(String(setupNode.with?.['node-version']), '24', 'publish job must use Node 24');
+    assert.equal(
+      String(setupNode.with?.['registry-url']),
+      'https://registry.npmjs.org',
+      'setup-node must declare the npm registry URL'
+    );
+    assert.equal(setupNode.with?.['package-manager-cache'], false, 'setup-node must disable package-manager-cache');
+
+    assert.ok(
+      steps.some(s => typeof s.uses === 'string' && s.uses.startsWith('actions/checkout')),
+      'publish job must check out the repository'
+    );
+    assert.match(runText, /npm\s+(i|install)\s+-g\s+npm@latest/, 'publish job must upgrade npm to latest');
+    assert.match(runText, /node\s+--test\s+tests\/\*\.mjs/, 'publish job must run the node test suite');
+    assert.match(runText, /node\s+scripts\/sync-version\.mjs\s+--check/, 'publish job must verify pinned versions');
+
+    const testStep = steps.find(s => typeof s.run === 'string' && /node\s+--test\s+tests\/\*\.mjs/.test(s.run));
+    assert.equal(String(testStep.env?.SKIP_LIVE_TESTS), '1', 'test step must set SKIP_LIVE_TESTS=1');
+
+    const publishSteps = steps.filter(s => typeof s.run === 'string' && /\bnpm\s+publish\b/.test(s.run));
+    assert.equal(publishSteps.length, 2, 'publish job must publish exactly the main package and the alias package');
+    assert.match(publishSteps[0].run, /^npm publish\b/, 'main package must publish first');
+    assert.match(
+      publishSteps[1].run,
+      /npm\s+publish\s+--access\s+public/,
+      'alias package must publish with --access public'
+    );
+    assert.equal(
+      publishSteps[1]['working-directory'],
+      'packages/ntg-alias',
+      'alias publish step must run in packages/ntg-alias'
+    );
+
+    const npmCiSteps = steps.filter(s => typeof s.run === 'string' && /\bnpm\s+ci\b/.test(s.run));
+    for (const step of npmCiSteps) {
+      assert.match(
+        String(step.if),
+        /hashFiles\('package-lock\.json'\)/,
+        'npm ci must be skipped when no lockfile exists'
+      );
+    }
   });
 
   it('contains post-bump version sync step "node scripts/sync-version.mjs"', () => {
@@ -281,11 +391,25 @@ describe('docs/versioning.md policy and lifecycle contract', () => {
     );
   });
 
-  it('documents release steps: merge release PR -> owner runs npm publish with web approval', () => {
+  it('documents release steps: merge release PR -> automatic npm publish via Trusted Publishing', () => {
     const content = readFileSync(VERSIONING_DOC_PATH, 'utf8');
     assert.match(content, /merge.*release PR/i, 'must document reviewing and merging the release PR');
-    assert.match(content, /npm publish.*web approval/i, 'must document owner running npm publish with web approval');
-    assert.match(content, /manual/i, 'must document manual owner approval step');
+    assert.match(content, /npm publish.*automatically/i, 'must document automatic npm publish');
+    assert.match(content, /Trusted Publishing/i, 'must document npm Trusted Publishing');
+    assert.match(content, /release-please\.yml/, 'must name the calling workflow file');
+    assert.doesNotMatch(content, /web approval/i, 'must not describe manual web-approval publishing');
+    assert.doesNotMatch(content, /is never automated in CI/i, 'must not claim npm publish is never automated');
+  });
+
+  it('documents one-time Trusted Publisher setup for both packages', () => {
+    const content = readFileSync(VERSIONING_DOC_PATH, 'utf8');
+    assert.match(content, /One-Time npm Setup/i, 'must contain a one-time npm setup section');
+    assert.match(content, /`native-gravity`/, 'must name the native-gravity package');
+    assert.match(content, /@sleeg\/ntg/, 'must name the @sleeg/ntg alias package');
+    assert.match(content, /sleegme/, 'must specify the owner');
+    assert.match(content, /native-gravity/, 'must specify the repository');
+    assert.match(content, /release-please\.yml/, 'must specify the workflow filename');
+    assert.match(content, /npm publish/, 'must specify the allowed action');
   });
 });
 
@@ -340,6 +464,10 @@ describe('release-please version-bump path verification in isolated fixture', ()
 
       const updatedEvidence = JSON.parse(fixture.readFile('tests/publish-readiness-evidence.json'));
       assert.equal(updatedEvidence.version, BUMPED_VERSION);
+
+      const aliasPkg = JSON.parse(fixture.readFile('packages/ntg-alias/package.json'));
+      assert.equal(aliasPkg.version, BUMPED_VERSION);
+      assert.equal(aliasPkg.dependencies['native-gravity'], `^${BUMPED_VERSION}`);
 
       const installSh = fixture.readFile('scripts/install.sh');
       assert.ok(installSh.includes(BUMPED_REF), `install.sh must contain ${BUMPED_REF}`);

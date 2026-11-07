@@ -60,7 +60,7 @@
     ],
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/sleegme/native-gravity.git"
+        "url": "git+https://github.com/sleegme/native-gravity"
     },
     "bugs": {
         "url": "https://github.com/sleegme/native-gravity/issues"

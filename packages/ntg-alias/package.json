@@ -1,0 +1,25 @@
+{
+  "name": "@sleeg/ntg",
+  "version": "1.1.2",
+  "description": "Short alias for native-gravity: `bun add -g @sleeg/ntg`, then run `ntg`.",
+  "type": "module",
+  "bin": {
+    "ntg": "bin/ntg.mjs"
+  },
+  "files": [
+    "bin/",
+    "README.md"
+  ],
+  "dependencies": {
+    "native-gravity": "^1.1.2"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sleegme/native-gravity"
+  },
+  "homepage": "https://github.com/sleegme/native-gravity"
+}

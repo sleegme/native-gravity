@@ -11,6 +11,8 @@
  * - docs/usage.md (curl and irm command URLs, "Current release" line)
  * - docs/status.md and docs/ko/status.md ("Native Gravity" header)
  * - tests/publish-readiness-evidence.json ("version" field)
+ * - packages/ntg-alias/package.json ("version" field and native-gravity
+ *   dependency range)
  *
  * Usage:
  *   node scripts/sync-version.mjs [--check] [--root <dir>]
@@ -144,6 +146,23 @@ export function getSpecs(version) {
         {
           name: 'publish-readiness-evidence.json version',
           regex: /("version":\s*")[0-9A-Za-z_.-]+(")/g,
+          expectedCount: 1,
+          replace: `$1${version}$2`,
+        },
+      ],
+    },
+    {
+      file: 'packages/ntg-alias/package.json',
+      rules: [
+        {
+          name: 'ntg-alias package.json version',
+          regex: /("version":\s*")[0-9A-Za-z_.-]+(")/g,
+          expectedCount: 1,
+          replace: `$1${version}$2`,
+        },
+        {
+          name: 'ntg-alias package.json native-gravity dependency range',
+          regex: /("native-gravity":\s*"\^)[0-9A-Za-z_.-]+(")/g,
           expectedCount: 1,
           replace: `$1${version}$2`,
         },
