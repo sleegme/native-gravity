@@ -41,6 +41,8 @@ curl -fsSL https://raw.githubusercontent.com/sleegme/native-gravity/v1.1.2/scrip
 irm https://raw.githubusercontent.com/sleegme/native-gravity/v1.1.2/scripts/install.ps1 | iex
 ```
 
+`ntg update` upgrades any existing install (npm, Bun, curl, or irm) to the latest release and prints the old -> new version.
+
 ## Usage
 
 For simple edits or short tasks, a standard `agy` chat is enough. For tasks that require multiple steps, enter the following in an `agy` session:
