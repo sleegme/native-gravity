@@ -32,6 +32,14 @@ export class MismatchedResultRefError extends InvalidTransitionError {
   }
 }
 
+export class UncoveredCriteriaError extends InvalidTransitionError {
+  constructor(message, details = {}) {
+    super(message, details);
+    this.name = "UncoveredCriteriaError";
+    this.code = "UNCOVERED_CRITERIA";
+  }
+}
+
 export class InvariantViolationError extends Error {
   constructor(message, details = {}) {
     super(message);
@@ -185,6 +193,39 @@ export function isEvidenceEmpty(evidence) {
 }
 
 /**
+ * Returns acceptance criteria not covered by any OBSERVED verification_evidence
+ * entry. An entry covers a criterion only when its `criterion` field names that
+ * criterion exactly (the referencing scheme agents/zen.md already prescribes)
+ * and its `result` is a non-empty string (#201 A6).
+ *
+ * @param {Array} acceptanceCriteria
+ * @param {*} verificationEvidence
+ * @returns {Array} uncovered criteria (empty when fully covered)
+ */
+export function uncoveredAcceptanceCriteria(acceptanceCriteria, verificationEvidence) {
+  const criteria = Array.isArray(acceptanceCriteria) ? acceptanceCriteria : [];
+  if (criteria.length === 0) return [];
+  const items = Array.isArray(verificationEvidence)
+    ? verificationEvidence
+    : verificationEvidence === undefined || verificationEvidence === null
+      ? []
+      : [verificationEvidence];
+  const covered = new Set(
+    items
+      .filter(item => item && typeof item === "object"
+        && item.classification === "OBSERVED"
+        && typeof item.criterion === "string"
+        && item.criterion.trim()
+        && typeof item.result === "string"
+        && item.result.trim())
+      .map(item => item.criterion.trim())
+  );
+  return criteria.filter(
+    criterion => !covered.has(typeof criterion === "string" ? criterion.trim() : criterion)
+  );
+}
+
+/**
  * Validates candidate semantic invariants shared between live ingress (receiveCandidate)
  * and persistence / resume verification (verifyCandidateIntegrity / fromJSON).
  *
@@ -298,6 +339,7 @@ export function validateCandidateSemantics(packet, opts = {}) {
  * @param {string} [opts.expectedMilestone]
  * @param {string|number} [opts.expectedPlanVersion]
  * @param {string} [opts.expectedResultRef]
+ * @param {Array} [opts.expectedCriteria] acceptance criteria the GO evidence must cover
  * @param {Function} [opts.errorClass=InvariantViolationError]
  * @returns {boolean}
  */
@@ -364,6 +406,20 @@ export function validateZenGoSemantics(verRecord, opts = {}) {
     throw new ErrorClass(
       "Zen GO verification verification_evidence must be provided and cannot be empty"
     );
+  }
+
+  // #201 A6: the same criterion-coverage invariant that gates live promotion
+  // must also hold for records accepted back from persisted state.
+  if (Array.isArray(opts.expectedCriteria)) {
+    const uncovered = uncoveredAcceptanceCriteria(
+      opts.expectedCriteria,
+      verRecord.verification_evidence
+    );
+    if (uncovered.length) {
+      throw new ErrorClass(
+        `Zen GO verification must cover every acceptance criterion with OBSERVED evidence naming the criterion and a non-empty result; uncovered: ${JSON.stringify(uncovered)}`
+      );
+    }
   }
 
   return true;
@@ -1591,6 +1647,21 @@ export class AuthoritativeLedger {
       );
     }
 
+    // #201 A6: a GO is promotion authority only when every current acceptance
+    // criterion of the milestone is covered by an OBSERVED entry that names the
+    // criterion and carries a non-empty result.
+    const milestone = this.milestones.find((m) => m.id === milestoneId);
+    const uncovered = uncoveredAcceptanceCriteria(
+      milestone?.acceptance_criteria,
+      verdictPacket.verification_evidence
+    );
+    if (uncovered.length) {
+      throw new UncoveredCriteriaError(
+        `Zen GO must cover every acceptance criterion with OBSERVED evidence naming the criterion and a non-empty result; uncovered: ${JSON.stringify(uncovered)}`,
+        { uncovered }
+      );
+    }
+
     const verificationRecord = Object.freeze({
       milestone_id: milestoneId,
       plan_version: this.plan_version,
@@ -2064,6 +2135,8 @@ export class AuthoritativeLedger {
       validateZenGoSemantics(ver, {
         expectedMilestone: completedId,
         expectedPlanVersion: data.plan_version,
+        expectedCriteria:
+          data.milestones.find((m) => m.id === completedId)?.acceptance_criteria ?? [],
         errorClass: InvariantViolationError,
       });
 

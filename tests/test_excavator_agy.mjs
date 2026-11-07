@@ -365,6 +365,31 @@ for (const [name, spawnStub, expectedError] of [
   });
 }
 
+test("runExcavatorHeadless fails typed when the AGY result reports an early finished_reason (#203)", (t) => {
+  const dir = workspace(t);
+  for (const reason of ["print_timeout", "interrupted", "error"]) {
+    const out = runExcavatorHeadless(
+      { assignment: { packetObject: PACKET }, blocker: "b", cwd: dir, installedModels: ARGON_SURFACE },
+      { spawn: () => ({ status: 0, stdout: resultEvent(READY_TEXT, { finished_reason: reason }), stderr: "" }), env: {} },
+    );
+    assert.equal(out.ok, false, reason);
+    assert.equal(out.error, "TURN_ENDED_EARLY");
+    assert.ok(out.message.includes(reason));
+    assert.equal(out.reason, reason);
+    const records = readCalls(dir);
+    assert.equal(records.at(-1).ok, false);
+    assert.equal(records.at(-1).error, "TURN_ENDED_EARLY");
+  }
+
+  // Field omitted (normal completion): behavior is unchanged
+  const ok = runExcavatorHeadless(
+    { assignment: { packetObject: PACKET }, blocker: "b", cwd: dir, installedModels: ARGON_SURFACE },
+    { spawn: okSpawn(), env: {} },
+  );
+  assert.equal(ok.ok, true);
+  assert.equal(ok.worker_status, "READY");
+});
+
 test("runExcavatorHeadless never spawns when the slug cannot resolve", (t) => {
   const dir = workspace(t);
   const out = runExcavatorHeadless(

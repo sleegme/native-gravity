@@ -14,7 +14,7 @@ import { symlinkSync } from 'node:fs';
 const CLI = new URL('../scripts/ntg-vnext.mjs', import.meta.url).pathname;
 import { parseResponseEnvelope, parseResponsePacket } from '../scripts/runner.mjs';
 
-const observed = [{ classification: 'OBSERVED', criterion: 'content', result: 'inspected' }];
+const observed = [{ classification: 'OBSERVED', criterion: 'content matches', result: 'inspected' }];
 const plan = (version = 'v1', ids = ['one', 'two']) => ({
   goal: 'Deliver bounded artifacts', constraints: [], decision_invariants: [], plan_version: version,
   milestones: ids.map((id, index) => ({
@@ -571,6 +571,21 @@ test('native Zen GO is accepted only from a SUCCESS envelope with an explicit ve
   }) }), /TOOL_PERMISSION_DENIED/);
   assert.throws(() => nativeZen({}, { agyPath: fakeZen(t, { status: 'SUCCESS', response: JSON.stringify({ milestone_id: 'one' }) }) }), /explicit GO or NO-GO/);
   assert.throws(() => nativeZen({}, { agyPath: fakeZen(t, { message: zenGo }) }), /INVALID_OUTPUT/);
+});
+
+test('Zen rejects envelopes whose turn ended early with a finished_reason (#203)', t => {
+  for (const reason of ['print_timeout', 'interrupted', 'error']) {
+    assert.throws(
+      () => parseZenEnvelope(JSON.stringify({ status: 'SUCCESS', response: zenGo, finished_reason: reason })),
+      new RegExp(`TURN_ENDED_EARLY \\(${reason}\\)`)
+    );
+    assert.throws(
+      () => nativeZen({}, { agyPath: fakeZen(t, { status: 'SUCCESS', response: zenGo, finished_reason: reason }) }),
+      /TURN_ENDED_EARLY/
+    );
+  }
+  // Field omitted (normal completion): behavior is unchanged
+  assert.equal(parseZenEnvelope(JSON.stringify({ status: 'SUCCESS', response: zenGo })).verdict, 'GO');
 });
 
 test('native Zen usage comes only from the AGY envelope, never the response packet', t => {

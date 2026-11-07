@@ -269,6 +269,28 @@ runTest("2.5: Unexpected or unknown status returns INVALID_OUTPUT (never success
   }
 });
 
+runTest("2.6: early-termination finished_reason returns TURN_ENDED_EARLY failure (#203)", () => {
+  for (const reason of ["print_timeout", "interrupted", "error"]) {
+    const res = parseResponseEnvelope(
+      JSON.stringify({ status: "SUCCESS", response: "partial response", finished_reason: reason }),
+      { role: "bulldozer", slug: "gemini-3.8-flash-high" }
+    );
+    assert.strictEqual(res.ok, false, reason);
+    assert.strictEqual(res.error, "TURN_ENDED_EARLY");
+    assert.strictEqual(res.finished_reason, reason);
+    assert.ok(res.message.includes(reason));
+  }
+
+  // Field omitted (normal completion): behavior is unchanged
+  const omitted = parseResponseEnvelope(
+    JSON.stringify({ status: "SUCCESS", response: "full response" }),
+    { role: "bulldozer", slug: "gemini-3.8-flash-high" }
+  );
+  assert.strictEqual(omitted.ok, true);
+  assert.strictEqual(omitted.response, "full response");
+  assert.strictEqual(omitted.error, undefined);
+});
+
 runTest("2.6: status === 'SUCCESS' with valid string response succeeds", () => {
   const successPacket = {
     status: "SUCCESS",

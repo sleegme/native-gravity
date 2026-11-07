@@ -16,7 +16,7 @@ import { parseResponseEnvelope } from '../scripts/runner.mjs';
 // silently recreated, and a vanished lock is already released.
 
 const CLI = new URL('../scripts/ntg-vnext.mjs', import.meta.url).pathname;
-const observed = [{ classification: 'OBSERVED', criterion: 'content', result: 'inspected' }];
+const observed = [{ classification: 'OBSERVED', criterion: 'content matches', result: 'inspected' }];
 const plan = (version = 'v1', ids = ['one', 'two']) => ({
   goal: 'Deliver bounded artifacts', constraints: [], decision_invariants: [], plan_version: version,
   milestones: ids.map((id, index) => ({
