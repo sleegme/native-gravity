@@ -1,0 +1,113 @@
+{
+  "goal": "Ship the read-only snap tools",
+  "plan_version": "v2",
+  "milestones": [
+    {
+      "id": "design",
+      "title": "Design",
+      "objective": "Agree the snap output contract",
+      "bounded_scope": ["docs/snap.md"],
+      "non_goals": ["live tools"],
+      "acceptance_criteria": ["output contract reviewed", "cap chosen"],
+      "dependencies": [],
+      "coverage": [],
+      "verify": []
+    },
+    {
+      "id": "impl",
+      "title": "Implement",
+      "objective": "Implement both snap tools read-only",
+      "bounded_scope": ["scripts/state-snap.mjs", "scripts/hook-snap.mjs"],
+      "non_goals": [],
+      "acceptance_criteria": ["zero-write proven by test", "output capped"],
+      "dependencies": ["design"],
+      "coverage": [],
+      "verify": []
+    },
+    {
+      "id": "release",
+      "title": "Release",
+      "objective": "Wire bins and ship",
+      "bounded_scope": ["package.json"],
+      "non_goals": [],
+      "acceptance_criteria": ["bin entries work"],
+      "dependencies": ["impl"],
+      "coverage": [],
+      "verify": []
+    }
+  ],
+  "current_milestone": "impl",
+  "completed_milestones": ["design"],
+  "verification": {
+    "design": {
+      "verdict": "GO",
+      "plan_version": "v2",
+      "is_stale": false,
+      "result_ref": "sha256:aaa1",
+      "verification_evidence": [
+        { "classification": "OBSERVED", "criterion": "output contract reviewed", "result": "inspected docs/snap.md" }
+      ]
+    },
+    "impl": {
+      "verdict": "NO-GO",
+      "plan_version": "v2",
+      "is_stale": false,
+      "result_ref": "sha256:bbb2",
+      "repair_needs": ["cap missing"]
+    }
+  },
+  "blockers": [
+    { "affects_milestone": "release", "description": "waiting on impl" }
+  ],
+  "next_action": "Awaiting repair for milestone 'impl' (result_ref: sha256:bbb2)",
+  "evidence": {
+    "design": {
+      "candidates": [
+        {
+          "milestone_id": "design",
+          "plan_version": "v2",
+          "status": "DONE",
+          "result_ref": "sha256:aaa1",
+          "candidate_artifact_ref": "sha256:art1",
+          "verification_evidence": [
+            { "classification": "OBSERVED", "criterion": "output contract reviewed", "result": "inspected docs/snap.md" }
+          ]
+        }
+      ],
+      "active_candidate": null,
+      "verification_evidence": [
+        { "classification": "OBSERVED", "criterion": "output contract reviewed", "result": "inspected docs/snap.md" }
+      ]
+    },
+    "impl": {
+      "candidates": [
+        {
+          "milestone_id": "impl",
+          "plan_version": "v2",
+          "status": "DONE",
+          "result_ref": "sha256:bbb2",
+          "candidate_artifact_ref": "sha256:art2",
+          "verification_evidence": [
+            { "classification": "OBSERVED", "criterion": "zero-write proven by test", "result": "read-only dir run unchanged" }
+          ]
+        }
+      ],
+      "active_candidate": {
+        "milestone_id": "impl",
+        "plan_version": "v2",
+        "status": "DONE",
+        "result_ref": "sha256:bbb2",
+        "candidate_artifact_ref": "sha256:art2"
+      }
+    }
+  },
+  "constraints": [],
+  "decision_invariants": [],
+  "_initialized": true,
+  "_active_candidates": {},
+  "_known_candidates_by_ref": {},
+  "_verification_history": [
+    { "milestone_id": "design", "verdict": "GO", "plan_version": "v2", "result_ref": "sha256:aaa1" },
+    { "milestone_id": "impl", "verdict": "NO-GO", "plan_version": "v2", "result_ref": "sha256:bbb2" }
+  ]
+}
