@@ -134,7 +134,11 @@ worker results, and gathers observed evidence per acceptance criterion. Worker
 `READY` and Strix `ACCEPT` are local signals, never completion. `NEEDS_DEEP`
 goes to Steamroller, which decides whether to invoke Piledriver. Delegation
 validation accepts enabled worker roles (Jaguar, Puma, Bobcat) and rejects
-anything else.
+anything else. A coordinator transport death while the delegation snapshot
+shows in-scope changes triggers one packet-only salvage session (Stage 1):
+a fresh Bulldozer context in salvage mode — worker dispatch and file edits
+denied by the budget hook — rebuilds the result packet from the existing
+work; a failed salvage records BLOCKED with the worktree intact.
 
 ## Instinct — NEEDS_ALT advisory
 
@@ -214,6 +218,9 @@ packet):
 - `constraints` — hard constraints inherited from the ledger
 - `relevant_evidence` — OBSERVED facts from the ledger relevant here
 - `decision_invariants` — relevant settled decisions by stable ID or exact value
+- `scope_map` — code-built (Stage 1): per in-scope file its line count and top-level symbols with line numbers; use it instead of reading files to locate anything
+- `coverage_sites` — code-built (Stage 1), present when the plan milestone declares `coverage` probes: the probe hits as `file:line:text`, enumerated by code so no model narrows or moves the site set
+- `verify` — verify commands declared on the plan milestone (run by the executor; spine-run copies feed a salvage session)
 
 Bulldozer -> Steamroller result packet (the complete result packet):
 
@@ -225,6 +232,7 @@ Bulldozer -> Steamroller result packet (the complete result packet):
 - `unresolved_unknowns` — UNKNOWN or INFERRED items Steamroller must track
 - `scope_deviations` — any deviation from bounded scope, explicit not absorbed
 - `candidate_artifact_ref` — required for `DONE`: a non-empty string identifying immutable delivered artifact versions, such as a path plus SHA-256 digest or a commit SHA; never a mutable path alone. `artifact_ref` is an alias; both values must match if both are supplied.
+- `coverage_table` — required for `DONE` when the packet carried `coverage_sites` (Stage 1): one row per site (`coverage_id`, `site` as `file:line`, disposition `COVERED | NOT_APPLICABLE`, `evidence`, `test`), merged from the workers' tables and computed against the final tree; code re-runs the probes and rejects a candidate with missing rows before Zen review. Bobcat lists its invariant changes explicitly (`invariant_changes`).
 - `blockers` — active blockers preventing `DONE`, when status is `BLOCKED`
 - `escalation_needs` — the bounded question or artifact for Piledriver when status is `NEEDS_DEEP`
 

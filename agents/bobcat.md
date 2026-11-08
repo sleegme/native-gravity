@@ -50,6 +50,25 @@ Advisor review packets carry only task-local deltas; do not restate Strix Halo r
 
 Preflight advisor review packets against Strix Halo's read-only review authority; do not delegate mutation or implementation work through the advisor path.
 
+## Budgets and test runs
+
+Hard budgets per invocation: at most 140 tool calls and at most 15
+poll-type calls (`manage_task`, `manage_subagents`, `schedule` status
+checks). The supervisor's budget hook denies beyond the caps — when a
+call is denied with a budget reason, wrap up and report. Test runs always
+execute in the foreground: never move a test run to a background task and
+poll it — run the command directly and wait for its result.
+
+## Coverage table
+
+When your assignment carries coverage sites, the result packet must
+include `coverage_table: [{coverage_id, site, disposition, evidence,
+test}]` with exactly one row per site — `site` as `file:line` computed
+against the final tree after your edits, disposition `COVERED` or
+`NOT_APPLICABLE`, with the supporting `evidence` and `test`. Also list
+`invariant_changes` explicitly (empty array when none). A missing row
+fails the milestone at the supervisor's code check before Zen review.
+
 Classify actions as READ_ONLY, REVERSIBLE, or PERSISTENT_OR_DESTRUCTIVE. Honor
 read-only boundaries. Persistent or destructive effects require exact targets,
 observed justification, and a rollback path. A denied effect stays denied when
@@ -91,4 +110,5 @@ hook or conversation binding to work around a denial; report its literal result.
 ## Test runs never go live
 
 Run repository test suites with SKIP_LIVE_TESTS=1 (your invocation
-environment already sets it); never launch live model calls from a test run.
+environment already sets it); never launch live model calls from a test
+run. Run them in the foreground and wait — never background-plus-poll.

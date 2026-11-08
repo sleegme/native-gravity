@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
@@ -2824,6 +2824,67 @@ runTest("reopenLastCandidateReview selects the most recent eligible candidate an
   }));
   assert.strictEqual(ledger.verification.M2.verdict, "NO-GO");
   assert.deepStrictEqual(ledger.completed_milestones, ["M1"]);
+});
+
+runTest("Stage 1: coverage probes and verify commands map into milestones and round-trip through save/load", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ntg-ledger-cov-"));
+  const path = join(dir, "ledger.json");
+  const plan = samplePlan();
+  plan.milestones[0].coverage = [{
+    id: "SAVE_SITES",
+    applies_to: "AC1",
+    claim: "every save is verified",
+    probe: { pattern: "\\.save\\(", paths: ["scripts/runner.mjs"] },
+  }];
+  plan.milestones[0].verify = ["SKIP_LIVE_TESTS=1 node --test tests/test_ledger.mjs"];
+  const ledger = new AuthoritativeLedger(plan);
+  assert.deepStrictEqual(ledger.milestones[0].coverage, plan.milestones[0].coverage);
+  assert.deepStrictEqual(ledger.milestones[0].verify, plan.milestones[0].verify);
+  assert.deepStrictEqual(ledger.milestones[1].coverage, []);
+  assert.deepStrictEqual(ledger.milestones[1].verify, []);
+
+  ledger.save(path);
+  const restored = AuthoritativeLedger.load(path);
+  assert.deepStrictEqual(restored.milestones[0].coverage, plan.milestones[0].coverage);
+  assert.deepStrictEqual(restored.milestones[0].verify, plan.milestones[0].verify);
+
+  const packet = restored.buildMilestoneHandoffPacket("M1");
+  assert.deepStrictEqual(packet.coverage, plan.milestones[0].coverage);
+  assert.deepStrictEqual(packet.verify, plan.milestones[0].verify);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+runTest("Stage 1: a non-compiling coverage probe pattern fails plan validation", () => {
+  const plan = samplePlan();
+  plan.milestones[0].coverage = [{ id: "P1", probe: { pattern: "(", paths: ["scripts/runner.mjs"] } }];
+  assert.throws(
+    () => new AuthoritativeLedger(plan),
+    error => error instanceof InvariantViolationError && /does not compile/.test(error.message)
+  );
+});
+
+runTest("Stage 1: a coverage probe path outside bounded_scope fails plan validation", () => {
+  const plan = samplePlan();
+  plan.milestones[0].coverage = [{ id: "P1", probe: { pattern: "x", paths: ["scripts/spine.mjs"] } }];
+  assert.throws(
+    () => new AuthoritativeLedger(plan),
+    error => error instanceof InvariantViolationError && /outside the milestone's bounded_scope/.test(error.message)
+  );
+});
+
+runTest("Stage 1: a material replan carries coverage and verify through the new milestone graph", () => {
+  const ledger = new AuthoritativeLedger(samplePlan());
+  const replan = samplePlan();
+  replan.plan_version = "v2";
+  replan.milestones[0].coverage = [{
+    id: "SAVE_SITES",
+    claim: "every save is verified",
+    probe: { pattern: "\\.save\\(", paths: ["scripts/runner.mjs"] },
+  }];
+  replan.milestones[0].verify = ["node --check scripts/runner.mjs"];
+  ledger.materialReplan(replan);
+  assert.deepStrictEqual(ledger.milestones[0].coverage, replan.milestones[0].coverage);
+  assert.deepStrictEqual(ledger.milestones[0].verify, replan.milestones[0].verify);
 });
 
 console.log("=========================================================");

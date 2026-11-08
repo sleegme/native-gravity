@@ -1,7 +1,10 @@
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import process from 'node:process';
 import { AuthoritativeLedger, deepClone, deepFreeze, normalizeCandidateArtifactRef, UncoveredCriteriaError, uncoveredAcceptanceCriteria } from './ledger.mjs';
+import { buildScopeMap, checkCoverageTable, runCoverageProbes, scopeChanges, snapshotScope } from './coverage.mjs';
 import { acquireLedgerLock, LedgerIntegrityError } from './ledger-lock.mjs';
 import { InvalidHandoffPacketError, InvalidResponseFormatError, invoke, parseResponsePacket } from './runner.mjs';
 import { projectFailureRecord, projectFailureTelemetry, redactTelemetryValue } from './telemetry.mjs';
@@ -15,6 +18,37 @@ const NEEDS_ALT_MIN_ATTEMPTS = 3;
  */
 export const HEADLESS_EXCAVATOR_TRANSPORT = 'scripts/excavator-agy.mjs';
 const MAX_HANDOFF_CORRECTIONS = 2;
+
+/**
+ * Stage 1 (subagent redesign 2026-11-08, §2.6.5): coordinator transport
+ * deaths that trigger one packet-only salvage session when the delegation
+ * snapshot shows in-scope changes. TURN_ENDED_EARLY covers agy's
+ * print_timeout/interrupted/error finished_reasons; TOOL_PERMISSION_DENIED
+ * covers the budget-hook wrap-up denial killing the envelope after the caps
+ * did their job — in both classes the worktree may already hold worker
+ * output that a full re-run would needlessly duplicate.
+ */
+export const SALVAGEABLE_ERRORS = Object.freeze([
+  'TURN_ENDED_EARLY',
+  'MODEL_ERROR',
+  'EXECUTION_FAILED',
+  'TIMEOUT',
+  'BACKGROUND_TASK_PENDING',
+  'TOOL_PERMISSION_DENIED',
+]);
+/** Salvage session wall-clock budget (§2.3: 10 min). */
+export const SALVAGE_TIMEOUT_MS = 600_000;
+/** Salvage session call cap, enforced by the budget hook via env (§2.6.5: ≤25 calls). */
+export const SALVAGE_MAX_CALLS = 25;
+
+/** Instruction for the packet-only salvage session (§2.6.5). */
+const SALVAGE_INSTRUCTION = 'The previous Bulldozer session for this milestone ended early (transport failure) '
+  + 'after producing changes. You are in packet-only salvage mode: do not dispatch any worker and do not '
+  + 'edit any file — both are denied by the supervisor. Using only the milestone contract, the salvage '
+  + 'change summary and the verify results below, return the complete result JSON packet for the '
+  + 'already-completed work, binding the actual delivered artifacts in candidate_artifact_ref. Anything '
+  + 'you cannot attest from this material goes to unresolved_unknowns as UNKNOWN. Do not invoke Zen, '
+  + 'write the ledger or claim global completion.';
 
 /**
  * A failure class is the materially-similar failure identity (contract §2.9);
@@ -218,6 +252,10 @@ export class MinimalSpine {
         args: { role, slug: output?.slug ?? null, error: output?.error ?? null },
         command: this.#transportCommand(role, output?.slug),
       };
+      // Stage 1: keep the structured output reachable for callers that must
+      // classify transport failures (salvage trigger) without re-parsing
+      // human-readable message strings.
+      error.invocationOutput = output;
       throw error;
     }
     const parsed = parseResponsePacket(output);
@@ -227,6 +265,7 @@ export class MinimalSpine {
         tool: 'runner.invoke',
         args: { role, slug: parsed?.slug ?? null, error: parsed?.error ?? null },
       };
+      error.invocationOutput = parsed;
       throw error;
     }
     return parsed.packet;
@@ -521,6 +560,15 @@ export class MinimalSpine {
   async runMilestone(milestoneId) {
     this.#idle();
     const contract = this.#ledger.delegate(milestoneId);
+    // Stage 1 (subagent redesign 2026-11-08, §2.4/§2.6): the packet carries
+    // code-built context — scope map and coverage sites — so no model narrows
+    // or moves the site set (the §1.4 defect class). The snapshot taken here
+    // is the salvage trigger's "delegation snapshot".
+    const coverageCwd = this.#runnerOptions.coverageCwd ?? process.cwd();
+    contract.scope_map = buildScopeMap(contract.bounded_scope, { cwd: coverageCwd });
+    const coverageProbes = Array.isArray(contract.coverage) ? contract.coverage : [];
+    contract.coverage_sites = runCoverageProbes(coverageProbes, { cwd: coverageCwd });
+    const scopeBefore = snapshotScope(contract.bounded_scope, { cwd: coverageCwd });
     this.#ledger.save(this.#path);
     this.#busy = true;
     try {
@@ -543,26 +591,112 @@ export class MinimalSpine {
         + 'milestone_id, plan_version, explicit status DONE|BLOCKED|NEEDS_DEEP, '
         + 'changes_made, verification_evidence, unresolved_unknowns, scope_deviations, '
         + 'blockers and escalation_needs as applicable. DONE must identify immutable '
-        + 'delivered artifact versions in candidate_artifact_ref. Do not invoke Zen, '
-        + 'supply Zen authority, write the ledger, or claim global completion.';
+        + 'delivered artifact versions in candidate_artifact_ref.'
+        + (coverageProbes.length
+          ? ' The packet\'s coverage_sites were enumerated by code: your DONE packet must carry the '
+            + 'merged coverage_table with exactly one row per site (site as file:line, disposition '
+            + 'COVERED or NOT_APPLICABLE); a missing row fails the candidate before Zen review. '
+          : '')
+        + ' Do not invoke Zen, supply Zen authority, write the ledger, or claim global completion.';
+      let salvageUsed = false;
+      /**
+       * Stage 1 salvage branch (§2.6.5): a coordinator transport death while
+       * the delegation snapshot shows in-scope changes triggers ONE fresh
+       * packet-only Bulldozer session (NTG_SALVAGE=1; the budget hook denies
+       * worker dispatch and edits) instead of a full re-run. Without in-scope
+       * changes, or after the one salvage attempt, the original failure
+       * propagates to the existing INVOCATION_FAILURE path.
+       */
+      const invokeCoordinator = async (instructionText, contractArg) => {
+        try {
+          return await this.#exact('bulldozer', instructionText, contractArg);
+        } catch (error) {
+          const output = error?.invocationOutput;
+          if (salvageUsed || !output || !SALVAGEABLE_ERRORS.includes(output.error)) throw error;
+          const changes = scopeChanges(scopeBefore,
+            snapshotScope(contract.bounded_scope, { cwd: coverageCwd }));
+          if (!changes.changed.length && !changes.added.length) throw error;
+          salvageUsed = true;
+          const salvage = {
+            reason: output.error ?? 'unknown',
+            original_error: String(error?.message ?? error).slice(0, 2000),
+            changed_files: changes.changed,
+            added_files: changes.added,
+            verify_results: this.#runVerifyCommands(contract.verify, coverageCwd),
+          };
+          try {
+            return await this.#exact('bulldozer', SALVAGE_INSTRUCTION,
+              { ...contractArg, salvage },
+              {
+                env: { NTG_SALVAGE: '1', NTG_BUDGET_ROOT_MAX_CALLS: String(SALVAGE_MAX_CALLS) },
+                timeout: SALVAGE_TIMEOUT_MS,
+              });
+          } catch (salvageError) {
+            // Salvage failed: BLOCKED with the worktree intact (§2.6.5). The
+            // produced changes stay on disk for a later rerun or replan; no
+            // DECIDE exists yet (Stage 3), so the run simply stops here.
+            const blockers = ['Bulldozer transport failure and salvage both failed: '
+              + String(salvageError?.message ?? salvageError)];
+            this.#ledger.recordBlockedOrFailure({
+              milestoneId, status: 'BLOCKED', blockers,
+              evidence: {
+                classification: 'OBSERVED', salvage, salvage_failure: String(salvageError?.message ?? salvageError),
+              },
+            });
+            this.#ledger.save(this.#path);
+            const blocked = new Error(blockers[0]);
+            blocked.coordinatorBlocked = blockers;
+            throw blocked;
+          }
+        }
+      };
       let candidate;
       let invalidHandoff;
       for (let correction = 0; correction <= MAX_HANDOFF_CORRECTIONS; correction += 1) {
-        candidate = await this.#exact('bulldozer',
-          invalidHandoff
-            ? 'Correct only the invalid result packet for this milestone using the existing '
-              + 'delivered artifacts and evidence. Do not re-execute completed work or invent '
-              + 'an artifact binding. Return the complete corrected JSON packet; if unable '
-              + 'to bind the delivered artifact, return BLOCKED. '
-              + 'Do not invoke Zen, write the ledger or claim global completion.'
-            : instruction,
-          invalidHandoff ? { ...contract, invalid_handoff: invalidHandoff } : contract);
+        try {
+          candidate = await invokeCoordinator(
+            invalidHandoff
+              ? 'Correct only the invalid result packet for this milestone using the existing '
+                + 'delivered artifacts and evidence. Do not re-execute completed work or invent '
+                + 'an artifact binding. Return the complete corrected JSON packet; if unable '
+                + 'to bind the delivered artifact, return BLOCKED. '
+                + (coverageProbes.length
+                  ? 'The corrected packet must carry a complete coverage_table: exactly one row per '
+                    + 'site in coverage_sites (coverage_id and site as file:line must match, disposition '
+                    + 'COVERED or NOT_APPLICABLE), computed against the final tree. '
+                  : '')
+                + 'Do not invoke Zen, write the ledger or claim global completion.'
+              : instruction,
+            invalidHandoff ? { ...contract, invalid_handoff: invalidHandoff } : contract);
+        } catch (error) {
+          // Salvage already recorded BLOCKED with the worktree intact; surface
+          // it as this milestone's outcome instead of an invocation failure.
+          if (Array.isArray(error?.coordinatorBlocked)) {
+            return { status: 'BLOCKED', candidate: null, blockers: error.coordinatorBlocked, verified: false };
+          }
+          throw error;
+        }
         if (candidate.status !== 'DONE') break;
         try {
           candidate = normalizeCandidateArtifactRef(candidate, { errorClass: InvalidHandoffPacketError });
           if (typeof candidate.candidate_artifact_ref !== 'string'
               || !candidate.candidate_artifact_ref.trim()) {
             throw new InvalidHandoffPacketError('DONE must bind immutable delivered artifact versions in candidate_artifact_ref');
+          }
+          // Stage 1 pre-Zen code check (§2.4 CHECK item 2): re-run the probes
+          // on the candidate tree — including sites the work itself added —
+          // and require one coverage-table row per hit. Failures take the same
+          // packet-correction path as an invalid artifact binding, then BLOCK.
+          if (coverageProbes.length) {
+            const hits = runCoverageProbes(coverageProbes, { cwd: coverageCwd });
+            const check = checkCoverageTable(hits, candidate.coverage_table);
+            if (!check.ok) {
+              throw new InvalidHandoffPacketError(
+                `Coverage table incomplete: missing rows for sites ${JSON.stringify(check.missing.map(h => h.site))}`
+                + (check.invalid.length
+                  ? `; invalid rows ${JSON.stringify(check.invalid.map(() => 'row'))}`
+                  : ''));
+            }
           }
           break;
         } catch (error) {
@@ -682,6 +816,41 @@ export class MinimalSpine {
     } finally {
       this.#busy = false;
     }
+  }
+
+  /**
+   * Stage 1 salvage input (§2.6.5): runs the plan's verify commands in the
+   * worktree so the packet-only salvage session can attest the produced work
+   * without re-executing it. Bounded per command; a spawn failure becomes a
+   * null exit code, never a thrown error — salvage must proceed with whatever
+   * evidence exists.
+   */
+  #runVerifyCommands(commands, cwd) {
+    if (!Array.isArray(commands) || !commands.length) return [];
+    return commands.map(command => {
+      try {
+        const result = spawnSync(command, {
+          shell: true,
+          timeout: 120_000,
+          cwd,
+          encoding: 'utf-8',
+          // Same Stage 0 rule as runner children: SKIP_LIVE_TESTS unless the
+          // release-validation opt-out is set.
+          env: {
+            ...process.env,
+            ...(process.env.NTG_LIVE_TESTS === '1' ? {} : { SKIP_LIVE_TESTS: '1' }),
+          },
+        });
+        const combined = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+        return {
+          command,
+          exit_code: result.status ?? null,
+          tail: combined.slice(-500),
+        };
+      } catch (error) {
+        return { command, exit_code: null, tail: String(error?.message ?? error).slice(-500) };
+      }
+    });
   }
 
   /**

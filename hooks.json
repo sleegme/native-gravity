@@ -47,5 +47,26 @@
         ]
       }
     ]
+  },
+  "role-budget-boundary": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "python3 ./hooks/budget-guard.py --session-start",
+        "timeout": 10
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./hooks/budget-guard.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
   }
 }

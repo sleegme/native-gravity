@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname, join, resolve } from "node:path";
 
 import { redactTelemetryValue } from "./telemetry.mjs";
+import { validateCoverage } from "./coverage.mjs";
 
 /**
  * Structured error classes for authoritative ledger transitions and invariant enforcement.
@@ -721,6 +722,12 @@ export function validatePlan(plan) {
     }
   }
 
+  // Stage 1 (subagent redesign 2026-11-08, §2.4): coverage probes and verify
+  // commands are plan fields now; their pure validation (compile, scope
+  // containment, uniqueness) runs with the rest of the plan checks. The
+  // hit-count ceiling needs the filesystem and is enforced by ntg-vnext init.
+  validateCoverage(plan, InvariantViolationError);
+
   // Check acyclicity
   const milestoneMap = new Map(plan.milestones.map((m) => [m.id, m.dependencies || []]));
   const visited = new Set();
@@ -821,6 +828,8 @@ export class AuthoritativeLedger {
         : m.bounded_scope
         ? [m.bounded_scope]
         : [],
+      coverage: Array.isArray(m.coverage) ? deepClone(m.coverage) : [],
+      verify: Array.isArray(m.verify) ? [...m.verify] : [],
     }));
 
     this.current_milestone = null;
@@ -916,6 +925,11 @@ export class AuthoritativeLedger {
       bounded_scope: [...milestone.bounded_scope],
       non_goals: [...milestone.non_goals],
       acceptance_criteria: [...milestone.acceptance_criteria],
+      // Stage 1: the coverage probes and verify commands travel with the
+      // milestone; the spine enriches the packet with the code-built parts
+      // (scope_map, coverage_sites) at delegation time.
+      coverage: deepClone(milestone.coverage ?? []),
+      verify: [...(milestone.verify ?? [])],
       constraints: [...this.constraints],
       relevant_evidence: this.getRelevantEvidence(milestoneId),
       decision_invariants: this.getRelevantDecisionInvariants(milestoneId),
@@ -1337,6 +1351,11 @@ export class AuthoritativeLedger {
       scope_deviations: Array.isArray(clonedPacket.scope_deviations)
         ? deepClone(clonedPacket.scope_deviations)
         : [clonedPacket.scope_deviations],
+      // Stage 1: the merged coverage table travels with the persisted record
+      // so the Zen request carries it beside the full payload (§2.4).
+      ...(Array.isArray(clonedPacket.coverage_table)
+        ? { coverage_table: deepClone(clonedPacket.coverage_table) }
+        : {}),
       timestamp: new Date().toISOString(),
       payload,
     });
@@ -1893,6 +1912,8 @@ export class AuthoritativeLedger {
         : m.bounded_scope
         ? [m.bounded_scope]
         : [],
+      coverage: Array.isArray(m.coverage) ? deepClone(m.coverage) : [],
+      verify: Array.isArray(m.verify) ? [...m.verify] : [],
     }));
 
     if (newPlanData.decision_invariants) {

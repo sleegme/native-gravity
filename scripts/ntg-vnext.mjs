@@ -39,6 +39,7 @@ import { fileURLToPath } from 'node:url';
 import { MinimalSpine, HEADLESS_EXCAVATOR_TRANSPORT, recommendNeedsAlt } from './spine.mjs';
 import { createEventLog, makeEvent } from './events.mjs';
 import { AuthoritativeLedger, computeUsageRollup } from './ledger.mjs';
+import { countProbeHits, MAX_PROBE_HITS } from './coverage.mjs';
 import { verifyLedgerIntegrity } from './ledger-lock.mjs';
 import { invoke, loadNativeRoleBody, parseResponseEnvelope, parseResponsePacket, resolveSlug,
   QUOTA_EXHAUSTED_RE, argonBreakerBlocksSlug, argonQuotaBreakerState, tripArgonQuotaBreaker,
@@ -64,6 +65,26 @@ export const ROLE_TIMEOUT_S = Object.freeze({
   bulldozer: 3600,
   zen: 1200,
 });
+
+/**
+ * Stage 1 init-time probe validation (subagent redesign 2026-11-08, §2.4):
+ * the structural checks (compile, scope containment) run in validatePlan;
+ * the hit-count ceiling needs the filesystem, so `init` enforces it here
+ * against the working tree before any ledger is created.
+ *
+ * @param {object} plan - parsed plan JSON
+ * @param {{ cwd?: string }} [opts]
+ */
+export function validateProbeHitCounts(plan, { cwd = process.cwd() } = {}) {
+  for (const milestone of plan?.milestones ?? []) {
+    for (const [id, hits] of Object.entries(countProbeHits(milestone.coverage ?? [], { cwd }))) {
+      if (hits > MAX_PROBE_HITS) {
+        throw new Error(
+          `coverage probe '${milestone.id}/${id}' hits ${hits} sites (max ${MAX_PROBE_HITS}); narrow its pattern or paths`);
+      }
+    }
+  }
+}
 
 /**
  * Effective invocation timeout: an explicit --timeout / NTG_RUNNER_TIMEOUT_S
@@ -238,7 +259,9 @@ export function nativeZen(request, { agyPath = process.env.AGY_PATH || 'agy', cw
     + 'verdict (GO or NO-GO), verification_evidence (non-empty array naming each acceptance '
     + 'criterion by its exact text: {"classification": "OBSERVED", "criterion": "exact acceptance '
     + 'criterion text", "result": "..."}) and, for NO-GO, '
-    + 'repair_needs (non-empty string). Request:\n' + JSON.stringify(request);
+    + 'repair_needs (non-empty string). When the request contract carries '
+    + 'coverage_sites, check the candidate coverage_table rows against them; '
+    + 'still search beyond the table. Request:\n' + JSON.stringify(request);
   const prompt = `${loadNativeRoleBody(ZEN_ROLE)}\n\n${instruction}`;
   const args = [
     '--model', slug,
@@ -420,6 +443,15 @@ export async function main(argv, deps = {}) {
   }
   const staleLock = opts.command === 'recover' ? breakStaleLedgerLock(opts.ledger) : null;
   const readJson = path => JSON.parse(readFileSync(path, 'utf8'));
+
+  // Stage 1: init validates the coverage probes against the working tree
+  // (per-probe hit ceiling) before any ledger exists, so a noisy probe fails
+  // the command instead of shipping a busywork packet to every worker.
+  let initialPlan;
+  if (opts.command === 'init') {
+    initialPlan = readJson(opts.plan);
+    validateProbeHitCounts(initialPlan);
+  }
 
   const getLedger = () => AuthoritativeLedger.getInstance(opts.ledger);
   // Stage 0: without an explicit --timeout / NTG_RUNNER_TIMEOUT_S, each role
@@ -752,7 +784,7 @@ export async function main(argv, deps = {}) {
   try {
     spine = new MinimalSpine({
       ledgerPath: opts.ledger,
-      plan: opts.command === 'init' ? readJson(opts.plan) : undefined,
+      plan: initialPlan,
       invokeRole: wrappedInvokeRole,
       invokeZen: wrappedInvokeZen,
       invokeSpecialist: wrappedInvokeSpecialist,
