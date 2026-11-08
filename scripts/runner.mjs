@@ -87,6 +87,121 @@ export const ROLE_POLICY_TABLE = Object.freeze({
  */
 export const ROLE_MODEL_TABLE = Object.freeze({});
 
+// =============================================================================
+// Stage 0 test hygiene (NTG subagent redesign 2026-11-08, §3/§5)
+// =============================================================================
+
+/**
+ * Refuses to launch the ambient `agy` binary while running under Node's test
+ * runner. `node --test` sets NODE_TEST_CONTEXT on child processes, so an
+ * accidental live model call from inside a test suite fails closed here
+ * instead of spending real quota (the WQ-31 B1 contamination: 13.94M tokens
+ * launched from a worker's test run). Live tests are opt-in: set
+ * NTG_LIVE_TESTS=1, or name an executable explicitly (opts.agyPath, or
+ * AGY_PATH — tests point both at their mocks), which marks the spawn as a
+ * deliberate choice rather than the ambient default.
+ *
+ * @param {string} [explicitAgyPath] - Caller-provided agy path, if any
+ * @returns {{ error: string, message: string } | null} Refusal, or null when allowed
+ */
+export function realAgyRefusalUnderNodeTest(explicitAgyPath) {
+  if (!process.env.NODE_TEST_CONTEXT) return null;
+  if (process.env.NTG_LIVE_TESTS === "1") return null;
+  if (explicitAgyPath || process.env.AGY_PATH) return null;
+  return {
+    error: "AGY_REFUSED_UNDER_NODE_TEST",
+    message:
+      "refusing to spawn the ambient agy binary under `node --test` (NODE_TEST_CONTEXT is set): " +
+      "live model tests are opt-in — set NTG_LIVE_TESTS=1 or point AGY_PATH at a mock",
+  };
+}
+
+// =============================================================================
+// Stage 0 Argon quota circuit breaker (NTG subagent redesign 2026-11-08, §4)
+// =============================================================================
+
+/** Provider-agnostic exhausted-quota marker (Argon reports "Individual quota reached…"). */
+export const QUOTA_EXHAUSTED_RE = /RESOURCE_EXHAUSTED|Individual quota reached/i;
+const RESETS_IN_RE = /Resets in (?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?/i;
+
+/** True for slugs of the "Gemini 4 Argon" family (the scarce per-user pool). */
+export function isArgonSlug(slug) {
+  return /argon/i.test(String(slug ?? ""));
+}
+
+/**
+ * Parses an agy "Resets in 152h49m19s" suffix into seconds, or null.
+ *
+ * @param {string} text - Combined stderr/stdout of the failing invocation
+ * @returns {number | null}
+ */
+export function parseQuotaResetSeconds(text) {
+  const match = RESETS_IN_RE.exec(String(text ?? ""));
+  if (!match) return null;
+  const [, h, m, s] = match;
+  if (h === undefined && m === undefined && s === undefined) return null;
+  return Number(h ?? 0) * 3600 + Number(m ?? 0) * 60 + Number(s ?? 0);
+}
+
+/** Plain-Korean duration, e.g. "2일 3시간", "2시간 30분", "45초". */
+export function formatDurationKo(seconds) {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds < 0) return "알 수 없는 시간";
+  if (seconds < 60) return `${Math.round(seconds)}초`;
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const parts = [];
+  if (days) parts.push(`${days}일`);
+  if (hours) parts.push(`${hours}시간`);
+  if (minutes) parts.push(`${minutes}분`);
+  if (parts.length === 0) parts.push('1시간 미만');
+  return parts.join(" ");
+}
+
+/** Run-scoped breaker state; one process (one `ntg-vnext` invocation). */
+const argonBreaker = { tripped: false, seat: null, slug: null, reset_seconds: null, tripped_at: null };
+
+export function argonQuotaBreakerState() {
+  return { ...argonBreaker };
+}
+
+/** Test seam: restores the pristine breaker between cases. */
+export function resetArgonQuotaBreaker() {
+  Object.assign(argonBreaker, { tripped: false, seat: null, slug: null, reset_seconds: null, tripped_at: null });
+}
+
+/** The one plain status line printed when the breaker trips (§4 mechanics). */
+export function argonQuotaNotice(state) {
+  const reset = state?.reset_seconds != null
+    ? `복구까지 약 ${formatDurationKo(state.reset_seconds)} 남음`
+    : "복구 시점을 agy가 알려주지 않았습니다";
+  return `ntg: 고급 모델(Argon) 한도 소진 — ${state?.seat ?? "argon"} 호출이 막혔습니다(${reset}). 이 실행에서는 Argon 모델을 더 시도하지 않습니다.`;
+}
+
+/**
+ * Marks Argon unavailable for the rest of this run. Only the first trip
+ * prints the plain notice; later Argon seats are refused without a call.
+ *
+ * @param {{ seat?: string, slug?: string, text?: string }} parts
+ * @returns {object} Final breaker state
+ */
+export function tripArgonQuotaBreaker({ seat, slug, text } = {}) {
+  if (!argonBreaker.tripped) {
+    argonBreaker.tripped = true;
+    argonBreaker.seat = seat ?? slug ?? "argon";
+    argonBreaker.slug = slug ?? null;
+    argonBreaker.reset_seconds = parseQuotaResetSeconds(text);
+    argonBreaker.tripped_at = new Date().toISOString();
+    process.stderr.write(`${argonQuotaNotice(argonQuotaBreakerState())}\n`);
+  }
+  return argonQuotaBreakerState();
+}
+
+/** True when the breaker already refuses this (Argon) slug without a call. */
+export function argonBreakerBlocksSlug(slug) {
+  return argonBreaker.tripped && isArgonSlug(slug);
+}
+
 export class UnresolvedModelSlugError extends Error {
   constructor(role, message, details = {}) {
     super(message || `Unresolved model slug for role: ${role}`);
@@ -232,6 +347,11 @@ export function parseInstalledModels(stdout) {
 export function listInstalledModels(opts = {}) {
   const agyPath = opts.agyPath || process.env.AGY_PATH || "agy";
   const timeout = typeof opts.timeout === "number" ? opts.timeout : 15000;
+
+  const refusal = realAgyRefusalUnderNodeTest(opts.agyPath);
+  if (refusal) {
+    throw new Error(`Failed to list installed models: ${refusal.message}`);
+  }
 
   const result = (opts.naviSpawn || spawnSync)(agyPath, ["models"], {
     timeout,
@@ -899,6 +1019,35 @@ function invokeAgyTransport(opts, prefix = []) {
   const outputFormat = opts.outputFormat || "json";
   const agyPath = opts.agyPath || process.env.AGY_PATH || "agy";
 
+  // Stage 0 test hygiene: never launch the ambient agy binary from inside
+  // `node --test` unless the run explicitly opted in or names an executable.
+  const refusal = realAgyRefusalUnderNodeTest(opts.agyPath);
+  if (refusal) {
+    return {
+      ok: false,
+      error: refusal.error,
+      ...(role ? { role } : {}),
+      slug,
+      message: refusal.message,
+    };
+  }
+
+  // Stage 0 circuit breaker: once Argon quota is exhausted, later Argon
+  // seats fail fast without another provider call (§4).
+  if (argonBreakerBlocksSlug(slug)) {
+    const state = argonQuotaBreakerState();
+    return {
+      ok: false,
+      error: "ARGON_QUOTA_EXHAUSTED",
+      ...(role ? { role } : {}),
+      slug,
+      seat: state.seat,
+      resets_in_seconds: state.reset_seconds,
+      skipped: true,
+    };
+  }
+
+
   // Recursion protection
   const chainRaw = process.env.NTG_RUNNER_CHAIN;
   if (role && chainRaw) {
@@ -919,6 +1068,10 @@ function invokeAgyTransport(opts, prefix = []) {
   const childEnv = {
     ...process.env,
     ...(opts.env || {}),
+    // Stage 0: every role-run test suite skips live model tests; a worker
+    // running `node --test` inside its role must not spend real agy quota
+    // (B1: 13.94M tokens). NTG_LIVE_TESTS=1 (release validation) opts out.
+    ...(process.env.NTG_LIVE_TESTS === "1" ? {} : { SKIP_LIVE_TESTS: "1" }),
     ...(nextChain ? { NTG_RUNNER_CHAIN: nextChain } : {}),
     ...(normalizedRole === "bulldozer" ? { NTG_BULLDOZER_NO_SHELL: "1" } : {}),
   };
@@ -1065,6 +1218,22 @@ function invokeAgyTransport(opts, prefix = []) {
       };
     }
     const usage = usageFromStdout(result.stdout);
+    // Stage 0 circuit breaker: an Argon seat reporting exhausted quota trips
+    // the breaker for the rest of this run (§4).
+    const combinedOutput = `${result.stderr || ""}\n${result.stdout || ""}`;
+    if (isArgonSlug(slug) && QUOTA_EXHAUSTED_RE.test(combinedOutput)) {
+      const state = tripArgonQuotaBreaker({ seat: role || slug, slug, text: combinedOutput });
+      return {
+        ok: false,
+        error: "ARGON_QUOTA_EXHAUSTED",
+        ...(role ? { role } : {}),
+        slug,
+        exitCode: result.status,
+        resets_in_seconds: state.reset_seconds,
+        stderr: (result.stderr || "").toString(),
+        usage,
+      };
+    }
     return {
       ok: false,
       error: "EXECUTION_FAILED",

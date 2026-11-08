@@ -2751,6 +2751,81 @@ runTest("9.4: Unresolved failures and repair_needs are still forwarded and bound
   assert.strictEqual(proj.repair_needs, "Repair async timeout handling");
 });
 
+// =============================================================================
+// Stage 0: reopenLastCandidateReview (gate-only review retry)
+// =============================================================================
+
+runTest("reopenLastCandidateReview re-binds the last persisted candidate after a review failure", () => {
+  const ledger = new AuthoritativeLedger(samplePlan());
+  ledger.delegate("M1");
+  const { result_ref } = ledger.receiveCandidate(sampleCandidate());
+  ledger.recordBlockedOrFailure({
+    milestoneId: "M1", status: "INVOCATION_FAILURE",
+    evidence: { classification: "OBSERVED", error: "zen quota stop" },
+  });
+  assert.strictEqual(ledger.current_milestone, null);
+
+  const opened = ledger.reopenLastCandidateReview(null);
+  assert.strictEqual(opened.milestone_id, "M1");
+  assert.strictEqual(opened.plan_version, "v1");
+  assert.strictEqual(opened.result_ref, result_ref);
+  assert.strictEqual(opened.contract.milestone_id, "M1");
+  assert.deepStrictEqual(opened.contract.acceptance_criteria, ["Runner resolves slugs", "Process execution works"]);
+  assert.strictEqual(opened.candidate_record.result_ref, result_ref);
+  assert.strictEqual(ledger.current_milestone, "M1");
+
+  ledger.recordZenGo(sampleVerdict({ result_ref }));
+  assert.deepStrictEqual(ledger.completed_milestones, ["M1"]);
+  assert.strictEqual(ledger.current_milestone, null);
+});
+
+runTest("reopenLastCandidateReview refuses active milestones, missing candidates and stale versions", () => {
+  const active = new AuthoritativeLedger(samplePlan());
+  active.delegate("M1");
+  assert.throws(() => active.reopenLastCandidateReview(null), /already active/);
+
+  const fresh = new AuthoritativeLedger(samplePlan());
+  assert.throws(() => fresh.reopenLastCandidateReview(null), /No persisted candidate awaiting Zen review/);
+  assert.throws(() => fresh.reopenLastCandidateReview("M1"), /No persisted candidate awaiting Zen review for milestone 'M1'/);
+  assert.throws(() => fresh.reopenLastCandidateReview("nope"), /not found in current plan/);
+
+  const replanned = new AuthoritativeLedger(samplePlan());
+  replanned.delegate("M1");
+  replanned.receiveCandidate(sampleCandidate());
+  replanned.recordBlockedOrFailure({
+    milestoneId: "M1", status: "INVOCATION_FAILURE",
+    evidence: { classification: "OBSERVED", error: "stop" },
+  });
+  replanned.materialReplan({ ...samplePlan(), plan_version: "v2" });
+  assert.throws(() => replanned.reopenLastCandidateReview(null), /No persisted candidate awaiting Zen review/);
+});
+
+runTest("reopenLastCandidateReview selects the most recent eligible candidate and skips completed milestones", () => {
+  const ledger = new AuthoritativeLedger(samplePlan());
+  ledger.delegate("M1");
+  const { result_ref: m1Ref } = ledger.receiveCandidate(sampleCandidate());
+  ledger.recordZenGo(sampleVerdict({ result_ref: m1Ref }));
+  ledger.delegate("M2");
+  const { result_ref: m2Ref } = ledger.receiveCandidate(sampleCandidate({ milestone_id: "M2" }));
+  ledger.recordBlockedOrFailure({
+    milestoneId: "M2", status: "INVOCATION_FAILURE",
+    evidence: { classification: "OBSERVED", error: "stop" },
+  });
+
+  // A completed milestone never reopens, even when named explicitly.
+  assert.throws(() => ledger.reopenLastCandidateReview("M1"), /No persisted candidate awaiting Zen review for milestone 'M1'/);
+
+  const opened = ledger.reopenLastCandidateReview(null);
+  assert.strictEqual(opened.milestone_id, "M2");
+  assert.strictEqual(opened.result_ref, m2Ref);
+
+  ledger.recordZenNoGo(sampleVerdict({
+    milestone_id: "M2", result_ref: m2Ref, verdict: "NO-GO", repair_needs: "fix the ledger invariants",
+  }));
+  assert.strictEqual(ledger.verification.M2.verdict, "NO-GO");
+  assert.deepStrictEqual(ledger.completed_milestones, ["M1"]);
+});
+
 console.log("=========================================================");
 console.log(`Summary: ${passed} passed, ${failed} failed (Total: ${passed + failed})`);
 

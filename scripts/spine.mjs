@@ -641,39 +641,7 @@ export class MinimalSpine {
         { tool: 'zen_review', args: { milestone_id: contract.milestone_id, plan_version: contract.plan_version, result_ref } },
         () => this.#invokeZen(request)
       ));
-      if (verdict?.verdict !== 'GO' && verdict?.verdict !== 'NO-GO') {
-        throw new Error('Zen must return an observed GO or NO-GO');
-      }
-      if (verdict.milestone_id !== contract.milestone_id
-          || verdict.plan_version !== contract.plan_version
-          || verdict.result_ref !== result_ref) {
-        throw new Error('Zen verdict does not match the current candidate binding');
-      }
-      if (!Array.isArray(verdict.verification_evidence) || !verdict.verification_evidence.length) {
-        throw new Error('Zen must supply directly observed verification evidence');
-      }
-      const unobserved = verdict.verification_evidence.filter(item => item?.classification !== 'OBSERVED');
-      if (unobserved.length) {
-        const named = unobserved.map(item => `${item?.classification ?? 'UNCLASSIFIED'}: ${item?.criterion ?? 'unnamed criterion'}`);
-        throw new Error(`Zen must supply directly observed verification evidence; not observed: ${named.join('; ')}`);
-      }
-      if (verdict.verdict === 'GO') {
-        // #201 A6: promotion authority needs criterion-linked observed results,
-        // not just non-empty OBSERVED-classified evidence.
-        const uncovered = uncoveredAcceptanceCriteria(contract.acceptance_criteria, verdict.verification_evidence);
-        if (uncovered.length) {
-          throw new UncoveredCriteriaError(
-            `Zen GO must cover every acceptance criterion with OBSERVED evidence naming the criterion and a non-empty result; uncovered: ${JSON.stringify(uncovered)}`,
-            { uncovered }
-          );
-        }
-      }
-      if (verdict.verdict === 'NO-GO'
-          && (typeof verdict.repair_needs !== 'string' || !verdict.repair_needs.trim())) {
-        throw new InvalidHandoffPacketError('Zen NO-GO must supply non-empty repair_needs');
-      }
-      if (verdict.verdict === 'GO') this.#ledger.recordZenGo(verdict);
-      else this.#ledger.recordZenNoGo(verdict);
+      this.#applyZenVerdict(contract, result_ref, verdict);
       this.#ledger.save(this.#path);
       return { status: 'DONE', result_ref, verdict, verified: verdict.verdict === 'GO' };
     } catch (error) {
@@ -707,6 +675,97 @@ export class MinimalSpine {
           evidence: error?.failedStep
             ? { ...evidence, failed_step: error.failedStep }
             : evidence,
+        });
+        this.#ledger.save(this.#path);
+      }
+      throw error;
+    } finally {
+      this.#busy = false;
+    }
+  }
+
+  /**
+   * Fail-closed Zen verdict boundary shared by runMilestone and the gate-only
+   * review retry: verdict shape, candidate binding, OBSERVED evidence, GO
+   * criterion coverage (#201 A6) and NO-GO repair needs, then the ledger
+   * record. The caller owns the ledger save.
+   */
+  #applyZenVerdict(contract, resultRef, verdict) {
+    if (verdict?.verdict !== 'GO' && verdict?.verdict !== 'NO-GO') {
+      throw new Error('Zen must return an observed GO or NO-GO');
+    }
+    if (verdict.milestone_id !== contract.milestone_id
+        || verdict.plan_version !== contract.plan_version
+        || verdict.result_ref !== resultRef) {
+      throw new Error('Zen verdict does not match the current candidate binding');
+    }
+    if (!Array.isArray(verdict.verification_evidence) || !verdict.verification_evidence.length) {
+      throw new Error('Zen must supply directly observed verification evidence');
+    }
+    const unobserved = verdict.verification_evidence.filter(item => item?.classification !== 'OBSERVED');
+    if (unobserved.length) {
+      const named = unobserved.map(item => `${item?.classification ?? 'UNCLASSIFIED'}: ${item?.criterion ?? 'unnamed criterion'}`);
+      throw new Error(`Zen must supply directly observed verification evidence; not observed: ${named.join('; ')}`);
+    }
+    if (verdict.verdict === 'GO') {
+      const uncovered = uncoveredAcceptanceCriteria(contract.acceptance_criteria, verdict.verification_evidence);
+      if (uncovered.length) {
+        throw new UncoveredCriteriaError(
+          `Zen GO must cover every acceptance criterion with OBSERVED evidence naming the criterion and a non-empty result; uncovered: ${JSON.stringify(uncovered)}`,
+          { uncovered }
+        );
+      }
+    }
+    if (verdict.verdict === 'NO-GO'
+        && (typeof verdict.repair_needs !== 'string' || !verdict.repair_needs.trim())) {
+      throw new InvalidHandoffPacketError('Zen NO-GO must supply non-empty repair_needs');
+    }
+    if (verdict.verdict === 'GO') this.#ledger.recordZenGo(verdict);
+    else this.#ledger.recordZenNoGo(verdict);
+  }
+
+  /**
+   * Stage 0 gate-only review retry (subagent redesign §4): re-runs Zen on the
+   * last persisted candidate without re-executing any milestone work. Lands
+   * there after a review transport failure such as the Argon quota stop; the
+   * reopened candidate follows the same fail-closed verdict boundary as
+   * runMilestone, and a failure again records INVOCATION_FAILURE while the
+   * candidate stays persisted and reviewable.
+   *
+   * @param {string|null} milestoneId - Optional milestone selector
+   * @returns {{ status: string, result_ref: string, verdict: object, verified: boolean }}
+   */
+  async reviewCandidate(milestoneId = null) {
+    this.#idle();
+    const opened = this.#ledger.reopenLastCandidateReview(milestoneId);
+    this.#ledger.save(this.#path);
+    this.#busy = true;
+    try {
+      const request = deepFreeze(deepClone({
+        milestone_id: opened.milestone_id,
+        plan_version: opened.plan_version,
+        result_ref: opened.result_ref,
+        contract: opened.contract,
+        candidate: opened.candidate_record,
+      }));
+      const verdict = deepClone(await this.#step(
+        { tool: 'zen_review', args: { milestone_id: opened.milestone_id, plan_version: opened.plan_version, result_ref: opened.result_ref, gate_only_retry: true } },
+        () => this.#invokeZen(request)
+      ));
+      this.#applyZenVerdict(opened.contract, opened.result_ref, verdict);
+      this.#ledger.save(this.#path);
+      return { status: 'REVIEWED', result_ref: opened.result_ref, verdict, verified: verdict.verdict === 'GO' };
+    } catch (error) {
+      if (error instanceof LedgerIntegrityError) {
+        // Same rule as runMilestone: never recreate the ledger over a violation.
+        throw error;
+      }
+      if (this.state.current_milestone === opened.milestone_id) {
+        this.#ledger.recordBlockedOrFailure({
+          milestoneId: opened.milestone_id, status: 'INVOCATION_FAILURE',
+          evidence: error?.failedStep
+            ? { classification: 'OBSERVED', error: String(error), failed_step: error.failedStep }
+            : { classification: 'OBSERVED', error: String(error) },
         });
         this.#ledger.save(this.#path);
       }

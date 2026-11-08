@@ -169,9 +169,12 @@ claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)
   assert.strictEqual(parsed[2].description, "Gemini 4 Argon (High)");
 });
 
-// Needs a real `agy` on PATH, so it is a live test (CI runners have no agy).
-const skipLiveSurface = process.env.SKIP_LIVE_TESTS === "1" || process.env.SKIP_LIVE_TESTS === "true";
-if (skipLiveSurface) console.log("[SKIP] 1.6: live agy model surface skipped via SKIP_LIVE_TESTS=1");
+// Needs a real `agy` on PATH. Live model tests are opt-in (Stage 0 test
+// hygiene): they run only with NTG_LIVE_TESTS=1, and SKIP_LIVE_TESTS=1 always
+// wins. Default and CI runs never launch a real agy.
+const liveTestsOptIn = process.env.NTG_LIVE_TESTS === "1";
+const skipLiveSurface = !liveTestsOptIn || process.env.SKIP_LIVE_TESTS === "1" || process.env.SKIP_LIVE_TESTS === "true";
+if (skipLiveSurface) console.log("[SKIP] 1.6: live agy model surface is opt-in (NTG_LIVE_TESTS=1)");
 else runTest("1.6: Live installed surface resolution against system agy models", () => {
   const models = listInstalledModels();
   assert.ok(Array.isArray(models), "Expected models to be an array");
@@ -405,6 +408,7 @@ runTest("2.6b3: non-mutating empty retries consume one shared deadline", () => {
   syncBuiltinESMExports();
   try {
     const result = invoke("piledriver", { task: "Empty" }, {
+      agyPath: "mock-agy",
       timeout: 100,
       installedModels: [{ slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" }],
     });
@@ -438,6 +442,7 @@ runTest("2.6b4: attempt count accompanies success and transport failure after re
     syncBuiltinESMExports();
     try {
       const result = invoke("steamroller", { task: "Retry read-only work" }, {
+        agyPath: "mock-agy",
         timeout: 100,
         installedModels: [{ slug: "gemini-4-argon-medium", description: "Gemini 4 Argon (Medium)" }],
       });
@@ -948,6 +953,7 @@ runTest("2.7b: Timeout with pending background task in stderr returns BACKGROUND
       slug: "test-model",
       prompt: "test",
       role: "bulldozer",
+      agyPath: "mock-agy",
       timeout: 5000,
     });
     assert.strictEqual(transportRes.ok, false);
@@ -960,6 +966,7 @@ runTest("2.7b: Timeout with pending background task in stderr returns BACKGROUND
     assert.strictEqual(transportRes.role, "bulldozer");
 
     const invokeRes = invoke("bulldozer", { task: "Test" }, {
+      agyPath: "mock-agy",
       timeout: 5000,
       installedModels: [{ slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" }],
     });
@@ -992,6 +999,7 @@ runTest("2.7c (control, same on base): Timeout without pending background task i
       slug: "test-model",
       prompt: "test",
       role: "bulldozer",
+      agyPath: "mock-agy",
       timeout: 5000,
     });
     assert.strictEqual(transportRes.ok, false);
@@ -1003,6 +1011,7 @@ runTest("2.7c (control, same on base): Timeout without pending background task i
     assert.strictEqual(transportRes.line, undefined);
 
     const invokeRes = invoke("bulldozer", { task: "Test" }, {
+      agyPath: "mock-agy",
       timeout: 5000,
       installedModels: [{ slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" }],
     });
@@ -1452,10 +1461,10 @@ runTest("4.2: Multi-role chain detection blocks re-entrant role (RECURSION_DETEC
 // Section 5: Live Piledriver & Bulldozer Invocations (Handoff Packets)
 // =============================================================================
 
-const skipLive = process.env.SKIP_LIVE_TESTS === "1" || process.env.SKIP_LIVE_TESTS === "true";
+const skipLive = !liveTestsOptIn || process.env.SKIP_LIVE_TESTS === "1" || process.env.SKIP_LIVE_TESTS === "true";
 
 if (skipLive) {
-  console.log("[SKIP] Section 5 live LLM tests skipped via SKIP_LIVE_TESTS=1");
+  console.log("[SKIP] Section 5 live LLM tests are opt-in (NTG_LIVE_TESTS=1)");
 } else {
   runTest("5.1: Live Piledriver bounded invocation (gemini-4-argon-high)", () => {
     const res = invoke("piledriver", { task: "Reply with exactly: PILEDRIVER_SPIKE_PASS" });

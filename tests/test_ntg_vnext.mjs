@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
-import { main, nativeZen, parseZenEnvelope } from '../scripts/ntg-vnext.mjs';
+import { main, nativeZen, parseZenEnvelope, resolveInvocationTimeoutMs, ROLE_TIMEOUT_S, DEFAULT_RUNNER_TIMEOUT_S } from '../scripts/ntg-vnext.mjs';
 import { AuthoritativeLedger, computeUsageRollup } from '../scripts/ledger.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { symlinkSync } from 'node:fs';
@@ -1161,4 +1161,155 @@ test('pre-change-format ledger fixture (tests/fixtures/pre-usage.ledger.json) lo
   assert.equal(res.code, 0);
   assert.equal(res.out.usage, undefined);
   assert.equal(res.out.state.usage, undefined);
+});
+
+test('resolveInvocationTimeoutMs: explicit beats per-role defaults; unlisted roles keep 600 s', () => {
+  assert.equal(resolveInvocationTimeoutMs('bulldozer', {}), 3600000);
+  assert.equal(resolveInvocationTimeoutMs(' Bulldozer ', {}), 3600000);
+  assert.equal(resolveInvocationTimeoutMs('zen', {}), ROLE_TIMEOUT_S.zen * 1000);
+  assert.equal(resolveInvocationTimeoutMs('zen', {}), 1200000);
+  assert.equal(resolveInvocationTimeoutMs('piledriver', {}), DEFAULT_RUNNER_TIMEOUT_S * 1000);
+  assert.equal(resolveInvocationTimeoutMs('jaguar', {}), DEFAULT_RUNNER_TIMEOUT_S * 1000);
+  assert.equal(resolveInvocationTimeoutMs('bulldozer', { timeoutMs: 1500 }), 1500);
+  assert.equal(resolveInvocationTimeoutMs('zen', { timeoutMs: 1500 }), 1500);
+});
+
+test('run applies per-role timeout defaults without --timeout; explicit overrides stay flat', async t => {
+  const saved = process.env.NTG_RUNNER_TIMEOUT_S;
+  t.after(() => {
+    if (saved === undefined) delete process.env.NTG_RUNNER_TIMEOUT_S;
+    else process.env.NTG_RUNNER_TIMEOUT_S = saved;
+  });
+  const seen = [];
+  const deps = {
+    handleSignals: false,
+    invokeRole: async (role, packet, runnerOptions = {}) => {
+      seen.push([role, runnerOptions.timeout]);
+      const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+      return envelope({
+        milestone_id: contract.milestone_id, plan_version: contract.plan_version, status: 'DONE',
+        changes_made: contract.bounded_scope, verification_evidence: observed, unresolved_unknowns: [],
+        scope_deviations: [], candidate_artifact_ref: `sha256:${contract.milestone_id}`,
+      });
+    },
+    invokeZen: async request => ({
+      milestone_id: request.milestone_id, plan_version: request.plan_version, result_ref: request.result_ref,
+      verdict: 'GO', verification_evidence: observed,
+    }),
+  };
+  const make = async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ntg-vnext-role-timeout-'));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const ledger = join(dir, 'ledger.json');
+    writeFileSync(join(dir, 'plan.json'), JSON.stringify(plan('v1', ['one'])));
+    await main(['init', '--ledger', ledger, '--plan', join(dir, 'plan.json')], deps);
+    return ledger;
+  };
+
+  delete process.env.NTG_RUNNER_TIMEOUT_S;
+  let ledger = await make();
+  let res = await main(['run', '--ledger', ledger], deps);
+  assert.equal(res.code, 0);
+  assert.deepEqual(seen.at(-1), ['bulldozer', 3600000]);
+
+  ledger = await make();
+  res = await main(['run', '--ledger', ledger, '--timeout', '5'], deps);
+  assert.equal(res.code, 0);
+  assert.deepEqual(seen.at(-1), ['bulldozer', 5000]);
+
+  process.env.NTG_RUNNER_TIMEOUT_S = '7';
+  ledger = await make();
+  res = await main(['run', '--ledger', ledger], deps);
+  assert.equal(res.code, 0);
+  assert.deepEqual(seen.at(-1), ['bulldozer', 7000]);
+});
+
+function reviewFixture(t) {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-vnext-review-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const ledger = join(dir, 'ledger.json');
+  writeFileSync(join(dir, 'plan.json'), JSON.stringify(plan('v1', ['one'])));
+  let roleCalls = 0;
+  const deps = {
+    handleSignals: false,
+    invokeRole: async (role, packet) => {
+      roleCalls += 1;
+      const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+      return envelope({
+        milestone_id: contract.milestone_id, plan_version: contract.plan_version, status: 'DONE',
+        changes_made: contract.bounded_scope, verification_evidence: observed, unresolved_unknowns: [],
+        scope_deviations: [], candidate_artifact_ref: `sha256:${contract.milestone_id}`,
+      });
+    },
+  };
+  return { ledger, deps, roleCalls: () => roleCalls };
+}
+
+async function runUntilZenStops(t) {
+  const { ledger, deps, roleCalls } = reviewFixture(t);
+  await main(['init', '--ledger', ledger, '--plan', join(dirname(ledger), 'plan.json')], deps);
+  const quotaStop = Object.assign(
+    new Error('zen invocation exited 3: AGY_ERROR: Individual quota reached for gemini-4-argon-high. Resets in 5h0m0s'),
+    { code: 'ZEN_REVIEW_PENDING' });
+  await assert.rejects(
+    main(['run', '--ledger', ledger], { ...deps, invokeZen: async () => { throw quotaStop; } }),
+    /Individual quota reached/);
+  const persisted = AuthoritativeLedger.load(ledger).getState();
+  assert.equal(persisted.current_milestone, null);
+  assert.equal(persisted.evidence.one.candidates.length, 1);
+  assert.ok(persisted.evidence.one.failure_evidence.some(f => f.status === 'INVOCATION_FAILURE'));
+  return { ledger, deps, resultRef: persisted.evidence.one.candidates[0].result_ref, roleCalls };
+}
+
+test('review retries the last candidate gate-only after a zen quota stop', async t => {
+  const { ledger, deps, resultRef, roleCalls } = await runUntilZenStops(t);
+  const zenRequests = [];
+  const { code, out } = await main(['review', '--ledger', ledger], {
+    ...deps,
+    invokeZen: async request => {
+      zenRequests.push(request);
+      const disk = AuthoritativeLedger.load(ledger).getState();
+      assert.equal(disk.current_milestone, request.milestone_id);
+      assert.equal(request.result_ref, resultRef);
+      assert.equal(request.candidate.result_ref, resultRef);
+      assert.ok(Object.isFrozen(request.candidate));
+      return {
+        milestone_id: request.milestone_id, plan_version: request.plan_version, result_ref: request.result_ref,
+        verdict: 'GO', verification_evidence: observed,
+      };
+    },
+  });
+  assert.equal(code, 0);
+  assert.equal(out.review.status, 'REVIEWED');
+  assert.equal(out.review.verified, true);
+  assert.equal(zenRequests.length, 1);
+  assert.equal(roleCalls(), 1, 'review must not re-run Bulldozer');
+  const done = AuthoritativeLedger.load(ledger).getState();
+  assert.deepEqual(done.completed_milestones, ['one']);
+  assert.equal(done.verification.one.verdict, 'GO');
+  assert.equal(done.current_milestone, null);
+});
+
+test('review records NO-GO without promotion and exits 2', async t => {
+  const { ledger, deps } = await runUntilZenStops(t);
+  const { code, out } = await main(['review', '--ledger', ledger], {
+    ...deps,
+    invokeZen: async request => ({
+      milestone_id: request.milestone_id, plan_version: request.plan_version, result_ref: request.result_ref,
+      verdict: 'NO-GO', verification_evidence: observed, repair_needs: 'fix the artifact content',
+    }),
+  });
+  assert.equal(code, 2);
+  assert.equal(out.review.verified, false);
+  const state = AuthoritativeLedger.load(ledger).getState();
+  assert.equal(state.verification.one.verdict, 'NO-GO');
+  assert.equal(state.verification.one.repair_needs, 'fix the artifact content');
+  assert.deepEqual(state.completed_milestones, []);
+  assert.equal(state.current_milestone, null);
+});
+
+test('review refuses cleanly when no candidate awaits a verdict', async t => {
+  const { ledger, deps } = reviewFixture(t);
+  await main(['init', '--ledger', ledger, '--plan', join(dirname(ledger), 'plan.json')], deps);
+  await assert.rejects(main(['review', '--ledger', ledger], deps), /No persisted candidate awaiting Zen review/);
 });

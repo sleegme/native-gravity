@@ -87,3 +87,8 @@ Use `run_command` for authorized implementation and verification. The inherited
 authority: the hook distinguishes your runtime conversation from Bulldozer's.
 No Bobcat command-line marker or environment reset is required. Never edit the
 hook or conversation binding to work around a denial; report its literal result.
+
+## Test runs never go live
+
+Run repository test suites with SKIP_LIVE_TESTS=1 (your invocation
+environment already sets it); never launch live model calls from a test run.
