@@ -144,17 +144,31 @@ class BudgetGuardTests(unittest.TestCase):
             self.assertEqual(denied["decision"], "deny")
             self.assertIn("calls", denied["reason"])
 
-    def test_salvage_mode_denies_spawns_and_edits_without_counting(self):
+    def test_salvage_mode_denies_spawns_edits_and_shell_without_counting(self):
         with tempfile.TemporaryDirectory() as directory:
             env = {SUPERVISOR_MARKER: "1", STATE_DIR_ENV: directory,
                    SALVAGE_MARKER: "1", "NTG_BUDGET_ROOT_MAX_CALLS": "1"}
-            for tool in ("invoke_subagent", "write_to_file", "replace_file_content"):
+            for tool in ("invoke_subagent", "write_to_file", "replace_file_content", "run_command"):
                 with self.subTest(tool=tool):
                     denied = run_payload(tool_payload(tool), env)
                     self.assertEqual(denied["decision"], "deny")
                     self.assertIn("packet-only", denied["reason"])
             # Reads still work in salvage mode.
             self.assertEqual(run_payload(tool_payload("view_file"), env)["decision"], "allow")
+
+    def test_run_command_is_denied_only_in_salvage_mode(self):
+        # Stage 1 gate-review follow-up: the shell side door must be closed in
+        # salvage mode (the Bulldozer shell exception could otherwise reach the
+        # headless Excavator transport) without touching ordinary runs.
+        with tempfile.TemporaryDirectory() as directory:
+            env = {SUPERVISOR_MARKER: "1", STATE_DIR_ENV: directory,
+                   "NTG_BUDGET_ROOT_MAX_CALLS": "1"}
+            allowed = run_payload(tool_payload("run_command"), env)
+            self.assertEqual(allowed["decision"], "allow")
+            salvage_env = {**env, SALVAGE_MARKER: "1"}
+            denied = run_payload(tool_payload("run_command"), salvage_env)
+            self.assertEqual(denied["decision"], "deny")
+            self.assertIn("shell", denied["reason"])
 
     def test_malformed_payload_fails_closed_while_budgeted(self):
         with tempfile.TemporaryDirectory() as directory:

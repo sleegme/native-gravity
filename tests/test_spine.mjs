@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { MinimalSpine, recommendNeedsAlt } from '../scripts/spine.mjs';
+import { advisorGateEnabled, decideRepairAction, MAX_REPAIR_ATTEMPTS, MinimalSpine, recommendNeedsAlt, repairStopQuestion, zenNoGoSignature } from '../scripts/spine.mjs';
 import { AuthoritativeLedger, UncoveredCriteriaError } from '../scripts/ledger.mjs';
 import { InvalidHandoffPacketError, InvalidResponseFormatError, composeBoundedPrompt, invoke, parseResponseEnvelope } from '../scripts/runner.mjs';
-import { runCoverageProbes } from '../scripts/coverage.mjs';
+import { runCoverageProbes, snapshotScope } from '../scripts/coverage.mjs';
 
 const observed = [{ classification: 'OBSERVED', criterion: 'content matches milestone ID', result: 'artifact inspected' }];
 const plan = () => ({
@@ -352,8 +352,13 @@ test('unwrapped candidate still needs an independent matching Zen GO', async t =
       }));
     },
   });
-  assert.equal((await spine.runMilestone('one')).verified, false);
-  assert.deepEqual(f.calls, ['zen']);
+  const result = await spine.runMilestone('one');
+  assert.equal(result.verified, false);
+  // Stage 2 bounded repair: the repeated identical NO-GO signature stops the
+  // run with a plain question after exactly one automatic repair.
+  assert.deepEqual(f.calls, ['zen', 'zen']);
+  assert.equal(typeof result.question, 'string');
+  assert.ok(result.question.includes('one'));
   assert.deepEqual(spine.state.completed_milestones, []);
   assert.throws(() => spine.declareGlobalCompletion());
 });
@@ -507,21 +512,27 @@ for (const repair_needs of [undefined, null, '', '   ', [], {}, 42]) {
 test('NO-GO preserves incompletion; a repaired artifact gets a distinct reviewed reference', async t => {
   let attempt = 0;
   const refs = [];
+  const diskAtReview = [];
   const f = fixture(t, {
     output: contract => candidate(contract, { candidate_artifact_ref: `sha256:revision-${++attempt}` }),
     review: request => {
       refs.push(request.result_ref);
+      diskAtReview.push(AuthoritativeLedger.load(f.ledgerPath).getState());
       return verdict(request, {
         verdict: attempt === 1 ? 'NO-GO' : 'GO', repair_needs: 'Deliver the corrected revision',
       });
     },
   });
-  assert.equal((await f.spine.runMilestone('one')).verified, false);
-  assert.deepEqual(f.spine.state.completed_milestones, []);
-  assert.equal(f.spine.state.current_milestone, null);
-  assert.equal(f.spine.state.verification.one.repair_needs, 'Deliver the corrected revision');
+  // Stage 2 bounded repair: the NO-GO drives one automatic repair delegation
+  // inside the same run, and the repaired artifact is reviewed under a new
+  // result_ref before the milestone may complete.
   assert.equal((await f.spine.runMilestone('one')).verified, true);
+  assert.equal(refs.length, 2);
   assert.notEqual(refs[0], refs[1]);
+  assert.deepEqual(diskAtReview[0].completed_milestones, []);
+  assert.equal(diskAtReview[0].verification.one, undefined);
+  assert.deepEqual(f.spine.state.completed_milestones, ['one']);
+  assert.equal(f.spine.state.verification.one.verdict, 'GO');
 });
 
 for (const status of ['BLOCKED', 'NEEDS_DEEP']) {
@@ -1666,4 +1677,300 @@ test('transport death without in-scope changes stays an INVOCATION_FAILURE (no s
   assert.deepEqual(invokeRoleCalls, ['bulldozer']);
   const disk = AuthoritativeLedger.load(f.ledgerPath).getState();
   assert.equal(disk.evidence.one.failure_evidence[0].status, 'INVOCATION_FAILURE');
+});
+
+
+// ---------------------------------------------------------------------------
+// Stage 2 (subagent redesign 2026-11-08, §5.2): Strix advisor flag, the five
+// pre-Zen CHECK items, and bounded automatic repair.
+// ---------------------------------------------------------------------------
+
+const scopePlan = () => ({
+  goal: 'Stay in scope', constraints: [], decision_invariants: [], plan_version: 'v1',
+  milestones: [{
+    id: 'one', title: 'one', objective: 'edit only the scoped file',
+    bounded_scope: ['one.txt'], acceptance_criteria: ['content matches milestone ID'],
+    non_goals: [], dependencies: [],
+  }],
+});
+
+const verifyPlan = (verify) => ({
+  goal: 'Verify runs before Zen', constraints: [], decision_invariants: [], plan_version: 'v1',
+  milestones: [{
+    id: 'one', title: 'one', objective: 'deliver the flag file',
+    bounded_scope: ['done.txt'], acceptance_criteria: ['flag file delivered'],
+    non_goals: [], dependencies: [], verify,
+  }],
+});
+
+const testIntegrityWorkdir = (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-spine-tint-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  mkdirSync(join(dir, 'tests'));
+  writeFileSync(join(dir, 'tests', 'test_thing.mjs'), "test('baseline', () => {});\n");
+  return dir;
+};
+
+const testIntegrityPlan = () => ({
+  goal: 'Keep tests honest', constraints: [], decision_invariants: [], plan_version: 'v1',
+  milestones: [{
+    id: 'one', title: 'one', objective: 'work without gutting tests',
+    bounded_scope: ['tests/test_thing.mjs'],
+    acceptance_criteria: ['tests intact'], non_goals: [], dependencies: [],
+  }],
+});
+
+test('advisorGateEnabled: off unless NTG_STRIX opts in', () => {
+  assert.equal(advisorGateEnabled({}), false);
+  assert.equal(advisorGateEnabled({ NTG_STRIX: undefined }), false);
+  assert.equal(advisorGateEnabled({ NTG_STRIX: '' }), false);
+  assert.equal(advisorGateEnabled({ NTG_STRIX: 'off' }), false);
+  assert.equal(advisorGateEnabled({ NTG_STRIX: '0' }), false);
+  assert.equal(advisorGateEnabled({ NTG_STRIX: '1' }), true);
+  assert.equal(advisorGateEnabled({ NTG_STRIX: 'on' }), true);
+  assert.equal(advisorGateEnabled({ NTG_STRIX: 'TRUE' }), true);
+});
+
+test('Strix advisor gate is off by default; NTG_STRIX restores the ADVISOR_GATE instruction', async t => {
+  const tasks = [];
+  const f = fixture(t, { review: request => verdict(request) });
+  const spine = f.resume({
+    invokeRole: async (role, packet, runnerOptions = {}) => {
+      tasks.push(packet.task);
+      return f.options.invokeRole(role, packet, runnerOptions);
+    },
+  });
+  assert.equal((await spine.runMilestone('one')).verified, true);
+  assert.ok(!tasks[0].includes('ADVISOR_GATE'));
+  assert.ok(tasks[0].includes('advisor gate is disabled for this run'));
+  process.env.NTG_STRIX = '1';
+  try {
+    assert.equal((await spine.runMilestone('two')).verified, true);
+    assert.ok(tasks[1].includes('set ADVISOR_GATE REQUIRED for substantive work'));
+    assert.ok(!tasks[1].includes('advisor gate is disabled'));
+  } finally {
+    delete process.env.NTG_STRIX;
+  }
+});
+
+test('CHECK: changes_made outside bounded_scope gets corrections, then BLOCKED; Zen never runs', async t => {
+  const attempts = [];
+  const f = fixture(t, {
+    initialPlan: scopePlan(),
+    output: contract => {
+      attempts.push(contract);
+      return candidate(contract, {
+        changes_made: ['one.txt', 'outside/evil.txt'],
+        candidate_artifact_ref: 'sha256:stage2-scope-out',
+      });
+    },
+  });
+  const result = await f.spine.runMilestone('one');
+  assert.equal(result.status, 'BLOCKED');
+  assert.equal(result.verified, false);
+  assert.equal(attempts.length, 3);
+  assert.ok(!('invalid_handoff' in attempts[0]));
+  assert.ok(attempts[1].invalid_handoff.reason.includes('outside bounded_scope'));
+  assert.ok(attempts[1].invalid_handoff.reason.includes('outside/evil.txt'));
+  assert.ok(result.blockers[0].includes('outside bounded_scope'));
+  assert.ok(!f.calls.includes('zen'));
+  assert.equal(f.spine.state.current_milestone, null);
+});
+
+test('CHECK: a newly added test suppression gets one correction round, then verifies', async t => {
+  const dir = testIntegrityWorkdir(t);
+  const attempts = [];
+  const f = fixture(t, {
+    initialPlan: testIntegrityPlan(),
+    runnerOptions: { coverageCwd: dir },
+    output: contract => {
+      attempts.push(contract);
+      if (attempts.length === 1) {
+        appendFileSync(join(dir, 'tests', 'test_thing.mjs'), "test.only('fast path', () => {});\n");
+      } else {
+        writeFileSync(join(dir, 'tests', 'test_thing.mjs'), "test('baseline', () => {});\n");
+      }
+      return candidate(contract, { candidate_artifact_ref: `sha256:stage2-tint-${attempts.length}` });
+    },
+    review: request => verdict(request, {
+      verification_evidence: [{ classification: 'OBSERVED', criterion: 'tests intact', result: 'test file unchanged' }],
+    }),
+  });
+  assert.equal((await f.spine.runMilestone('one')).verified, true);
+  assert.equal(attempts.length, 2);
+  assert.ok(attempts[1].invalid_handoff.reason.includes('test suppressions added'));
+  assert.ok(attempts[1].invalid_handoff.reason.includes("test.only('fast path', () => {});"));
+  assert.equal(readFileSync(join(dir, 'tests', 'test_thing.mjs'), 'utf-8'), "test('baseline', () => {});\n");
+});
+
+test('CHECK: deleting a test file blocks the candidate before Zen', async t => {
+  const dir = testIntegrityWorkdir(t);
+  const f = fixture(t, {
+    initialPlan: testIntegrityPlan(),
+    runnerOptions: { coverageCwd: dir },
+    output: contract => {
+      if (existsSync(join(dir, 'tests', 'test_thing.mjs'))) {
+        rmSync(join(dir, 'tests', 'test_thing.mjs'));
+      }
+      return candidate(contract, { candidate_artifact_ref: 'sha256:stage2-tint-del' });
+    },
+  });
+  const result = await f.spine.runMilestone('one');
+  assert.equal(result.status, 'BLOCKED');
+  assert.equal(result.verified, false);
+  assert.ok(result.blockers[0].includes('test files deleted'));
+  assert.ok(result.blockers[0].includes('tests/test_thing.mjs'));
+  assert.ok(!f.calls.includes('zen'));
+});
+
+test('CHECK: verify commands run before Zen and their results plus the tree digest ride the review request', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-spine-verify-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  let outputs = 0;
+  let zenRequest;
+  const f = fixture(t, {
+    initialPlan: verifyPlan(['test -f done.txt']),
+    runnerOptions: { coverageCwd: dir },
+    output: contract => {
+      outputs += 1;
+      if (outputs === 2) writeFileSync(join(dir, 'done.txt'), 'ok');
+      return candidate(contract, { candidate_artifact_ref: `sha256:stage2-verify-${outputs}` });
+    },
+    review: request => {
+      zenRequest = request;
+      return verdict(request, {
+        verification_evidence: [{ classification: 'OBSERVED', criterion: 'flag file delivered', result: 'done.txt present and verify exit 0' }],
+      });
+    },
+  });
+  assert.equal((await f.spine.runMilestone('one')).verified, true);
+  assert.equal(outputs, 2);
+  assert.ok(Array.isArray(zenRequest.verify_results));
+  assert.equal(zenRequest.verify_results.length, 1);
+  assert.equal(zenRequest.verify_results[0].command, 'test -f done.txt');
+  assert.equal(zenRequest.verify_results[0].exit_code, 0);
+  const expectedDigest = `sha256:${createHash('sha256')
+    .update(JSON.stringify(snapshotScope(['done.txt'], { cwd: dir }).files))
+    .digest('hex')}`;
+  assert.equal(zenRequest.delivered_tree_digest, expectedDigest);
+});
+
+test('CHECK: a failing verify command blocks the candidate before Zen', async t => {
+  let outputs = 0;
+  const f = fixture(t, {
+    initialPlan: verifyPlan(['node -e "process.exit(3)"']),
+    output: contract => {
+      outputs += 1;
+      return candidate(contract, { candidate_artifact_ref: `sha256:stage2-verify-fail-${outputs}` });
+    },
+  });
+  const result = await f.spine.runMilestone('one');
+  assert.equal(result.status, 'BLOCKED');
+  assert.equal(outputs, 3);
+  assert.ok(result.blockers[0].includes('verify commands failed'));
+  assert.ok(result.blockers[0].includes('exit 3'));
+  assert.ok(!f.calls.includes('zen'));
+});
+
+test('bounded repair: the same NO-GO signature twice stops with a plain question after one repair', async t => {
+  const contracts = [];
+  const tasks = [];
+  const f = fixture(t, {
+    output: (contract, { dir }) => {
+      contracts.push(contract);
+      writeFileSync(join(dir, 'one.txt'), 'one');
+      return candidate(contract, { candidate_artifact_ref: `sha256:stage2-repair-${contracts.length}` });
+    },
+    review: request => verdict(request, { verdict: 'NO-GO', repair_needs: 'Same defect' }),
+  });
+  const spine = f.resume({
+    invokeRole: async (role, packet, runnerOptions = {}) => {
+      tasks.push(packet.task);
+      return f.options.invokeRole(role, packet, runnerOptions);
+    },
+  });
+  const result = await spine.runMilestone('one');
+  assert.equal(result.verified, false);
+  assert.equal(typeof result.question, 'string');
+  assert.ok(result.question.includes('one'));
+  assert.ok(result.question.includes('1)'));
+  assert.ok(result.question.includes('3)'));
+  // Initial execution + exactly one repair delegation; Zen saw both candidates.
+  assert.equal(contracts.length, 2);
+  assert.ok(!('repair' in contracts[0]));
+  assert.equal(contracts[1].repair.repair_needs, 'Same defect');
+  assert.equal(contracts[1].repair.attempt, 1);
+  assert.equal(typeof contracts[1].repair.prior_result_ref, 'string');
+  assert.ok(tasks[1].includes('targeted repair'));
+  assert.deepEqual(f.calls, ['bulldozer', 'zen', 'bulldozer', 'zen']);
+  assert.equal(spine.state.verification.one.verdict, 'NO-GO');
+  assert.deepEqual(spine.state.completed_milestones, []);
+  const history = spine.state._verification_history.filter(v => v.verdict === 'NO-GO');
+  assert.equal(history.length, 2);
+});
+
+test('bounded repair: changed signatures allow a second repair; the third NO-GO stops', async t => {
+  let zenCalls = 0;
+  let outputs = 0;
+  const f = fixture(t, {
+    output: contract => {
+      outputs += 1;
+      return candidate(contract, { candidate_artifact_ref: `sha256:stage2-repair2-${outputs}` });
+    },
+    review: request => {
+      zenCalls += 1;
+      return verdict(request, { verdict: 'NO-GO', repair_needs: `defect ${zenCalls}` });
+    },
+  });
+  const result = await f.spine.runMilestone('one');
+  assert.equal(result.verified, false);
+  assert.equal(typeof result.question, 'string');
+  assert.equal(zenCalls, 3);
+  assert.equal(outputs, 3);
+  assert.ok(result.question.includes('2'));
+  assert.deepEqual(f.spine.state.completed_milestones, []);
+});
+
+test('decideRepairAction: repair once by default, again only on a new signature, then stop', () => {
+  assert.equal(MAX_REPAIR_ATTEMPTS, 2);
+  const noGo = needs => ({
+    verdict: 'NO-GO', repair_needs: needs,
+    verification_evidence: [{ classification: 'OBSERVED', criterion: 'c', result: 'r' }],
+  });
+  assert.deepEqual(decideRepairAction({ noGoRecords: [noGo('a')], repairsUsed: 0 }),
+    { action: 'REPAIR', reason: 'first automatic repair after NO-GO', repeatedSignature: false });
+  const repeated = decideRepairAction({ noGoRecords: [noGo('a'), noGo('a')], repairsUsed: 1 });
+  assert.equal(repeated.action, 'ASK_USER');
+  assert.equal(repeated.repeatedSignature, true);
+  const changed = decideRepairAction({ noGoRecords: [noGo('a'), noGo('b')], repairsUsed: 1 });
+  assert.equal(changed.action, 'REPAIR');
+  assert.equal(changed.repeatedSignature, false);
+  const exhausted = decideRepairAction({ noGoRecords: [noGo('a'), noGo('b'), noGo('c')], repairsUsed: 2 });
+  assert.equal(exhausted.action, 'ASK_USER');
+  assert.equal(exhausted.repeatedSignature, false);
+  assert.throws(() => decideRepairAction({ repairsUsed: -1 }), TypeError);
+  assert.equal(decideRepairAction({ noGoRecords: [noGo('a')], repairsUsed: 0, maxRepairs: 1 }).action, 'REPAIR');
+  assert.equal(decideRepairAction({ noGoRecords: [noGo('a'), noGo('b')], repairsUsed: 1, maxRepairs: 1 }).action, 'ASK_USER');
+});
+
+test('zenNoGoSignature agrees with the durable failure-history signature', () => {
+  const record = {
+    milestone_id: 'one', verdict: 'NO-GO', is_stale: false,
+    verification_evidence: [{ classification: 'OBSERVED', criterion: 'c', result: 'x' }],
+    repair_needs: 'fix',
+  };
+  const [summary] = recommendNeedsAlt({}, [record]);
+  assert.equal(summary.failure_class, 'one:NO-GO:zen');
+  assert.equal(summary.failure_signature, zenNoGoSignature(record));
+});
+
+test('repairStopQuestion names the milestone and offers plain choices', () => {
+  const repeated = repairStopQuestion('one', { repairsUsed: 1, repeatedSignature: true });
+  assert.ok(repeated.includes('one'));
+  assert.ok(repeated.includes('1)'));
+  assert.ok(repeated.includes('2)'));
+  assert.ok(repeated.includes('3)'));
+  const exhausted = repairStopQuestion('two', { repairsUsed: 2, repeatedSignature: false });
+  assert.ok(exhausted.includes('two'));
+  assert.ok(exhausted.includes('2'));
 });

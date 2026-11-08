@@ -3,8 +3,8 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import process from 'node:process';
-import { AuthoritativeLedger, deepClone, deepFreeze, normalizeCandidateArtifactRef, UncoveredCriteriaError, uncoveredAcceptanceCriteria } from './ledger.mjs';
-import { buildScopeMap, checkCoverageTable, runCoverageProbes, scopeChanges, snapshotScope } from './coverage.mjs';
+import { AuthoritativeLedger, deepClone, deepFreeze, generateResultRef, normalizeCandidateArtifactRef, UncoveredCriteriaError, uncoveredAcceptanceCriteria } from './ledger.mjs';
+import { buildScopeMap, checkCoverageTable, checkTestIntegrity, isPathInScope, runCoverageProbes, scopeChanges, snapshotScope, snapshotTestIntegrity } from './coverage.mjs';
 import { acquireLedgerLock, LedgerIntegrityError } from './ledger-lock.mjs';
 import { InvalidHandoffPacketError, InvalidResponseFormatError, invoke, parseResponsePacket } from './runner.mjs';
 import { projectFailureRecord, projectFailureTelemetry, redactTelemetryValue } from './telemetry.mjs';
@@ -49,6 +49,105 @@ const SALVAGE_INSTRUCTION = 'The previous Bulldozer session for this milestone e
   + 'already-completed work, binding the actual delivered artifacts in candidate_artifact_ref. Anything '
   + 'you cannot attest from this material goes to unresolved_unknowns as UNKNOWN. Do not invoke Zen, '
   + 'write the ledger or claim global completion.';
+
+/**
+ * Stage 2 (subagent redesign 2026-11-08, §5.2): the Strix Halo advisor gate
+ * is off by default. `NTG_STRIX` re-enables the ADVISOR_GATE ceremony for a
+ * run, restoring the Stage 1 coordinator instruction byte for byte. The
+ * role itself stays registered until the Stage 2 measurement gate orders its
+ * deletion (§3 "Strix Halo advisor gate" row).
+ */
+export const STRIX_FLAG_ENV = 'NTG_STRIX';
+
+/** True when the Strix Halo advisor gate is enabled for this run. */
+export function advisorGateEnabled(env = process.env) {
+  return ['1', 'on', 'true'].includes(String(env?.[STRIX_FLAG_ENV] ?? '').trim().toLowerCase());
+}
+
+/**
+ * Stage 2 bounded automatic repair (§2.7 DECIDE): one repair per milestone
+ * per run by default, a second only when the new NO-GO signature differs,
+ * then a hard stop.
+ */
+export const MAX_REPAIR_ATTEMPTS = 2;
+
+/**
+ * The NO-GO failure signature, computed from exactly the record fields the
+ * durable failure history (recommendNeedsAlt) signs a Zen NO-GO with, so the
+ * repair rule and the NEEDS_ALT ladder agree on "same failure twice".
+ */
+export function zenNoGoSignature(record) {
+  return failureSignatureOf({
+    evidence: {
+      verification_evidence: record?.verification_evidence ?? null,
+      repair_needs: record?.repair_needs ?? null,
+    },
+  });
+}
+
+/**
+ * The Stage 2 fixed-rule DECIDE (§2.7): with no Argon seat available, the
+ * spine itself decides what follows a Zen NO-GO from the in-run verdict
+ * history. Repair #1 is automatic; repair #2 requires a changed NO-GO
+ * signature (new evidence); anything else stops with a plain question.
+ * `noGoRecords` are this run's NO-GO verdicts, oldest first.
+ *
+ * @param {{ noGoRecords?: Array<object>, repairsUsed?: number, maxRepairs?: number }} args
+ * @returns {{ action: 'REPAIR'|'ASK_USER', reason: string, repeatedSignature: boolean }}
+ */
+export function decideRepairAction({ noGoRecords = [], repairsUsed = 0, maxRepairs = MAX_REPAIR_ATTEMPTS } = {}) {
+  if (!Number.isInteger(repairsUsed) || repairsUsed < 0) {
+    throw new TypeError('repairsUsed must be a non-negative integer');
+  }
+  if (repairsUsed >= maxRepairs) {
+    return { action: 'ASK_USER', reason: `repair budget of ${maxRepairs} exhausted`, repeatedSignature: false };
+  }
+  if (repairsUsed === 0) {
+    return { action: 'REPAIR', reason: 'first automatic repair after NO-GO', repeatedSignature: false };
+  }
+  const latest = noGoRecords.at(-1);
+  const previous = noGoRecords.at(-2);
+  const repeatedSignature = Boolean(latest && previous)
+    && zenNoGoSignature(latest) === zenNoGoSignature(previous);
+  return repeatedSignature
+    ? { action: 'ASK_USER', reason: 'the NO-GO signature repeated: the repair produced no new evidence', repeatedSignature: true }
+    : { action: 'REPAIR', reason: 'the new NO-GO signature differs: one more repair is allowed', repeatedSignature: false };
+}
+
+/** The plain stop question (user's language) when bounded repair gives up. */
+export function repairStopQuestion(milestoneId, { repairsUsed = 0, repeatedSignature = false } = {}) {
+  const why = repeatedSignature
+    ? '수리 뒤에도 젠이 같은 이유로 계속 불합격을 주었습니다'
+    : `자동 수리 ${repairsUsed}번으로는 해결되지 않았습니다`;
+  return `마일스톤 '${milestoneId}'이(가) ${why}. 어떻게 할까요? `
+    + `1) 계획을 고쳐 다시 시도(replan)  2) 젠의 지적(repair_needs)을 직접 확인한 뒤 처리  3) 이 작업을 중단`;
+}
+
+/** Instruction for a targeted repair delegation after a Zen NO-GO (§2.4 repair packet). */
+const REPAIR_INSTRUCTION_BASE = 'The Zen reviewer returned NO-GO for this milestone\'s delivered candidate. '
+  + 'Perform a targeted repair using the packet\'s repair findings: fix the named defects '
+  + 'without re-executing completed work, and keep every change inside bounded_scope. '
+  + 'Return your own JSON result packet binding the actual delivered artifacts in '
+  + 'candidate_artifact_ref; anything you cannot attest goes to unresolved_unknowns as UNKNOWN. ';
+
+/**
+ * Stage 2 pre-Zen code CHECK (§2.4). The five checks a candidate must pass
+ * before it may cost a Zen call; failures take the packet-correction path.
+ */
+function declaredChangePaths(changesMade) {
+  const entries = Array.isArray(changesMade) ? changesMade : [changesMade];
+  const paths = [];
+  for (const entry of entries) {
+    if (typeof entry === 'string') {
+      // Only path-shaped strings are change claims; prose entries are not.
+      if (!/\s/.test(entry) && (entry.includes('/') || /\.[A-Za-z0-9]+$/.test(entry))) paths.push(entry);
+    } else if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+      const path = entry.file ?? entry.path ?? entry.filename;
+      if (typeof path === 'string' && path.trim()) paths.push(path);
+    }
+  }
+  return paths;
+}
 
 /**
  * A failure class is the materially-similar failure identity (contract §2.9);
@@ -559,16 +658,22 @@ export class MinimalSpine {
   /** DONE is explicit candidate status, never automatic verified completion. */
   async runMilestone(milestoneId) {
     this.#idle();
-    const contract = this.#ledger.delegate(milestoneId);
+    const coverageCwd = this.#runnerOptions.coverageCwd ?? process.cwd();
     // Stage 1 (subagent redesign 2026-11-08, §2.4/§2.6): the packet carries
     // code-built context — scope map and coverage sites — so no model narrows
-    // or moves the site set (the §1.4 defect class). The snapshot taken here
-    // is the salvage trigger's "delegation snapshot".
-    const coverageCwd = this.#runnerOptions.coverageCwd ?? process.cwd();
-    contract.scope_map = buildScopeMap(contract.bounded_scope, { cwd: coverageCwd });
+    // or moves the site set (the §1.4 defect class). The snapshots taken here
+    // are the salvage trigger's "delegation snapshot" and the Stage 2
+    // test-integrity baseline; a repair re-delegation refreshes both.
+    let contract = this.#ledger.delegate(milestoneId);
     const coverageProbes = Array.isArray(contract.coverage) ? contract.coverage : [];
-    contract.coverage_sites = runCoverageProbes(coverageProbes, { cwd: coverageCwd });
-    const scopeBefore = snapshotScope(contract.bounded_scope, { cwd: coverageCwd });
+    const enrichPacket = (packet) => {
+      packet.scope_map = buildScopeMap(packet.bounded_scope, { cwd: coverageCwd });
+      packet.coverage_sites = runCoverageProbes(coverageProbes, { cwd: coverageCwd });
+      return packet;
+    };
+    enrichPacket(contract);
+    let scopeBefore = snapshotScope(contract.bounded_scope, { cwd: coverageCwd });
+    let testBaseline = snapshotTestIntegrity(contract.bounded_scope, { cwd: coverageCwd });
     this.#ledger.save(this.#path);
     this.#busy = true;
     try {
@@ -581,8 +686,12 @@ export class MinimalSpine {
         + 'harness gate with observed failure, script error code, attempted remediation '
         + 'and repair need. '
         + 'Return architectural questions as NEEDS_DEEP through Steamroller. '
-        + 'For Bobcat, set ADVISOR_GATE REQUIRED for substantive work or NONE only '
-        + 'for low-risk mechanical work; Bobcat may invoke only Strix Halo when required. '
+        + (advisorGateEnabled()
+          ? 'For Bobcat, set ADVISOR_GATE REQUIRED for substantive work or NONE only '
+            + 'for low-risk mechanical work; Bobcat may invoke only Strix Halo when required. '
+          : 'The Strix Halo advisor gate is disabled for this run: do not require or wait for '
+            + 'an advisor verdict; check implementation work through your own verification and '
+            + 'the coverage table instead. ')
         + 'Puma and Jaguar have no subagents and Puma has no advisor ceremony. '
         + 'Excavator has no nested delegation and must not invoke Zen. '
         + 'If a required specialist is unavailable, return BLOCKED, not a gate waiver. '
@@ -598,6 +707,12 @@ export class MinimalSpine {
             + 'COVERED or NOT_APPLICABLE); a missing row fails the candidate before Zen review. '
           : '')
         + ' Do not invoke Zen, supply Zen authority, write the ledger, or claim global completion.';
+      const repairInstruction = REPAIR_INSTRUCTION_BASE
+        + (coverageProbes.length
+          ? 'The repaired packet must carry the merged coverage_table with exactly one row per '
+            + 'site in coverage_sites, computed against the final tree. '
+          : '')
+        + 'Do not invoke Zen, write the ledger or claim global completion.';
       let salvageUsed = false;
       /**
        * Stage 1 salvage branch (§2.6.5): a coordinator transport death while
@@ -650,134 +765,173 @@ export class MinimalSpine {
           }
         }
       };
-      let candidate;
-      let invalidHandoff;
-      for (let correction = 0; correction <= MAX_HANDOFF_CORRECTIONS; correction += 1) {
-        try {
-          candidate = await invokeCoordinator(
-            invalidHandoff
-              ? 'Correct only the invalid result packet for this milestone using the existing '
-                + 'delivered artifacts and evidence. Do not re-execute completed work or invent '
-                + 'an artifact binding. Return the complete corrected JSON packet; if unable '
-                + 'to bind the delivered artifact, return BLOCKED. '
-                + (coverageProbes.length
-                  ? 'The corrected packet must carry a complete coverage_table: exactly one row per '
-                    + 'site in coverage_sites (coverage_id and site as file:line must match, disposition '
-                    + 'COVERED or NOT_APPLICABLE), computed against the final tree. '
-                  : '')
-                + 'Do not invoke Zen, write the ledger or claim global completion.'
-              : instruction,
-            invalidHandoff ? { ...contract, invalid_handoff: invalidHandoff } : contract);
-        } catch (error) {
-          // Salvage already recorded BLOCKED with the worktree intact; surface
-          // it as this milestone's outcome instead of an invocation failure.
-          if (Array.isArray(error?.coordinatorBlocked)) {
-            return { status: 'BLOCKED', candidate: null, blockers: error.coordinatorBlocked, verified: false };
+      // Stage 2 bounded repair (§2.7): attempt 0 is the initial execution;
+      // every later attempt is a targeted repair delegation approved by the
+      // fixed-rule DECIDE after the Zen verdict. One runMilestone call is one
+      // run, so the repair budget is per milestone per run.
+      const inRunNoGos = [];
+      for (let attempt = 0; ; attempt += 1) {
+        const executeInstruction = attempt === 0 ? instruction : repairInstruction;
+        let verifyResults = null;
+        let treeDigest = null;
+        let candidate;
+        let invalidHandoff;
+        for (let correction = 0; correction <= MAX_HANDOFF_CORRECTIONS; correction += 1) {
+          try {
+            candidate = await invokeCoordinator(
+              invalidHandoff
+                ? 'Correct only the invalid result packet for this milestone using the existing '
+                  + 'delivered artifacts and evidence. Do not re-execute completed work or invent '
+                  + 'an artifact binding. Return the complete corrected JSON packet; if unable '
+                  + 'to bind the delivered artifact, return BLOCKED. '
+                  + (coverageProbes.length
+                    ? 'The corrected packet must carry a complete coverage_table: exactly one row per '
+                      + 'site in coverage_sites (coverage_id and site as file:line must match, disposition '
+                      + 'COVERED or NOT_APPLICABLE), computed against the final tree. '
+                    : '')
+                  + 'Do not invoke Zen, write the ledger or claim global completion.'
+                : executeInstruction,
+              invalidHandoff ? { ...contract, invalid_handoff: invalidHandoff } : contract);
+          } catch (error) {
+            // Salvage already recorded BLOCKED with the worktree intact; surface
+            // it as this milestone's outcome instead of an invocation failure.
+            if (Array.isArray(error?.coordinatorBlocked)) {
+              return { status: 'BLOCKED', candidate: null, blockers: error.coordinatorBlocked, verified: false };
+            }
+            throw error;
           }
-          throw error;
-        }
-        if (candidate.status !== 'DONE') break;
-        try {
-          candidate = normalizeCandidateArtifactRef(candidate, { errorClass: InvalidHandoffPacketError });
-          if (typeof candidate.candidate_artifact_ref !== 'string'
-              || !candidate.candidate_artifact_ref.trim()) {
-            throw new InvalidHandoffPacketError('DONE must bind immutable delivered artifact versions in candidate_artifact_ref');
-          }
-          // Stage 1 pre-Zen code check (§2.4 CHECK item 2): re-run the probes
-          // on the candidate tree — including sites the work itself added —
-          // and require one coverage-table row per hit. Failures take the same
-          // packet-correction path as an invalid artifact binding, then BLOCK.
-          if (coverageProbes.length) {
-            const hits = runCoverageProbes(coverageProbes, { cwd: coverageCwd });
-            const check = checkCoverageTable(hits, candidate.coverage_table);
-            if (!check.ok) {
-              throw new InvalidHandoffPacketError(
-                `Coverage table incomplete: missing rows for sites ${JSON.stringify(check.missing.map(h => h.site))}`
-                + (check.invalid.length
-                  ? `; invalid rows ${JSON.stringify(check.invalid.map(() => 'row'))}`
-                  : ''));
+          if (candidate.status !== 'DONE') break;
+          try {
+            candidate = normalizeCandidateArtifactRef(candidate, { errorClass: InvalidHandoffPacketError });
+            if (typeof candidate.candidate_artifact_ref !== 'string'
+                || !candidate.candidate_artifact_ref.trim()) {
+              throw new InvalidHandoffPacketError('DONE must bind immutable delivered artifact versions in candidate_artifact_ref');
+            }
+            // Stage 2 pre-Zen code CHECK (§2.4): the five checks — declared
+            // scope, coverage table vs re-run probes, test integrity, verify
+            // commands, digest binding. Failures take the packet-correction
+            // path like an invalid artifact binding, then BLOCK; a failing
+            // candidate never costs a Zen call.
+            const check = this.#runCheck(candidate, { contract, coverageProbes, coverageCwd, testBaseline });
+            verifyResults = check.verifyResults;
+            treeDigest = check.treeDigest;
+            if (check.failures.length) {
+              throw new InvalidHandoffPacketError(check.failures.join('; '));
+            }
+            break;
+          } catch (error) {
+            if (!(error instanceof InvalidHandoffPacketError)) throw error;
+            invalidHandoff = { error: error.error, reason: error.message, candidate: deepClone(candidate) };
+            if (correction === MAX_HANDOFF_CORRECTIONS) {
+              const blockers = [`Invalid handoff after ${MAX_HANDOFF_CORRECTIONS} corrections: ${error.message}`];
+              this.#ledger.recordBlockedOrFailure({
+                milestoneId, status: 'BLOCKED', blockers,
+                evidence: { classification: 'OBSERVED', ...invalidHandoff, attempts: correction + 1 },
+              });
+              this.#ledger.save(this.#path);
+              return { status: 'BLOCKED', candidate: deepClone(candidate), blockers, verified: false };
             }
           }
-          break;
-        } catch (error) {
-          if (!(error instanceof InvalidHandoffPacketError)) throw error;
-          invalidHandoff = { error: error.error, reason: error.message, candidate: deepClone(candidate) };
-          if (correction === MAX_HANDOFF_CORRECTIONS) {
-            const blockers = [`Invalid handoff after ${MAX_HANDOFF_CORRECTIONS} corrections: ${error.message}`];
-            this.#ledger.recordBlockedOrFailure({
-              milestoneId, status: 'BLOCKED', blockers,
-              evidence: { classification: 'OBSERVED', ...invalidHandoff, attempts: correction + 1 },
-            });
-            this.#ledger.save(this.#path);
-            return { status: 'BLOCKED', candidate: deepClone(candidate), blockers, verified: false };
-          }
         }
-      }
 
-      if (candidate.milestone_id !== contract.milestone_id
-          || candidate.plan_version !== contract.plan_version) {
-        throw new Error('Candidate does not match the active milestone and plan');
-      }
-      // The runner loads the bounded vNext Bulldozer contract, not a released
-      // primary agent: Jaguar, Puma and Bobcat are the enabled milestone children.
-      // Excavator is TEMPORARILY headless-only (#174): a declared delegation is
-      // accepted only with the sanctioned transport marker, distinguishing the
-      // headless script call from a native spawn claim, which stays rejected.
-      if ('delegations' in candidate) {
-        if (!Array.isArray(candidate.delegations)) {
-          throw new InvalidHandoffPacketError('Bulldozer delegations must be an array');
+        if (candidate.milestone_id !== contract.milestone_id
+            || candidate.plan_version !== contract.plan_version) {
+          throw new Error('Candidate does not match the active milestone and plan');
         }
-        for (const delegation of candidate.delegations) {
-          if (!delegation || typeof delegation !== 'object' || Array.isArray(delegation)
-              || typeof delegation.role !== 'string' || !delegation.role.trim()) {
-            throw new InvalidHandoffPacketError('Each Bulldozer delegation must have a non-empty role');
+        // The runner loads the bounded vNext Bulldozer contract, not a released
+        // primary agent: Jaguar, Puma and Bobcat are the enabled milestone children.
+        // Excavator is TEMPORARILY headless-only (#174): a declared delegation is
+        // accepted only with the sanctioned transport marker, distinguishing the
+        // headless script call from a native spawn claim, which stays rejected.
+        if ('delegations' in candidate) {
+          if (!Array.isArray(candidate.delegations)) {
+            throw new InvalidHandoffPacketError('Bulldozer delegations must be an array');
           }
-          const role = delegation.role.trim().toLowerCase();
-          const headlessExcavator = role === 'excavator'
-            && typeof delegation.transport === 'string'
-            && delegation.transport.trim() === HEADLESS_EXCAVATOR_TRANSPORT;
-          // Strix Halo is Bobcat's child, so Bulldozer may only relay it as a
-          // nested record beside the Bobcat delegation that owns the call.
-          const relayedStrix = role === 'strix-halo' && candidate.delegations.some(other =>
-            typeof other?.role === 'string' && other.role.trim().toLowerCase() === 'bobcat');
-          if (!['jaguar', 'puma', 'bobcat'].includes(role) && !headlessExcavator && !relayedStrix) {
-            throw new InvalidHandoffPacketError(`Bulldozer cannot delegate to "${role}" within a milestone`);
+          for (const delegation of candidate.delegations) {
+            if (!delegation || typeof delegation !== 'object' || Array.isArray(delegation)
+                || typeof delegation.role !== 'string' || !delegation.role.trim()) {
+              throw new InvalidHandoffPacketError('Each Bulldozer delegation must have a non-empty role');
+            }
+            const role = delegation.role.trim().toLowerCase();
+            const headlessExcavator = role === 'excavator'
+              && typeof delegation.transport === 'string'
+              && delegation.transport.trim() === HEADLESS_EXCAVATOR_TRANSPORT;
+            // Strix Halo is Bobcat's child, so Bulldozer may only relay it as a
+            // nested record beside the Bobcat delegation that owns the call.
+            const relayedStrix = role === 'strix-halo' && candidate.delegations.some(other =>
+              typeof other?.role === 'string' && other.role.trim().toLowerCase() === 'bobcat');
+            if (!['jaguar', 'puma', 'bobcat'].includes(role) && !headlessExcavator && !relayedStrix) {
+              throw new InvalidHandoffPacketError(`Bulldozer cannot delegate to "${role}" within a milestone`);
+            }
           }
         }
-      }
-      // Preserve ingress status. Missing status, READY, and local advisor verdicts
-      // cannot be normalized to DONE or used to skip the independent review.
-      if (candidate.status === 'BLOCKED' || candidate.status === 'NEEDS_DEEP') {
-        this.#ledger.recordBlockedOrFailure({
-          milestoneId, status: candidate.status, blockers: candidate.blockers,
-          escalationNeeds: candidate.escalation_needs, evidence: candidate,
-        });
+        // Preserve ingress status. Missing status, READY, and local advisor verdicts
+        // cannot be normalized to DONE or used to skip the independent review.
+        if (candidate.status === 'BLOCKED' || candidate.status === 'NEEDS_DEEP') {
+          this.#ledger.recordBlockedOrFailure({
+            milestoneId, status: candidate.status, blockers: candidate.blockers,
+            escalationNeeds: candidate.escalation_needs, evidence: candidate,
+          });
+          this.#ledger.save(this.#path);
+          return { status: candidate.status, candidate: deepClone(candidate), verified: false };
+        }
+        if (candidate.status !== 'DONE') {
+          throw new Error('Only explicit Bulldozer DONE may enter Zen review');
+        }
+        if ('verdict' in candidate || 'zen_verdict' in candidate || 'result_ref' in candidate) {
+          throw new Error('Bulldozer cannot issue result references or Zen authority');
+        }
+        const { result_ref, candidate_record } = this.#ledger.receiveCandidate(candidate);
+        // The immutable candidate binding must be durable before Zen is invoked.
         this.#ledger.save(this.#path);
-        return { status: candidate.status, candidate: deepClone(candidate), verified: false };
+        const request = deepFreeze(deepClone({
+          milestone_id: contract.milestone_id,
+          plan_version: contract.plan_version,
+          result_ref,
+          contract,
+          candidate: candidate_record,
+          // Stage 2 CHECK attachments (§2.4): the supervisor-run verify
+          // results and the code-computed delivered-tree digest travel with
+          // the review, so a GO binds to an exact tree state (11-06 M3).
+          ...(verifyResults ? { verify_results: verifyResults } : {}),
+          ...(treeDigest ? { delivered_tree_digest: treeDigest } : {}),
+        }));
+        const verdict = deepClone(await this.#step(
+          { tool: 'zen_review', args: { milestone_id: contract.milestone_id, plan_version: contract.plan_version, result_ref } },
+          () => this.#invokeZen(request)
+        ));
+        this.#applyZenVerdict(contract, result_ref, verdict);
+        this.#ledger.save(this.#path);
+        if (verdict.verdict === 'GO') {
+          return { status: 'DONE', result_ref, verdict, verified: true };
+        }
+        // Stage 2 fixed-rule DECIDE (§2.7): one automatic repair per milestone
+        // per run; a second only when the new NO-GO signature differs; the
+        // same signature twice stops with a plain question to the user.
+        inRunNoGos.push(verdict);
+        const decision = decideRepairAction({ noGoRecords: inRunNoGos, repairsUsed: attempt });
+        if (decision.action !== 'REPAIR') {
+          return {
+            status: 'DONE', result_ref, verdict, verified: false,
+            question: repairStopQuestion(milestoneId, {
+              repairsUsed: attempt, repeatedSignature: decision.repeatedSignature,
+            }),
+          };
+        }
+        contract = enrichPacket(this.#ledger.delegate(milestoneId));
+        contract.repair = {
+          attempt: attempt + 1,
+          repair_needs: verdict.repair_needs,
+          ...(Array.isArray(verdict.findings) ? { findings: deepClone(verdict.findings) } : {}),
+          verification_evidence: deepClone(verdict.verification_evidence),
+          prior_result_ref: result_ref,
+        };
+        // The repair builds on the delivered tree: refresh both baselines so
+        // salvage and the test-integrity check measure only new work.
+        scopeBefore = snapshotScope(contract.bounded_scope, { cwd: coverageCwd });
+        testBaseline = snapshotTestIntegrity(contract.bounded_scope, { cwd: coverageCwd });
+        this.#ledger.save(this.#path);
       }
-      if (candidate.status !== 'DONE') {
-        throw new Error('Only explicit Bulldozer DONE may enter Zen review');
-      }
-      if ('verdict' in candidate || 'zen_verdict' in candidate || 'result_ref' in candidate) {
-        throw new Error('Bulldozer cannot issue result references or Zen authority');
-      }
-      const { result_ref, candidate_record } = this.#ledger.receiveCandidate(candidate);
-      // The immutable candidate binding must be durable before Zen is invoked.
-      this.#ledger.save(this.#path);
-      const request = deepFreeze(deepClone({
-        milestone_id: contract.milestone_id,
-        plan_version: contract.plan_version,
-        result_ref,
-        contract,
-        candidate: candidate_record,
-      }));
-      const verdict = deepClone(await this.#step(
-        { tool: 'zen_review', args: { milestone_id: contract.milestone_id, plan_version: contract.plan_version, result_ref } },
-        () => this.#invokeZen(request)
-      ));
-      this.#applyZenVerdict(contract, result_ref, verdict);
-      this.#ledger.save(this.#path);
-      return { status: 'DONE', result_ref, verdict, verified: verdict.verdict === 'GO' };
     } catch (error) {
       if (error instanceof LedgerIntegrityError) {
         // Incident WQ-5: the durable ledger was removed or taken over during
@@ -816,6 +970,66 @@ export class MinimalSpine {
     } finally {
       this.#busy = false;
     }
+  }
+
+  /**
+   * Stage 2 pre-Zen code CHECK (§2.4): the five checks a candidate must pass
+   * before it may cost a Zen call. Returns the failure list (empty when the
+   * candidate passes) plus the CHECK attachments for the Zen request: the
+   * supervisor-run verify results and the code-computed digest of the
+   * delivered in-scope tree (11-06 M3 — the binding is computed by code, not
+   * claimed by the executor).
+   */
+  #runCheck(candidate, { contract, coverageProbes, coverageCwd, testBaseline }) {
+    const failures = [];
+    // 1. Declared changed paths must lie inside bounded_scope. Only
+    //    path-shaped entries count as change claims; prose entries are not.
+    const outOfScope = declaredChangePaths(candidate.changes_made)
+      .filter(path => !isPathInScope(path, contract.bounded_scope));
+    if (outOfScope.length) {
+      failures.push(`changes_made declares paths outside bounded_scope: ${JSON.stringify([...new Set(outOfScope)])}`);
+    }
+    // 2. The probes re-run on the candidate tree — including sites the work
+    //    itself introduced — and every hit needs a coverage-table row.
+    if (coverageProbes.length) {
+      const hits = runCoverageProbes(coverageProbes, { cwd: coverageCwd });
+      const check = checkCoverageTable(hits, candidate.coverage_table);
+      if (!check.ok) {
+        failures.push(
+          `Coverage table incomplete: missing rows for sites ${JSON.stringify(check.missing.map(h => h.site))}`
+          + (check.invalid.length
+            ? `; invalid rows ${JSON.stringify(check.invalid.map(() => 'row'))}`
+            : ''));
+      }
+    }
+    // 3. Test integrity: deleted test files and newly added suppression
+    //    markers, against the delegation-time baseline.
+    const integrity = checkTestIntegrity(contract.bounded_scope, testBaseline, { cwd: coverageCwd });
+    if (integrity.deleted_files.length) {
+      failures.push(`test files deleted: ${JSON.stringify(integrity.deleted_files)}`);
+    }
+    if (integrity.new_markers.length) {
+      failures.push(`test suppressions added: ${
+        JSON.stringify(integrity.new_markers.map(marker => `${marker.file}: ${marker.text}`))}`);
+    }
+    // 4. The verify commands run in the candidate tree; a nonzero exit fails
+    //    CHECK and every result is attached to the Zen request.
+    let verifyResults = null;
+    if (Array.isArray(contract.verify) && contract.verify.length) {
+      verifyResults = this.#runVerifyCommands(contract.verify, coverageCwd);
+      const failed = verifyResults.filter(result => result.exit_code !== 0);
+      if (failed.length) {
+        failures.push(`verify commands failed: ${failed.map(result =>
+          `${result.command} (exit ${result.exit_code}) ${(result.tail ?? '').slice(-120)}`).join('; ')}`);
+      }
+    }
+    // 5. Digest binding (11-06 M3): the delivered-tree digest is computed by
+    //    code here and travels with the review, so a GO binds to an exact
+    //    tree state rather than the executor's claimed reference alone.
+    const treeDigest = `sha256:${createHash('sha256')
+      .update(JSON.stringify(snapshotScope(contract.bounded_scope, { cwd: coverageCwd }).files))
+      .digest('hex')}`;
+    return { failures, verifyResults, treeDigest };
   }
 
   /**

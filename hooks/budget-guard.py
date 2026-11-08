@@ -15,8 +15,10 @@ roles (Zen, Piledriver) run uncounted. SessionStart binds the runner-started
 root conversation before any native child can spawn; the root gets the tighter
 Bulldozer caps, children get the uniform worker caps.
 
-Salvage sessions (NTG_SALVAGE=1, §2.6.5) are packet-only: worker dispatch and
-file edits are denied outright, and the call cap tightens to the salvage budget.
+Salvage sessions (NTG_SALVAGE=1, §2.6.5) are packet-only: worker dispatch,
+file edits and shell commands are denied outright (the Stage 1 review follow-
+up closes the run_command side door the Bulldozer shell exception could open),
+and the call cap tightens to the salvage budget.
 """
 
 import json
@@ -35,10 +37,11 @@ CONVERSATION_RE = re.compile(
 READ_TOOLS = {"view_file", "list_dir", "find_by_name", "grep_search"}
 SPAWN_TOOLS = {"invoke_subagent"}
 EDIT_TOOLS = {"write_to_file", "replace_file_content"}
+SHELL_TOOLS = {"run_command"}
 
 SALVAGE_DENIAL = (
-    "Salvage session is packet-only: worker dispatch and file edits are denied. "
-    "Build the result packet from the supplied material."
+    "Salvage session is packet-only: worker dispatch, file edits and shell "
+    "commands are denied. Build the result packet from the supplied material."
 )
 WRAP_UP_DENIAL = (
     "Budget cap reached ({which}: {count}/{cap}). Finish now: return your result "
@@ -146,7 +149,7 @@ def evaluate(payload):
         raise ValueError("Expected non-empty string for toolCall.name")
 
     if os.environ.get(SALVAGE_MARKER) == "1" and (
-        tool_name in SPAWN_TOOLS or tool_name in EDIT_TOOLS
+        tool_name in SPAWN_TOOLS or tool_name in EDIT_TOOLS or tool_name in SHELL_TOOLS
     ):
         return {"decision": "deny", "reason": SALVAGE_DENIAL}
 

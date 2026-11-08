@@ -122,18 +122,23 @@ for (const status of ['BLOCKED', 'NEEDS_DEEP']) {
   });
 }
 
-test('Zen NO-GO stops the run with exit 2, leaves the milestone incomplete, and a rerun needs a fresh GO', async t => {
-  let verdicts = ['NO-GO', 'GO'];
+test('Zen NO-GO stops the run with exit 2 once the repair budget is spent; a rerun needs a fresh GO', async t => {
+  let verdicts = ['NO-GO', 'NO-GO', 'GO'];
   const h = harness(t, { zen: () => verdicts.shift() });
   await h.cli('init', '--plan', h.write('plan.json', plan('v1', ['one'])));
   const first = await h.cli('run');
   assert.equal(first.code, 2);
   assert.deepEqual(first.out.state.completed_milestones, []);
   assert.equal(first.out.global_completion, undefined);
+  // Stage 2 bounded repair: the run performed one automatic repair before the
+  // repeated identical NO-GO signature stopped it, and the stop carries the
+  // plain question for the user.
+  assert.equal(first.out.results[0].verified, false);
+  assert.ok(first.out.results[0].question.includes('one'));
   const second = await h.cli('run');
   assert.equal(second.code, 0);
   assert.deepEqual(second.out.state.completed_milestones, ['one']);
-  assert.deepEqual(h.calls, ['bulldozer', 'zen:one', 'bulldozer', 'zen:one']);
+  assert.deepEqual(h.calls, ['bulldozer', 'zen:one', 'bulldozer', 'zen:one', 'bulldozer', 'zen:one']);
 });
 
 test('fresh-context resume continues from the ledger at the next eligible milestone', async t => {
