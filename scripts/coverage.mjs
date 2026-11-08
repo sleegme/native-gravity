@@ -320,6 +320,85 @@ export function checkCoverageTable(hits, coverageTable) {
 }
 
 /**
+ * Stage 2 test-integrity scan (§2.4 CHECK item 3): path shapes treated as
+ * test files. A test directory segment, or the common `*.test.*`,
+ * `*.spec.*`, `test_*`, `*_test.*` file conventions.
+ */
+export const TEST_FILE_RE = new RegExp(
+  '(^|/)(tests?|__tests__|spec|specs)(/|$)'
+  + '|\\.(?:test|spec)\\.[cm]?[jt]s$'
+  + '|(^|/)test_[^/]+$'
+  + '|(^|/)[^/]+_test\\.[cm]?[jt]s$'
+);
+
+/**
+ * Lines that suppress or narrow tests: framework call forms (`it.skip(`,
+ * `test.only(`, `t.todo(`), option forms (`{ skip: true }`) and Python
+ * decorator forms (`@pytest.mark.skip`). Prose uses of the bare words never
+ * match because each pattern requires call, option or decorator shape.
+ */
+export const TEST_SUPPRESSION_RES = Object.freeze([
+  /(?:^|[^.\w$])(?:it|test|describe|spec|t)\.(?:skip|only|todo)\s*\(/,
+  /\b(?:skip|todo)\s*:\s*(?:true|'[^']*'|"[^"]*")/,
+  /^\s*@.*\b(?:skip|skipif)\b/,
+]);
+
+function testSuppressionLines(text) {
+  const found = new Set();
+  for (const line of text.split('\n')) {
+    if (TEST_SUPPRESSION_RES.some(re => re.test(line))) found.add(line.trim());
+  }
+  return [...found].sort();
+}
+
+/**
+ * Baseline for the test-integrity check (§2.4 CHECK item 3): every test-shaped
+ * in-scope file with its suppression lines at delegation time. Files without
+ * markers are recorded with an empty list so a later deletion is visible.
+ *
+ * @param {string[]|string} boundedScope
+ * @param {{ cwd?: string }} [opts]
+ * @returns {{ files: Record<string, string[]> }}
+ */
+export function snapshotTestIntegrity(boundedScope, opts = {}) {
+  const { files } = expandScopeFiles(boundedScope, opts);
+  const snapshots = {};
+  for (const path of files) {
+    if (!TEST_FILE_RE.test(path)) continue;
+    const text = readTextFile(path, opts);
+    if (text === null) continue; // deletions surface through the presence diff
+    snapshots[path] = testSuppressionLines(text);
+  }
+  return { files: snapshots };
+}
+
+/**
+ * The test-integrity check itself: compares the current tree against the
+ * delegation-time baseline. Flags test files that disappeared and suppression
+ * lines that were not in the baseline — including every marker of a newly
+ * created test file. Comparing trimmed line text (not line numbers) keeps a
+ * marker from being flagged merely because lines shifted above it.
+ *
+ * @param {string[]|string} boundedScope
+ * @param {{ files: Record<string, string[]> }} before - snapshotTestIntegrity output
+ * @param {{ cwd?: string }} [opts]
+ * @returns {{ ok: boolean, deleted_files: string[], new_markers: Array<{ file: string, text: string }> }}
+ */
+export function checkTestIntegrity(boundedScope, before, opts = {}) {
+  const beforeFiles = before?.files ?? {};
+  const currentFiles = snapshotTestIntegrity(boundedScope, opts).files;
+  const deleted_files = Object.keys(beforeFiles).filter(path => !(path in currentFiles));
+  const new_markers = [];
+  for (const [path, markers] of Object.entries(currentFiles)) {
+    const existing = new Set(beforeFiles[path] ?? []);
+    for (const text of markers) {
+      if (!existing.has(text)) new_markers.push({ file: path, text });
+    }
+  }
+  return { ok: deleted_files.length === 0 && new_markers.length === 0, deleted_files, new_markers };
+}
+
+/**
  * Digest snapshot of the in-scope files, taken before Bulldozer is invoked.
  * The salvage trigger (§2.6.5) compares two snapshots to decide whether a
  * transport death left salvageable work behind.

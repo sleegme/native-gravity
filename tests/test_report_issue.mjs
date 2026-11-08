@@ -788,7 +788,11 @@ test("ntg-vnext: no prompt can appear before main() settles and releases ledger 
     });
 
     assert.equal(res.code, 2);
-    assert.deepEqual(events, ["main_executing", "zen_executing", "prompt_called"],
+    // Stage 2 bounded repair: a NO-GO drives one automatic repair inside the
+    // same run before the repeated signature stops it, so main/zen execute
+    // twice; the report prompt must still appear strictly after main()
+    // settles and releases the lock.
+    assert.deepEqual(events, ["main_executing", "zen_executing", "main_executing", "zen_executing", "prompt_called"],
       "prompt must appear strictly after main() settles and releases lock");
   } finally {
     rmSync(tmpDir, { recursive: true, force: true });
