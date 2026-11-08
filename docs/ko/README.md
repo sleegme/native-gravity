@@ -34,11 +34,11 @@ bunx native-gravity
 ```
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sleegme/native-gravity/v1.2.0/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/sleegme/native-gravity/v1.3.0/scripts/install.sh | sh
 ```
 
 ```powershell
-irm https://raw.githubusercontent.com/sleegme/native-gravity/v1.2.0/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/sleegme/native-gravity/v1.3.0/scripts/install.ps1 | iex
 ```
 
 `ntg update`는 기존 설치(npm, Bun, curl, irm)를 최신 릴리스로 업그레이드하고 이전 -> 새 버전을 출력합니다.
