@@ -893,7 +893,23 @@ export class AuthoritativeLedger {
     this.current_milestone = milestoneId;
     this.next_action = `Executing milestone '${milestoneId}' via Bulldozer`;
 
-    const handoffPacket = {
+    return this.buildMilestoneHandoffPacket(milestoneId);
+  }
+
+  /**
+   * Builds the Steamroller handoff packet for a milestone without changing
+   * state. delegate() sends it to Bulldozer; the gate-only review retry
+   * (Stage 0, subagent redesign §4) sends the same contract shape to Zen.
+   *
+   * @param {string} milestoneId
+   * @returns {object} Steamroller -> executor handoff packet
+   */
+  buildMilestoneHandoffPacket(milestoneId) {
+    const milestone = this.milestones.find((m) => m.id === milestoneId);
+    if (!milestone) {
+      throw new InvalidTransitionError(`Milestone '${milestoneId}' not found in current plan`);
+    }
+    return {
       milestone_id: milestone.id,
       plan_version: this.plan_version,
       objective: milestone.objective,
@@ -904,8 +920,6 @@ export class AuthoritativeLedger {
       relevant_evidence: this.getRelevantEvidence(milestoneId),
       decision_invariants: this.getRelevantDecisionInvariants(milestoneId),
     };
-
-    return handoffPacket;
   }
 
   /**
@@ -1697,6 +1711,60 @@ export class AuthoritativeLedger {
     }
 
     return verificationRecord;
+  }
+
+  /**
+   * Stage 0 gate-only review retry (subagent redesign §4): reopens the most
+   * recent persisted candidate that never reached a Zen verdict under the
+   * current plan_version. After a review transport failure (e.g. the Argon
+   * quota stop), the immutable candidate still sits in evidence while
+   * current_milestone was cleared; this re-binds it as the active candidate
+   * so recordZenGo/recordZenNoGo accept a fresh verdict. No work is re-run.
+   *
+   * @param {string|null} [milestoneId] - Restrict to one milestone, else the
+   *   most recent eligible candidate across milestones is selected.
+   * @returns {{ milestone_id: string, plan_version: string, result_ref: string, contract: object, candidate_record: object }}
+   */
+  reopenLastCandidateReview(milestoneId = null) {
+    if (this.current_milestone !== null) {
+      throw new InvalidTransitionError(
+        `Cannot reopen review: milestone '${this.current_milestone}' is already active`
+      );
+    }
+    if (milestoneId !== null && !this.milestones.some((m) => m.id === milestoneId)) {
+      throw new InvalidTransitionError(`Milestone '${milestoneId}' not found in current plan`);
+    }
+    const ids = milestoneId !== null ? [milestoneId] : this.milestones.map((m) => m.id);
+    let selected = null;
+    for (const id of ids) {
+      if (this.completed_milestones.includes(id)) continue;
+      const candidates = this.evidence[id]?.candidates;
+      if (!Array.isArray(candidates) || candidates.length === 0) continue;
+      const last = candidates[candidates.length - 1];
+      if (!last || typeof last !== "object" || last.plan_version !== this.plan_version) continue;
+      if (!selected || String(last.timestamp ?? "") > String(selected.candidate.timestamp ?? "")) {
+        selected = { id, candidate: last };
+      }
+    }
+    if (!selected) {
+      throw new InvalidTransitionError(
+        `No persisted candidate awaiting Zen review${milestoneId !== null ? ` for milestone '${milestoneId}'` : ""} under plan_version '${this.plan_version}'`
+      );
+    }
+    const candidate = selected.candidate;
+    // The stored record must still match its own payload before it can re-enter
+    // the review path (same integrity rule as resume).
+    verifyCandidateIntegrity(candidate, candidate.result_ref);
+    this._active_candidates[selected.id] = candidate;
+    this.current_milestone = selected.id;
+    this.next_action = `Zen review retry opened for milestone '${selected.id}' (result_ref: ${candidate.result_ref})`;
+    return {
+      milestone_id: selected.id,
+      plan_version: this.plan_version,
+      result_ref: candidate.result_ref,
+      contract: this.buildMilestoneHandoffPacket(selected.id),
+      candidate_record: candidate,
+    };
   }
 
   /**

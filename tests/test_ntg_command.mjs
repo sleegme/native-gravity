@@ -441,7 +441,7 @@ test('direct CLI invocation: runs spawnSync on ntg-command.mjs with NTG_VNEXT_SC
     });
     assert.equal(badRes.status, 1);
     assert.match(badRes.stderr, /Unknown command: invalid-cmd/);
-    assert.match(badRes.stderr, /<init\|status\|run\|resume\|graph\|version>/);
+    assert.match(badRes.stderr, /<init\|status\|run\|resume\|review\|graph\|version>/);
     assert.match(badRes.stderr, /graph\s+\[--ledger <path>\]/);
   } finally {
     harness.cleanup();
@@ -503,7 +503,7 @@ test('help and invalid option handling', () => {
     stdio: 'pipe',
   });
   assert.equal(helpCode, 0);
-  assert.match(helpOut, /<init\|status\|run\|resume\|graph\|version>/);
+  assert.match(helpOut, /<init\|status\|run\|resume\|review\|graph\|version>/);
   assert.match(helpOut, /graph\s+\[--ledger <path>\]/);
   assert.match(helpOut, /--watch\s+Watch mode for graph/);
   assert.match(helpOut, /version\s+Show native-gravity version/);
@@ -519,7 +519,7 @@ test('help and invalid option handling', () => {
     stdio: 'pipe',
   });
   assert.equal(emptyCode, 1);
-  assert.match(errOut, /<init\|status\|run\|resume\|graph\|version>/);
+  assert.match(errOut, /<init\|status\|run\|resume\|review\|graph\|version>/);
 
   // Incomplete options return 1
   const badLedgerCode = runNtgCommand(['status', '--ledger'], { stdio: 'pipe' });
@@ -569,4 +569,39 @@ test('version subcommand handles missing or invalid package.json cleanly', () =>
   });
   assert.equal(code, 1);
   assert.match(err, /Error reading package version:/);
+});
+
+test('review: invokes review with default or specified ledger and passes --milestone through', () => {
+  const harness = createTestHarness();
+  try {
+    let exitCode = runNtgCommand(['review'], {
+      vnextScript: harness.stubScript,
+      env: { STUB_LOG_FILE: harness.logFile },
+      stdio: 'pipe',
+    });
+    assert.equal(exitCode, 0);
+
+    exitCode = runNtgCommand(
+      ['review', '--ledger', 'custom-ledger.json', '--milestone', 'm2'],
+      {
+        vnextScript: harness.stubScript,
+        env: { STUB_LOG_FILE: harness.logFile },
+        stdio: 'pipe',
+      }
+    );
+    assert.equal(exitCode, 0);
+
+    const invocations = harness.readInvocations();
+    assert.equal(invocations.length, 2);
+    assert.deepEqual(invocations[0].argv, ['review', '--ledger', DEFAULT_LEDGER]);
+    assert.deepEqual(invocations[1].argv, [
+      'review',
+      '--ledger',
+      'custom-ledger.json',
+      '--milestone',
+      'm2',
+    ]);
+  } finally {
+    harness.cleanup();
+  }
 });

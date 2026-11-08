@@ -1382,3 +1382,67 @@ test('NEEDS_ALT recommends only at >=3 attempts with a repeated failure signatur
   assert.deepEqual(summaries.map(s => [s.milestone_id, s.needs_alt_recommended]), [['one', true], ['two', false]]);
 });
 
+test('reviewCandidate re-runs only the zen gate on the persisted candidate', async t => {
+  const f = fixture(t, { review: () => {
+    throw Object.assign(new Error('zen invocation exited 3: Individual quota reached'), { code: 'ZEN_REVIEW_PENDING' });
+  } });
+  await assert.rejects(f.spine.runMilestone('one'), /Individual quota reached/);
+  const failed = AuthoritativeLedger.load(f.ledgerPath).getState();
+  assert.equal(failed.current_milestone, null);
+  assert.ok(failed.evidence.one.candidates.length >= 1);
+  assert.ok(failed.evidence.one.failure_evidence.some(e => e.status === 'INVOCATION_FAILURE'));
+
+  const resumed = f.resume({
+    invokeZen: async request => {
+      f.calls.push('zen');
+      const disk = AuthoritativeLedger.load(f.ledgerPath).getState();
+      assert.equal(disk.current_milestone, request.milestone_id);
+      assert.ok(!disk.completed_milestones.includes(request.milestone_id));
+      assert.ok(Object.isFrozen(request.candidate));
+      return verdict(request);
+    },
+  });
+  const before = [...f.calls];
+  const result = await resumed.reviewCandidate(null);
+  assert.equal(result.status, 'REVIEWED');
+  assert.equal(result.verified, true);
+  assert.deepEqual(f.calls.slice(before.length), ['zen'], 'gate-only retry must not re-run Bulldozer');
+  const state = resumed.state;
+  assert.deepEqual(state.completed_milestones, ['one']);
+  assert.equal(state.verification.one.verdict, 'GO');
+  assert.equal(state.current_milestone, null);
+});
+
+test('reviewCandidate records NO-GO and the gate stays retryable', async t => {
+  const f = fixture(t, { review: () => { throw new Error('quota stop'); } });
+  await assert.rejects(f.spine.runMilestone('one'), /quota stop/);
+
+  const resumed = f.resume({
+    invokeZen: async request => {
+      f.calls.push('zen');
+      return verdict(request, { verdict: 'NO-GO', repair_needs: 'fix artifact content' });
+    },
+  });
+  const noGo = await resumed.reviewCandidate('one');
+  assert.equal(noGo.verified, false);
+  assert.equal(resumed.state.verification.one.verdict, 'NO-GO');
+  assert.deepEqual(resumed.state.completed_milestones, []);
+  assert.equal(resumed.state.current_milestone, null);
+
+  const again = f.resume({
+    invokeZen: async request => {
+      f.calls.push('zen');
+      return verdict(request);
+    },
+  });
+  const second = await again.reviewCandidate('one');
+  assert.equal(second.verified, true);
+  assert.deepEqual(again.state.completed_milestones, ['one']);
+});
+
+test('reviewCandidate refuses when nothing awaits review', async t => {
+  const f = fixture(t);
+  await assert.rejects(f.spine.reviewCandidate(null), /No persisted candidate awaiting Zen review/);
+  await assert.rejects(f.spine.reviewCandidate('two'), /No persisted candidate awaiting Zen review for milestone 'two'/);
+});
+

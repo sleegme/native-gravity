@@ -104,3 +104,8 @@ global completion.
 - Hand off compact reports (criterion-linked results, changed ranges, diff or artifact refs, check commands with exit codes and short summaries) instead of pasting whole files, full logs or transcripts.
 - New-source reading budget: about 8k tokens as guidance (not a hard limit). Exceeding budget means requesting/inspecting a specific additional range with a reason, never skipping a required check.
 - Zen explicitly keeps unrestricted inspection and the requirement to check beyond the supplied diff; no role loses a required check or review.
+
+## Test runs never go live
+
+Test-suite runs inherit SKIP_LIVE_TESTS=1 from your invocation environment;
+keep it set and never launch live model calls from a verification run.

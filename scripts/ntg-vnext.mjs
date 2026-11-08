@@ -13,11 +13,19 @@
  *   ntg-vnext alt     --ledger L --task "..." [--milestone ID] [--escalate]
  *                                                 (Instinct NEEDS_ALT advice; not adopted)
  *   ntg-vnext status  --ledger L
+ *   ntg-vnext review  --ledger L [--milestone ID]    (gate-only Zen retry of the last candidate)
  *   ntg-vnext navi    --ledger L --task "..."         (bounded desktop leaf)
  *
- * --timeout SECONDS bounds each runner invocation and the native Zen review
- * (default 600; the runner's own 90s default is too short for bounded
- * High-effort planning). NTG_RUNNER_TIMEOUT_S overrides the default.
+ * --timeout SECONDS bounds runner invocations and the native Zen review when
+ * given. Without it (and without NTG_RUNNER_TIMEOUT_S) each invocation gets
+ * its per-role default from ROLE_TIMEOUT_S (Stage 0: Bulldozer 60 min, Zen
+ * 20 min, other roles 600 s), so the /ntg path completes long milestones
+ * without passing --timeout.
+ * Every spawned role env carries SKIP_LIVE_TESTS=1, so role-run test suites
+ * never launch live models (NTG_LIVE_TESTS=1 opts back in).
+ * When Argon quota is reported exhausted, a run-scoped circuit breaker stops
+ * every later Argon seat for this process after one plain notice with the
+ * reset time; Zen then stops as review-pending (`review` resumes it later).
  *
  * Every invocation is a fresh context: state is reloaded from the ledger, never
  * from conversation. Output is one JSON object on stdout; exit 0 on success,
@@ -32,7 +40,9 @@ import { MinimalSpine, HEADLESS_EXCAVATOR_TRANSPORT, recommendNeedsAlt } from '.
 import { createEventLog, makeEvent } from './events.mjs';
 import { AuthoritativeLedger, computeUsageRollup } from './ledger.mjs';
 import { verifyLedgerIntegrity } from './ledger-lock.mjs';
-import { invoke, loadNativeRoleBody, parseResponseEnvelope, parseResponsePacket, resolveSlug } from './runner.mjs';
+import { invoke, loadNativeRoleBody, parseResponseEnvelope, parseResponsePacket, resolveSlug,
+  QUOTA_EXHAUSTED_RE, argonBreakerBlocksSlug, argonQuotaBreakerState, tripArgonQuotaBreaker,
+  isArgonSlug, formatDurationKo } from './runner.mjs';
 import { createInterface } from 'node:readline';
 import { reportIssueCli } from './report-issue.mjs';
 
@@ -43,10 +53,31 @@ export const SUPERVISOR_LEDGER_ENV = 'NTG_SUPERVISOR_LEDGER';
 const EXECUTOR_EXIT_WAIT_MS = 10000;
 /** Native verification gate: invoked here, never supervised as a runner role. */
 const ZEN_ROLE = 'zen';
-const ZEN_QUOTA_ERROR = /RESOURCE_EXHAUSTED|Individual quota reached/;
 
 export const DEFAULT_RUNNER_TIMEOUT_S = 600;
-const USAGE = 'usage: ntg-vnext <init|plan|run|replan|recover|alt|status|navi> --ledger PATH [options]';
+/**
+ * Stage 0 per-role wall-clock defaults (subagent redesign §2.3), applied when
+ * neither --timeout nor NTG_RUNNER_TIMEOUT_S is given: the observed Bulldozer
+ * milestone takes 35–44 min and Zen 10–14 min, far beyond the flat 600 s.
+ */
+export const ROLE_TIMEOUT_S = Object.freeze({
+  bulldozer: 3600,
+  zen: 1200,
+});
+
+/**
+ * Effective invocation timeout: an explicit --timeout / NTG_RUNNER_TIMEOUT_S
+ * value (opts.timeoutMs, set only when one was given) wins for every role;
+ * otherwise the per-role default, otherwise DEFAULT_RUNNER_TIMEOUT_S.
+ */
+export function resolveInvocationTimeoutMs(role, opts = {}) {
+  if (opts.timeoutMs !== undefined) return opts.timeoutMs;
+  const seconds = ROLE_TIMEOUT_S[typeof role === 'string' ? role.trim().toLowerCase() : '']
+    ?? DEFAULT_RUNNER_TIMEOUT_S;
+  return seconds * 1000;
+}
+
+const USAGE = 'usage: ntg-vnext <init|plan|run|replan|recover|alt|status|review|navi> --ledger PATH [options]';
 
 function parseArgs(argv) {
   const [command, ...rest] = argv;
@@ -60,11 +91,14 @@ function parseArgs(argv) {
     opts[key] = rest[i + 1];
     i += 1;
   }
-  if (!['init', 'plan', 'run', 'replan', 'recover', 'alt', 'status', 'navi'].includes(command)) throw new Error(USAGE);
+  if (!['init', 'plan', 'run', 'replan', 'recover', 'alt', 'status', 'review', 'navi'].includes(command)) throw new Error(USAGE);
   if (!opts.ledger) throw new Error(`--ledger is required\n${USAGE}`);
-  const seconds = Number(opts.timeout ?? process.env.NTG_RUNNER_TIMEOUT_S ?? DEFAULT_RUNNER_TIMEOUT_S);
+  // Explicit timeouts keep today's flat semantics for every role; without one,
+  // main() applies ROLE_TIMEOUT_S per invocation (Stage 0).
+  const explicitSeconds = opts.timeout !== undefined ? opts.timeout : process.env.NTG_RUNNER_TIMEOUT_S;
+  const seconds = Number(explicitSeconds ?? DEFAULT_RUNNER_TIMEOUT_S);
   if (!Number.isFinite(seconds) || seconds <= 0) throw new Error(`--timeout must be a positive number of seconds\n${USAGE}`);
-  opts.timeoutMs = Math.round(seconds * 1000);
+  opts.timeoutMs = explicitSeconds === undefined ? undefined : Math.round(seconds * 1000);
   return opts;
 }
 
@@ -169,13 +203,32 @@ export function resolveZenModel({ agyPath = process.env.AGY_PATH || 'agy', insta
 }
 
 /**
+ * Stage 0 (§4): Zen stops as review-pending when the Argon pool is exhausted
+ * (it never falls back to Flash). The persisted candidate stays reviewable;
+ * the `review` command re-runs this gate after the pool resets.
+ */
+export class ZenReviewPendingError extends Error {
+  constructor(state = argonQuotaBreakerState()) {
+    const reset = state?.reset_seconds != null
+      ? `한도는 약 ${formatDurationKo(state.reset_seconds)} 뒤 복구`
+      : '복구 시점을 agy가 알려주지 않았습니다';
+    super(`젠 검증 보류: 고급 모델(Argon) 한도 소진(${reset}). 완성된 결과물은 그대로 보관되어 있고, 한도 복구 뒤 review 명령으로 검증만 다시 실행할 수 있습니다.`);
+    this.name = 'ZenReviewPendingError';
+    this.code = 'ZEN_REVIEW_PENDING';
+    this.reset_seconds = state?.reset_seconds ?? null;
+  }
+}
+
+/**
  * Native, independent Zen review. Zen is model-pinned by policy rather than by
  * `--agent zen`: the agent is not natively selectable, so the shipped role body
  * (frontmatter stripped) is prepended to the prompt and the exact slug comes
  * from the same frozen policy table the runner roles use. NTG_ZEN_MODEL
  * overrides the resolved slug. When the policy model reports exhausted quota,
  * the review retries once on the policy's quotaFallback model; a pinned slug
- * never falls back.
+ * never falls back. When that Argon fallback pool is also exhausted (or the
+ * run-scoped Argon breaker is already tripped), the review stops pending
+ * instead of degrading to a cheaper model.
  */
 export function nativeZen(request, { agyPath = process.env.AGY_PATH || 'agy', cwd = process.cwd(), timeout = 600000, installedModels } = {}) {
   const startTime = Date.now();
@@ -195,14 +248,34 @@ export function nativeZen(request, { agyPath = process.env.AGY_PATH || 'agy', cw
   const env = { ...process.env };
   delete env.NTG_BULLDOZER_NO_SHELL;
   delete env.NTG_BULLDOZER_CONVERSATION_FILE;
+  // Stage 0: Zen's verification test runs never launch live models either.
+  if (process.env.NTG_LIVE_TESTS !== '1') env.SKIP_LIVE_TESTS = '1';
   const spawnZen = () => spawnSync(agyPath, args, { cwd, env, encoding: 'utf8', timeout, killSignal: 'SIGKILL', maxBuffer: 20 * 1024 * 1024 });
   let r = spawnZen();
-  if (!r.error && r.status !== 0 && !process.env.NTG_ZEN_MODEL && ZEN_QUOTA_ERROR.test(`${r.stderr}\n${r.stdout}`)) {
-    const fallback = resolveSlug(ZEN_ROLE, { agyPath, installedModels, quotaFallback: true });
-    process.stderr.write(`ntg-vnext: zen model ${slug} is out of quota; retrying on ${fallback}\n`);
-    slug = fallback;
-    args[args.indexOf('--model') + 1] = slug;
-    r = spawnZen();
+  if (!r.error && r.status !== 0 && QUOTA_EXHAUSTED_RE.test(`${r.stderr}\n${r.stdout}`)) {
+    if (process.env.NTG_ZEN_MODEL) {
+      // Pinned slug: never falls back. A pinned Argon slug still trips the
+      // breaker so later Argon seats in this run fail fast (§4).
+      if (isArgonSlug(slug)) {
+        tripArgonQuotaBreaker({ seat: ZEN_ROLE, slug, text: `${r.stderr}\n${r.stdout}` });
+        throw new ZenReviewPendingError();
+      }
+    } else {
+      const fallback = resolveSlug(ZEN_ROLE, { agyPath, installedModels, quotaFallback: true });
+      // Breaker already tripped by an earlier Argon seat: no extra failing call.
+      if (argonBreakerBlocksSlug(fallback)) throw new ZenReviewPendingError();
+      process.stderr.write(`ntg-vnext: zen model ${slug} is out of quota; retrying on ${fallback}\n`);
+      slug = fallback;
+      args[args.indexOf('--model') + 1] = slug;
+      r = spawnZen();
+      if (!r.error && r.status !== 0) {
+        const fallbackOutput = `${r.stderr}\n${r.stdout}`;
+        if (isArgonSlug(fallback) && QUOTA_EXHAUSTED_RE.test(fallbackOutput)) {
+          tripArgonQuotaBreaker({ seat: ZEN_ROLE, slug: fallback, text: fallbackOutput });
+          throw new ZenReviewPendingError();
+        }
+      }
+    }
   }
   const duration_ms = Math.max(0, Date.now() - startTime);
   if (r.error) throw r.error;
@@ -349,7 +422,10 @@ export async function main(argv, deps = {}) {
   const readJson = path => JSON.parse(readFileSync(path, 'utf8'));
 
   const getLedger = () => AuthoritativeLedger.getInstance(opts.ledger);
-  const spineRunnerOptions = { timeout: opts.timeoutMs, ...deps.runnerOptions };
+  // Stage 0: without an explicit --timeout / NTG_RUNNER_TIMEOUT_S, each role
+  // invocation takes its ROLE_TIMEOUT_S default at the call sites below.
+  const spineRunnerOptions = { ...(opts.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : {}), ...deps.runnerOptions };
+  const roleTimeoutMs = role => resolveInvocationTimeoutMs(role, opts);
 
   let spine;
 
@@ -390,9 +466,12 @@ export async function main(argv, deps = {}) {
     await emitEvent({ role, milestone: milestoneId, event: 'start' });
 
     const baseInvokeRole = deps.invokeRole ?? invoke;
+    const effectiveRunnerOptions = runnerOptions.timeout === undefined
+      ? { ...runnerOptions, timeout: roleTimeoutMs(role) }
+      : runnerOptions;
     let result;
     try {
-      result = await baseInvokeRole(role, packet, runnerOptions);
+      result = await baseInvokeRole(role, packet, effectiveRunnerOptions);
     } catch (error) {
       // Incident WQ-5: verify the durable ledger survived the invocation
       // before recording anything, so a violation is never saved over.
@@ -497,7 +576,7 @@ export async function main(argv, deps = {}) {
 
     await emitEvent({ role: 'zen', milestone: milestoneId, event: 'start' });
 
-    const baseInvokeZen = deps.invokeZen ?? (req => nativeZen(req, { timeout: opts.timeoutMs }));
+    const baseInvokeZen = deps.invokeZen ?? (req => nativeZen(req, { timeout: roleTimeoutMs(ZEN_ROLE) }));
     let verdict;
     try {
       verdict = await baseInvokeZen(request);
@@ -583,9 +662,9 @@ export async function main(argv, deps = {}) {
       if (deps.invokeSpecialist) {
         result = await deps.invokeSpecialist(role, slice, specialistOptions);
       } else if (deps.invokeRole) {
-        result = await deps.invokeRole(role, slice, { ...spineRunnerOptions, ...specialistOptions });
+        result = await deps.invokeRole(role, slice, { timeout: roleTimeoutMs(role), ...spineRunnerOptions, ...specialistOptions });
       } else {
-        result = await invoke(role, slice, { ...spineRunnerOptions, ...specialistOptions });
+        result = await invoke(role, slice, { timeout: roleTimeoutMs(role), ...spineRunnerOptions, ...specialistOptions });
       }
     } catch (error) {
       // Incident WQ-5: verify the durable ledger survived the invocation
@@ -731,6 +810,12 @@ export async function main(argv, deps = {}) {
         spine.endInterruptedInvocation({ classification: 'OBSERVED', detail: opts.evidence, stale_lock: staleLock });
         await emitEvent({ role: null, milestone: interruptedMilestone, event: 'end', status: 'INVOCATION_FAILURE' });
         return { code: 0, out: { stale_lock_removed: staleLock, state: spine.state } };
+      }
+      case 'review': {
+        // Gate-only retry (§4): re-run Zen on the last persisted candidate
+        // without re-executing any milestone work.
+        const review = await spine.reviewCandidate(opts.milestone ?? null);
+        return { code: review.verified ? 0 : 2, out: { review, state: spine.state } };
       }
       case 'run': {
         const results = [];

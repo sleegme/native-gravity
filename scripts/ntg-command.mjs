@@ -30,13 +30,14 @@ export function resolveDagScript() {
   return process.env.NTG_DAG_SCRIPT || DEFAULT_DAG_SCRIPT;
 }
 
-const USAGE = `Usage: ntg-command <init|status|run|resume|graph|version> [options]
+const USAGE = `Usage: ntg-command <init|status|run|resume|review|graph|version> [options]
 
 Commands:
   init    --plan <path> [--ledger <path>]   Initialize ledger and plan
   status  [--ledger <path>]                 Display ledger status
   run     [--ledger <path>] [options]       Run runner milestones
   resume  [--ledger <path>] [options]       Check status and resume execution
+  review  [--ledger <path>] [--milestone <id>]  Gate-only Zen retry of the last candidate
   graph   [--ledger <path>] [--watch] [--once] [--pane] Display milestone dependency DAG
   version                                   Show native-gravity version
 
@@ -103,7 +104,7 @@ export function runNtgCommand(argv = [], options = {}) {
     return 0;
   }
 
-  if (!['init', 'status', 'run', 'resume', 'graph', 'version'].includes(command)) {
+  if (!['init', 'status', 'run', 'resume', 'review', 'graph', 'version'].includes(command)) {
     errStream.write(`Unknown command: ${command}\n\n${USAGE}`);
     return 1;
   }
@@ -169,6 +170,17 @@ export function runNtgCommand(argv = [], options = {}) {
     return executeVnext(
       vnextScript,
       ['status', '--ledger', ledger, ...passthrough],
+      spawn,
+      options,
+      spawnEnv,
+      errStream
+    );
+  }
+
+  if (command === 'review') {
+    return executeVnext(
+      vnextScript,
+      ['review', '--ledger', ledger, ...passthrough],
       spawn,
       options,
       spawnEnv,
