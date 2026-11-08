@@ -1,14 +1,14 @@
 # Native Gravity installer (PowerShell)
 #
 # Versioned installation (pinned release):
-#   irm https://raw.githubusercontent.com/sleegme/native-gravity/v1.2.0/scripts/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/sleegme/native-gravity/v1.3.0/scripts/install.ps1 | iex
 #
 # Latest main branch:
 #   irm https://raw.githubusercontent.com/sleegme/native-gravity/main/scripts/install.ps1 | iex
 #
 # Forwarding arguments:
-#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/sleegme/native-gravity/v1.2.0/scripts/install.ps1))) --help
-#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/sleegme/native-gravity/v1.2.0/scripts/install.ps1))) reinstall
+#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/sleegme/native-gravity/v1.3.0/scripts/install.ps1))) --help
+#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/sleegme/native-gravity/v1.3.0/scripts/install.ps1))) reinstall
 
 $ErrorActionPreference = 'Stop'
 
@@ -25,7 +25,7 @@ if (Get-Command node -ErrorAction SilentlyContinue) {
 }
 
 # Target & Release configuration
-$ref = if ($env:NATIVE_GRAVITY_REF) { $env:NATIVE_GRAVITY_REF } else { 'v1.2.0' }
+$ref = if ($env:NATIVE_GRAVITY_REF) { $env:NATIVE_GRAVITY_REF } else { 'v1.3.0' }
 $hasTar = [bool](Get-Command tar -ErrorAction SilentlyContinue)
 $defaultArchive = if ($hasTar) {
     "https://codeload.github.com/sleegme/native-gravity/tar.gz/$ref"
