@@ -8,7 +8,9 @@
         "native-gravity": "scripts/npm-install.mjs",
         "ntg-dag": "scripts/dag-view.mjs",
         "ntg-report-issue": "scripts/report-issue.mjs",
-        "ntg-vnext": "scripts/ntg-vnext.mjs"
+        "ntg-vnext": "scripts/ntg-vnext.mjs",
+        "ntg-state-snap": "scripts/state-snap.mjs",
+        "hook-snap": "scripts/hook-snap.mjs"
     },
     "files": [
         "agents/",
@@ -39,6 +41,11 @@
         "tests/test_ntg_command.mjs",
         "scripts/ntg-command.mjs",
         "scripts/ntg-vnext.mjs",
+        "scripts/state-snap.mjs",
+        "scripts/hook-snap.mjs",
+        "scripts/snap-common.mjs",
+        "tests/test_state_snap.mjs",
+        "tests/test_hook_snap.mjs",
         "scripts/events.mjs",
         "scripts/report-issue.mjs",
         "scripts/spine.mjs",
