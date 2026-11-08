@@ -3,6 +3,22 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.3.0](https://github.com/sleegme/native-gravity/compare/native-gravity-v1.2.0...native-gravity-v1.3.0) (2026-11-08)
+
+
+### Features
+
+* **graph:** /ntg graph opens a live DAG beside the user ([#222](https://github.com/sleegme/native-gravity/issues/222)) ([f112a73](https://github.com/sleegme/native-gravity/commit/f112a73866d3004c7f20dbd76f51aa19b733e9dc))
+* **snap:** read-only ntg-state-snap and hook-snap tools ([#183](https://github.com/sleegme/native-gravity/issues/183)) ([#229](https://github.com/sleegme/native-gravity/issues/229)) ([32f0ada](https://github.com/sleegme/native-gravity/commit/32f0adad3002d70491518fb3ad197de02198da93))
+* **stage0:** test hygiene, per-role timeouts, gate-only review, Argon breaker ([#225](https://github.com/sleegme/native-gravity/issues/225)) ([3d8f873](https://github.com/sleegme/native-gravity/commit/3d8f8733530303f085a246a56fce7bc68f4c9e13))
+* **stage1:** thin bounded crew, coverage probes, salvage ([#226](https://github.com/sleegme/native-gravity/issues/226)) ([6d6b0db](https://github.com/sleegme/native-gravity/commit/6d6b0db1a665c90bab17d61b2b80f8ab968dafa3))
+* **stage2:** pre-Zen CHECK, bounded automatic repair, Strix gate flag ([#227](https://github.com/sleegme/native-gravity/issues/227)) ([6b34ad4](https://github.com/sleegme/native-gravity/commit/6b34ad465775f6b657ca80688816a81cc7fffe3f))
+
+
+### Bug Fixes
+
+* **zen:** Zen must run guard-allowed tests; allow whole-suite run ([#223](https://github.com/sleegme/native-gravity/issues/223)) ([2c72a1a](https://github.com/sleegme/native-gravity/commit/2c72a1aa8ba1fbe579dd5faa5209a8db0ac7af13))
+
 ## [1.2.0](https://github.com/sleegme/native-gravity/compare/native-gravity-v1.1.2...native-gravity-v1.2.0) (2026-11-07)
 
 
