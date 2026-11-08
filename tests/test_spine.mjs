@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { MinimalSpine, recommendNeedsAlt } from '../scripts/spine.mjs';
 import { AuthoritativeLedger, UncoveredCriteriaError } from '../scripts/ledger.mjs';
 import { InvalidHandoffPacketError, InvalidResponseFormatError, composeBoundedPrompt, invoke, parseResponseEnvelope } from '../scripts/runner.mjs';
+import { runCoverageProbes } from '../scripts/coverage.mjs';
 
 const observed = [{ classification: 'OBSERVED', criterion: 'content matches milestone ID', result: 'artifact inspected' }];
 const plan = () => ({
@@ -34,7 +35,7 @@ const envelope = value => parseResponseEnvelope(JSON.stringify({
   status: 'SUCCESS', response: JSON.stringify(value),
 }));
 
-function fixture(t, { output, review, initialPlan = plan(), invokeSpecialist } = {}) {
+function fixture(t, { output, review, initialPlan = plan(), invokeSpecialist, runnerOptions } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'ntg-spine-'));
   const ledgerPath = join(dir, 'ledger.json');
   const calls = [];
@@ -96,6 +97,7 @@ function fixture(t, { output, review, initialPlan = plan(), invokeSpecialist } =
     invokeRole,
     invokeZen,
     invokeSpecialist: invokeSpecialist ?? defaultInvokeSpecialist,
+    ...(runnerOptions ? { runnerOptions } : {}),
   };
   spine = new MinimalSpine({ ...options, plan: initialPlan });
   let owner = spine;
@@ -1446,3 +1448,222 @@ test('reviewCandidate refuses when nothing awaits review', async t => {
   await assert.rejects(f.spine.reviewCandidate('two'), /No persisted candidate awaiting Zen review for milestone 'two'/);
 });
 
+
+// ---------------------------------------------------------------------------
+// Stage 1 (subagent redesign 2026-11-08 §2.4/§2.6): coverage packets, the
+// pre-Zen coverage-table check, and the coordinator salvage branch.
+// ---------------------------------------------------------------------------
+
+function coverageWorkdir(t) {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-spine-cov-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  mkdirSync(join(dir, 'src'));
+  writeFileSync(join(dir, 'src', 'thing.mjs'), 'ledger.save(one)\nstep()\nledger.save(two)\n');
+  return dir;
+}
+
+const coveragePlan = () => ({
+  goal: 'Cover every save site', constraints: [], decision_invariants: [], plan_version: 'v1',
+  milestones: [{
+    id: 'one', title: 'one', objective: 'verify saves',
+    bounded_scope: ['src/thing.mjs'],
+    acceptance_criteria: ['every save verified'], non_goals: [], dependencies: [],
+    coverage: [{ id: 'SAVE', applies_to: 'AC1', claim: 'every save verified',
+      probe: { pattern: '\\.save\\(', paths: ['src/thing.mjs'] } }],
+    verify: ['node --check src/thing.mjs'],
+  }],
+});
+
+const coverageTableFor = sites => sites.map(hit => ({
+  coverage_id: hit.coverage_id, site: hit.site, disposition: 'COVERED',
+  evidence: 'check placed at the site', test: 'tests/test_thing.mjs',
+}));
+
+const coverageObserved = [{ classification: 'OBSERVED', criterion: 'every save verified', result: 'both save sites carry checks' }];
+const coverageVerdict = request => verdict(request, { verification_evidence: coverageObserved });
+
+test('milestone packet carries code-built scope_map, coverage_sites and verify', async t => {
+  const dir = coverageWorkdir(t);
+  let seenContract;
+  const f = fixture(t, {
+    initialPlan: coveragePlan(),
+    runnerOptions: { coverageCwd: dir },
+    output: contract => {
+      seenContract = contract;
+      return candidate(contract, {
+        coverage_table: coverageTableFor(contract.coverage_sites),
+        candidate_artifact_ref: 'sha256:stage1-coverage',
+      });
+    },
+    review: request => coverageVerdict(request),
+  });
+  assert.equal((await f.spine.runMilestone('one')).verified, true);
+  assert.ok(seenContract.scope_map.files.some(file => file.path === 'src/thing.mjs'
+    && file.lines === 3 && file.symbols.length === 0));
+  assert.deepEqual(seenContract.coverage_sites, [
+    { coverage_id: 'SAVE', site: 'src/thing.mjs:1', text: 'ledger.save(one)' },
+    { coverage_id: 'SAVE', site: 'src/thing.mjs:3', text: 'ledger.save(two)' },
+  ]);
+  assert.deepEqual(seenContract.verify, ['node --check src/thing.mjs']);
+});
+
+test('DONE without a coverage table gets one correction round, then BLOCKED', async t => {
+  const dir = coverageWorkdir(t);
+  const attempts = [];
+  const f = fixture(t, {
+    initialPlan: coveragePlan(),
+    runnerOptions: { coverageCwd: dir },
+    output: contract => {
+      attempts.push(contract);
+      return candidate(contract, { candidate_artifact_ref: 'sha256:stage1-no-table' });
+    },
+  });
+  const result = await f.spine.runMilestone('one');
+  assert.equal(result.status, 'BLOCKED');
+  assert.equal(result.verified, false);
+  assert.ok(result.blockers[0].includes('Coverage table'));
+  // Initial packet + two correction packets, and Zen never saw the candidate.
+  assert.equal(attempts.length, 3);
+  assert.ok(!('invalid_handoff' in attempts[0]));
+  assert.ok(attempts[1].invalid_handoff.reason.includes('Coverage table incomplete'));
+  assert.ok(attempts[1].invalid_handoff.reason.includes('src/thing.mjs'));
+  assert.ok(!f.calls.includes('zen'));
+  assert.equal(f.spine.state.current_milestone, null);
+});
+
+test('a complete coverage table reaches the Zen request and verifies', async t => {
+  const dir = coverageWorkdir(t);
+  let zenRequest;
+  const f = fixture(t, {
+    initialPlan: coveragePlan(),
+    runnerOptions: { coverageCwd: dir },
+    output: contract => candidate(contract, {
+      coverage_table: coverageTableFor(contract.coverage_sites),
+      candidate_artifact_ref: 'sha256:stage1-full-table',
+    }),
+    review: request => {
+      zenRequest = request;
+      return coverageVerdict(request);
+    },
+  });
+  assert.equal((await f.spine.runMilestone('one')).verified, true);
+  assert.equal(zenRequest.contract.coverage_sites.length, 2);
+  assert.equal(zenRequest.candidate.coverage_table.length, 2);
+  assert.equal(zenRequest.candidate.coverage_table[1].site, 'src/thing.mjs:3');
+});
+
+test('a new site introduced by the work must carry a row too', async t => {
+  const dir = coverageWorkdir(t);
+  let calls = 0;
+  const f = fixture(t, {
+    initialPlan: coveragePlan(),
+    runnerOptions: { coverageCwd: dir },
+    output: contract => {
+      calls += 1;
+      if (calls === 1) {
+        // The worker adds a third save site in the worktree but reports only
+        // the packet's original two sites.
+        writeFileSync(join(dir, 'src', 'thing.mjs'), 'ledger.save(one)\nstep()\nledger.save(two)\nledger.save(three)\n');
+        return candidate(contract, {
+          coverage_table: coverageTableFor(contract.coverage_sites),
+          candidate_artifact_ref: 'sha256:stage1-new-site',
+        });
+      }
+      return candidate(contract, {
+        coverage_table: coverageTableFor(runCoverageProbes(
+          [{ id: 'SAVE', probe: { pattern: '\\.save\\(', paths: ['src/thing.mjs'] } }], { cwd: dir })),
+        candidate_artifact_ref: 'sha256:stage1-new-site-fixed',
+      });
+    },
+    review: request => coverageVerdict(request),
+  });
+  assert.equal((await f.spine.runMilestone('one')).verified, true);
+  assert.equal(calls, 2);
+});
+
+test('coordinator transport death with in-scope changes triggers one packet-only salvage session', async t => {
+  const dir = coverageWorkdir(t);
+  const invokeRoleCalls = [];
+  let artifactHash;
+  const f = fixture(t, {
+    initialPlan: plan(),
+    runnerOptions: { coverageCwd: dir },
+    review: request => verdict(request),
+  });
+  // A dedicated invokeRole model: first Bulldozer call dies as TURN_ENDED_EARLY
+  // after its (mocked) worker added the in-scope artifact; the salvage call
+  // must arrive in salvage mode and return a valid packet from the artifacts.
+  const spineInvokeRole = async (role, packet, runnerOptions = {}) => {
+    invokeRoleCalls.push({ role, runnerOptions });
+    assert.ok(composeBoundedPrompt(role, packet));
+    if (role === 'piledriver') return envelope({ recommendation: 'retain plan' });
+    assert.equal(role, 'bulldozer');
+    const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+    if (invokeRoleCalls.filter(call => call.role === 'bulldozer').length === 1) {
+      const artifact = join(dir, 'one.txt');
+      writeFileSync(artifact, 'worker output');
+      artifactHash = createHash('sha256').update(readFileSync(artifact)).digest('hex');
+      return { ok: false, error: 'TURN_ENDED_EARLY', slug: 'gemini-3.8-flash-high',
+        finished_reason: 'error', message: 'turn ended early' };
+    }
+    assert.equal(runnerOptions.env?.NTG_SALVAGE, '1');
+    assert.equal(runnerOptions.timeout, 600000);
+    assert.ok(packet.task.includes('salvage mode'));
+    assert.ok(contract.salvage);
+    assert.equal(contract.salvage.reason, 'TURN_ENDED_EARLY');
+    assert.deepEqual(contract.salvage.changed_files, []);
+    assert.deepEqual(contract.salvage.added_files, ['one.txt']);
+    return envelope(candidate(contract, { candidate_artifact_ref: 'sha256:' + artifactHash }));
+  };
+  const spine = f.resume({ invokeRole: spineInvokeRole });
+  const result = await spine.runMilestone('one');
+  assert.equal(result.verified, true);
+  assert.deepEqual(invokeRoleCalls.map(call => call.role), ['bulldozer', 'bulldozer']);
+  assert.deepEqual(f.calls, ['zen']);
+});
+
+test('salvage failure records BLOCKED and keeps the produced work intact', async t => {
+  const dir = coverageWorkdir(t);
+  writeFileSync(join(dir, 'one.txt'), 'initial');
+  const invokeRoleCalls = [];
+  const f = fixture(t, { initialPlan: plan(), runnerOptions: { coverageCwd: dir } });
+  const spineInvokeRole = async role => {
+    invokeRoleCalls.push(role);
+    if (role === 'piledriver') return envelope({ recommendation: 'retain plan' });
+    assert.equal(role, 'bulldozer');
+    if (invokeRoleCalls.filter(name => name === 'bulldozer').length === 1) {
+      writeFileSync(join(dir, 'one.txt'), 'worker output');
+      return { ok: false, error: 'TURN_ENDED_EARLY', slug: 'gemini-3.8-flash-high',
+        finished_reason: 'error', message: 'turn ended early' };
+    }
+    return { ok: false, error: 'TIMEOUT', slug: 'gemini-3.8-flash-high', message: 'salvage timed out' };
+  };
+  const spine = f.resume({ invokeRole: spineInvokeRole });
+  const result = await spine.runMilestone('one');
+  assert.equal(result.status, 'BLOCKED');
+  assert.equal(result.verified, false);
+  assert.equal(result.candidate, null);
+  assert.ok(result.blockers[0].includes('salvage'));
+  assert.equal(readFileSync(join(dir, 'one.txt'), 'utf8'), 'worker output');
+  assert.deepEqual(invokeRoleCalls, ['bulldozer', 'bulldozer']);
+  assert.equal(spine.state.current_milestone, null);
+  const disk = AuthoritativeLedger.load(f.ledgerPath).getState();
+  assert.equal(disk.evidence.one.failure_evidence.at(-1).status, 'BLOCKED');
+});
+
+test('transport death without in-scope changes stays an INVOCATION_FAILURE (no salvage)', async t => {
+  const dir = coverageWorkdir(t);
+  const invokeRoleCalls = [];
+  const f = fixture(t, { initialPlan: plan(), runnerOptions: { coverageCwd: dir } });
+  const spineInvokeRole = async (role, packet) => {
+    invokeRoleCalls.push(role);
+    if (role === 'piledriver') return envelope({ recommendation: 'retain plan' });
+    return { ok: false, error: 'TURN_ENDED_EARLY', slug: 'gemini-3.8-flash-high',
+      finished_reason: 'error', message: 'turn ended early' };
+  };
+  const spine = f.resume({ invokeRole: spineInvokeRole });
+  await assert.rejects(spine.runMilestone('one'), /bulldozer invocation failed/);
+  assert.deepEqual(invokeRoleCalls, ['bulldozer']);
+  const disk = AuthoritativeLedger.load(f.ledgerPath).getState();
+  assert.equal(disk.evidence.one.failure_evidence[0].status, 'INVOCATION_FAILURE');
+});

@@ -293,3 +293,58 @@ test("runner: invokeTransport returns TOOL_PERMISSION_DENIED when AGY envelope h
     "Bulldozer has no shell authority; discovery routes to Jaguar."
   );
 });
+
+// ---------------------------------------------------------------------------
+// Stage 1 (subagent redesign 2026-11-08 §2.6.2): Bulldozer runner invocations
+// carry the per-conversation budget-hook env; other roles never do.
+// ---------------------------------------------------------------------------
+
+test("runner: bulldozer invocation env carries the budget defaults and a fresh state dir", (t) => {
+  const calls = mockSpawn(t);
+  const first = invokeTransport({
+    role: "bulldozer", slug: "gemini-3.8-flash-high", prompt: "task", agyPath: "agy",
+  });
+  const second = invokeTransport({
+    role: "bulldozer", slug: "gemini-3.8-flash-high", prompt: "task", agyPath: "agy",
+  });
+  assert.equal(first.ok && second.ok, true);
+  assert.equal(calls.length, 2);
+  const [one, two] = calls.map(call => call.options.env);
+  for (const env of [one, two]) {
+    assert.equal(env.NTG_BUDGET_MAX_CALLS, "140");
+    assert.equal(env.NTG_BUDGET_MAX_SPAWN_CALLS, "2");
+    assert.equal(env.NTG_BUDGET_ROOT_MAX_CALLS, "90");
+    assert.equal(env.NTG_BUDGET_ROOT_MAX_READ_CALLS, "12");
+    assert.equal(env.NTG_BUDGET_ROOT_MAX_SPAWN_CALLS, "4");
+    assert.ok(env.NTG_BUDGET_STATE_DIR.endsWith("budget"));
+    assert.ok(env.NTG_BUDGET_ROOT_FILE.endsWith("budget-root"));
+  }
+  assert.notEqual(one.NTG_BUDGET_STATE_DIR, two.NTG_BUDGET_STATE_DIR);
+});
+
+test("runner: caller opts.env overrides budget caps (spine salvage session)", (t) => {
+  const calls = mockSpawn(t);
+  const res = invokeTransport({
+    role: "bulldozer", slug: "gemini-3.8-flash-high", prompt: "salvage", agyPath: "agy",
+    env: { NTG_SALVAGE: "1", NTG_BUDGET_ROOT_MAX_CALLS: "25" },
+  });
+  assert.equal(res.ok, true);
+  const env = calls[0].options.env;
+  assert.equal(env.NTG_SALVAGE, "1");
+  assert.equal(env.NTG_BUDGET_ROOT_MAX_CALLS, "25");
+  assert.equal(env.NTG_BUDGET_MAX_CALLS, "140");
+});
+
+test("runner: non-bulldozer roles carry no budget or salvage markers, ambient stripped", (t) => {
+  const calls = mockSpawn(t);
+  const res = invokeTransport({
+    role: "piledriver", slug: "gemini-4-argon-high", prompt: "plan", agyPath: "agy",
+    env: { NTG_BUDGET_ROOT_MAX_CALLS: "90", NTG_SALVAGE: "1" },
+  });
+  assert.equal(res.ok, true);
+  const env = calls[0].options.env;
+  for (const key of Object.keys(env)) {
+    assert.equal(key.startsWith("NTG_BUDGET_"), false, key);
+    assert.notEqual(key, "NTG_SALVAGE");
+  }
+});

@@ -202,6 +202,34 @@ export function argonBreakerBlocksSlug(slug) {
   return argonBreaker.tripped && isArgonSlug(slug);
 }
 
+// =============================================================================
+// Stage 1 budget hook env (NTG subagent redesign 2026-11-08, §2.3/§2.6.2)
+// =============================================================================
+
+/**
+ * Per-conversation budget caps the runner hands a Bulldozer invocation; the
+ * PreToolUse budget hook (hooks/budget-guard.py) enforces them. Uniform caps
+ * are the loosest worker budget (Bobcat §2.3); the ROOT_* caps bind only the
+ * runner-started root conversation through its SessionStart binding — the
+ * observed runaway was always the root (A2a: 368 calls, 269 reads, 8 spawns).
+ * The spine's salvage session overrides NTG_BUDGET_ROOT_MAX_CALLS via opts.env.
+ */
+export const BULLDOZER_BUDGET_DEFAULTS = Object.freeze({
+  NTG_BUDGET_MAX_CALLS: "140",
+  NTG_BUDGET_MAX_SPAWN_CALLS: "2",
+  NTG_BUDGET_ROOT_MAX_CALLS: "90",
+  NTG_BUDGET_ROOT_MAX_READ_CALLS: "12",
+  NTG_BUDGET_ROOT_MAX_SPAWN_CALLS: "4",
+});
+
+/** Fresh per-invocation budget context dir markers (state dir + root binding). */
+export function bulldozerBudgetContext(dir) {
+  return {
+    NTG_BUDGET_STATE_DIR: join(dir, "budget"),
+    NTG_BUDGET_ROOT_FILE: join(dir, "budget-root"),
+  };
+}
+
 export class UnresolvedModelSlugError extends Error {
   constructor(role, message, details = {}) {
     super(message || `Unresolved model slug for role: ${role}`);
@@ -1067,6 +1095,9 @@ function invokeAgyTransport(opts, prefix = []) {
   const nextChain = role ? (chainRaw ? `${chainRaw}:${role}` : role) : chainRaw;
   const childEnv = {
     ...process.env,
+    // Stage 1 budget caps: defaults first so a caller's opts.env (the spine
+    // salvage session tightens the root call cap) still overrides them.
+    ...(normalizedRole === "bulldozer" ? BULLDOZER_BUDGET_DEFAULTS : {}),
     ...(opts.env || {}),
     // Stage 0: every role-run test suite skips live model tests; a worker
     // running `node --test` inside its role must not spend real agy quota
@@ -1077,6 +1108,10 @@ function invokeAgyTransport(opts, prefix = []) {
   };
   if (normalizedRole !== "bulldozer") {
     delete childEnv.NTG_BULLDOZER_NO_SHELL;
+    // Budget markers belong to Bulldozer runner invocations only.
+    for (const key of Object.keys(childEnv)) {
+      if (key.startsWith("NTG_BUDGET_") || key === "NTG_SALVAGE") delete childEnv[key];
+    }
   }
   // Never reuse a parent invocation's root-conversation binding.
   delete childEnv.NTG_BULLDOZER_CONVERSATION_FILE;
@@ -1127,6 +1162,11 @@ function invokeAgyTransport(opts, prefix = []) {
     if (normalizedRole === "bulldozer") {
       bulldozerContext = mkdtempSync(join(tmpdir(), "ntg-bulldozer-"));
       childEnv.NTG_BULLDOZER_CONVERSATION_FILE = join(bulldozerContext, "conversation");
+      // Stage 1: a fresh budget state dir per invocation; the hook creates
+      // the directory itself and counts per conversation inside it.
+      const budgetContext = bulldozerBudgetContext(bulldozerContext);
+      childEnv.NTG_BUDGET_STATE_DIR ??= budgetContext.NTG_BUDGET_STATE_DIR;
+      childEnv.NTG_BUDGET_ROOT_FILE ??= budgetContext.NTG_BUDGET_ROOT_FILE;
     }
     result = (opts.naviSpawn || spawnSync)(prefix.length ? "bwrap" : agyPath, prefix.length ? [...prefix, agyPath, ...args] : args, {
       timeout,

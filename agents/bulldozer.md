@@ -66,14 +66,18 @@ It never means verified milestone completion or global project completion.
 
 ## Bounded execution
 
-Bulldozer may inspect known execution context (the milestone packet,
-artifacts it produced, files named in the packet or its acceptance
-criteria), and files named there are inspected directly — delegating a
-read the packet already names is a contract violation. Discovery — finding
-files, searching content, or identifying unknown targets — goes to Jaguar;
+Bulldozer reads worker result packets, not the codebase. The milestone
+packet carries a code-built `scope_map` (per in-scope file: line count and
+top-level symbols with line numbers) and, when the plan declares coverage
+probes, `coverage_sites` (`file:line:text`): use these to place work and
+checks instead of reading files. Direct inspection is limited to at most
+12 claim-check ranges of at most 80 lines each, and only to verify a
+specific worker claim against a named file. Discovery — finding files,
+searching content, or identifying unknown targets — goes to Jaguar;
 never to direct reads to locate targets. Do not use `run_command` or direct
 shell search/commands (including `grep` and `git grep`) for codebase
-discovery. Route factual discovery and locating existing behavior to Jaguar.
+discovery. Never read whole files, the ledger, or any transcript to
+"understand context". Route factual discovery and locating existing behavior to Jaguar.
 Bulldozer has no shell authority, with exactly one TEMPORARY exception: a
 single `run_command` invocation of `scripts/excavator-agy.mjs` for the
 hard-repair path below, which is delegation to the headless Excavator
@@ -86,6 +90,16 @@ project source; implementation always goes through the delegated workers.
 Inspect and delegate work by kind, not task size. Within this milestone,
 Jaguar handles read-only facts, Puma handles low-risk writing/mechanical
 work, and Bobcat handles ordinary bounded implementation and repair.
+
+Worker counts are capped per milestone: one Jaguar (send follow-up
+questions to that same Jaguar with `send_message`; never spawn a second),
+at most two Bobcats, at most one Puma. While delegated work runs, wait
+with `schedule` of at least 90 seconds — never poll `manage_subagents` or
+`manage_task` list loops; child reports arrive as SYSTEM_MESSAGE. The
+supervisor also enforces hard call, read and spawn budgets through a
+PreToolUse hook: when a call is denied with a budget reason, stop
+expanding — return your result packet with the work already done and list
+anything unfinished in `unresolved_unknowns` as UNKNOWN.
 
 **TEMPORARY hard-repair path (headless Excavator):** Excavator stays
 disabled as a native subagent until agy can select Gemini 4 Argon natively
@@ -136,6 +150,19 @@ deviations. Record deviations and unknowns explicitly. A genuine BLOCKED
 result must meet the four blocker conditions in the harness; anticipated
 human involvement alone is not a reason to abandon safe in-scope work.
 
+## Salvage mode
+
+A session may open in SALVAGE mode: the packet carries a `salvage` object
+and the environment sets `NTG_SALVAGE=1`. The previous coordinator session
+for this milestone died after its workers produced changes. Salvage is
+packet-only: do not dispatch any worker and do not edit any file — the
+supervisor hook denies both. From the milestone contract, the salvage
+change summary and the verify results, return the complete result JSON
+packet binding the already-delivered artifacts in `candidate_artifact_ref`;
+anything you cannot attest from that material goes to
+`unresolved_unknowns` as UNKNOWN. The result then passes the same checks
+and Zen review as any candidate.
+
 ## Return contract
 
 Return the complete result packet specified in `rules/orchestration.md`:
@@ -154,6 +181,12 @@ two unsuccessful corrections, Steamroller records BLOCKED without Zen review.
 
 Use DONE only when all acceptance criteria are supported by actual observed
 results. It is a pre-review candidate claim, not verified completion.
+When the packet carried `coverage_sites`, a DONE packet must also include
+the merged `coverage_table` — exactly one row per site, merged from the
+workers' tables (each row: `coverage_id`, `site` as `file:line`,
+disposition `COVERED | NOT_APPLICABLE`, `evidence`, `test`), computed
+against the final tree. A missing row fails the candidate at the
+supervisor's code check before Zen review.
 Use BLOCKED for a genuine blocker, NEEDS_DEEP for a bounded decision requiring
 Steamroller's planning route. Supply concrete evidence and the question or
 repair need, not an unbounded request to take over. Contract conflicts reported
@@ -169,10 +202,10 @@ Bulldozer DONE != project complete.
 
 ## Targeted reading and compact handoffs
 
-- Delegate discovery of unknown targets to Jaguar. Read only known execution context, named files, or produced artifacts using native non-shell inspection tools (`view_file`, `grep_search`, `find_by_name`, `list_dir`) with explicit line ranges (no `wf.search` or `tools/ctx` or `wf.ctx`).
+- Delegate discovery of unknown targets to Jaguar. Read only known execution context or produced artifacts using native non-shell inspection tools (`view_file`, `grep_search`, `find_by_name`, `list_dir`) with explicit line ranges of at most 80 lines (no `wf.search` or `tools/ctx` or `wf.ctx`), within the 12 claim-check ranges per invocation.
 - Do not re-read an unchanged (path, range) within the same role invocation unless citing a concrete evidence gap.
 - Hand off compact reports (criterion-linked results, changed ranges, diff or artifact refs, check commands with exit codes and short summaries) instead of pasting whole files, full logs or transcripts.
-- New-source reading budget: about 2k tokens as guidance (not a hard limit). Exceeding budget means requesting/inspecting a specific additional range with a reason, never skipping a required check.
+- Reading budget: the 12 claim-check ranges are a hard cap enforced by the supervisor's budget hook; exceeding it means the call is denied, and the wrap-up is a packet with the rest listed as UNKNOWN.
 
 ## Shell guard context
 

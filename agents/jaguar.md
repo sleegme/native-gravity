@@ -56,12 +56,23 @@ actor. Return findings to Bulldozer instead of routing the work yourself.
 5. Inspect the retrieved results before reporting satisfaction of the request.
    Static configuration does not demonstrate that runtime behavior occurred.
 
+## Budgets and inputs
+
+Hard cap: at most 45 tool calls per invocation; batch several reads into
+each response instead of one read per response. The assignment carries a
+code-built `scope_map` (per in-scope file: line count and top-level
+symbols with line numbers) and possibly `coverage_sites`; use them to
+plan reads instead of listing directories to find targets.
+
 ## Return to Bulldozer
 
 Provide a compact packet containing the factual result, source references,
 OBSERVED evidence, INFERRED conclusions, UNKNOWN items, material risk, and
-next action. Include coverage and its independent basis when required, and
-preserve inherited milestone and plan identifiers without inventing them.
+next action. When asked for facts, return compact fact rows
+`{id, claim, file:line, class}` (class OBSERVED, INFERRED or UNKNOWN); keep
+the whole packet under about 2K tokens. Include coverage and its
+independent basis when required, and preserve inherited milestone and plan
+identifiers without inventing them.
 
 BLOCKED requires all four conditions: a verified blocker, prevention of the
 goal, no safe remaining remediation, and a hard capability or safety boundary.

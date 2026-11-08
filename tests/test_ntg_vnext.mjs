@@ -1313,3 +1313,34 @@ test('review refuses cleanly when no candidate awaits a verdict', async t => {
   await main(['init', '--ledger', ledger, '--plan', join(dirname(ledger), 'plan.json')], deps);
   await assert.rejects(main(['review', '--ledger', ledger], deps), /No persisted candidate awaiting Zen review/);
 });
+
+// ---------------------------------------------------------------------------
+// Stage 1 (subagent redesign 2026-11-08 §2.4): init validates coverage probes
+// against the working tree — per-probe hit ceiling — before any ledger exists.
+// ---------------------------------------------------------------------------
+
+test('init rejects a coverage probe whose hit count exceeds the ceiling', async t => {
+  const h = harness(t);
+  const noisy = plan('v1', ['one']);
+  noisy.milestones[0].bounded_scope = ['scripts/'];
+  noisy.milestones[0].coverage = [{ id: 'EVERY_LINE', claim: 'too broad',
+    probe: { pattern: '.', paths: ['scripts/runner.mjs'] } }];
+  await assert.rejects(
+    h.cli('init', '--plan', h.write('plan.json', noisy)),
+    error => error.message.includes('EVERY_LINE') && error.message.includes('hits')
+      && error.message.includes('max 60'));
+});
+
+test('init accepts a scoped probe and stores coverage on the milestone', async t => {
+  const h = harness(t);
+  const scoped = plan('v1', ['one']);
+  scoped.milestones[0].bounded_scope = ['scripts/'];
+  scoped.milestones[0].coverage = [{ id: 'SAVE_SITES', claim: 'every save verified',
+    probe: { pattern: '\\.save\\(', paths: ['scripts/ledger.mjs'] } }];
+  scoped.milestones[0].verify = ['node --check scripts/ledger.mjs'];
+  const result = await h.cli('init', '--plan', h.write('plan.json', scoped));
+  assert.equal(result.code, 0);
+  const stored = result.out.state.milestones[0];
+  assert.equal(stored.coverage[0].id, 'SAVE_SITES');
+  assert.deepEqual(stored.verify, ['node --check scripts/ledger.mjs']);
+});

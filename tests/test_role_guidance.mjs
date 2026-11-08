@@ -27,22 +27,27 @@ const ROLE_FILES = [
 // (scripts/excavator-agy.mjs, exact Argon High via run_command).
 // #167 legitimately changed the Bulldozer base: the self-referential
 // scripts/spine.mjs mention was removed to stop runner-inspection loops.
+// Stage 1 of the subagent redesign (2026-11-08, §2.3/§2.6) legitimately
+// changed the Bulldozer, Jaguar, Bobcat and orchestration bases: the
+// thin-crew contract replaces Bulldozer's direct-inspection clause, Jaguar
+// and Bobcat gain budget/coverage-table sections, and the packet/result
+// field lists gained the code-built coverage fields.
 const BASE_PREFIXES = {
   "agents/bulldozer.md": {
-    length: 9367,
-    sha256: "f4b1e88163a25c91ef95c26108cbb68d85d5ed6865c0229b2c02cf4c47f3d896",
+    length: 11367,
+    sha256: "3cba2cf2f019f5870411f92b00f5f0f93083c854b5414bf6dd254b1861eaf056",
   },
   "agents/jaguar.md": {
-    length: 3489,
-    sha256: "0658e356b3f79af2c7bb20e5bfba0dc1570b710d83926374cefc2f66cc342823",
+    length: 4019,
+    sha256: "3dd81b4c437a00071ee24c138ce46f0bb800f8d3c1cc7bd3fef99a5b779579fc",
   },
   "agents/puma.md": {
     length: 4097,
     sha256: "c909a903c8dcacf7851b7e1f626de80e957f9f4c00ffab90f5a74257f1b17345",
   },
   "agents/bobcat.md": {
-    length: 4178,
-    sha256: "ad11fd48c8cb662c13a85b87bd40a13b2134d1df65247614d6bd96c06d7bccee",
+    length: 5131,
+    sha256: "2b965081fd40fac86df6e00775a8021bb66240a63d9aef1cd85bfbe425e06b9f",
   },
   "agents/strix-halo.md": {
     length: 4984,
@@ -53,8 +58,8 @@ const BASE_PREFIXES = {
     sha256: "364c9002bd1e116e22392eb25627c5703b8cbb06d8302b769c19cae49765e772",
   },
   "rules/orchestration.md": {
-    length: 18524,
-    sha256: "b2995705908e100485dff2ec0755c0c609968f18fdfde9c977e7b05d518a96e4",
+    length: 19803,
+    sha256: "3d8e5c509dd2c8872d6f3c19717379334cbe5b5ea09b743bf57983fcdb416667",
   },
 };
 
