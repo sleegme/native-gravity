@@ -1,0 +1,30 @@
+{
+  "native-gravity-zen-shell-guard": {
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.gemini/config/plugins/native-gravity/hooks/zen-shell-guard.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "native-gravity-excavator-shell-guard": {
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.gemini/config/plugins/native-gravity/hooks/excavator-shell-guard.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

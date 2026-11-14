@@ -1,0 +1,66 @@
+{
+    "name": "native-gravity",
+    "version": "1.1.0",
+    "description": "A thin Antigravity-native orchestration plugin with delegated implementation and independent verification.",
+    "license": "MIT",
+    "type": "module",
+    "bin": {
+        "native-gravity": "scripts/npm-install.mjs",
+        "ntg-dag": "scripts/dag-view.mjs",
+        "ntg-report-issue": "scripts/report-issue.mjs",
+        "ntg-vnext": "scripts/ntg-vnext.mjs"
+    },
+    "files": [
+        "agents/",
+        "hooks/",
+        "tools/ctx",
+        "tools/git-snap",
+        "tools/wf.py",
+        "rules/",
+        "plugin.json",
+        "hooks.json",
+        "scripts/npm-install.mjs",
+        "README.md",
+        "docs/ko/README.md",
+        "docs/navi.md",
+        "docs/navi-evidence.md",
+        "scripts/ledger-lock.mjs",
+        "scripts/dag-view.mjs",
+        "scripts/navi.mjs",
+        "scripts/navi-bridge.mjs",
+        "scripts/navi-validation/",
+        "docs/navi-windows-kit.ko.md",
+        "tests/test_dag_view.mjs",
+        "scripts/ntg-vnext.mjs",
+        "scripts/events.mjs",
+        "scripts/report-issue.mjs",
+        "scripts/spine.mjs",
+        "scripts/excavator-agy.mjs",
+        "scripts/runner.mjs",
+        "scripts/ledger.mjs",
+        "scripts/telemetry.mjs",
+        "LICENSE"
+    ],
+    "engines": {
+        "node": ">=18"
+    },
+    "keywords": [
+        "antigravity",
+        "gemini",
+        "ai-agents",
+        "multi-agent",
+        "agentic-coding",
+        "orchestration"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/sleegme/native-gravity.git"
+    },
+    "bugs": {
+        "url": "https://github.com/sleegme/native-gravity/issues"
+    },
+    "homepage": "https://github.com/sleegme/native-gravity#readme",
+    "publishConfig": {
+        "access": "public"
+    }
+}

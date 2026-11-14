@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "scope": "native_windows_kit_test_summary",
+  "baseline_sha": "56d77a4510d5ed1190f1b601a92f73a612659e55",
+  "command": "node --test tests/test_navi_windows_kit.mjs",
+  "node": "v20.19.0",
+  "platform": "win32",
+  "exit_code": 0,
+  "tests": 8,
+  "passed": 7,
+  "failed": 0,
+  "skipped": 1,
+  "cancelled": 0,
+  "existing_platform_skip": "Windows kit returns UNSUPPORTED rather than PASS on a non-Windows PowerShell host",
+  "original_test_assertions_weakened": false,
+  "job_compile_command": "powershell.exe -NoProfile -File scripts/navi-validation/windows-job.ps1 -CompileOnly",
+  "job_compile_exit_code": 0,
+  "pack_command": "npm pack --dry-run --json",
+  "pack_exit_code": 0,
+  "node_syntax_check_exit_code": 0,
+  "lsp": "Unavailable: typescript-language-server is not installed",
+  "native_gui_outcome": {
+    "steps": ["Snapshot", "Type", "Snapshot"],
+    "target": "Disposable Navi scratch input",
+    "expected_value": "NTG NAVI WINDOWS QA",
+    "independent_native_accessibility_value_matches": true,
+    "independent_native_screenshot_matches": true
+  },
+  "production_windows_support": "PENDING"
+}

@@ -1,0 +1,106 @@
+{
+  "goal": "Test goal for report issue",
+  "plan_version": 3,
+  "milestones": [
+    {
+      "id": "m1",
+      "title": "Initial setup with /home/fakeuser/path",
+      "dependencies": []
+    },
+    {
+      "id": "m2",
+      "title": "Second milestone",
+      "dependencies": [
+        "m1"
+      ]
+    }
+  ],
+  "current_milestone": "m2",
+  "completed_milestones": [
+    "m1"
+  ],
+  "blockers": [
+    {
+      "affects_milestone": "m2",
+      "description": "Blocked by fake credential issue for fake-engineer@example.com"
+    }
+  ],
+  "verification": {
+    "m1": {
+      "milestone_id": "m1",
+      "verdict": "GO",
+      "plan_version": 3,
+      "is_stale": false,
+      "result_ref": "ref-sha256-m1-verified"
+    }
+  },
+  "evidence": {
+    "m1": {
+      "candidates": [
+        {
+          "milestone_id": "m1",
+          "plan_version": 3,
+          "result_ref": "ref-sha256-m1-cand",
+          "status": "DONE",
+          "changes_made": [
+            "src/secret.js",
+            "fake secret changes_made body containing proprietary text"
+          ],
+          "payload": {
+            "source_code": "export function confidentialAlgorithm() { return \"sk-proj-1234567890abcdef12345678\"; }",
+            "full_transcript": "raw transcript data that must never be leaked"
+          }
+        }
+      ]
+    },
+    "m2": {
+      "failure_evidence": [
+        {
+          "milestone_id": "m2",
+          "status": "FAILED",
+          "timestamp": "2026-10-22T00:00:00.000Z",
+          "evidence": {
+            "failed_step": {
+              "tool": "run_command",
+              "command": "curl -H \"Authorization: Bearer super-secret-bearer-token-12345678\" https://api.example.com?key=AIzaSyD-1234567890abcdefghijklmnopqrstuv"
+            }
+          },
+          "escalation_needs": "Need token xoxb-1234567890-1234567890123-abcdef and ghp_12345678901234567890 at /home/fakeuser/secret.env"
+        }
+      ]
+    }
+  },
+  "usage": {
+    "m1": [
+      {
+        "role": "bobcat",
+        "duration_ms": 1500,
+        "usage": {
+          "input_tokens": 120,
+          "output_tokens": 80,
+          "total_tokens": 200
+        }
+      },
+      {
+        "role": "strix-halo",
+        "duration_ms": 500,
+        "usage": {
+          "input_tokens": 50,
+          "output_tokens": 20,
+          "total_tokens": 70
+        }
+      }
+    ],
+    "m2": [
+      {
+        "role": "bobcat",
+        "duration_ms": 1000,
+        "usage": {
+          "input_tokens": 90,
+          "output_tokens": 30,
+          "total_tokens": 120
+        }
+      }
+    ]
+  }
+}

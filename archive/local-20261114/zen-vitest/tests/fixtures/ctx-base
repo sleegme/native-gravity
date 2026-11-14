@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# ctx -- print files for an agent: header, line numbers, bounded output.
+set -u
+
+MAX_LINES=400
+MAX_COLS=2000
+
+usage() {
+    cat <<'EOF'
+usage: ctx <file>... [file:A-B]...
+
+Print each file as a block meant to be read by an agent:
+
+  == path (N lines) ==
+       1<TAB>first line
+       2<TAB>second line
+
+Output is capped at 400 lines per file; past that a
+"... truncated, K more lines" note is printed. Single lines longer than 2000
+characters are cut with a " ... [+K chars]" marker.
+
+An argument may end in ":A-B" to print only that inclusive line range (also
+capped at 400 lines). If a file with that literal name exists it is used as
+is, so colons in real file names win.
+
+Binary files (NUL byte in the first 4 KiB) are skipped with a note. Missing,
+unreadable, or directory arguments are reported inline and the remaining
+files are still processed.
+
+Options:
+  -h, --help   show this help and exit
+
+Exit status: 0 when every argument was printed, 1 when any of them failed,
+2 on usage error.
+EOF
+}
+
+is_binary() {
+    LC_ALL=C od -An -tx1 -N4096 -- "$1" 2>/dev/null | tr -s ' ' '\n' | grep -qx '00'
+}
+
+# awk has no "--" end-of-options, so shield leading dashes ourselves.
+awpath() {
+    case $1 in
+        -*) printf './%s' "$1" ;;
+        *) printf '%s' "$1" ;;
+    esac
+}
+
+if [ "$#" -eq 0 ]; then
+    usage >&2
+    exit 2
+fi
+
+for arg in "$@"; do
+    case $arg in
+        -h|--help) usage; exit 0 ;;
+    esac
+done
+
+rc=0
+for arg in "$@"; do
+    file=$arg
+    start=1
+    range_end=""
+
+    if [ ! -e "$arg" ] && [[ $arg =~ ^(.*):([0-9]+)-([0-9]+)$ ]] && [ -n "${BASH_REMATCH[1]}" ]; then
+        file=${BASH_REMATCH[1]}
+        start=${BASH_REMATCH[2]}
+        range_end=${BASH_REMATCH[3]}
+    fi
+    [ "$start" -lt 1 ] && start=1
+
+    if [ ! -e "$file" ]; then
+        printf '== %s (error: no such file or directory) ==\n' "$file"
+        rc=1
+        continue
+    fi
+    if [ -d "$file" ]; then
+        printf '== %s (error: is a directory) ==\n' "$file"
+        rc=1
+        continue
+    fi
+    if [ ! -r "$file" ]; then
+        printf '== %s (error: permission denied) ==\n' "$file"
+        rc=1
+        continue
+    fi
+    if is_binary "$file"; then
+        printf '== %s (binary file, skipped) ==\n' "$file"
+        continue
+    fi
+
+    total=$(awk 'END { print NR + 0 }' "$(awpath "$file")")
+    printf '== %s (%d lines) ==\n' "$file" "$total"
+
+    top=$(( start + MAX_LINES - 1 ))
+
+    awk -v lo="$start" -v hi="$top" -v range_end="$range_end" -v total="$total" -v maxcols="$MAX_COLS" '
+        NR < lo { next }
+        range_end != "" && NR > range_end + 0 { exit }
+        NR > hi { exit }
+        {
+            line = $0
+            if (length(line) > maxcols)
+                line = substr(line, 1, maxcols) " ... [+" (length($0) - maxcols) " chars]"
+            printf "%6d\t%s\n", NR, line
+        }
+        END {
+            if (range_end != "" && range_end + 0 < lo) {
+                printf "(empty range: %d-%d)\n", lo, range_end
+            } else if (range_end != "" && total < lo) {
+                printf "(file has only %d lines; range starts at %d)\n", total, lo
+            } else {
+                topmost = total
+                if (range_end != "" && range_end + 0 < topmost) topmost = range_end + 0
+                if (topmost > hi) printf "... truncated, %d more lines\n", topmost - hi
+            }
+        }
+    ' "$(awpath "$file")"
+done
+
+exit "$rc"

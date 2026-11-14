@@ -1,0 +1,48 @@
+{
+  "zen-verification-boundary": {
+    "PreToolUse": [
+      {
+        "matcher": "^run_command$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./hooks/zen-shell-guard.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "excavator-migration-boundary": {
+    "PreToolUse": [
+      {
+        "matcher": "^run_command$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./hooks/excavator-shell-guard.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "native-gravity-excavator-review-gate": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python3 ./hooks/excavator-review-gate.py",
+        "timeout": 10
+      }
+    ]
+  },
+  "native-gravity-primary-review-gate": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python3 ./hooks/primary-review-gate.py",
+        "timeout": 10
+      }
+    ]
+  }
+}

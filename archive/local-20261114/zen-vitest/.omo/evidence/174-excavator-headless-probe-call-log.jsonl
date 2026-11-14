@@ -1,0 +1,1 @@
+{"tool":"excavator-agy","started_at":"2026-10-25T08:56:12.250Z","ended_at":"2026-10-25T08:57:25.265Z","duration_ms":73014,"model":"gemini-4-argon-high","exit_status":0,"ok":true,"error":null,"worker_status":"READY","milestone_id":"probe-counter-fix","usage":{"input_tokens":23600,"output_tokens":2679,"thinking_tokens":1657,"cache_read_tokens":41707,"total_tokens":26279}}

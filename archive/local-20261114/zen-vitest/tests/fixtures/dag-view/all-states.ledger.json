@@ -1,0 +1,34 @@
+{
+  "goal": "Ship the ledger-backed CLI",
+  "plan_version": 2,
+  "milestones": [
+    { "id": "schema", "title": "Ledger schema", "dependencies": [] },
+    { "id": "store", "title": "Persist store", "dependencies": ["schema"] },
+    { "id": "cli", "title": "CLI entry point", "dependencies": ["schema"] },
+    { "id": "docs", "title": "Usage docs", "dependencies": ["schema"] },
+    { "id": "api", "title": "HTTP API", "dependencies": ["store"] },
+    { "id": "auth", "title": "Auth flow", "dependencies": ["store"] },
+    { "id": "metrics", "title": "Metrics export", "dependencies": ["store"] },
+    { "id": "e2e", "title": "End-to-end tests", "dependencies": ["api", "auth", "cli"] },
+    { "id": "release", "title": "Release 0.5", "dependencies": ["e2e", "docs"] }
+  ],
+  "current_milestone": "api",
+  "completed_milestones": ["schema", "store"],
+  "verification": {
+    "schema": { "verdict": "GO", "plan_version": 2, "is_stale": false, "result_ref": "ref-1", "verification_evidence": [] },
+    "store": { "verdict": "GO", "plan_version": 2, "is_stale": false, "result_ref": "ref-2", "verification_evidence": [] },
+    "cli": { "verdict": "GO", "plan_version": 1, "is_stale": true, "result_ref": "ref-3", "verification_evidence": [] },
+    "docs": { "verdict": "NO-GO", "plan_version": 2, "is_stale": false, "result_ref": "ref-4", "verification_evidence": [] }
+  },
+  "blockers": [
+    { "affects_milestone": "auth", "description": "OAuth sandbox credentials missing" }
+  ],
+  "next_action": "Awaiting Zen review for milestone 'api' (result_ref: ref-sha256-3f9a1c0d7...)",
+  "evidence": {},
+  "constraints": [],
+  "decision_invariants": [],
+  "_initialized": true,
+  "_active_candidates": {},
+  "_known_candidates_by_ref": {},
+  "_verification_history": []
+}

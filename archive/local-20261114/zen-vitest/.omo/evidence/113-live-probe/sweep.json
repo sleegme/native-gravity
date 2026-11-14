@@ -1,0 +1,168 @@
+{
+  "agyVersion": {
+    "label": "version",
+    "exit": 0,
+    "stdout": "1.3.3\n",
+    "stderr": ""
+  },
+  "agyOldVersion": {
+    "label": "old-version",
+    "exit": 0,
+    "stdout": "1.2.12\n",
+    "stderr": ""
+  },
+  "agents": {
+    "label": "agents",
+    "exit": 0,
+    "stdout": "bulldozer\nexcavator\npiledriver\n",
+    "stderr": ""
+  },
+  "models": {
+    "label": "models",
+    "exit": 0,
+    "stdout": "gemini-3.8-flash-high\tGemini 3.8 Flash (High)\ngemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)\ngemini-3.8-flash-low\tGemini 3.8 Flash (Low)\ngemini-3.7-flash-high\tGemini 3.7 Flash (High)\ngemini-3.7-flash-medium\tGemini 3.7 Flash (Medium)\ngemini-3.7-flash-low\tGemini 3.7 Flash (Low)\ngemini-3.6-flash-high\tGemini 3.6 Flash (High)\ngemini-3.6-flash-medium\tGemini 3.6 Flash (Medium)\ngemini-3.6-flash-low\tGemini 3.6 Flash (Low)\ngemini-3.1-pro-high\tGemini 3.1 Pro (High)\ngemini-3.1-pro-low\tGemini 3.1 Pro (Low)\nclaude-opus-5-5-low\tClaude Opus 5.5 (Low)\nclaude-opus-5-5-medium\tClaude Opus 5.5 (Medium)\nclaude-opus-5-5-high\tClaude Opus 5.5 (High)\nclaude-sonnet-5-5-low\tClaude Sonnet 5.5 (Low)\nclaude-sonnet-5-5-medium\tClaude Sonnet 5.5 (Medium)\nclaude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)\ngpt-oss-120b-medium\tGPT-OSS 120B (Medium)\n",
+    "stderr": "Fetching available models...\n"
+  },
+  "pluginList": {
+    "label": "plugin-list",
+    "exit": 0,
+    "stdout": "{\n  \"imports\": [\n    {\n      \"name\": \"native-gravity\",\n      \"source\": \"antigravity\",\n      \"importedAt\": \"2026-09-30T05:15:34Z\",\n      \"components\": [\n        \"agents\",\n        \"hooks\"\n      ]\n    }\n  ]\n}\n",
+    "stderr": ""
+  },
+  "pluginValidate": {
+    "label": "plugin-validate",
+    "exit": 0,
+    "stdout": "  \u001b[32m[ok]\u001b[0m    .\n          - skills      : skipped (not found)\n          \u001b[32m✔\u001b[0m agents      : 9 processed\n          - commands    : skipped (not found)\n          - mcpServers  : skipped (not found)\n          \u001b[32m✔\u001b[0m hooks       : 4 processed\n",
+    "stderr": ""
+  },
+  "help": {
+    "label": "help",
+    "exit": 0,
+    "stdout": "",
+    "stderr": "Usage of agy:\n  --add-dir                       Add a directory to the workspace (repeatable) (default [])\n  --agent                         Agent for the current CLI session\n  -c                              Short alias for --continue\n  --continue                      Continue the most recent conversation\n  --conversation                  Resume a previous conversation by ID\n  --dangerously-skip-permissions  Auto-approve all tool permission requests without prompting\n  --disable-slash-commands        Disable slash command and skill expansion in print mode\n  --effort                        Reasoning effort for the current CLI session (low|medium|high|xhigh|max)\n  -i                              Short alias for --prompt-interactive\n  --input-format                  Input format for print mode (text, stream-json). stream-json reads one NDJSON message per line from stdin and runs a turn for each; it requires --output-format stream-json (default text)\n  --json-schema                   Optional JSON schema string or path to a schema file to enforce structured output (for stream-json, only applicable to the final result)\n  --log-file                      Override CLI log file path\n  --mode                          Set the agent execution mode for this session (accept-edits, plan)\n  --model                         Model for the current CLI session\n  --new-project                   Create a new project for this session\n  --output-format                 Output format for print mode (text, json, stream-json) (default text)\n  -p                              Short alias for --print\n  --print                         Run a single prompt non-interactively and print the response\n  --print-timeout                 Optional time limit for print mode; 0 waits until the turn completes (default 0s)\n  --project                       Project ID or project name for the current CLI session\n  --prompt                        Alias for --print\n  --prompt-interactive            Run an initial pr"
+  },
+  "declaredInstalledAgents": {
+    "bobcat.md": {
+      "tools": [
+        "view_file",
+        "list_dir",
+        "find_by_name",
+        "grep_search",
+        "write_to_file",
+        "replace_file_content",
+        "multi_replace_file_content",
+        "run_command",
+        "invoke_subagent"
+      ],
+      "mainAgent": false,
+      "subagent": true,
+      "model": "flash",
+      "execPolicy": "sandbox"
+    },
+    "bulldozer.md": {
+      "tools": [
+        "view_file",
+        "list_dir",
+        "find_by_name",
+        "grep_search",
+        "run_command",
+        "invoke_subagent",
+        "send_message",
+        "manage_subagents"
+      ],
+      "mainAgent": true,
+      "subagent": false,
+      "model": "inherit",
+      "execPolicy": "sandbox"
+    },
+    "excavator.md": {
+      "tools": [
+        "view_file",
+        "list_dir",
+        "find_by_name",
+        "grep_search",
+        "run_command",
+        "write_to_file",
+        "replace_file_content",
+        "invoke_subagent"
+      ],
+      "mainAgent": true,
+      "subagent": false,
+      "model": "pro",
+      "execPolicy": "sandbox"
+    },
+    "jaguar.md": {
+      "tools": [
+        "view_file",
+        "grep_search"
+      ],
+      "mainAgent": false,
+      "subagent": true,
+      "model": "flash",
+      "execPolicy": "sandbox"
+    },
+    "piledriver.md": {
+      "tools": [
+        "view_file",
+        "list_dir",
+        "find_by_name",
+        "grep_search",
+        "invoke_subagent"
+      ],
+      "mainAgent": true,
+      "subagent": false,
+      "model": "pro",
+      "execPolicy": "sandbox"
+    },
+    "puma.md": {
+      "tools": [
+        "view_file",
+        "grep_search",
+        "write_to_file",
+        "replace_file_content"
+      ],
+      "mainAgent": false,
+      "subagent": true,
+      "model": "flash",
+      "execPolicy": "sandbox"
+    },
+    "steamroller.md": {
+      "tools": [
+        "view_file",
+        "list_dir",
+        "find_by_name",
+        "grep_search"
+      ],
+      "mainAgent": false,
+      "subagent": true,
+      "model": "pro",
+      "execPolicy": "sandbox"
+    },
+    "strix-halo.md": {
+      "tools": [
+        "view_file",
+        "grep_search"
+      ],
+      "mainAgent": false,
+      "subagent": true,
+      "model": "pro",
+      "execPolicy": "sandbox"
+    },
+    "zen.md": {
+      "tools": [
+        "view_file",
+        "list_dir",
+        "find_by_name",
+        "grep_search",
+        "run_command"
+      ],
+      "mainAgent": false,
+      "subagent": true,
+      "model": "pro",
+      "execPolicy": "sandbox"
+    }
+  },
+  "installedHooksJson": "{\n  \"zen-verification-boundary\": {\n    \"PreToolUse\": [\n      {\n        \"matcher\": \"^run_command$\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"python3 ./hooks/zen-shell-guard.py\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ]\n  },\n  \"excavator-migration-boundary\": {\n    \"PreToolUse\": [\n      {\n        \"matcher\": \"^run_command$\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"python3 ./hooks/excavator-shell-guard.py\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ]\n  },\n  \"native-gravity-excavator-review-gate\": {\n    \"Stop\": [\n      {\n        \"type\": \"command\",\n        \"command\": \"python3 ./hooks/excavator-review-gate.py\",\n        \"timeout\": 10\n      }\n    ]\n  },\n  \"native-gravity-primary-review-gate\": {\n    \"Stop\": [\n      {\n        \"type\": \"command\",\n        \"command\": \"python3 ./hooks/primary-review-gate.py\",\n        \"timeout\": 10\n      }\n    ]\n  }\n}\n",
+  "liveToolAskTranscript": [],
+  "liveToolAskOutput": "{\"conversation_id\":\"5f01c1e2-d4ee-49b9-bcb9-42ea4ad7872a\",\"status\":\"SUCCESS\",\"response\":\"find_by_name\\ngrep_search\\ninvoke_subagent\\nlist_dir\\nmanage_subagents\\nmanage_task\\nrun_command\\nsend_message\\nview_file\\n\",\"duration_seconds\":15.642946258,\"num_turns\":1,\"usage\":{\"input_tokens\":9831,\"output_tokens\":497,\"thinking_tokens\":458,\"cache_read_tokens\":0,\"total_tokens\":10328}}\n"
+}

@@ -1,0 +1,44 @@
+{
+    "schema_version":  1,
+    "scope":  "navi_windows_validation_kit",
+    "status":  "FAIL",
+    "production_windows_support":  "PENDING",
+    "os":  "Microsoft Windows NT 10.0.26200.0",
+    "powershell":  "5.1.26100.9711",
+    "baseline_sha":  "37b685a6c11a5ab3f256ff2496128b8c45730563",
+    "checks":  [
+                   {
+                       "name":  "native_windows",
+                       "status":  "PASS"
+                   },
+                   {
+                       "name":  "node_and_baseline",
+                       "status":  "PASS"
+                   },
+                   {
+                       "name":  "fixture_guard_original_write",
+                       "status":  "PASS"
+                   },
+                   {
+                       "name":  "fixture_guard_original_truncate",
+                       "status":  "PASS"
+                   },
+                   {
+                       "name":  "fixture_guard_original_replace",
+                       "status":  "FAIL"
+                   },
+                   {
+                       "name":  "kit_execution",
+                       "status":  "FAIL"
+                   }
+               ],
+    "native_pending":  [
+                           "Real AGY private-profile authentication and no owner-keyring fallback",
+                           "Original credential protection during real AGY calls",
+                           "Production Navi Windows runtime, confirmation and ledger invariants",
+                           "Timeout/cancellation descendant cleanup during real AGY calls",
+                           "Packaged installation in spaces and non-ASCII paths"
+                       ],
+    "node":  "v20.19.0",
+    "error_type":  "RuntimeException"
+}

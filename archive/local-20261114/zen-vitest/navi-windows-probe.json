@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "scope": "backend_protocol_probe",
+  "platform": "win32",
+  "node": "v20.19.0",
+  "production_windows_support": "PENDING",
+  "checks": [
+    {
+      "name": "discovery",
+      "status": "PASS"
+    },
+    {
+      "name": "initialize",
+      "status": "PASS"
+    },
+    {
+      "name": "filtered_tools",
+      "status": "PASS"
+    },
+    {
+      "name": "blocked_direct_call",
+      "status": "PASS"
+    },
+    {
+      "name": "bridge_exit",
+      "status": "PASS"
+    },
+    {
+      "name": "job_cleanup",
+      "status": "UNVERIFIED"
+    }
+  ],
+  "tools": [
+    {
+      "name": "Snapshot"
+    },
+    {
+      "name": "Screenshot"
+    },
+    {
+      "name": "Click"
+    },
+    {
+      "name": "Type"
+    },
+    {
+      "name": "Scroll"
+    },
+    {
+      "name": "Move"
+    },
+    {
+      "name": "Shortcut"
+    },
+    {
+      "name": "WaitFor"
+    }
+  ],
+  "steps": [],
+  "native_pending": [
+    "AGY private authentication and keyring fallback",
+    "credential original-path protection",
+    "production Navi invocation and confirmation",
+    "packaged Windows installation"
+  ],
+  "status": "FAIL",
+  "error": "CLEANUP_UNVERIFIED"
+}

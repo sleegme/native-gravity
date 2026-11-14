@@ -1,0 +1,399 @@
+test_abnormal_termination_does_not_create_stop_loop (test_excavator_review_gate.ExcavatorReviewGateTests.test_abnormal_termination_does_not_create_stop_loop) ... ok
+test_blocked_excavator_may_stop_without_review (test_excavator_review_gate.ExcavatorReviewGateTests.test_blocked_excavator_may_stop_without_review) ... ok
+test_excavator_mid_investigation_stop_may_proceed (test_excavator_review_gate.ExcavatorReviewGateTests.test_excavator_mid_investigation_stop_may_proceed) ... ok
+test_excavator_progress_update_without_ready_may_stop (test_excavator_review_gate.ExcavatorReviewGateTests.test_excavator_progress_update_without_ready_may_stop) ... ok
+test_excavator_user_input_request_without_ready_may_stop (test_excavator_review_gate.ExcavatorReviewGateTests.test_excavator_user_input_request_without_ready_may_stop) ... ok
+test_fresh_go_after_material_write_allows_ready (test_excavator_review_gate.ExcavatorReviewGateTests.test_fresh_go_after_material_write_allows_ready) ... ok
+test_full_transcript_does_not_replace_untruncated_invocation (test_excavator_review_gate.ExcavatorReviewGateTests.test_full_transcript_does_not_replace_untruncated_invocation) ... ok
+test_marked_shell_after_go_requires_fresh_review (test_excavator_review_gate.ExcavatorReviewGateTests.test_marked_shell_after_go_requires_fresh_review) ... ok
+test_marker_scopes_excavator_when_agent_identity_is_absent (test_excavator_review_gate.ExcavatorReviewGateTests.test_marker_scopes_excavator_when_agent_identity_is_absent) ... ok
+test_material_write_after_go_requires_fresh_review (test_excavator_review_gate.ExcavatorReviewGateTests.test_material_write_after_go_requires_fresh_review) ... ok
+test_new_zen_invocation_invalidates_older_go_until_fresh_verdict (test_excavator_review_gate.ExcavatorReviewGateTests.test_new_zen_invocation_invalidates_older_go_until_fresh_verdict) ... ok
+test_non_excavator_session_is_unaffected (test_excavator_review_gate.ExcavatorReviewGateTests.test_non_excavator_session_is_unaffected) ... ok
+test_non_idle_excavator_waits (test_excavator_review_gate.ExcavatorReviewGateTests.test_non_idle_excavator_waits) ... ok
+test_not_ready_yet_is_not_completion_attempt (test_excavator_review_gate.ExcavatorReviewGateTests.test_not_ready_yet_is_not_completion_attempt) ... ok
+test_past_ready_followed_by_progress_update_may_stop (test_excavator_review_gate.ExcavatorReviewGateTests.test_past_ready_followed_by_progress_update_may_stop) ... ok
+test_past_ready_followed_by_user_input_request_may_stop (test_excavator_review_gate.ExcavatorReviewGateTests.test_past_ready_followed_by_user_input_request_may_stop) ... ok
+test_provenance_a_self_reported_go_without_zen_invocation_is_rejected (test_excavator_review_gate.ExcavatorReviewGateTests.test_provenance_a_self_reported_go_without_zen_invocation_is_rejected) ... ok
+test_provenance_b_self_reported_go_with_zen_invocation_but_no_verdict_is_rejected (test_excavator_review_gate.ExcavatorReviewGateTests.test_provenance_b_self_reported_go_with_zen_invocation_but_no_verdict_is_rejected) ... ok
+test_provenance_c_self_reported_go_cannot_override_zen_no_go (test_excavator_review_gate.ExcavatorReviewGateTests.test_provenance_c_self_reported_go_cannot_override_zen_no_go) ... ok
+test_provenance_d_real_wire_provider_system_verdict_allows_ready (test_excavator_review_gate.ExcavatorReviewGateTests.test_provenance_d_real_wire_provider_system_verdict_allows_ready) ... ok
+test_provenance_e_spoofed_sender_system_message_is_rejected (test_excavator_review_gate.ExcavatorReviewGateTests.test_provenance_e_spoofed_sender_system_message_is_rejected) ... ok
+test_provenance_f_tool_generic_command_output_with_go_is_rejected (test_excavator_review_gate.ExcavatorReviewGateTests.test_provenance_f_tool_generic_command_output_with_go_is_rejected) ... ok
+test_provenance_g_model_response_containing_system_message_tag_is_rejected (test_excavator_review_gate.ExcavatorReviewGateTests.test_provenance_g_model_response_containing_system_message_tag_is_rejected) ... ok
+test_provenance_h_separate_model_record_with_system_message_tag_is_rejected (test_excavator_review_gate.ExcavatorReviewGateTests.test_provenance_h_separate_model_record_with_system_message_tag_is_rejected) ... ok
+test_ready_in_explanation_sentence_is_not_attempt (test_excavator_review_gate.ExcavatorReviewGateTests.test_ready_in_explanation_sentence_is_not_attempt) ... ok
+test_ready_in_progress_report_is_not_attempt (test_excavator_review_gate.ExcavatorReviewGateTests.test_ready_in_progress_report_is_not_attempt) ... ok
+test_ready_without_zen_review_is_forced_to_continue (test_excavator_review_gate.ExcavatorReviewGateTests.test_ready_without_zen_review_is_forced_to_continue) ... ok
+test_stale_blocked_a_past_blocked_followed_by_resumed_work_and_ready_enforces_review (test_excavator_review_gate.ExcavatorReviewGateTests.test_stale_blocked_a_past_blocked_followed_by_resumed_work_and_ready_enforces_review) ... ok
+test_stale_blocked_b_fresh_blocked_as_latest_assistant_message_allows_stop (test_excavator_review_gate.ExcavatorReviewGateTests.test_stale_blocked_b_fresh_blocked_as_latest_assistant_message_allows_stop) ... ok
+test_stale_blocked_c_past_ready_followed_by_fresh_blocked_allows_stop (test_excavator_review_gate.ExcavatorReviewGateTests.test_stale_blocked_c_past_ready_followed_by_fresh_blocked_allows_stop) ... ok
+test_stale_blocked_d_contradictory_ready_and_blocked_in_latest_message_is_rejected (test_excavator_review_gate.ExcavatorReviewGateTests.test_stale_blocked_d_contradictory_ready_and_blocked_in_latest_message_is_rejected) ... ok
+test_status_ready_in_explanatory_prose_is_not_attempt (test_excavator_review_gate.ExcavatorReviewGateTests.test_status_ready_in_explanatory_prose_is_not_attempt) ... ok
+test_status_ready_is_completion_attempt (test_excavator_review_gate.ExcavatorReviewGateTests.test_status_ready_is_completion_attempt) ... ok
+test_status_ready_with_zen_go_allows_stop (test_excavator_review_gate.ExcavatorReviewGateTests.test_status_ready_with_zen_go_allows_stop) ... ok
+test_subagent_role_containing_zen_with_different_typename_is_not_zen (test_excavator_review_gate.ExcavatorReviewGateTests.test_subagent_role_containing_zen_with_different_typename_is_not_zen) ... ok
+test_subagent_typename_zen_as_list_of_dicts (test_excavator_review_gate.ExcavatorReviewGateTests.test_subagent_typename_zen_as_list_of_dicts) ... ok
+test_system_prompt_scopes_excavator_without_identity_field (test_excavator_review_gate.ExcavatorReviewGateTests.test_system_prompt_scopes_excavator_without_identity_field) ... ok
+test_truncated_non_zen_typename_is_not_review_evidence (test_excavator_review_gate.ExcavatorReviewGateTests.test_truncated_non_zen_typename_is_not_review_evidence) ... ok
+test_truncated_stringified_zen_typename_allows_correlated_go (test_excavator_review_gate.ExcavatorReviewGateTests.test_truncated_stringified_zen_typename_allows_correlated_go) ... ok
+test_truncated_zen_invocation_resolved_from_full_transcript (test_excavator_review_gate.ExcavatorReviewGateTests.test_truncated_zen_invocation_resolved_from_full_transcript) ... ok
+test_truncated_zen_invocation_without_verdict_still_blocks (test_excavator_review_gate.ExcavatorReviewGateTests.test_truncated_zen_invocation_without_verdict_still_blocks) ... ok
+test_unresolved_truncated_invocation_preserves_review_requirement (test_excavator_review_gate.ExcavatorReviewGateTests.test_unresolved_truncated_invocation_preserves_review_requirement) ... ok
+test_wire_fresh_zen_go_after_mutation_allows_ready (test_excavator_review_gate.ExcavatorReviewGateTests.test_wire_fresh_zen_go_after_mutation_allows_ready) ... ok
+test_wire_marked_shell_after_zen_go_requires_fresh_review (test_excavator_review_gate.ExcavatorReviewGateTests.test_wire_marked_shell_after_zen_go_requires_fresh_review) ... ok
+test_wire_mutation_after_zen_go_requires_fresh_review (test_excavator_review_gate.ExcavatorReviewGateTests.test_wire_mutation_after_zen_go_requires_fresh_review) ... ok
+test_wire_non_excavator_session_is_unaffected (test_excavator_review_gate.ExcavatorReviewGateTests.test_wire_non_excavator_session_is_unaffected) ... ok
+test_wire_progress_update_without_ready_may_stop (test_excavator_review_gate.ExcavatorReviewGateTests.test_wire_progress_update_without_ready_may_stop) ... ok
+test_wire_user_input_request_without_ready_may_stop (test_excavator_review_gate.ExcavatorReviewGateTests.test_wire_user_input_request_without_ready_may_stop) ... ok
+test_zen_go_allows_ready (test_excavator_review_gate.ExcavatorReviewGateTests.test_zen_go_allows_ready) ... ok
+test_zen_no_go_forces_correction (test_excavator_review_gate.ExcavatorReviewGateTests.test_zen_no_go_forces_correction) ... ok
+test_zen_verdict_no_go_read_from_log_absolute_uri_file (test_excavator_review_gate.ExcavatorReviewGateTests.test_zen_verdict_no_go_read_from_log_absolute_uri_file) ... ok
+test_zen_verdict_read_from_log_absolute_uri_file (test_excavator_review_gate.ExcavatorReviewGateTests.test_zen_verdict_read_from_log_absolute_uri_file) ... ok
+test_allows_task_relevant_sudo_and_downstream_dash_s (test_excavator_shell_guard.ExcavatorShellGuardTests.test_allows_task_relevant_sudo_and_downstream_dash_s) ... ok
+test_denies_full_system_upgrades (test_excavator_shell_guard.ExcavatorShellGuardTests.test_denies_full_system_upgrades) ... ok
+test_denies_privilege_acquisition_drift (test_excavator_shell_guard.ExcavatorShellGuardTests.test_denies_privilege_acquisition_drift) ... ok
+test_unmarked_commands_are_unaffected (test_excavator_shell_guard.ExcavatorShellGuardTests.test_unmarked_commands_are_unaffected) ... ok
+test_abnormal_events_match_hooks (test_gate_panel.GatePanelConsistencyTests.test_abnormal_events_match_hooks) ... ok
+test_excavator_decision_matches_excavator_gate (test_gate_panel.GatePanelConsistencyTests.test_excavator_decision_matches_excavator_gate) ... ok
+test_event_file_supplies_transcript_path (test_gate_panel.GatePanelRenderTests.test_event_file_supplies_transcript_path) ... ok
+test_excavator_go_renders_stop (test_gate_panel.GatePanelRenderTests.test_excavator_go_renders_stop) ... ok
+test_excavator_post_go_mutation_is_stale (test_gate_panel.GatePanelRenderTests.test_excavator_post_go_mutation_is_stale) ... ok
+test_json_output_is_machine_readable (test_gate_panel.GatePanelRenderTests.test_json_output_is_machine_readable) ... ok
+test_missing_transcript_reports_not_found (test_gate_panel.GatePanelRenderTests.test_missing_transcript_reports_not_found) ... ok
+test_multiple_transcripts_render_one_row_each (test_gate_panel.GatePanelRenderTests.test_multiple_transcripts_render_one_row_each) ... ok
+test_no_inputs_is_usage_error (test_gate_panel.GatePanelRenderTests.test_no_inputs_is_usage_error) ... ok
+test_non_idle_event_is_rejected (test_gate_panel.GatePanelRenderTests.test_non_idle_event_is_rejected) ... ok
+test_ungated_transcript_renders_none (test_gate_panel.GatePanelRenderTests.test_ungated_transcript_renders_none) ... ok
+test_agent_identity_and_non_mutating_capabilities (test_zen_shell_guard.ZenShellGuardTests.test_agent_identity_and_non_mutating_capabilities) ... ok
+test_hook_registration_uses_real_guard (test_zen_shell_guard.ZenShellGuardTests.test_hook_registration_uses_real_guard) ... ok
+test_malformed_input_fails_closed (test_zen_shell_guard.ZenShellGuardTests.test_malformed_input_fails_closed) ... ok
+test_marked_mutations_and_bypasses_denied (test_zen_shell_guard.ZenShellGuardTests.test_marked_mutations_and_bypasses_denied) ... ok
+test_marked_read_only_commands (test_zen_shell_guard.ZenShellGuardTests.test_marked_read_only_commands) ... ok
+test_marker_cannot_be_hidden_in_wrapper_or_disabled (test_zen_shell_guard.ZenShellGuardTests.test_marker_cannot_be_hidden_in_wrapper_or_disabled) ... ok
+test_unmarked_commands_belong_to_other_roles (test_zen_shell_guard.ZenShellGuardTests.test_unmarked_commands_belong_to_other_roles) ... ok
+
+----------------------------------------------------------------------
+Ran 74 tests in 5.756s
+
+OK
+RUN tests/test_dag_view.mjs
+✔ A1: renders all-states fixture at width 80 (41.701644ms)
+✔ A1: narrow width falls back to list layout (30.528499ms)
+✔ A2: bad graph — cycle exits 1 (35.622655ms)
+✔ A2: bad graph — dangling dep exits 1 (29.446842ms)
+✔ A2: missing file exits 1 (30.173497ms)
+✔ A2: usage error exits 2 (30.898619ms)
+✔ A2: read-only — fixture file unchanged after run (62.180914ms)
+﹣ A2: watch keeps last good frame on cyclic ledger (0.203475ms) # watch mode runs a persistent process; covered by manual check
+✔ A2: cyclic ledger exits 1 in one-shot mode (30.316979ms)
+✔ A2: NTG_LEDGER env var is honoured (30.535662ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 328.697265
+RUN tests/test_ledger.mjs
+=== Native Gravity 44C Authoritative Project Ledger Tests ===
+[PASS] 1.1: Authoritative state schema strictly maintains all required fields upon initialization
+[PASS] 1.2: Plan validation rejects invalid plan configurations
+[PASS] 1.3: Initialized ledger rejects subsequent init() calls, preventing re-init from wiping state
+[PASS] 2.1: Delegation generates compliant Steamroller -> Bulldozer handoff packet
+[PASS] 2.2: Delegation rejects invalid transitions (double delegation, unmet dependencies, unknown milestone)
+[PASS] 3.1: Candidate reception assigns deterministic result_ref, persists evidence, and keeps milestone active
+[PASS] 3.2: Rebinding prevention throws RefRebindingError on tampered candidate content
+[PASS] 3.3: Candidate reception rejects mismatched milestone_id or stale plan_version
+[PASS] 3.4: Candidate reception rejects packets with missing or non-DONE status, preventing Zen GO promotion
+[PASS] 3.5: Candidate reception strictly enforces all required fields fail-closed
+[PASS] 3.6: Candidate artifact reference normalization, alias consistency, and deterministic hash parity
+[PASS] 3.7: Candidate immutable snapshot enforcement: deep clone and recursive deep freeze prevent mutations
+[PASS] 4.1: Zen GO verifies and promotes milestone, clears current_milestone, and updates next_action
+[PASS] 4.2: Zen NO-GO records verdict, clears current_milestone, leaves milestone incomplete
+[PASS] 4.3: Zen verdict rejects mismatched result_ref (MismatchedResultRefError)
+[PASS] 4.4: Zen verdict rejects stale plan_version (StaleVerdictError)
+[PASS] 4.5: Zen verdict fail-open removal - recordZenGo and recordZenNoGo strictly require explicit verdict 'GO' and 'NO-GO'
+[PASS] 4.6: Zen verdict packet fail-closed required fields validation (milestone_id, plan_version, result_ref, non-empty verification_evidence)
+[PASS] 5.1: Failure / blocker reporting clears active milestone, records blocker, does NOT promote milestone
+[PASS] 5.1.a: Relevant evidence caps each failure history at five without losing audit history
+[PASS] 5.1a: Reused worker IDs cannot alias blockers; descriptions normalize without extra keys
+[PASS] 5.2: Blocker resolution requires observed evidence and never promotes milestone
+[PASS] 6.1: Material replan monotonically increments plan_version, marks verdicts stale, clears completed milestones
+[PASS] 6.2: Version increment and parsing helper supports both 'vN' and integer version formats
+[PASS] 6.3: Material replan rejects active execution and non-monotonic / backward plan_version transitions
+[PASS] 6.4: Material replan strictly rejects incompatible version formats, prefix changes, and type changes (fail-closed)
+[PASS] 7.1: Global completion strictly enforces all acceptance criteria
+[PASS] 8.1: Atomic persistence and fresh-context resume without conversational memory
+[PASS] 8.2: Corrupted or invariant-violating persisted file fails to load with InvariantViolationError
+[PASS] 8.3: Resume invariant validation rejects completed milestones with old plan_version, dangling result_ref, or candidate mismatches
+[PASS] 8.4: fromJSON() and load() result_ref integrity recomputation rejects tampered candidate payload with unchanged result_ref
+[PASS] 8.5: fromJSON() and load() result_ref integrity recomputation rejects tampered artifact binding with unchanged result_ref
+[PASS] 8.6: fromJSON() and load() reject candidate record divergence from payload (verification_evidence, unresolved_unknowns, scope_deviations, status, milestone_id, plan_version)
+[PASS] 8.7: Persistence save -> load roundtrip across all artifact_ref alias forms and rejection of tampered artifact binding
+[PASS] 8.8: fromJSON() and load() reject persisted candidate with non-DONE status (e.g. BLOCKED) even when record, payload, and recomputed result_ref all match
+[PASS] 8.9: fromJSON() and load() reject persisted candidate with empty verification_evidence even when record, payload, and recomputed result_ref all match
+[PASS] 8.10: fromJSON() and load() reject persisted candidate with missing required field (changes_made, unresolved_unknowns, scope_deviations) even when recomputed hash matches
+[PASS] 8.11: fromJSON() and load() reject completed milestone with Zen GO verification having empty, missing, or whitespace verification_evidence
+[PASS] 8.12: Persistence save -> load roundtrip happy path continues to succeed with full candidate and Zen GO semantic verification
+=========================================================
+Summary: 39 passed, 0 failed (Total: 39)
+RUN tests/test_ntg_vnext.mjs
+✔ run --all promotes milestones in dependency order and declares completion only after each Zen GO (10.172082ms)
+✔ Zen NO-GO stops the run with exit 2, leaves the milestone incomplete, and a rerun needs a fresh GO (5.418821ms)
+✔ fresh-context resume continues from the ledger at the next eligible milestone (6.582962ms)
+✔ material replan increments plan_version, clears completion, and requires fresh review (9.354034ms)
+✔ recover removes a lock whose owner was killed, then resume completes from the ledger (77.36729ms)
+✔ recover refuses to remove a lock held by a live supervisor (49.315517ms)
+✔ runner invocations get a 600s default timeout, overridable with --timeout (2.138535ms)
+✔ plan returns Piledriver advice without adopting it (1.790628ms)
+✔ the npm-style bin symlink executes the CLI (#135 B1) (98.987549ms)
+✔ native Zen GO is accepted only from a SUCCESS envelope with an explicit verdict (#135 B3) (34.968247ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 10
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 300.979893
+RUN tests/test_runner_spike.mjs
+=== Native Gravity 44B Exact-Model Runner Spike Tests ===
+[PASS] 1.1: Unknown role throws UnresolvedModelSlugError (no silent fallback)
+[PASS] 1.2: Absent surface error (0 matches) throws UnresolvedModelSlugError without silent fallback
+[PASS] 1.3: Ambiguous surface error (multiple matches) throws UnresolvedModelSlugError with candidate details
+[PASS] 1.4: Deterministic resolution against cached installed models for all roles
+[PASS] 1.5: parseInstalledModels correctly parses agy models stdout table
+[PASS] 1.6: Live installed surface resolution against system agy models
+[PASS] 2.1: Unparseable JSON response returns INVALID_OUTPUT failure
+[PASS] 2.2: Non-object JSON response returns INVALID_OUTPUT failure
+[PASS] 2.3: status === 'ERROR' returns MODEL_ERROR failure
+[PASS] 2.4: status === 'SUCCESS' with missing or invalid response returns INVALID_OUTPUT
+[PASS] 2.5: Unexpected or unknown status returns INVALID_OUTPUT (never success)
+[PASS] 2.6: status === 'SUCCESS' with valid string response succeeds
+[PASS] 2.6a: SUCCESS with denied_actions is a preserved tool-permission failure
+[PASS] 2.6b: invoke does not retry an explicit tool denial
+[PASS] 2.6b2: empty response is never retried for bulldozer but is retried boundedly for other roles
+[PASS] 2.6b3: non-mutating empty retries consume one shared deadline
+[PASS] 2.6b4: attempt count accompanies success and transport failure after retries
+[PASS] 2.6c: explicit denial wins over a nonempty response
+[PASS] 2.6d: an empty denial list preserves success
+[PASS] 2.6e: JSON packet boundary classifies prose and malformed packet shapes
+[PASS] 2.6f: JSON packet boundary preserves empty and denial taxonomy
+[PASS] 2.6g: Unambiguous fenced and narrated objects preserve raw response provenance
+[PASS] 2.6h: Multiple objects and malformed or non-object payloads are never unwrapped
+[PASS] 2.6.a: Oversized UTF-8 prompts fail with PROMPT_TOO_LARGE before spawning
+[PASS] 2.7: invokeTransport enforces response envelope validation on process execution
+[PASS] 2.7a: Timeout kills a SIGTERM-resistant process and preserves partial stderr
+[PASS] 2.8: Output format discipline: invoke() rejects non-JSON / cannot bypass envelope validation, while invokeTransport retains text support
+[PASS] 3.1: Deterministic prompt construction with minimal packet
+[PASS] 3.2: Deterministic prompt construction with complete structured packet
+[PASS] 3.3: Task alias 'objective' is accepted when 'task' is omitted
+[PASS] 3.4: Rejection of invalid handoff packets (throws InvalidHandoffPacketError)
+[PASS] 3.5: Strict prohibition of raw conversational state in handoff packet
+[PASS] 3.6: Contract-level invoke returns structured error for invalid packet
+[PASS] 4.1: Single-role chain detection blocks invocation (RECURSION_DETECTED)
+[PASS] 4.2: Multi-role chain detection blocks re-entrant role (RECURSION_DETECTED)
+[SKIP] Section 5 live LLM tests skipped via SKIP_LIVE_TESTS=1
+[PASS] 6.1: All three role bodies reach transport deterministically with handoff sections
+[PASS] 6.2: Missing role body fails closed before transport without default fallback
+[PASS] 6.3: Empty, whitespace, malformed UTF-8 and binary bodies fail closed
+[PASS] 6.4: Unreadable role path and invalid directory options fail closed
+[PASS] 6.5: Native specialists, inherited object keys and path traversal are not runner roles
+[PASS] 6.6: Neutral process cwd needs no customization for explicit or module-relative bodies
+[PASS] 6.7: Directory precedence is explicit option, invocation env, process env, default
+[PASS] 6.8: Role bodies do not bypass any forbidden conversation field
+[PASS] 6.9: CLI injects env-selected role body from neutral cwd and reports missing body
+=========================================================
+Summary: 44 passed, 0 failed (Total: 44)
+RUN tests/test_spine.mjs
+✔ planning stays advisory; native work and independent GO survive fresh resume (16.239048ms)
+✔ candidate status READY is not explicit DONE (2.222394ms)
+✔ candidate status undefined is not explicit DONE (1.668967ms)
+✔ candidate status null is not explicit DONE (2.271938ms)
+✔ candidate status  is not explicit DONE (1.584046ms)
+✔ candidate status ACCEPT is not explicit DONE (1.54365ms)
+✔ candidate status GO is not explicit DONE (1.390289ms)
+✔ candidate status done is not explicit DONE (1.506459ms)
+✔ native packet delegation to zen rejects DONE before review (1.946632ms)
+✔ native packet delegation to zen rejects BLOCKED before review (1.600468ms)
+✔ native packet delegation to zen rejects NEEDS_DEEP before review (1.525957ms)
+✔ native packet delegation to piledriver rejects DONE before review (1.330266ms)
+✔ native packet delegation to piledriver rejects BLOCKED before review (1.299899ms)
+✔ native packet delegation to piledriver rejects NEEDS_DEEP before review (1.144224ms)
+✔ native packet delegation to excavator rejects DONE before review (1.590869ms)
+✔ native packet delegation to excavator rejects BLOCKED before review (1.258921ms)
+✔ native packet delegation to excavator rejects NEEDS_DEEP before review (1.396582ms)
+✔ native packet delegation to steamroller rejects DONE before review (1.262638ms)
+✔ native packet delegation to steamroller rejects BLOCKED before review (1.256587ms)
+✔ native packet delegation to steamroller rejects NEEDS_DEEP before review (1.186314ms)
+✔ native packet delegation to strix-halo rejects DONE before review (1.102535ms)
+✔ native packet delegation to strix-halo rejects BLOCKED before review (1.169302ms)
+✔ native packet delegation to strix-halo rejects NEEDS_DEEP before review (2.027425ms)
+✔ native packet delegation to unknown rejects DONE before review (1.627499ms)
+✔ native packet delegation to unknown rejects BLOCKED before review (1.212263ms)
+✔ native packet delegation to unknown rejects NEEDS_DEEP before review (1.118806ms)
+✔ malformed native delegations fail closed: null (1.831504ms)
+✔ malformed native delegations fail closed: {} (1.137091ms)
+✔ malformed native delegations fail closed: "bobcat" (1.294548ms)
+✔ malformed native delegations fail closed: [{}] (1.100582ms)
+✔ malformed native delegations fail closed: [null] (1.092657ms)
+✔ malformed native delegations fail closed: [[]] (1.080694ms)
+✔ malformed native delegations fail closed: ["bobcat"] (1.163881ms)
+✔ malformed native delegations fail closed: [{"role":null}] (1.094921ms)
+✔ malformed native delegations fail closed: [{"role":1}] (1.232351ms)
+✔ malformed native delegations fail closed: [{"role":""}] (1.236158ms)
+✔ malformed native delegations fail closed: [{"role":" "}] (1.079682ms)
+✔ malformed native delegations fail closed: [{"role":"bobcat"},{}] (1.145046ms)
+✔ allowed native delegations enter independent review: [] (2.640715ms)
+✔ allowed native delegations enter independent review: [{"role":"bobcat"},{"role":"jaguar"}] (2.509858ms)
+✔ allowed native delegations enter independent review: [{"role":"puma"}] (2.353813ms)
+✔ allowed native delegations enter independent review: [{"role":" Bobcat ","task":"bounded implementation"}] (2.297686ms)
+✔ construction cannot omit the independent Zen adapter (0.805964ms)
+✔ spine ownership refuses duplicate startup before reading or replacing state (3.085286ms)
+✔ failed spine initialization releases ownership (1.262779ms)
+✔ spine releases its process lock on normal (50.585499ms)
+✔ spine releases its process lock on SIGINT (47.018562ms)
+✔ spine releases its process lock on SIGTERM (48.647052ms)
+✔ unwrapped candidate still rejects schema or authority mismatch {"status":"READY"} (1.959066ms)
+✔ unwrapped candidate still rejects schema or authority mismatch {"plan_version":"stale"} (1.598785ms)
+✔ unwrapped candidate still rejects schema or authority mismatch {"changes_made":null} (1.426168ms)
+✔ unwrapped candidate still rejects schema or authority mismatch {"verification_evidence":[]} (1.474519ms)
+✔ unwrapped candidate still rejects schema or authority mismatch {"candidate_artifact_ref":{}} (1.633019ms)
+✔ unwrapped candidate still rejects schema or authority mismatch {"zen_verdict":"GO"} (1.43842ms)
+✔ unwrapped candidate still needs an independent matching Zen GO (2.54787ms)
+✔ empty Bulldozer response after mutation records one durable invocation failure (38.002817ms)
+✔ prose in a SUCCESS envelope persists a typed failure without promotion (1.923319ms)
+✔ candidate cannot supply supervisor or reviewer authority: verdict (2.100854ms)
+✔ candidate cannot supply supervisor or reviewer authority: zen_verdict (1.938647ms)
+✔ candidate cannot supply supervisor or reviewer authority: result_ref (1.965308ms)
+✔ invalid independent review cannot promote: {"verdict":"NOT_REQUIRED"} (2.956914ms)
+✔ invalid independent review cannot promote: {} (2.655874ms)
+✔ invalid independent review cannot promote: {"plan_version":"v0"} (3.26688ms)
+✔ invalid independent review cannot promote: {"milestone_id":"two"} (2.400321ms)
+✔ invalid independent review cannot promote: {"result_ref":"forged-ref"} (2.431068ms)
+✔ invalid independent review cannot promote: {"verification_evidence":[]} (2.24174ms)
+✔ invalid independent review cannot promote: {"verification_evidence":[{"classification":"INFERRED"}]} (2.181286ms)
+✔ NO-GO rejects unactionable repair needs: undefined (2.828811ms)
+✔ NO-GO rejects unactionable repair needs: null (2.413346ms)
+✔ NO-GO rejects unactionable repair needs: "" (2.420469ms)
+✔ NO-GO rejects unactionable repair needs: "   " (2.478107ms)
+✔ NO-GO rejects unactionable repair needs: [] (2.811568ms)
+✔ NO-GO rejects unactionable repair needs: {} (3.384382ms)
+✔ NO-GO rejects unactionable repair needs: 42 (2.830694ms)
+✔ NO-GO preserves incompletion; a repaired artifact gets a distinct reviewed reference (3.703476ms)
+✔ BLOCKED returns evidence without promotion or automatic planner invocation (2.062551ms)
+✔ NEEDS_DEEP returns evidence without promotion or automatic planner invocation (1.888733ms)
+✔ resolved ingress blocker permits global completion only after independent GO (7.7653ms)
+✔ repeated invocation failures bound prompts and retain hashed transcripts (52.976843ms)
+✔ runner TIMEOUT is durable and the same milestone can be redelegated (3.545367ms)
+✔ pending review forbids concurrent work, replan, completion, and resumed retry (2.576774ms)
+✔ material replan invalidates old GO and requires fresh dependency-ordered review (6.888561ms)
+✔ review invocation failure is persisted and rethrown (2.623643ms)
+✔ SIGKILL between durable delegation and candidate requires observed crash recovery (51.050469ms)
+✔ candidate must bind current identity and immutable artifact versions (3.170928ms)
+✔ specialists can be invoked under an active milestone without touching ledger state (3.569181ms)
+✔ jaguar response strings use the fail-closed packet parser (3.617974ms)
+✔ puma response strings use the fail-closed packet parser (3.271138ms)
+✔ bobcat response strings use the fail-closed packet parser (4.210775ms)
+✔ strix-halo response strings use the fail-closed packet parser (3.016897ms)
+✔ unhandled specialist parse failure durably fails the milestone before Zen (1.633249ms)
+✔ specialists receive milestone packet slice and never ledger or global authority (2.721437ms)
+✔ specialist invocation is prohibited without an active milestone (1.150978ms)
+✔ specialist routing strictly enforces caller-role boundaries (3.050129ms)
+✔ Strix Halo REVISE leads to repair and re-check before Bobcat READY (2.679879ms)
+✔ Strix Halo NEEDS_DEEP escalates through Bobcat and Bulldozer without bypassing Steamroller (1.502873ms)
+ℹ tests 96
+ℹ suites 0
+ℹ pass 96
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 509.345243
+RUN tests/test_studio_runner.mjs
+✔ missing API key fails fast with typed error, no network call (1.028265ms)
+✔ missing model returns typed STUDIO_MODEL_REQUIRED (0.140496ms)
+✔ successful call extracts text and returns provider metadata (2.187548ms)
+✔ API key never appears in any returned value (0.353598ms)
+✔ HTTP error is typed STUDIO_HTTP_ERROR with status (0.270331ms)
+✔ empty response returns EMPTY_RESPONSE with finishReason (0.266835ms)
+✔ non-JSON body returns INVALID_RESPONSE_FORMAT (0.308173ms)
+✔ network throw maps to STUDIO_REQUEST_ERROR (0.302613ms)
+✔ generationConfig and thinkingConfig pass through (0.414734ms)
+✔ invalid packet is typed INVALID_HANDOFF_PACKET without network (0.311519ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 10
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 11.515914
+RUN tests/test_telemetry.mjs
+✔ redaction list covers env-var names, common secret patterns, and user paths (2.254434ms)
+✔ projectFailureTelemetry keeps only failure records at argument granularity (0.284629ms)
+✔ BLOCKED milestone exposes failed artifact/lane id, class and blockers to Piledriver (5.093084ms)
+✔ INVOCATION_FAILURE exposes the failed step tool args and command line, never the prompt (2.395392ms)
+✔ specialist invocation failure records the subagent tool args as the failed step (2.694377ms)
+✔ Zen NO-GO verdicts reach Piledriver as summaries without verdict detail blobs (4.119333ms)
+✔ secrets and user paths in failure telemetry are redacted before Piledriver sees them (2.142874ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 24.543227
+  [32m[ok][0m    .
+          - skills      : skipped (not found)
+          [32m✔[0m agents      : 9 processed
+          - commands    : skipped (not found)
+          - mcpServers  : skipped (not found)
+          [32m✔[0m hooks       : 3 processed
+npm notice
+npm notice 📦  native-gravity@1.0.0
+npm notice Tarball Contents
+npm notice 6.0kB README.md
+npm notice 3.2kB agents/bobcat.md
+npm notice 5.4kB agents/bulldozer.md
+npm notice 7.5kB agents/excavator.md
+npm notice 3.3kB agents/jaguar.md
+npm notice 4.9kB agents/piledriver.md
+npm notice 3.7kB agents/puma.md
+npm notice 5.4kB agents/steamroller.md
+npm notice 4.7kB agents/strix-halo.md
+npm notice 3.0kB agents/zen.md
+npm notice 6.8kB docs/ko/README.md
+npm notice 783B hooks.json
+npm notice 18.7kB hooks/excavator-review-gate.py
+npm notice 7.7kB hooks/excavator-shell-guard.py
+npm notice 5.6kB hooks/zen-shell-guard.py
+npm notice 1.4kB package.json
+npm notice 318B plugin.json
+npm notice 14.7kB rules/harness.md
+npm notice 12.3kB rules/orchestration.md
+npm notice 10.3kB scripts/dag-view.mjs
+npm notice 9.4kB scripts/gate_panel.py
+npm notice 1.7kB scripts/ledger-lock.mjs
+npm notice 67.7kB scripts/ledger.mjs
+npm notice 4.1kB scripts/npm-install.mjs
+npm notice 12.2kB scripts/ntg-vnext.mjs
+npm notice 25.2kB scripts/runner.mjs
+npm notice 22.4kB scripts/spine.mjs
+npm notice 6.2kB scripts/telemetry.mjs
+npm notice 4.2kB tests/test_dag_view.mjs
+npm notice Tarball Details
+npm notice name: native-gravity
+npm notice version: 1.0.0
+npm notice filename: native-gravity-1.0.0.tgz
+npm notice package size: 77.3 kB
+npm notice unpacked size: 278.9 kB
+npm notice shasum: 62c6aa218bf20456adf19b086ce9aac51355f6f8
+npm notice integrity: sha512-/kXOihT6Lqd6X[...]lfx4gSbTw+63Q==
+npm notice total files: 29
+npm notice
+native-gravity-1.0.0.tgz
+1.0.0

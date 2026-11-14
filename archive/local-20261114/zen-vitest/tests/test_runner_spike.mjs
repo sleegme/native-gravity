@@ -1,0 +1,1807 @@
+import assert from "node:assert/strict";
+import childProcess, { spawnSync } from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
+import { mock } from "node:test";
+import { writeFileSync, readFileSync, chmodSync, unlinkSync, mkdtempSync, mkdirSync, rmSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
+import process from "node:process";
+import {
+  ROLE_POLICY_TABLE,
+  ROLE_MODEL_TABLE,
+  UnresolvedModelSlugError,
+  InvalidHandoffPacketError,
+  parseInstalledModels,
+  listInstalledModels,
+  matchesPolicy,
+  resolveSlug,
+  composeBoundedPrompt,
+  parseResponseEnvelope,
+  parseResponsePacket,
+  invokeTransport,
+  invoke,
+} from "../scripts/runner.mjs";
+
+// Clean ambient runner chain from caller environment so tests run hermetically
+delete process.env.NTG_RUNNER_CHAIN;
+
+console.log("=== Native Gravity 44B Exact-Model Runner Spike Tests ===");
+
+let passed = 0;
+let failed = 0;
+
+/** Shipped body as the runner sends it. */
+function machineBody(role) {
+  return readFileSync(new URL(`../agents/${role}.md`, import.meta.url), "utf8").trim();
+}
+
+function runTest(name, fn) {
+  try {
+    fn();
+    console.log(`[PASS] ${name}`);
+    passed++;
+  } catch (err) {
+    console.error(`[FAIL] ${name}`);
+    console.error(`       ${err.message}`);
+    failed++;
+  }
+}
+
+// =============================================================================
+// Section 1: Exact Slug Resolution & Runtime Discovery (Blocker 1)
+// =============================================================================
+
+runTest("1.1: Unknown role throws UnresolvedModelSlugError (no silent fallback)", () => {
+  let caughtSlugErr = null;
+  try {
+    resolveSlug("nonexistent-role");
+  } catch (err) {
+    caughtSlugErr = err;
+  }
+  assert.ok(caughtSlugErr instanceof UnresolvedModelSlugError, "Expected UnresolvedModelSlugError");
+  assert.strictEqual(caughtSlugErr.ok, false);
+  assert.strictEqual(caughtSlugErr.error, "UNRESOLVED_MODEL_SLUG");
+  assert.strictEqual(caughtSlugErr.role, "nonexistent-role");
+
+  // invoke() returns structured error packet
+  const res = invoke("nonexistent-role", { task: "Test prompt" });
+  assert.strictEqual(res.ok, false);
+  assert.strictEqual(res.error, "UNRESOLVED_MODEL_SLUG");
+  assert.strictEqual(res.role, "nonexistent-role");
+});
+
+runTest("1.2: Absent surface error (0 matches) throws UnresolvedModelSlugError without silent fallback", () => {
+  let caughtErr = null;
+  try {
+    resolveSlug("piledriver", {
+      installedModels: [
+        { slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" },
+        { slug: "claude-sonnet-5-5-high", description: "Claude Sonnet 5.5 (High)" },
+      ],
+    });
+  } catch (err) {
+    caughtErr = err;
+  }
+  assert.ok(caughtErr instanceof UnresolvedModelSlugError);
+  assert.strictEqual(caughtErr.ok, false);
+  assert.strictEqual(caughtErr.error, "UNRESOLVED_MODEL_SLUG");
+  assert.strictEqual(caughtErr.role, "piledriver");
+  assert.strictEqual(caughtErr.reason, "NOT_FOUND");
+  assert.ok(caughtErr.message.includes("No installed model found matching policy"));
+
+  // invoke() returns structured error
+  const invokeRes = invoke("piledriver", { task: "Do work" }, { installedModels: [] });
+  assert.strictEqual(invokeRes.ok, false);
+  assert.strictEqual(invokeRes.error, "UNRESOLVED_MODEL_SLUG");
+});
+
+runTest("1.3: Ambiguous surface error (multiple matches) throws UnresolvedModelSlugError with candidate details", () => {
+  let caughtErr = null;
+  const ambiguousSurface = [
+    { slug: "gemini-4-argon-high-v1", description: "Gemini 4 Argon (High) v1" },
+    { slug: "gemini-4-argon-high-v2", description: "Gemini 4 Argon (High) v2" },
+  ];
+  try {
+    resolveSlug("piledriver", { installedModels: ambiguousSurface });
+  } catch (err) {
+    caughtErr = err;
+  }
+  assert.ok(caughtErr instanceof UnresolvedModelSlugError);
+  assert.strictEqual(caughtErr.ok, false);
+  assert.strictEqual(caughtErr.error, "UNRESOLVED_MODEL_SLUG");
+  assert.strictEqual(caughtErr.reason, "AMBIGUOUS");
+  assert.deepStrictEqual(caughtErr.matches, ["gemini-4-argon-high-v1", "gemini-4-argon-high-v2"]);
+  assert.ok(caughtErr.message.includes("Ambiguous model slug resolution"));
+});
+
+runTest("1.4: Deterministic resolution against cached installed models for all roles", () => {
+  const mockSurface = [
+    { slug: "gemini-4-argon-medium", description: "Gemini 4 Argon (Medium)" },
+    { slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" },
+    { slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" },
+    { slug: "claude-sonnet-5-5-high", description: "Claude Sonnet 5.5 (High)" },
+    { slug: "claude-opus-5-5-high", description: "Claude Opus 5.5 (High)" },
+  ];
+
+  const piledriverSlug = resolveSlug("piledriver", { installedModels: mockSurface });
+  assert.strictEqual(piledriverSlug, "gemini-4-argon-high");
+
+  // Case-insensitive
+  const piledriverUpper = resolveSlug("PileDriver", { installedModels: mockSurface });
+  assert.strictEqual(piledriverUpper, "gemini-4-argon-high");
+
+  const bulldozerSlug = resolveSlug("bulldozer", { installedModels: mockSurface });
+  assert.strictEqual(bulldozerSlug, "gemini-3.8-flash-high");
+
+  const steamrollerSlug = resolveSlug("steamroller", { installedModels: mockSurface });
+  assert.strictEqual(steamrollerSlug, "gemini-4-argon-medium");
+
+  // Verify ROLE_POLICY_TABLE definitions
+  assert.strictEqual(ROLE_POLICY_TABLE.piledriver.family, "Gemini 4 Argon");
+  assert.strictEqual(ROLE_POLICY_TABLE.piledriver.effort, "High");
+  assert.strictEqual(ROLE_POLICY_TABLE.bulldozer.family, "Gemini 3.8 Flash");
+  assert.strictEqual(ROLE_POLICY_TABLE.bulldozer.effort, "High");
+  assert.strictEqual(ROLE_POLICY_TABLE.steamroller.family, "Gemini 4 Argon");
+  assert.strictEqual(ROLE_POLICY_TABLE.steamroller.effort, "Medium");
+  // Zen is policy-resolved for its native invocation without becoming a runner role.
+  assert.strictEqual(ROLE_POLICY_TABLE.zen.family, "Claude Opus 5.5");
+  assert.strictEqual(ROLE_POLICY_TABLE.zen.effort, "High");
+  assert.strictEqual(resolveSlug("zen", { installedModels: mockSurface }), "claude-opus-5-5-high");
+
+  // Hard-coded mapping removed from ROLE_MODEL_TABLE
+  assert.deepStrictEqual(Object.keys(ROLE_MODEL_TABLE), []);
+});
+
+runTest("1.5: parseInstalledModels correctly parses agy models stdout table", () => {
+  const sampleStdout = `
+Fetching available models...
+gemini-3.8-flash-high\tGemini 3.8 Flash (High)
+gemini-3.8-flash-low\tGemini 3.8 Flash (Low)
+gemini-4-argon-high\tGemini 4 Argon (High)
+claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)
+`;
+  const parsed = parseInstalledModels(sampleStdout);
+  assert.strictEqual(parsed.length, 4);
+  assert.strictEqual(parsed[0].slug, "gemini-3.8-flash-high");
+  assert.strictEqual(parsed[0].description, "Gemini 3.8 Flash (High)");
+  assert.strictEqual(parsed[2].slug, "gemini-4-argon-high");
+  assert.strictEqual(parsed[2].description, "Gemini 4 Argon (High)");
+});
+
+runTest("1.6: Live installed surface resolution against system agy models", () => {
+  const models = listInstalledModels();
+  assert.ok(Array.isArray(models), "Expected models to be an array");
+  assert.ok(models.length > 0, "Expected at least one installed model");
+
+  // Verify piledriver resolves live to gemini-4-argon-high
+  const pSlug = resolveSlug("piledriver");
+  assert.strictEqual(pSlug, "gemini-4-argon-high");
+
+  // Verify bulldozer resolves live to gemini-3.8-flash-high
+  const bSlug = resolveSlug("bulldozer");
+  assert.strictEqual(bSlug, "gemini-3.8-flash-high");
+
+  // Verify Zen resolves live to claude-opus-5-5-high for its native invocation
+  const zSlug = resolveSlug("zen");
+  assert.strictEqual(zSlug, "claude-opus-5-5-high");
+
+  for (const role of Object.keys(ROLE_POLICY_TABLE)) {
+    const slug = resolveSlug(role, { installedModels: models });
+    assert.ok(models.some(model => model.slug === slug), `${role}: ${slug}`);
+    console.log(`  ${role} -> ${slug}`);
+  }
+  assert.strictEqual(resolveSlug("instinct", { installedModels: models, escalate: true }), "claude-opus-5-5-high");
+  // Native selectors are not exact-model policies. Do not treat availability
+  // of an Argon slug as proof that a native worker used it.
+  for (const role of ["excavator", "strix-halo"]) {
+    assert.match(machineBody(role), /^model: flash$/m);
+  }
+});
+
+runTest("1.7: Argon policies fail closed on a retired Pro or wrong-effort surface", () => {
+  for (const role of ["piledriver", "steamroller", "zen", "excavator"]) {
+    for (const installedModels of [["gemini-3.1-pro-high"], ["gemini-4-argon-low"]]) {
+      assert.throws(() => resolveSlug(role, { installedModels }),
+        err => err instanceof UnresolvedModelSlugError && err.reason === "NOT_FOUND");
+    }
+  }
+});
+
+// =============================================================================
+// Section 2: Response Envelope Validation (Blocker 2)
+// =============================================================================
+
+runTest("2.1: Unparseable JSON response returns INVALID_OUTPUT failure", () => {
+  const res = parseResponseEnvelope("Not valid json {{{", { role: "bulldozer", slug: "gemini-3.8-flash-high" });
+  assert.strictEqual(res.ok, false);
+  assert.strictEqual(res.error, "INVALID_OUTPUT");
+  assert.strictEqual(res.role, "bulldozer");
+  assert.strictEqual(res.slug, "gemini-3.8-flash-high");
+  assert.ok(res.message.includes("Failed to parse JSON response"));
+});
+
+runTest("2.2: Non-object JSON response returns INVALID_OUTPUT failure", () => {
+  for (const raw of ["null", "12345", "true", "[\"array\"]", "\"string\""]) {
+    const res = parseResponseEnvelope(raw, { role: "piledriver", slug: "gemini-4-argon-high" });
+    assert.strictEqual(res.ok, false, `Expected ${raw} to fail`);
+    assert.strictEqual(res.error, "INVALID_OUTPUT");
+    assert.strictEqual(res.message, "JSON response is not a valid object envelope");
+  }
+});
+
+runTest("2.3: status === 'ERROR' returns MODEL_ERROR failure", () => {
+  const errorJson = JSON.stringify({
+    status: "ERROR",
+    message: "Rate limit exceeded or quota exhausted",
+    error_code: 429,
+  });
+  const res = parseResponseEnvelope(errorJson, { role: "piledriver", slug: "gemini-4-argon-high" });
+  assert.strictEqual(res.ok, false);
+  assert.strictEqual(res.error, "MODEL_ERROR");
+  assert.strictEqual(res.role, "piledriver");
+  assert.strictEqual(res.slug, "gemini-4-argon-high");
+  assert.strictEqual(res.details.status, "ERROR");
+  assert.strictEqual(res.details.error_code, 429);
+});
+
+runTest("2.4: status === 'SUCCESS' with missing or invalid response returns INVALID_OUTPUT", () => {
+  // Missing response field
+  const missingRes = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS" }), { role: "bulldozer" });
+  assert.strictEqual(missingRes.ok, false);
+  assert.strictEqual(missingRes.error, "INVALID_OUTPUT");
+  assert.ok(missingRes.message.includes("Missing or invalid 'response' field"));
+
+  // Non-string response field
+  const nonStringRes = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response: { nested: true } }), { role: "bulldozer" });
+  assert.strictEqual(nonStringRes.ok, false);
+  assert.strictEqual(nonStringRes.error, "INVALID_OUTPUT");
+});
+
+runTest("2.5: Unexpected or unknown status returns INVALID_OUTPUT (never success)", () => {
+  const unexpectedStatuses = ["PENDING", "UNKNOWN", "QUEUED", "FAILED", undefined, ""];
+  for (const st of unexpectedStatuses) {
+    const packet = { status: st, response: "should not succeed" };
+    const res = parseResponseEnvelope(JSON.stringify(packet), { role: "piledriver", slug: "gemini-4-argon-high" });
+    assert.strictEqual(res.ok, false, `Expected status '${st}' to fail with INVALID_OUTPUT`);
+    assert.strictEqual(res.error, "INVALID_OUTPUT");
+    assert.ok(res.message.includes("Unexpected response status"));
+  }
+});
+
+runTest("2.6: status === 'SUCCESS' with valid string response succeeds", () => {
+  const successPacket = {
+    status: "SUCCESS",
+    response: "Task completed successfully",
+    duration_seconds: 2.14,
+    usage: {
+      input_tokens: 100,
+      output_tokens: 20,
+      total_tokens: 120,
+    },
+  };
+  const res = parseResponseEnvelope(JSON.stringify(successPacket), { role: "piledriver", slug: "gemini-4-argon-high" });
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(res.response, "Task completed successfully");
+  assert.strictEqual(res.duration, 2.14);
+  assert.strictEqual(res.usage.total_tokens, 120);
+  assert.strictEqual(res.role, "piledriver");
+  assert.strictEqual(res.slug, "gemini-4-argon-high");
+});
+
+runTest("2.6a: SUCCESS with denied_actions is a preserved tool-permission failure", () => {
+  const deniedActions = [{ action: "command", display_name: "RunCommand" }];
+  const res = parseResponseEnvelope(JSON.stringify({
+    status: "SUCCESS",
+    response: "",
+    denied_actions: deniedActions,
+  }), { role: "bulldozer", slug: "gemini-3.8-flash-high" });
+  assert.strictEqual(res.ok, false);
+  assert.strictEqual(res.error, "TOOL_PERMISSION_DENIED");
+  assert.deepStrictEqual(res.denied_actions, deniedActions);
+  assert.strictEqual(res.role, "bulldozer");
+  assert.strictEqual(res.slug, "gemini-3.8-flash-high");
+});
+
+runTest("2.6b: invoke does not retry an explicit tool denial", () => {
+  const root = mkdtempSync(join(tmpdir(), "mock-agy-denial-"));
+  const mockScript = join(root, "agy.mjs");
+  const callsFile = join(root, "calls");
+  writeFileSync(mockScript, `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+appendFileSync(process.env.MOCK_CALLS_FILE, "call\\n");
+console.log(JSON.stringify({
+  status: "SUCCESS",
+  response: "",
+  denied_actions: [{ action: "command", display_name: "RunCommand" }]
+}));
+`);
+  chmodSync(mockScript, 0o755);
+  try {
+    const res = invoke("piledriver", { task: "Test denial" }, {
+      agyPath: mockScript,
+      installedModels: [{ slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" }],
+      env: { MOCK_CALLS_FILE: callsFile },
+    });
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.error, "TOOL_PERMISSION_DENIED");
+    assert.deepStrictEqual(res.denied_actions, [{ action: "command", display_name: "RunCommand" }]);
+    assert.strictEqual(readFileSync(callsFile, "utf8"), "call\n");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+runTest("2.6b2: empty response is never retried for bulldozer but is retried boundedly for other roles", () => {
+  const root = mkdtempSync(join(tmpdir(), "mock-agy-empty-"));
+  const mockScript = join(root, "agy.mjs");
+  const callsFile = join(root, "calls");
+  writeFileSync(mockScript, `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+appendFileSync(process.env.MOCK_CALLS_FILE, "call\\n");
+console.log(JSON.stringify({ status: "SUCCESS", response: "" }));
+`);
+  chmodSync(mockScript, 0o755);
+  const opts = {
+    agyPath: mockScript,
+    installedModels: [
+      { slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" },
+      { slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" },
+    ],
+    env: { MOCK_CALLS_FILE: callsFile },
+  };
+  try {
+    const bulldozer = invoke("bulldozer", { task: "Empty" }, opts);
+    assert.strictEqual(bulldozer.ok, false);
+    assert.strictEqual(bulldozer.error, "EMPTY_RESPONSE");
+    assert.strictEqual(bulldozer.attempts, 1);
+    assert.strictEqual(readFileSync(callsFile, "utf8"), "call\n");
+    unlinkSync(callsFile);
+
+    const piledriver = invoke("piledriver", { task: "Empty" }, opts);
+    assert.strictEqual(piledriver.ok, false);
+    assert.strictEqual(piledriver.error, "EMPTY_RESPONSE");
+    assert.strictEqual(piledriver.attempts, 4);
+    assert.strictEqual(readFileSync(callsFile, "utf8"), "call\n".repeat(4));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+runTest("2.6b3: non-mutating empty retries consume one shared deadline", () => {
+  let now = 1000;
+  const timeouts = [];
+  const clock = mock.method(Date, "now", () => now);
+  const transport = mock.method(childProcess, "spawnSync", (_command, _args, options) => {
+    timeouts.push(options.timeout);
+    now += 60;
+    return { status: 0, stdout: JSON.stringify({ status: "SUCCESS", response: "" }) };
+  });
+  syncBuiltinESMExports();
+  try {
+    const result = invoke("piledriver", { task: "Empty" }, {
+      timeout: 100,
+      installedModels: [{ slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" }],
+    });
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.error, "EMPTY_RESPONSE");
+    assert.strictEqual(result.attempts, 2);
+    assert.deepStrictEqual(timeouts, [100, 40]);
+  } finally {
+    transport.mock.restore();
+    clock.mock.restore();
+    syncBuiltinESMExports();
+  }
+});
+
+runTest("2.6b4: attempt count accompanies success and transport failure after retries", () => {
+  for (const [emptyAttempts, outcome] of [[0, "success"], [2, "success"], [1, "timeout"]]) {
+    let now = 1000;
+    const timeouts = [];
+    const clock = mock.method(Date, "now", () => now);
+    const transport = mock.method(childProcess, "spawnSync", (_command, _args, options) => {
+      timeouts.push(options.timeout);
+      now += 10;
+      if (timeouts.length <= emptyAttempts) {
+        return { status: 0, stdout: JSON.stringify({ status: "SUCCESS", response: "" }) };
+      }
+      if (outcome === "timeout") {
+        return { error: { code: "ETIMEDOUT" }, stderr: "" };
+      }
+      return { status: 0, stdout: JSON.stringify({ status: "SUCCESS", response: "Recovered" }) };
+    });
+    syncBuiltinESMExports();
+    try {
+      const result = invoke("steamroller", { task: "Retry read-only work" }, {
+        timeout: 100,
+        installedModels: [{ slug: "gemini-4-argon-medium", description: "Gemini 4 Argon (Medium)" }],
+      });
+      assert.strictEqual(result.attempts, emptyAttempts + 1);
+      assert.deepStrictEqual(timeouts, Array.from({ length: emptyAttempts + 1 }, (_, i) => 100 - i * 10));
+      if (outcome === "success") {
+        assert.strictEqual(result.ok, true);
+        assert.strictEqual(result.response, "Recovered");
+      } else {
+        assert.strictEqual(result.ok, false);
+        assert.strictEqual(result.error, "TIMEOUT");
+        assert.strictEqual(result.timeout, 90);
+      }
+    } finally {
+      transport.mock.restore();
+      clock.mock.restore();
+      syncBuiltinESMExports();
+    }
+  }
+});
+
+runTest("2.6c: explicit denial wins over a nonempty response", () => {
+  const res = parseResponseEnvelope(JSON.stringify({
+    status: "SUCCESS",
+    response: "Partial output",
+    denied_actions: [{ action: "command" }],
+  }));
+  assert.strictEqual(res.ok, false);
+  assert.strictEqual(res.error, "TOOL_PERMISSION_DENIED");
+  assert.strictEqual(res.details.response, "Partial output");
+});
+
+runTest("2.6d: an empty denial list preserves success", () => {
+  const res = parseResponseEnvelope(JSON.stringify({
+    status: "SUCCESS",
+    response: "Complete output",
+    denied_actions: [],
+  }));
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(res.response, "Complete output");
+});
+
+runTest("2.6e: JSON packet boundary classifies prose and malformed packet shapes", () => {
+  for (const response of ["I have delegated the work", "{", "null", "[]", '"text"', "42"]) {
+    const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }), {
+      role: "bulldozer", slug: "gemini-3.8-flash-high",
+    });
+    assert.strictEqual(envelope.ok, true);
+    const res = parseResponsePacket(envelope);
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.error, "INVALID_RESPONSE_FORMAT");
+    assert.strictEqual(res.response, response);
+    assert.strictEqual(res.role, "bulldozer");
+    assert.strictEqual(res.slug, "gemini-3.8-flash-high");
+  }
+});
+
+runTest("2.6f: JSON packet boundary preserves empty and denial taxonomy", () => {
+  const empty = parseResponsePacket(parseResponseEnvelope(JSON.stringify({
+    status: "SUCCESS", response: " \n",
+  })));
+  assert.strictEqual(empty.error, "EMPTY_RESPONSE");
+  const denied = parseResponseEnvelope(JSON.stringify({
+    status: "SUCCESS", response: "", denied_actions: [{ action: "command" }],
+  }));
+  assert.strictEqual(parseResponsePacket(denied), denied);
+  assert.strictEqual(denied.error, "TOOL_PERMISSION_DENIED");
+  const valid = parseResponsePacket(parseResponseEnvelope(JSON.stringify({
+    status: "SUCCESS", response: '{"milestone_id":"one"}',
+  })));
+  assert.strictEqual(valid.ok, true);
+  assert.deepStrictEqual(valid.packet, { milestone_id: "one" });
+});
+
+runTest("2.6g: Unambiguous fenced and narrated objects preserve raw response provenance", () => {
+  const packet = { nested: { values: [1, {}] }, text: 'braces } { and "quotes" and \\ escapes' };
+  const json = JSON.stringify(packet);
+  for (const response of [
+    json, `\`\`\`json\n${json}\n\`\`\``, `\`\`\`\n${json}\n\`\`\``,
+    `Result follows:\n${json}\nEnd.`,
+    `Result follows:\n\`\`\`json\n${json}\n\`\`\`\nEnd.`,
+  ]) {
+    const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
+    const result = parseResponsePacket(envelope);
+    assert.strictEqual(result.ok, true, response);
+    assert.deepStrictEqual(result.packet, packet);
+    assert.strictEqual(result.response, response);
+    assert.strictEqual(result.raw, envelope.raw);
+    assert.strictEqual(result.raw.response, response);
+    assert.strictEqual(envelope.packet, undefined);
+  }
+});
+
+runTest("2.6g1: #178 real Bulldozer narration preserves packet and provenance", () => {
+  const response = readFileSync(new URL("./fixtures/178-bulldozer-response.txt", import.meta.url), "utf8");
+  const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
+  const result = parseResponsePacket(envelope);
+  assert.strictEqual(result.ok, true);
+  assert.deepStrictEqual(result.packet, JSON.parse(response.slice(response.indexOf("{"), response.lastIndexOf("}") + 1)));
+  assert.strictEqual(result.packet.milestone_id, "m1");
+  assert.strictEqual(result.packet.status, "DONE");
+  assert.strictEqual(result.relayPreambleStripped, undefined);
+  assert.strictEqual(result.response, response);
+  assert.strictEqual(result.raw, envelope.raw);
+  assert.strictEqual(result.raw.response, response);
+  assert.strictEqual(envelope.packet, undefined);
+});
+
+runTest("2.6g2: Single-line inline code in narration is unambiguous", () => {
+  const packet = { status: "DONE" };
+  const json = JSON.stringify(packet);
+  for (const response of [
+    `Updated \`bin/change-snap\` and \`bin/git-snap\`.\n${json}`,
+    `${json}\nVerified \`tests/test.sh\`.`,
+    `Updated \`change-snap\`.\n\`\`\`json\n${json}\n\`\`\`\nVerified \`tests/test.sh\`.`,
+  ]) {
+    const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
+    const result = parseResponsePacket(envelope);
+    assert.strictEqual(result.ok, true, response);
+    assert.deepStrictEqual(result.packet, packet);
+    assert.strictEqual(result.relayPreambleStripped, undefined);
+    assert.strictEqual(result.response, response);
+    assert.strictEqual(result.raw, envelope.raw);
+    assert.strictEqual(result.raw.response, response);
+  }
+});
+
+runTest("2.6g3: Inline code cannot hide ambiguous narration or multiple packets", () => {
+  for (const response of [
+    ...['{', '}', '[', ']', '"', '{}', '{"status":"DONE"}'].map(
+      (content) => `Inspected \`${content}\`.\n{"status":"DONE"}`),
+    'Inspected `bin/change-snap.\n{"status":"DONE"}',
+    'Inspected bin/change-snap`.\n{"status":"DONE"}',
+    'Inspected ``.\n{"status":"DONE"}',
+    ...["\n", "\r", "\r\n", "\u2028", "\u2029"].map(
+      (sep) => `Inspected \`bin/${sep}change-snap\`.\n{"status":"DONE"}`),
+    '```text\n{"status":"DONE"}\n```',
+    '```javascript\nconst x = 1;\n```\n{"status":"DONE"}',
+    '```text```\n{"status":"DONE"}',
+    'Updated `change-snap`.\n{}\n{}',
+    'Updated `change-snap`.\n```json\n{}\n```\n```json\n{}\n```',
+    ...['null', 'true', 'false', '42', '-1.5e+2', '"text"', '[', ']'].map(
+      (token) => `Updated \`change-snap\`.\n${token}\n{"status":"DONE"}`),
+  ]) {
+    const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
+    const result = parseResponsePacket(envelope);
+    assert.strictEqual(result.ok, false, response);
+    assert.strictEqual(result.error, "INVALID_RESPONSE_FORMAT", response);
+    assert.strictEqual(result.packet, undefined, response);
+    assert.strictEqual(result.relayPreambleStripped, undefined, response);
+    assert.strictEqual(result.response, response);
+    assert.strictEqual(result.raw, envelope.raw);
+  }
+});
+
+runTest("2.6h: Multiple objects and malformed or non-object payloads are never unwrapped", () => {
+  for (const response of [
+    '{}\n{}', 'Before {}\nAfter {}', '```json\n{}\n```\n```json\n{}\n```',
+    'Before {"broken": {"valid": true},} After', 'Before {"broken": After',
+    'Before {} } After', 'Before { {} After', 'Before {} [ After',
+    '[{}]', 'Before [{}] After', '```json\n[{}]\n```',
+    '"{}"', 'Before "{}" After', '```json\nnull\n```',
+    '{}\nnull', 'true\n{}', '{}\n42', 'Before {"x":NaN} After',
+    'Before {"x":undefined} After', 'Before {"x":1,} After',
+    'No JSON here', '```json\nnot JSON\n```',
+  ]) {
+    const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
+    const result = parseResponsePacket(envelope);
+    assert.strictEqual(result.ok, false, response);
+    assert.strictEqual(result.error, "INVALID_RESPONSE_FORMAT", response);
+    assert.strictEqual(result.response, response);
+    assert.strictEqual(result.raw, envelope.raw);
+  }
+  const denied = parseResponseEnvelope(JSON.stringify({
+    status: "SUCCESS", response: '```json\n{}\n```', denied_actions: [{ action: "command" }],
+  }));
+  assert.strictEqual(parseResponsePacket(denied), denied);
+  assert.strictEqual(denied.error, "TOOL_PERMISSION_DENIED");
+});
+
+runTest("2.6i: AGY relay preambles expose the trailing object packet", () => {
+  const packet = { milestone_id: "m-1", plan_version: 3, status: "DONE" };
+  const json = JSON.stringify(packet);
+  const relay = "Subagent `0c63109b-326b-44a1-a1d6-f72a8440e586` has sent the following message:";
+  for (const response of [
+    `${relay}\nFindings: parseResponsePacket() slices \`{\` to \`}\` in \`scripts/runner.mjs\`; see {"path":"scripts/runner.mjs"}.\n${json}`,
+    `${relay}\nReport: \`{"budget": [], "nested": {"depth": 1}}\`\n\`\`\`json\n${json}\n\`\`\``,
+    `${relay}\n{\n  "fragment": "preamble block that never parses through to the end"\n}\nFindings continued.\n${json}`,
+    `Findings first.\n${relay}\n${json}`,
+  ]) {
+    const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
+    const result = parseResponsePacket(envelope);
+    assert.strictEqual(result.ok, true, response);
+    assert.deepStrictEqual(result.packet, packet);
+    assert.strictEqual(result.relayPreambleStripped, true, response);
+    assert.strictEqual(result.response, response);
+    assert.strictEqual(result.raw, envelope.raw);
+    assert.strictEqual(result.raw.response, response);
+  }
+  // The marker flag is relay-only: a clean bare packet keeps the strict path.
+  const bare = parseResponsePacket(parseResponseEnvelope(JSON.stringify({
+    status: "SUCCESS", response: json,
+  })));
+  assert.strictEqual(bare.ok, true);
+  assert.deepStrictEqual(bare.packet, packet);
+  assert.strictEqual(bare.relayPreambleStripped, undefined);
+});
+
+runTest("2.6j: relay preambles without a trailing object packet still fail closed", () => {
+  const relay = "Subagent `0c63109b-326b-44a1-a1d6-f72a8440e586` has sent the following message:";
+  for (const response of [
+    // Trailing prose after the last '}': the packet is not the tail.
+    `${relay}\nFindings: \`{"status":"DONE"}\`\n{"milestone_id":"m-1"}\nEnd of report.`,
+    // A trailing array is not a packet, even though the marker is present.
+    `${relay}\nFindings: \`{"budget": []}\`\n[\n  {"status": "DONE"}\n]`,
+    // Gate review #158: an inner object of an unfinished outer value is not a tail packet.
+    `${relay}\nFindings.\n[\n{"status": "DONE"}`,
+    `${relay}\nFindings.\n{"candidate":\n{"status": "DONE"}`,
+    // Gate re-review #158: quoted closers must not close an unfinished container.
+    `${relay}\n[\n"]",\n{"status": "DONE"}`,
+    `${relay}\n{"note":"}","candidate":\n{"status": "DONE"}`,
+    `${relay}\n{"values":["}]",\n{"status": "DONE"}`,
+    `${relay}\n\`\`\`json\n["]",\n{"status": "DONE"}\n\`\`\``,
+    `${relay}\n{"note":"\`]\`","candidate":\n{"status": "DONE"}`,
+    // Gate review 3 #158: a quote in prose must not desync the check.
+    `${relay}\nFindings: the quote character is \`"\`.\n[\n"]",\n{"status": "DONE"}`,
+    `${relay}\nFindings: the quote character is \`"\`.\n{"note":"}","candidate":\n{"status": "DONE"}`,
+    `${relay}\nFindings: the quote character is \`"\`.\n{"values":["}]",\n{"status": "DONE"}`,
+    // Gate review 4 #158: fences with CRLF, blank lines, other info strings, and
+    // header lines must not hide the token before them.
+    `${relay}\n[\n\`\`\`json\r\n{"status": "DONE"}\n\`\`\``,
+    `${relay}\n[\n\`\`\`json\n\n{"status": "DONE"}\n\`\`\``,
+    `${relay}\n{"candidate":\r\n\`\`\`\r\n{"status": "DONE"}\r\n\`\`\``,
+    `${relay}\n[\n\`\`\`json5\n{"status": "DONE"}`,
+    `${relay}\n[\n\`\`\`\n\`\`\`json\n{"status": "DONE"}`,
+    `${relay}\n[\n${relay}\n{"status": "DONE"}`,
+    // Gate review 5 #159: \r, \u2028, \u2029 line starts and ~~~ fences must not hide container starts.
+    `${relay}\n[\r\`\`\`json\n{"status": "DONE"}`,
+    `${relay}\n[\u2028\`\`\`json\n{"status": "DONE"}`,
+    `${relay}\n[\u2029\`\`\`json\n{"status": "DONE"}`,
+    `${relay}\n[\n~~~json\n{"status": "DONE"}`,
+    // Gate review #161: headers after CR/U+2028/U+2029 keep the #158 boundary,
+    // and a fence tail cannot swallow an intervening token line.
+    ...["\r", "\u2028", "\u2029"].flatMap((sep) => [
+      `${relay}\nFindings.${sep}${relay}\n{"status": "DONE"}`,
+      `${relay}\n~~~intro${sep}[${sep}\`\`\`json${sep}${relay}\n{"status": "DONE"}`,
+      // Gate re-review #161: prose after a fence on a CR/U+2028/U+2029 line must
+      // not expose prose that #158 would have stripped back to the opener.
+      `${relay}\n[\n\`\`\`json${sep}Findings.\n{"status": "DONE"}`,
+    ]),
+    // U+2028 is legal raw inside a JSON string; it must not start a candidate line.
+    `${relay}\n{"note":"\u2028{"status": "DONE"}`,
+    `Subagent \`00000000\` has sent the following message:\n${relay}`,
+  ]) {
+    const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
+    const result = parseResponsePacket(envelope);
+    assert.strictEqual(result.ok, false, response);
+    assert.strictEqual(result.error, "INVALID_RESPONSE_FORMAT", response);
+    assert.strictEqual(result.relayPreambleStripped, undefined, response);
+    assert.strictEqual(result.packet, undefined, response);
+    assert.strictEqual(result.response, response);
+    assert.strictEqual(result.raw, envelope.raw);
+  }
+});
+
+runTest("2.6k: backticked narration without the relay marker keeps the strict boundary", () => {
+  const response = [
+    "I inspected `scripts/runner.mjs` and its `{}` slicing.",
+    'Findings: {"nested": {"ok": true}}',
+    '{"milestone_id":"m-1"}',
+  ].join("\n");
+  const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
+  const result = parseResponsePacket(envelope);
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.error, "INVALID_RESPONSE_FORMAT");
+  assert.strictEqual(result.relayPreambleStripped, undefined);
+  assert.strictEqual(result.response, response);
+  assert.strictEqual(result.raw, envelope.raw);
+});
+
+runTest("2.6l: relay response with an 80,000-space interior run parses in under 200 ms", () => {
+  const packet = { milestone_id: "m-1", plan_version: 3, status: "DONE" };
+  const json = JSON.stringify(packet);
+  const relay = "Subagent `0c63109b-326b-44a1-a1d6-f72a8440e586` has sent the following message:";
+  const spaces = " ".repeat(80000);
+  // The run must be interior to the preamble (a sentinel follows it), or the
+  // old /\s+$/u trim matches it at once and the test cannot catch a revert.
+  const response = `${relay}\nFindings: see {"path":"scripts/runner.mjs"}.\nx${spaces}y.\n${json}`;
+  const envelope = parseResponseEnvelope(JSON.stringify({ status: "SUCCESS", response }));
+  const start = performance.now();
+  const result = parseResponsePacket(envelope);
+  const duration = performance.now() - start;
+  assert.ok(duration < 200, `Expected parseResponsePacket to return in under 200 ms, took ${duration.toFixed(2)} ms`);
+  assert.strictEqual(result.ok, true, response);
+  assert.deepStrictEqual(result.packet, packet);
+  assert.strictEqual(result.relayPreambleStripped, true);
+});
+
+
+runTest("2.6.a: Oversized UTF-8 prompts fail with PROMPT_TOO_LARGE before spawning", () => {
+  const prompt = "漢".repeat(50000);
+  const result = invokeTransport({
+    slug: "test-model", role: "bulldozer", prompt,
+    agyPath: join(tmpdir(), "ntg-must-not-spawn-missing-executable"),
+  });
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.error, "PROMPT_TOO_LARGE");
+  assert.strictEqual(result.promptBytes, Buffer.byteLength(prompt, "utf8"));
+  assert.strictEqual(result.limit, 128 * 1024);
+  assert.strictEqual(result.role, "bulldozer");
+  assert.strictEqual(result.slug, "test-model");
+});
+
+runTest("2.7: invokeTransport enforces response envelope validation on process execution", () => {
+  // Test using a mock executable that writes to stdout
+  const mockScript = join(tmpdir(), `mock-agy-${Date.now()}-${Math.random().toString(36).slice(2)}.mjs`);
+  writeFileSync(
+    mockScript,
+    `#!/usr/bin/env node
+console.log(process.env.MOCK_STDOUT || "{}");
+process.exit(Number(process.env.MOCK_EXIT_CODE || 0));
+`
+  );
+  chmodSync(mockScript, 0o755);
+
+  try {
+    // 1. Invalid JSON from process
+    const invalidJsonRes = invokeTransport({
+      slug: "gemini-4-argon-high",
+      prompt: "test",
+      agyPath: mockScript,
+      env: { MOCK_STDOUT: "corrupted json {{{" },
+    });
+    assert.strictEqual(invalidJsonRes.ok, false);
+    assert.strictEqual(invalidJsonRes.error, "INVALID_OUTPUT");
+
+    // 2. Unknown status from process
+    const pendingRes = invokeTransport({
+      slug: "gemini-4-argon-high",
+      prompt: "test",
+      agyPath: mockScript,
+      env: { MOCK_STDOUT: JSON.stringify({ status: "PENDING", response: "wait" }) },
+    });
+    assert.strictEqual(pendingRes.ok, false);
+    assert.strictEqual(pendingRes.error, "INVALID_OUTPUT");
+
+    // 3. Process execution failure (non-zero exit)
+    const failRes = invokeTransport({
+      slug: "gemini-4-argon-high",
+      prompt: "test",
+      agyPath: mockScript,
+      env: { MOCK_EXIT_CODE: "2" },
+    });
+    assert.strictEqual(failRes.ok, false);
+    assert.strictEqual(failRes.error, "EXECUTION_FAILED");
+    assert.strictEqual(failRes.exitCode, 2);
+
+    // 4. Valid SUCCESS envelope from process
+    const okRes = invokeTransport({
+      slug: "gemini-4-argon-high",
+      prompt: "test",
+      agyPath: mockScript,
+      env: {
+        MOCK_STDOUT: JSON.stringify({
+          status: "SUCCESS",
+          response: "TRANSPORT_OK",
+          duration_seconds: 0.5,
+          usage: { total_tokens: 10 },
+        }),
+      },
+    });
+    assert.strictEqual(okRes.ok, true);
+    assert.strictEqual(okRes.response, "TRANSPORT_OK");
+  } finally {
+    try {
+      unlinkSync(mockScript);
+    } catch {}
+  }
+});
+
+runTest("2.7a: Timeout kills a SIGTERM-resistant process and preserves partial stderr", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ntg-timeout-"));
+  const script = join(dir, "agy.mjs");
+  writeFileSync(script, `#!/usr/bin/env node
+import { spawn } from "node:child_process";
+import { writeSync } from "node:fs";
+process.on("SIGTERM", () => {});
+if (process.platform === "win32") {
+  writeSync(2, "partial diagnostic\\n");
+  setInterval(() => {}, 1000);
+} else {
+  const child = spawn(process.execPath, ["-e", \`
+    process.on("SIGTERM", () => {});
+    process.send("ready");
+    setInterval(() => {}, 1000);
+  \`], { stdio: ["ignore", "ignore", "ignore", "ipc"] });
+  child.once("message", () => {
+    writeSync(2, "partial diagnostic\\nchild=" + child.pid + "\\n");
+  });
+}
+`);
+  chmodSync(script, 0o755);
+  let childPid;
+  try {
+    const result = invokeTransport({
+      slug: "test-model", prompt: "test", role: "bulldozer",
+      agyPath: script, timeout: 2000,
+    });
+    childPid = Number(result.stderr?.match(/child=(\d+)/)?.[1]);
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.error, "TIMEOUT");
+    assert.strictEqual(result.role, "bulldozer");
+    assert.strictEqual(result.slug, "test-model");
+    assert.strictEqual(result.timeout, 2000);
+    assert.match(result.stderr, /partial diagnostic/);
+    if (process.platform !== "win32") {
+      assert.ok(childPid > 0, "Child readiness must precede timeout");
+      // SIGKILL delivery is asynchronous: the orphan may still be in its exit
+      // path (ps state R) when invokeTransport returns. Await the kernel's exit
+      // signal through a pidfd (readable once the process has terminated, zombie
+      // or reaped) with a bounded timeout instead of sampling state once.
+      const exited = spawnSync("python3", ["-c", [
+        "import os, select, sys",
+        "try:",
+        "    fd = os.pidfd_open(int(sys.argv[1]))",
+        "except ProcessLookupError:",
+        "    sys.exit(0)",
+        "p = select.poll()",
+        "p.register(fd, select.POLLIN)",
+        "sys.exit(0 if p.poll(5000) else 1)",
+      ].join("\n"), String(childPid)], { encoding: "utf8", timeout: 10000 });
+      assert.ifError(exited.error);
+      assert.strictEqual(exited.status, 0, `descendant ${childPid} still alive 5s after group SIGKILL: ${exited.stderr}`);
+    }
+  } finally {
+    if (childPid) {
+      try { process.kill(childPid, "SIGKILL"); } catch (error) {
+        if (error.code !== "ESRCH") throw error;
+      }
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+runTest("2.7b: Timeout with pending background task in stderr returns BACKGROUND_TASK_PENDING", () => {
+  const bgStderr = "info: starting run\nwaiting up to 30s for 1 background task(s)\ninfo: done\n";
+  const transport = mock.method(childProcess, "spawnSync", () => {
+    return {
+      error: { code: "ETIMEDOUT" },
+      stderr: bgStderr,
+    };
+  });
+  syncBuiltinESMExports();
+  try {
+    const transportRes = invokeTransport({
+      slug: "test-model",
+      prompt: "test",
+      role: "bulldozer",
+      timeout: 5000,
+    });
+    assert.strictEqual(transportRes.ok, false);
+    assert.strictEqual(transportRes.error, "BACKGROUND_TASK_PENDING");
+    assert.strictEqual(transportRes.line, "waiting up to 30s for 1 background task(s)");
+    assert.strictEqual(transportRes.message, "waiting up to 30s for 1 background task(s)");
+    assert.strictEqual(transportRes.timeout, 5000);
+    assert.strictEqual(transportRes.stderr, bgStderr);
+    assert.strictEqual(transportRes.slug, "test-model");
+    assert.strictEqual(transportRes.role, "bulldozer");
+
+    const invokeRes = invoke("bulldozer", { task: "Test" }, {
+      timeout: 5000,
+      installedModels: [{ slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" }],
+    });
+    assert.strictEqual(invokeRes.ok, false);
+    assert.strictEqual(invokeRes.error, "BACKGROUND_TASK_PENDING");
+    assert.strictEqual(invokeRes.line, "waiting up to 30s for 1 background task(s)");
+    assert.strictEqual(invokeRes.message, "waiting up to 30s for 1 background task(s)");
+    // invoke() passes the remaining budget (deadline - now), so it is at most 5000 ms.
+    assert.ok(invokeRes.timeout > 0 && invokeRes.timeout <= 5000, `timeout ${invokeRes.timeout}`);
+    assert.strictEqual(invokeRes.stderr, bgStderr);
+    assert.strictEqual(invokeRes.slug, "gemini-3.8-flash-high");
+    assert.strictEqual(invokeRes.role, "bulldozer");
+  } finally {
+    transport.mock.restore();
+    syncBuiltinESMExports();
+  }
+});
+
+runTest("2.7c (control, same on base): Timeout without pending background task in stderr still returns TIMEOUT", () => {
+  const genericStderr = "info: starting run\noperation timed out after 5000ms\n";
+  const transport = mock.method(childProcess, "spawnSync", () => {
+    return {
+      error: { code: "ETIMEDOUT" },
+      stderr: genericStderr,
+    };
+  });
+  syncBuiltinESMExports();
+  try {
+    const transportRes = invokeTransport({
+      slug: "test-model",
+      prompt: "test",
+      role: "bulldozer",
+      timeout: 5000,
+    });
+    assert.strictEqual(transportRes.ok, false);
+    assert.strictEqual(transportRes.error, "TIMEOUT");
+    assert.strictEqual(transportRes.timeout, 5000);
+    assert.strictEqual(transportRes.stderr, genericStderr);
+    assert.strictEqual(transportRes.slug, "test-model");
+    assert.strictEqual(transportRes.role, "bulldozer");
+    assert.strictEqual(transportRes.line, undefined);
+
+    const invokeRes = invoke("bulldozer", { task: "Test" }, {
+      timeout: 5000,
+      installedModels: [{ slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" }],
+    });
+    assert.strictEqual(invokeRes.ok, false);
+    assert.strictEqual(invokeRes.error, "TIMEOUT");
+    // invoke() passes the remaining budget (deadline - now), so it is at most 5000 ms.
+    assert.ok(invokeRes.timeout > 0 && invokeRes.timeout <= 5000, `timeout ${invokeRes.timeout}`);
+    assert.strictEqual(invokeRes.stderr, genericStderr);
+    assert.strictEqual(invokeRes.slug, "gemini-3.8-flash-high");
+    assert.strictEqual(invokeRes.role, "bulldozer");
+    assert.strictEqual(invokeRes.line, undefined);
+  } finally {
+    transport.mock.restore();
+    syncBuiltinESMExports();
+  }
+});
+
+runTest("2.8: Output format discipline: invoke() rejects non-JSON / cannot bypass envelope validation, while invokeTransport retains text support", () => {
+  // 1. invoke() explicitly rejects outputFormat: "text" with INVALID_OUTPUT_FORMAT
+  const textRes = invoke("piledriver", { task: "Test" }, { outputFormat: "text" });
+  assert.strictEqual(textRes.ok, false);
+  assert.strictEqual(textRes.error, "INVALID_OUTPUT_FORMAT");
+  assert.strictEqual(textRes.role, "piledriver");
+  assert.ok(textRes.message.includes("invoke() requires JSON output format; envelope validation cannot be bypassed"));
+
+  // 2. invoke() also rejects other non-JSON formats
+  const rawRes = invoke("bulldozer", { task: "Test" }, { outputFormat: "raw" });
+  assert.strictEqual(rawRes.ok, false);
+  assert.strictEqual(rawRes.error, "INVALID_OUTPUT_FORMAT");
+
+  // 3. invoke() cannot bypass envelope validation via mock execution returning plain text
+  const mockScript = join(tmpdir(), `mock-agy-format-${Date.now()}-${Math.random().toString(36).slice(2)}.mjs`);
+  writeFileSync(
+    mockScript,
+    `#!/usr/bin/env node
+console.log(process.env.MOCK_STDOUT || "raw unparsed plain text");
+process.exit(0);
+`
+  );
+  chmodSync(mockScript, 0o755);
+
+  try {
+    // When invoke() is used, envelope validation is enforced (outputFormat forced to "json")
+    // If output is plain text, it fails with INVALID_OUTPUT
+    const invokeEnvelopeCheck = invoke(
+      "piledriver",
+      { task: "Test" },
+      {
+        agyPath: mockScript,
+        installedModels: [{ slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" }],
+        env: { MOCK_STDOUT: "plain text output instead of JSON envelope" },
+      }
+    );
+    assert.strictEqual(invokeEnvelopeCheck.ok, false);
+    assert.strictEqual(invokeEnvelopeCheck.error, "INVALID_OUTPUT");
+    assert.ok(invokeEnvelopeCheck.message.includes("Failed to parse JSON response"));
+
+    // 4. In contrast, invokeTransport directly supports outputFormat: "text" when needed
+    const transportTextRes = invokeTransport({
+      slug: "gemini-4-argon-high",
+      prompt: "test",
+      outputFormat: "text",
+      agyPath: mockScript,
+      env: { MOCK_STDOUT: "plain text output" },
+    });
+    assert.strictEqual(transportTextRes.ok, true);
+    assert.strictEqual(transportTextRes.slug, "gemini-4-argon-high");
+    assert.strictEqual(transportTextRes.response.trim(), "plain text output");
+  } finally {
+    try {
+      unlinkSync(mockScript);
+    } catch {}
+  }
+});
+
+runTest("2.9a: mocked successful invocation carries duration_ms and usage object, preserving duration", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ntg-usage-ok-"));
+  const mockScript = join(dir, "agy.mjs");
+  const usageData = {
+    input_tokens: 150,
+    output_tokens: 45,
+    thinking_tokens: 10,
+    cache_read_tokens: 5,
+    total_tokens: 200,
+  };
+  writeFileSync(
+    mockScript,
+    `#!/usr/bin/env node
+console.log(JSON.stringify({
+  status: "SUCCESS",
+  response: "SUCCESSFUL_RUN",
+  duration_seconds: 1.75,
+  usage: ${JSON.stringify(usageData)}
+}));
+`
+  );
+  chmodSync(mockScript, 0o755);
+  try {
+    const resTransport = invokeTransport({
+      slug: "gemini-4-argon-high",
+      prompt: "test",
+      agyPath: mockScript,
+    });
+    assert.strictEqual(resTransport.ok, true);
+    assert.strictEqual(resTransport.response, "SUCCESSFUL_RUN");
+    assert.strictEqual(resTransport.duration, 1.75);
+    assert.strictEqual(typeof resTransport.duration_ms, "number");
+    assert.ok(resTransport.duration_ms >= 0, "duration_ms >= 0");
+    assert.deepStrictEqual(resTransport.usage, usageData);
+
+    const resInvoke = invoke("piledriver", { task: "Test usage" }, {
+      agyPath: mockScript,
+      installedModels: [{ slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" }],
+    });
+    assert.strictEqual(resInvoke.ok, true);
+    assert.strictEqual(resInvoke.response, "SUCCESSFUL_RUN");
+    assert.strictEqual(resInvoke.duration, 1.75);
+    assert.strictEqual(typeof resInvoke.duration_ms, "number");
+    assert.ok(resInvoke.duration_ms >= 0, "duration_ms >= 0");
+    assert.deepStrictEqual(resInvoke.usage, usageData);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+runTest("2.9b: mocked successful invocation with missing usage leaves usage undefined", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ntg-usage-missing-"));
+  const mockScript = join(dir, "agy.mjs");
+  writeFileSync(
+    mockScript,
+    `#!/usr/bin/env node
+console.log(JSON.stringify({
+  status: "SUCCESS",
+  response: "SUCCESS_NO_USAGE",
+  duration_seconds: 0.95
+}));
+`
+  );
+  chmodSync(mockScript, 0o755);
+  try {
+    const resTransport = invokeTransport({
+      slug: "gemini-4-argon-high",
+      prompt: "test",
+      agyPath: mockScript,
+    });
+    assert.strictEqual(resTransport.ok, true);
+    assert.strictEqual(resTransport.response, "SUCCESS_NO_USAGE");
+    assert.strictEqual(resTransport.duration, 0.95);
+    assert.strictEqual(typeof resTransport.duration_ms, "number");
+    assert.ok(resTransport.duration_ms >= 0, "duration_ms >= 0");
+    assert.strictEqual(resTransport.usage, undefined);
+
+    const resInvoke = invoke("piledriver", { task: "Test missing usage" }, {
+      agyPath: mockScript,
+      installedModels: [{ slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" }],
+    });
+    assert.strictEqual(resInvoke.ok, true);
+    assert.strictEqual(resInvoke.response, "SUCCESS_NO_USAGE");
+    assert.strictEqual(resInvoke.duration, 0.95);
+    assert.strictEqual(typeof resInvoke.duration_ms, "number");
+    assert.ok(resInvoke.duration_ms >= 0, "duration_ms >= 0");
+    assert.strictEqual(resInvoke.usage, undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+runTest("2.9c: mocked failed invocation carries duration_ms and usage when available", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ntg-usage-fail-"));
+  const mockScript = join(dir, "agy.mjs");
+  const usageData = { input_tokens: 42, output_tokens: 8, total_tokens: 50 };
+  writeFileSync(
+    mockScript,
+    `#!/usr/bin/env node
+const mode = process.env.MOCK_FAIL_MODE || "error";
+if (mode === "error") {
+  console.log(JSON.stringify({
+    status: "ERROR",
+    message: "Rate limit exceeded",
+    usage: ${JSON.stringify(usageData)}
+  }));
+} else if (mode === "denial") {
+  console.log(JSON.stringify({
+    status: "SUCCESS",
+    response: "",
+    denied_actions: [{ action: "command", display_name: "RunCommand" }],
+    usage: ${JSON.stringify(usageData)}
+  }));
+} else if (mode === "exit_code") {
+  console.log(JSON.stringify({
+    status: "ERROR",
+    message: "Process failed with status code",
+    usage: ${JSON.stringify(usageData)}
+  }));
+  process.exit(1);
+}
+`
+  );
+  chmodSync(mockScript, 0o755);
+  try {
+    // 1. MODEL_ERROR carries duration_ms and usage
+    const resError = invoke("piledriver", { task: "Test error" }, {
+      agyPath: mockScript,
+      installedModels: [{ slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" }],
+      env: { MOCK_FAIL_MODE: "error" },
+    });
+    assert.strictEqual(resError.ok, false);
+    assert.strictEqual(resError.error, "MODEL_ERROR");
+    assert.strictEqual(typeof resError.duration_ms, "number");
+    assert.ok(resError.duration_ms >= 0);
+    assert.deepStrictEqual(resError.usage, usageData);
+
+    // 2. TOOL_PERMISSION_DENIED carries duration_ms and usage
+    const resDenial = invoke("piledriver", { task: "Test denial" }, {
+      agyPath: mockScript,
+      installedModels: [{ slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" }],
+      env: { MOCK_FAIL_MODE: "denial" },
+    });
+    assert.strictEqual(resDenial.ok, false);
+    assert.strictEqual(resDenial.error, "TOOL_PERMISSION_DENIED");
+    assert.strictEqual(typeof resDenial.duration_ms, "number");
+    assert.ok(resDenial.duration_ms >= 0);
+    assert.deepStrictEqual(resDenial.usage, usageData);
+
+    // 3. Non-zero exit code with JSON stdout carries duration_ms and usage
+    const resExit = invokeTransport({
+      slug: "gemini-4-argon-high",
+      prompt: "test",
+      agyPath: mockScript,
+      env: { MOCK_FAIL_MODE: "exit_code" },
+    });
+    assert.strictEqual(resExit.ok, false);
+    assert.strictEqual(resExit.error, "EXECUTION_FAILED");
+    assert.strictEqual(typeof resExit.duration_ms, "number");
+    assert.ok(resExit.duration_ms >= 0);
+    assert.deepStrictEqual(resExit.usage, usageData);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+runTest("2.9d: mocked failed invocation without usage leaves usage undefined", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ntg-usage-no-usage-fail-"));
+  const mockScript = join(dir, "agy.mjs");
+  writeFileSync(
+    mockScript,
+    `#!/usr/bin/env node
+console.error("fatal crash");
+process.exit(2);
+`
+  );
+  chmodSync(mockScript, 0o755);
+  try {
+    const res = invokeTransport({
+      slug: "gemini-4-argon-high",
+      prompt: "test",
+      agyPath: mockScript,
+    });
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.error, "EXECUTION_FAILED");
+    assert.strictEqual(typeof res.duration_ms, "number");
+    assert.ok(res.duration_ms >= 0);
+    assert.strictEqual(res.usage, undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+runTest("2.9e: early error returns from invoke() attach duration_ms and usage undefined", () => {
+  // 1. INVALID_OUTPUT_FORMAT
+  const resFmt = invoke("piledriver", { task: "Test" }, { outputFormat: "text" });
+  assert.strictEqual(resFmt.ok, false);
+  assert.strictEqual(resFmt.error, "INVALID_OUTPUT_FORMAT");
+  assert.strictEqual(typeof resFmt.duration_ms, "number");
+  assert.ok(resFmt.duration_ms >= 0);
+  assert.strictEqual(resFmt.usage, undefined);
+
+  // 2. UNRESOLVED_MODEL_SLUG
+  const resSlug = invoke("nonexistent-role", { task: "Test" });
+  assert.strictEqual(resSlug.ok, false);
+  assert.strictEqual(resSlug.error, "UNRESOLVED_MODEL_SLUG");
+  assert.strictEqual(typeof resSlug.duration_ms, "number");
+  assert.ok(resSlug.duration_ms >= 0);
+  assert.strictEqual(resSlug.usage, undefined);
+
+  // 3. INVALID_HANDOFF_PACKET
+  const resPkt = invoke("piledriver", null);
+  assert.strictEqual(resPkt.ok, false);
+  assert.strictEqual(resPkt.error, "INVALID_HANDOFF_PACKET");
+  assert.strictEqual(typeof resPkt.duration_ms, "number");
+  assert.ok(resPkt.duration_ms >= 0);
+  assert.strictEqual(resPkt.usage, undefined);
+
+  // 4. RECURSION_DETECTED
+  const origChain = process.env.NTG_RUNNER_CHAIN;
+  try {
+    process.env.NTG_RUNNER_CHAIN = "piledriver";
+    const resRec = invoke("piledriver", { task: "Test recursion" });
+    assert.strictEqual(resRec.ok, false);
+    assert.strictEqual(resRec.error, "RECURSION_DETECTED");
+    assert.strictEqual(typeof resRec.duration_ms, "number");
+    assert.ok(resRec.duration_ms >= 0);
+    assert.strictEqual(resRec.usage, undefined);
+  } finally {
+    if (origChain === undefined) {
+      delete process.env.NTG_RUNNER_CHAIN;
+    } else {
+      process.env.NTG_RUNNER_CHAIN = origChain;
+    }
+  }
+});
+
+// =============================================================================
+// Section 3: Bounded Prompt Construction & Packet Boundary (Blocker 3)
+// =============================================================================
+
+runTest("3.1: Deterministic prompt construction with minimal packet", () => {
+  const prompt = composeBoundedPrompt("piledriver", { task: "Implement feature X" });
+  const body = machineBody("piledriver");
+  assert.strictEqual(prompt, `## Role\npiledriver\n\n## Role Body\n${body}\n\n## Task\nImplement feature X`);
+});
+
+runTest("3.2: Deterministic prompt construction with complete structured packet", () => {
+  const packet = {
+    task: "Refactor database migrations",
+    contextFiles: ["db/schema.sql", "db/migrate.js"],
+    evidence: ["Migration 004 failed on test DB", "Disk usage at 80%"],
+    constraints: ["Zero downtime required", "No breaking schema changes"],
+    expectedOutput: "A unified rollback script and updated migration file",
+  };
+  const prompt = composeBoundedPrompt("bulldozer", packet);
+
+  const expectedPrompt = [
+    "## Role\nbulldozer",
+    `## Role Body\n${machineBody("bulldozer")}`,
+    "## Task\nRefactor database migrations",
+    "## Context Files\n- db/schema.sql\n- db/migrate.js",
+    "## Evidence\n- Migration 004 failed on test DB\n- Disk usage at 80%",
+    "## Constraints\n- Zero downtime required\n- No breaking schema changes",
+    "## Expected Output\nA unified rollback script and updated migration file",
+  ].join("\n\n");
+
+  assert.strictEqual(prompt, expectedPrompt);
+});
+
+runTest("3.3: Task alias 'objective' is accepted when 'task' is omitted", () => {
+  const prompt = composeBoundedPrompt("steamroller", { objective: "Analyze trade-offs" });
+  const body = readFileSync(new URL("../agents/steamroller.md", import.meta.url), "utf8").trim();
+  assert.strictEqual(prompt, `## Role\nsteamroller\n\n## Role Body\n${body}\n\n## Task\nAnalyze trade-offs`);
+});
+
+runTest("3.4: Rejection of invalid handoff packets (throws InvalidHandoffPacketError)", () => {
+  for (const badPacket of [null, undefined, "raw string", 42, [], {}, { task: "" }, { task: "   " }]) {
+    let caught = null;
+    try {
+      composeBoundedPrompt("piledriver", badPacket);
+    } catch (err) {
+      caught = err;
+    }
+    assert.ok(
+      caught instanceof InvalidHandoffPacketError,
+      `Expected InvalidHandoffPacketError for ${JSON.stringify(badPacket)}`
+    );
+    assert.strictEqual(caught.error, "INVALID_HANDOFF_PACKET");
+  }
+});
+
+runTest("3.5: Strict prohibition of raw conversational state in handoff packet", () => {
+  const forbiddenFields = ["messages", "conversation", "history", "transcript"];
+  for (const field of forbiddenFields) {
+    let caught = null;
+    try {
+      composeBoundedPrompt("piledriver", {
+        task: "Valid task",
+        [field]: [{ role: "user", content: "forbidden" }],
+      });
+    } catch (err) {
+      caught = err;
+    }
+    assert.ok(
+      caught instanceof InvalidHandoffPacketError,
+      `Expected InvalidHandoffPacketError for field '${field}'`
+    );
+    assert.ok(caught.message.includes(`Forbidden conversational state field in handoff packet: "${field}"`));
+  }
+});
+
+runTest("3.6: Contract-level invoke returns structured error for invalid packet", () => {
+  const res1 = invoke("piledriver", null);
+  assert.strictEqual(res1.ok, false);
+  assert.strictEqual(res1.error, "INVALID_HANDOFF_PACKET");
+  assert.strictEqual(res1.role, "piledriver");
+
+  const res2 = invoke("piledriver", { task: "Do work", messages: ["raw history"] });
+  assert.strictEqual(res2.ok, false);
+  assert.strictEqual(res2.error, "INVALID_HANDOFF_PACKET");
+  assert.strictEqual(res2.role, "piledriver");
+
+  const res3 = invoke("piledriver", "raw string instead of packet");
+  assert.strictEqual(res3.ok, false);
+  assert.strictEqual(res3.error, "INVALID_HANDOFF_PACKET");
+});
+
+// =============================================================================
+// Section 4: Recursion Protection (NTG_RUNNER_CHAIN)
+// =============================================================================
+
+runTest("4.1: Single-role chain detection blocks invocation (RECURSION_DETECTED)", () => {
+  const origChain = process.env.NTG_RUNNER_CHAIN;
+  try {
+    process.env.NTG_RUNNER_CHAIN = "piledriver";
+    const res = invoke("piledriver", { task: "Reply with test" });
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.error, "RECURSION_DETECTED");
+    assert.strictEqual(res.role, "piledriver");
+    assert.strictEqual(res.chain, "piledriver");
+  } finally {
+    if (origChain === undefined) {
+      delete process.env.NTG_RUNNER_CHAIN;
+    } else {
+      process.env.NTG_RUNNER_CHAIN = origChain;
+    }
+  }
+});
+
+runTest("4.2: Multi-role chain detection blocks re-entrant role (RECURSION_DETECTED)", () => {
+  const origChain = process.env.NTG_RUNNER_CHAIN;
+  try {
+    process.env.NTG_RUNNER_CHAIN = "steamroller:bulldozer";
+    const res = invoke("bulldozer", { task: "Reply with test" });
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.error, "RECURSION_DETECTED");
+    assert.strictEqual(res.role, "bulldozer");
+    assert.strictEqual(res.chain, "steamroller:bulldozer");
+  } finally {
+    if (origChain === undefined) {
+      delete process.env.NTG_RUNNER_CHAIN;
+    } else {
+      process.env.NTG_RUNNER_CHAIN = origChain;
+    }
+  }
+});
+
+// =============================================================================
+// Section 5: Live Piledriver & Bulldozer Invocations (Handoff Packets)
+// =============================================================================
+
+const skipLive = process.env.SKIP_LIVE_TESTS === "1" || process.env.SKIP_LIVE_TESTS === "true";
+
+if (skipLive) {
+  console.log("[SKIP] Section 5 live LLM tests skipped via SKIP_LIVE_TESTS=1");
+} else {
+  runTest("5.1: Live Piledriver bounded invocation (gemini-4-argon-high)", () => {
+    const res = invoke("piledriver", { task: "Reply with exactly: PILEDRIVER_SPIKE_PASS" });
+    assert.strictEqual(
+      res.ok,
+      true,
+      `Expected res.ok === true, got error: ${res.error} (${res.stderr || res.message})`
+    );
+    assert.strictEqual(res.role, "piledriver");
+    assert.strictEqual(res.slug, "gemini-4-argon-high");
+    assert.ok(typeof res.response === "string", "Expected response to be string");
+    assert.ok(
+      res.response.includes("PILEDRIVER_SPIKE_PASS"),
+      `Expected response to contain 'PILEDRIVER_SPIKE_PASS', got: ${res.response}`
+    );
+    assert.ok(typeof res.duration === "number", "Expected numeric duration");
+    assert.ok(res.usage && typeof res.usage.total_tokens === "number", "Expected usage statistics");
+  });
+
+  runTest("5.2: Live Bulldozer bounded invocation (gemini-3.8-flash-high)", () => {
+    const res = invoke("bulldozer", { task: "Reply with exactly: BULLDOZER_SPIKE_PASS" });
+    assert.strictEqual(
+      res.ok,
+      true,
+      `Expected res.ok === true, got error: ${res.error} (${res.stderr || res.message})`
+    );
+    assert.strictEqual(res.role, "bulldozer");
+    assert.strictEqual(res.slug, "gemini-3.8-flash-high");
+    assert.ok(typeof res.response === "string", "Expected response to be string");
+    assert.ok(
+      res.response.includes("BULLDOZER_SPIKE_PASS"),
+      `Expected response to contain 'BULLDOZER_SPIKE_PASS', got: ${res.response}`
+    );
+    assert.ok(typeof res.duration === "number", "Expected numeric duration");
+    assert.ok(res.usage && typeof res.usage.total_tokens === "number", "Expected usage statistics");
+  });
+}
+
+// =============================================================================
+// Section 6: Explicit Role Body Loading (CROSS_SLICE_BLOCKER_44B)
+// =============================================================================
+
+function withRoleBodies(fn) {
+  const root = mkdtempSync(join(tmpdir(), "ntg-role-bodies-"));
+  const roleBodyDir = join(root, "roles");
+  const cwd = join(root, "neutral");
+  const capture = join(root, "transport-called");
+  const agyPath = join(root, "agy.mjs");
+  const installedModels = ["gemini-4-argon-medium", "gemini-3.8-flash-high", "claude-sonnet-5-5-high", "gemini-4-argon-high"];
+  try {
+    mkdirSync(roleBodyDir);
+    mkdirSync(cwd);
+    for (const role of ["steamroller", "piledriver", "bulldozer", "instinct"]) {
+      writeFileSync(join(roleBodyDir, `${role}.md`), `BODY_MARKER_${role}\n`);
+    }
+    // Exercise the real process boundary: echo the actual --print argument.
+    writeFileSync(agyPath, `#!/usr/bin/env node
+import { writeFileSync } from "node:fs";
+if (process.argv[2] === "models") {
+  console.log(${JSON.stringify(installedModels.join("\n"))});
+} else {
+  writeFileSync(process.env.NTG_TEST_CAPTURE, "called");
+  const value = flag => process.argv[process.argv.indexOf(flag) + 1];
+  console.log(JSON.stringify({ status: "SUCCESS", response: JSON.stringify({
+    prompt: value("--print"), slug: value("--model"), format: value("--output-format"),
+    chain: process.env.NTG_RUNNER_CHAIN, cwd: process.cwd(), args: process.argv.slice(2)
+  }) }));
+}
+`);
+    chmodSync(agyPath, 0o755);
+    fn({ roleBodyDir, cwd, capture, agyPath, installedModels, env: { NTG_TEST_CAPTURE: capture } });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+runTest("6.1: All three role bodies reach transport deterministically with handoff sections", () => {
+  withRoleBodies(opts => {
+    const packet = {
+      task: "TASK_MARKER",
+      contextFiles: ["CONTEXT_MARKER"],
+      evidence: ["EVIDENCE_MARKER"],
+      constraints: ["CONSTRAINT_MARKER"],
+      expectedOutput: "OUTPUT_MARKER",
+    };
+    for (const role of ["steamroller", "piledriver", "bulldozer", "instinct"]) {
+      const prompt = composeBoundedPrompt(role, packet, opts);
+      assert.strictEqual(composeBoundedPrompt(role, packet, opts), prompt);
+      const sections = prompt.split("\n\n");
+      assert.deepStrictEqual(sections, [
+        `## Role\n${role}`, `## Role Body\nBODY_MARKER_${role}`,
+        "## Task\nTASK_MARKER", "## Context Files\n- CONTEXT_MARKER",
+        "## Evidence\n- EVIDENCE_MARKER", "## Constraints\n- CONSTRAINT_MARKER",
+        "## Expected Output\nOUTPUT_MARKER",
+      ]);
+      const res = invoke(role, packet, opts);
+      assert.strictEqual(res.ok, true, JSON.stringify(res));
+      const received = JSON.parse(res.response);
+      assert.strictEqual(received.prompt, prompt);
+      assert.strictEqual(received.slug, resolveSlug(role, opts));
+      assert.strictEqual(received.format, "json");
+      assert.strictEqual(received.chain, role);
+      assert.strictEqual(received.cwd, opts.cwd);
+      assert.strictEqual(received.args.includes("--agent"), false);
+    }
+    const mixedCase = invoke(" PileDriver ", packet, opts);
+    assert.strictEqual(mixedCase.ok, true, JSON.stringify(mixedCase));
+    assert.ok(JSON.parse(mixedCase.response).prompt.includes("BODY_MARKER_piledriver"));
+  });
+});
+
+runTest("6.2: Missing role body fails closed before transport without default fallback", () => {
+  withRoleBodies(opts => {
+    unlinkSync(join(opts.roleBodyDir, "piledriver.md"));
+    const res = invoke("piledriver", { task: "TASK_MARKER" }, opts);
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.error, "ROLE_BODY_MISSING");
+    assert.strictEqual(res.role, "piledriver");
+    assert.strictEqual(existsSync(opts.capture), false);
+  });
+});
+
+runTest("6.3: Empty, whitespace, malformed UTF-8 and binary bodies fail closed", () => {
+  withRoleBodies(opts => {
+    for (const body of ["", " \t\r\n", Buffer.from([0xc3, 0x28]), "BODY_MARKER\u0000"]) {
+      writeFileSync(join(opts.roleBodyDir, "piledriver.md"), body);
+      const res = invoke("piledriver", { task: "TASK_MARKER" }, opts);
+      assert.strictEqual(res.ok, false);
+      assert.strictEqual(res.error, "ROLE_BODY_INVALID");
+      assert.strictEqual(res.role, "piledriver");
+      assert.strictEqual(existsSync(opts.capture), false);
+    }
+  });
+});
+
+runTest("6.4: Unreadable role path and invalid directory options fail closed", () => {
+  withRoleBodies(opts => {
+    const path = join(opts.roleBodyDir, "piledriver.md");
+    unlinkSync(path);
+    mkdirSync(path); // A directory cannot be read as a body, even when run as root.
+    for (const roleBodyDir of [opts.roleBodyDir, "", 42]) {
+      const res = invoke("piledriver", { task: "TASK_MARKER" }, { ...opts, roleBodyDir });
+      assert.strictEqual(res.ok, false);
+      assert.strictEqual(res.error, "ROLE_BODY_INVALID");
+      assert.strictEqual(existsSync(opts.capture), false);
+    }
+  });
+});
+
+runTest("6.5: Native specialists, inherited object keys and path traversal are not runner roles", () => {
+  withRoleBodies(opts => {
+    for (const role of ["jaguar", "puma", "bobcat", "strix-halo", "zen", "excavator", "constructor", "__proto__", "../piledriver"]) {
+      writeFileSync(join(opts.roleBodyDir, `${role.replaceAll("/", "_")}.md`), "DISALLOWED_MARKER");
+      assert.throws(() => composeBoundedPrompt(role, { task: "TASK_MARKER" }, opts), UnresolvedModelSlugError);
+      const res = invoke(role, { task: "TASK_MARKER" }, opts);
+      assert.strictEqual(res.ok, false);
+      assert.strictEqual(res.error, "UNRESOLVED_MODEL_SLUG");
+      assert.strictEqual(existsSync(opts.capture), false);
+    }
+  });
+});
+
+runTest("6.6: Neutral process cwd needs no customization for explicit or module-relative bodies", () => {
+  withRoleBodies(opts => {
+    const originalCwd = process.cwd();
+    const originalDir = process.env.NTG_ROLE_BODY_DIR;
+    try {
+      delete process.env.NTG_ROLE_BODY_DIR;
+      process.chdir(opts.cwd);
+      assert.strictEqual(existsSync("AGENTS.md"), false);
+      assert.strictEqual(existsSync("agents"), false);
+      for (const role of ["steamroller", "piledriver", "bulldozer"]) {
+        const packet = { task: "TASK_MARKER" };
+        const explicit = invoke(role, packet, opts);
+        assert.strictEqual(explicit.ok, true, JSON.stringify(explicit));
+        assert.ok(JSON.parse(explicit.response).prompt.includes(`BODY_MARKER_${role}`));
+        const shipped = machineBody(role);
+        const defaultPrompt = composeBoundedPrompt(role, packet);
+        assert.ok(defaultPrompt.includes(`## Role Body\n${shipped}\n\n## Task\nTASK_MARKER`));
+        const runnerDir = dirname(fileURLToPath(new URL("../scripts/runner.mjs", import.meta.url)));
+        const relativePrompt = composeBoundedPrompt(role, packet, {
+          roleBodyDir: relative(runnerDir, opts.roleBodyDir),
+        });
+        assert.strictEqual(relativePrompt, JSON.parse(explicit.response).prompt);
+      }
+    } finally {
+      process.chdir(originalCwd);
+      if (originalDir === undefined) delete process.env.NTG_ROLE_BODY_DIR;
+      else process.env.NTG_ROLE_BODY_DIR = originalDir;
+    }
+  });
+});
+
+runTest("6.7: Directory precedence is explicit option, invocation env, process env, default", () => {
+  withRoleBodies(opts => {
+    const originalDir = process.env.NTG_ROLE_BODY_DIR;
+    const packet = { task: "TASK_MARKER" };
+    try {
+      process.env.NTG_ROLE_BODY_DIR = join(opts.cwd, "missing");
+      const explicit = invoke("piledriver", packet, opts);
+      assert.strictEqual(explicit.ok, true, JSON.stringify(explicit));
+      const { roleBodyDir, ...envOpts } = opts;
+      const invocationEnv = invoke("piledriver", packet, {
+        ...envOpts, env: { ...opts.env, NTG_ROLE_BODY_DIR: roleBodyDir },
+      });
+      assert.strictEqual(invocationEnv.ok, true, JSON.stringify(invocationEnv));
+      assert.strictEqual(invocationEnv.response, explicit.response);
+      process.env.NTG_ROLE_BODY_DIR = roleBodyDir;
+      const processEnv = invoke("piledriver", packet, envOpts);
+      assert.strictEqual(processEnv.ok, true, JSON.stringify(processEnv));
+      assert.strictEqual(processEnv.response, explicit.response);
+      const invalidEnv = invoke("piledriver", packet, {
+        ...envOpts, env: { ...opts.env, NTG_ROLE_BODY_DIR: "" },
+      });
+      assert.strictEqual(invalidEnv.error, "ROLE_BODY_INVALID");
+    } finally {
+      if (originalDir === undefined) delete process.env.NTG_ROLE_BODY_DIR;
+      else process.env.NTG_ROLE_BODY_DIR = originalDir;
+    }
+  });
+});
+
+runTest("6.8: Role bodies do not bypass any forbidden conversation field", () => {
+  withRoleBodies(opts => {
+    for (const field of ["messages", "conversation", "history", "transcript"]) {
+      const res = invoke("piledriver", { task: "TASK_MARKER", [field]: ["RAW_HISTORY_MARKER"] }, opts);
+      assert.strictEqual(res.ok, false);
+      assert.strictEqual(res.error, "INVALID_HANDOFF_PACKET");
+      assert.strictEqual(existsSync(opts.capture), false);
+    }
+  });
+});
+
+runTest("6.9: CLI injects env-selected role body from neutral cwd and reports missing body", () => {
+  withRoleBodies(opts => {
+    const runnerPath = fileURLToPath(new URL("../scripts/runner.mjs", import.meta.url));
+    const cliOpts = {
+      cwd: opts.cwd, encoding: "utf8", timeout: 10000,
+      env: { ...process.env, ...opts.env, AGY_PATH: opts.agyPath, NTG_ROLE_BODY_DIR: opts.roleBodyDir },
+    };
+    const success = spawnSync(process.execPath, [runnerPath, "piledriver", "CLI_TASK_MARKER"], cliOpts);
+    assert.ifError(success.error);
+    assert.strictEqual(success.status, 0, success.stderr);
+    const received = JSON.parse(success.stdout);
+    assert.ok(received.prompt.includes("BODY_MARKER_piledriver"));
+    assert.ok(received.prompt.includes("## Task\nCLI_TASK_MARKER"));
+    assert.strictEqual(received.slug, "gemini-4-argon-high");
+    unlinkSync(opts.capture);
+    unlinkSync(join(opts.roleBodyDir, "piledriver.md"));
+    const failure = spawnSync(process.execPath, [runnerPath, "piledriver", "CLI_TASK_MARKER"], cliOpts);
+    assert.ifError(failure.error);
+    assert.strictEqual(failure.status, 1);
+    assert.strictEqual(JSON.parse(failure.stderr).error, "ROLE_BODY_MISSING");
+    assert.strictEqual(existsSync(opts.capture), false);
+  });
+});
+
+// =============================================================================
+// Section 7: Instinct Runner Role & Explicit Escalation (#20)
+// =============================================================================
+
+const claudeSurface = [
+  { slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" },
+  { slug: "gemini-4-argon-medium", description: "Gemini 4 Argon (Medium)" },
+  { slug: "claude-sonnet-5-5-low", description: "Claude Sonnet 5.5 (Low)" },
+  { slug: "claude-sonnet-5-5-medium", description: "Claude Sonnet 5.5 (Medium)" },
+  { slug: "claude-sonnet-5-5-high", description: "Claude Sonnet 5.5 (High)" },
+  { slug: "claude-opus-5-5-low", description: "Claude Opus 5.5 (Low)" },
+  { slug: "claude-opus-5-5-medium", description: "Claude Opus 5.5 (Medium)" },
+  { slug: "claude-opus-5-5-high", description: "Claude Opus 5.5 (High)" },
+  { slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" },
+];
+
+runTest("7.0: a different version with a prefix-colliding slug never satisfies the instinct family", () => {
+  for (const [escalate, slug, description] of [
+    [false, "claude-sonnet-5-50-high", "Claude Sonnet 5.50 (High)"],
+    [true, "claude-opus-5-50-high", "Claude Opus 5.50 (High)"],
+  ]) {
+    for (const surface of [[slug], [{ slug, description }]]) {
+      assert.throws(
+        () => resolveSlug("instinct", { escalate, installedModels: surface }),
+        err => err instanceof UnresolvedModelSlugError && err.reason === "NOT_FOUND",
+        `${slug} must not resolve (escalate=${escalate})`,
+      );
+    }
+  }
+  // Exact families on the same surface still resolve, including Gemini roles.
+  const mixed = ["claude-sonnet-5-50-high", "claude-sonnet-5-5-high", "gemini-3.8-flash-high", "claude-opus-5-5-high", "gemini-4-argon-high"];
+  assert.strictEqual(resolveSlug("instinct", { installedModels: mixed }), "claude-sonnet-5-5-high");
+  assert.strictEqual(resolveSlug("bulldozer", { installedModels: mixed }), "gemini-3.8-flash-high");
+  assert.strictEqual(resolveSlug("piledriver", { installedModels: mixed }), "gemini-4-argon-high");
+});
+
+runTest("7.1: instinct targets Claude Sonnet 5.5 High and Opus 5.5 High only on explicit escalation", () => {
+  assert.strictEqual(ROLE_POLICY_TABLE.instinct.family, "Claude Sonnet 5.5");
+  assert.strictEqual(ROLE_POLICY_TABLE.instinct.effort, "High");
+  assert.strictEqual(ROLE_POLICY_TABLE.instinct.escalated.family, "Claude Opus 5.5");
+  assert.strictEqual(ROLE_POLICY_TABLE.instinct.escalated.effort, "High");
+
+  assert.strictEqual(resolveSlug("instinct", { installedModels: claudeSurface }), "claude-sonnet-5-5-high");
+  assert.strictEqual(resolveSlug("instinct", { installedModels: claudeSurface, escalate: false }), "claude-sonnet-5-5-high");
+  assert.strictEqual(resolveSlug(" InStinct ", { installedModels: claudeSurface, escalate: true }), "claude-opus-5-5-high");
+
+  // Escalation is instinct-scoped; other roles keep their policy models.
+  assert.strictEqual(resolveSlug("piledriver", { installedModels: claudeSurface, escalate: true }), "gemini-4-argon-high");
+  assert.strictEqual(resolveSlug("bulldozer", { installedModels: claudeSurface, escalate: true }), "gemini-3.8-flash-high");
+  assert.strictEqual(resolveSlug("steamroller", { installedModels: claudeSurface, escalate: true }), "gemini-4-argon-medium");
+});
+
+runTest("7.2: missing or ambiguous Claude surface fails closed without silent fallback", () => {
+  for (const escalate of [false, true]) {
+    let caught = null;
+    try {
+      resolveSlug("instinct", {
+        installedModels: [{ slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" }],
+        escalate,
+      });
+    } catch (err) {
+      caught = err;
+    }
+    assert.ok(caught instanceof UnresolvedModelSlugError, `escalate=${escalate}`);
+    assert.strictEqual(caught.error, "UNRESOLVED_MODEL_SLUG");
+    assert.strictEqual(caught.reason, "NOT_FOUND");
+    assert.strictEqual(caught.role, "instinct");
+
+    const res = invoke("instinct", { task: "Reframe the stall" }, { installedModels: [], escalate });
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.error, "UNRESOLVED_MODEL_SLUG");
+    assert.strictEqual(res.role, "instinct");
+  }
+
+  const ambiguousCases = [
+    [
+      { slug: "claude-sonnet-5-5-high", description: "Claude Sonnet 5.5 (High)" },
+      { slug: "claude-sonnet-5-5-high-v2", description: "Claude Sonnet 5.5 (High) v2" },
+    ],
+  ];
+  for (const installedModels of ambiguousCases) {
+    let caught = null;
+    try {
+      resolveSlug("instinct", { installedModels });
+    } catch (err) {
+      caught = err;
+    }
+    assert.ok(caught instanceof UnresolvedModelSlugError);
+    assert.strictEqual(caught.reason, "AMBIGUOUS");
+    assert.deepStrictEqual(caught.matches, ["claude-sonnet-5-5-high", "claude-sonnet-5-5-high-v2"]);
+  }
+
+  let opusCaught = null;
+  try {
+    resolveSlug("instinct", {
+      escalate: true,
+      installedModels: [
+        { slug: "claude-opus-5-5-high", description: "Claude Opus 5.5 (High)" },
+        { slug: "claude-opus-5-5-high-v2", description: "Claude Opus 5.5 (High) v2" },
+      ],
+    });
+  } catch (err) {
+    opusCaught = err;
+  }
+  assert.ok(opusCaught instanceof UnresolvedModelSlugError);
+  assert.strictEqual(opusCaught.reason, "AMBIGUOUS");
+});
+
+runTest("7.3: transport selects Opus only when escalation is explicitly requested", () => {
+  const root = mkdtempSync(join(tmpdir(), "mock-agy-escalate-"));
+  const mockScript = join(root, "agy.mjs");
+  const callsFile = join(root, "calls");
+  writeFileSync(mockScript, `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+const value = flag => process.argv[process.argv.indexOf(flag) + 1];
+appendFileSync(process.env.MOCK_CALLS_FILE,
+  value("--model") + " skipPermissions=" + process.argv.includes("--dangerously-skip-permissions") + "\\n");
+console.log(JSON.stringify({ status: "SUCCESS", response: '{"current_framing":"x"}' }));
+`);
+  chmodSync(mockScript, 0o755);
+  const opts = {
+    agyPath: mockScript,
+    installedModels: claudeSurface,
+    env: { MOCK_CALLS_FILE: callsFile },
+  };
+  try {
+    const sonnet = invoke("instinct", { task: "Reframe the stall" }, opts);
+    assert.strictEqual(sonnet.ok, true, JSON.stringify(sonnet));
+    assert.strictEqual(sonnet.slug, "claude-sonnet-5-5-high");
+    const opus = invoke("instinct", { task: "Reframe the stall" }, { ...opts, escalate: true });
+    assert.strictEqual(opus.ok, true, JSON.stringify(opus));
+    assert.strictEqual(opus.slug, "claude-opus-5-5-high");
+    // Instinct is not Bulldozer: no skip-permissions grant rides along.
+    assert.strictEqual(
+      readFileSync(callsFile, "utf8"),
+      "claude-sonnet-5-5-high skipPermissions=false\nclaude-opus-5-5-high skipPermissions=false\n"
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+runTest("7.4: instinct handoff packets fail closed like the other runner roles", () => {
+  const body = machineBody("instinct");
+  const prompt = composeBoundedPrompt("instinct", { task: "Reframe the stall", evidence: ["3 same-class failures"] });
+  assert.ok(prompt.includes(`## Role Body\n${body}`));
+  assert.ok(prompt.includes("## Task\nReframe the stall"));
+  for (const badPacket of [null, undefined, "raw string", 42, [], {}, { task: "" }, { task: "  " }]) {
+    assert.throws(() => composeBoundedPrompt("instinct", badPacket), InvalidHandoffPacketError);
+  }
+  for (const field of ["messages", "conversation", "history", "transcript"]) {
+    let caught = null;
+    try {
+      composeBoundedPrompt("instinct", { task: "Valid task", [field]: ["raw history"] });
+    } catch (err) {
+      caught = err;
+    }
+    assert.ok(caught instanceof InvalidHandoffPacketError, `Expected rejection for '${field}'`);
+    assert.ok(caught.message.includes(`Forbidden conversational state field in handoff packet: "${field}"`));
+  }
+});
+
+console.log("=========================================================");
+console.log(`Summary: ${passed} passed, ${failed} failed (Total: ${passed + failed})`);
+
+if (failed > 0) {
+  process.exitCode = 1;
+} else {
+  process.exitCode = 0;
+}
+
