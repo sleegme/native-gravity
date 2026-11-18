@@ -1,5 +1,0 @@
-{
-  "code": 0,
-  "out": "{\"conversation_id\":\"1fd5f13e-4dc3-4a86-ab85-377ab399fa43\",\"status\":\"SUCCESS\",\"response\":\"PONG\\n\",\"duration_seconds\":6.233248158,\"num_turns\":1,\"usage\":{\"input_tokens\":13648,\"output_tokens\":161,\"thinking_tokens\":159,\"cache_read_tokens\":0,\"total_tokens\":13809}}\n",
-  "err": ""
-}

@@ -1,4 +1,0 @@
-{"type":"transition_applied","payload":{"type":"transition_applied","status":"running","residency_state":"resident"}}
-{"type":"reconcile_lost","payload":{"reason":"in-process task from a previous process cannot be reattached"}}
-{"type":"transition_applied","payload":{"type":"transition_applied","status":"lost","residency_state":"disposed"}}
-{"type":"destroyed","payload":{"cause":"reconcile_lost"}}

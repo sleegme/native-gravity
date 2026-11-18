@@ -116,9 +116,17 @@ export class LightweightLog {
     if (entry.track !== undefined && entry.track !== 'L') {
       throw new LightweightLogError(`LightweightLog accepts only Track L records, got '${entry.track}'`);
     }
-    if (entry.assurance_badge !== undefined && entry.assurance_badge !== 'HALO_LIGHTWEIGHT') {
+    const isEscalatedZenGo = Boolean(
+      entry.escalated_to_ledger &&
+      typeof entry.escalated_to_ledger === 'object' &&
+      entry.escalated_to_ledger.escalated === true &&
+      entry.escalated_to_ledger.zen_verdict === 'GO' &&
+      entry.escalated_to_ledger.verified === true
+    );
+    const expectedBadge = isEscalatedZenGo ? 'ZEN_DURABLE' : 'HALO_LIGHTWEIGHT';
+    if (entry.assurance_badge !== undefined && entry.assurance_badge !== expectedBadge) {
       throw new LightweightLogError(
-        `LightweightLog requires assurance_badge 'HALO_LIGHTWEIGHT', got '${entry.assurance_badge}'`
+        `LightweightLog requires assurance_badge '${expectedBadge}', got '${entry.assurance_badge}'`
       );
     }
 
@@ -147,7 +155,7 @@ export class LightweightLog {
     const record = Object.freeze({
       run_id: runId,
       track: 'L',
-      assurance_badge: 'HALO_LIGHTWEIGHT',
+      assurance_badge: expectedBadge,
       status,
       plan_version: planVersion,
       goal: typeof entry.goal === 'string' ? entry.goal : '',

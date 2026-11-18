@@ -3,6 +3,7 @@ import {
   ModelRouter,
   getRoleAuthority,
   normalizeRoleName,
+  realAgyRefusalUnderNodeTest,
 } from "../core/model-router.mjs";
 import { LightweightLog } from "../core/lightweight-log.mjs";
 import {
@@ -27,6 +28,7 @@ const TRACK_S_HINT_RE =
 export class SteamrollerController {
   #invokeRole;
   #invokeSpecialist;
+  #invokeHalo;
   #invokeZen;
 
   constructor({
@@ -38,7 +40,9 @@ export class SteamrollerController {
     trackRunner = null,
     invokeRole = null,
     invokeSpecialist = null,
+    invokeHalo = null,
     invokeZen = null,
+    spine = null,
     cwd = process.cwd(),
   } = {}) {
     this.ledger = ledger;
@@ -47,8 +51,27 @@ export class SteamrollerController {
     this.modelRouter = modelRouter ?? new ModelRouter();
     this.#invokeRole = invokeRole;
     this.#invokeSpecialist = invokeSpecialist;
+    this.#invokeHalo = invokeHalo;
     this.#invokeZen = invokeZen;
+    this.spine = spine;
     this.cwd = cwd;
+    const defaultHaloHandler =
+      invokeHalo ??
+      (invokeSpecialist
+        ? (req) => invokeSpecialist("strix-halo", req, { caller: req.caller })
+        : invokeRole
+        ? (req) =>
+            invokeRole(
+              "strix-halo",
+              {
+                task:
+                  "Review the candidate diff and acceptance criteria and return a bare JSON Halo review packet with verdict ACCEPT, REVISE, or ESCALATE.\n" +
+                  JSON.stringify(req),
+                ...req,
+              },
+              { caller: req.caller }
+            )
+        : null);
     this.trackRunner =
       trackRunner ??
       new TrackRunner({
@@ -56,12 +79,25 @@ export class SteamrollerController {
         ledgerPath: this.ledgerPath,
         lightweightLog: this.lightweightLog,
         invokeWorker: invokeSpecialist ?? invokeRole,
-        invokeHalo: invokeSpecialist
-          ? (req) => invokeSpecialist("strix-halo", req, { caller: req.caller })
-          : null,
+        invokeHalo: defaultHaloHandler,
         invokeZen,
         cwd,
       });
+  }
+
+  /**
+   * Binds an active MinimalSpine / LedgerKernel instance to this controller and its TrackRunner.
+   */
+  bindSpine(spine) {
+    this.spine = spine;
+    if (spine?.ledger) {
+      this.ledger = spine.ledger;
+      this.trackRunner.ledger = spine.ledger;
+    }
+    if (this.ledgerPath) {
+      this.trackRunner.ledgerPath = this.ledgerPath;
+    }
+    return this;
   }
 
   /**
@@ -162,14 +198,17 @@ export class SteamrollerController {
     requiresSubstantiveCode = false,
     recoveryMode = false,
     modelOverrides = {},
+    resolveModel = true,
   } = {}) {
     const pick = (role, extra = {}) => {
-      const route = this.resolveRoleModel(role, {
-        modelOverride: modelOverrides?.[role],
-      });
+      const slug = resolveModel
+        ? this.resolveRoleModel(role, {
+            modelOverride: modelOverrides?.[role],
+          }).slug
+        : null;
       return {
         role,
-        slug: route.slug,
+        slug,
         authority: getRoleAuthority(role),
         reroutedFrom: null,
         signal: null,
@@ -240,6 +279,7 @@ export class SteamrollerController {
     });
     const handler =
       invokeHalo ??
+      this.#invokeHalo ??
       (this.#invokeSpecialist
         ? (req) => this.#invokeSpecialist("strix-halo", req, { caller: req.caller })
         : null);
@@ -358,5 +398,39 @@ export class SteamrollerController {
       this.ledger.save(this.ledgerPath);
     }
     return transition;
+  }
+
+  /**
+   * Executes a Track L lightweight task through Steamroller routing and TrackRunner.
+   */
+  async runTrackL(options = {}) {
+    const hasExplicitModels = Boolean(this.modelRouter?.defaultOpts?.installedModels);
+    const blockedByTestRefusal =
+      !hasExplicitModels &&
+      Boolean(realAgyRefusalUnderNodeTest(this.modelRouter?.defaultOpts?.agyPath));
+    const route = this.selectWorkerRoute({
+      track: "L",
+      task: options.task || options.goal || "",
+      targetFiles: options.boundedScope || [],
+      preferredRole: options.workerRole || null,
+      requiresShell: Boolean(options.requiresShell),
+      requiresSubstantiveCode: Boolean(options.requiresSubstantiveCode),
+      resolveModel: !blockedByTestRefusal,
+    });
+    return this.trackRunner.runTrackL({
+      ...options,
+      workerRole: route.role,
+      modelSlug: route.slug,
+    });
+  }
+
+  /**
+   * Executes a durable Track S or Track M milestone through the bound spine.
+   */
+  async runMilestone(milestoneId, options = {}) {
+    if (!this.spine) {
+      throw new Error("SteamrollerController.runMilestone requires a bound spine");
+    }
+    return this.spine.runMilestone(milestoneId, options);
   }
 }

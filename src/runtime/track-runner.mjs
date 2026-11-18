@@ -1,3 +1,10 @@
+import { existsSync } from "node:fs";
+import { join, resolve } from "node:path";
+import {
+  LedgerKernel,
+  isEvidenceEmpty,
+  uncoveredAcceptanceCriteria,
+} from "../core/ledger-kernel.mjs";
 import {
   LightweightLog,
   computeAcceptanceDigest,
@@ -9,7 +16,37 @@ import {
   buildHaloReviewRequest,
   composeModelAwareHarness,
   evaluateLightweightSuitability,
+  validateLightweightResult,
 } from "../harness/index.mjs";
+import { parseResponsePacket } from "../../scripts/runner.mjs";
+
+function unwrapPacket(res) {
+  if (res && typeof res === "object" && typeof res.response === "string") {
+    const parsed = parseResponsePacket({ ok: res.ok !== false, response: res.response });
+    if (parsed.ok && parsed.packet && typeof parsed.packet === "object") {
+      return parsed.packet;
+    }
+  }
+  return res;
+}
+
+function hydrateHaloResponse(rawHalo, reviewRequest) {
+  const unwrapped = unwrapPacket(rawHalo);
+  if (!unwrapped || typeof unwrapped !== "object" || Array.isArray(unwrapped)) {
+    return unwrapped;
+  }
+  return {
+    ...unwrapped,
+    caller: unwrapped.caller ?? reviewRequest.caller,
+    candidate_id_or_run_id:
+      unwrapped.candidate_id_or_run_id ?? reviewRequest.candidate_id_or_run_id,
+    reviewed_diff_digest: unwrapped.reviewed_diff_digest ?? reviewRequest.reviewed_diff_digest,
+    acceptance_criteria_digest:
+      unwrapped.acceptance_criteria_digest ?? reviewRequest.acceptance_criteria_digest,
+    plan_version: unwrapped.plan_version ?? reviewRequest.plan_version,
+    evidence_basis: unwrapped.evidence_basis ?? reviewRequest.evidence_basis,
+  };
+}
 
 /**
  * Coordinates NTG 2.0 Track L (`HALO_LIGHTWEIGHT`) and Track S/M (`ZEN_DURABLE`)
@@ -51,6 +88,7 @@ export class TrackRunner {
     task = "",
     goal = "",
     workerRole = "bobcat",
+    modelSlug = null,
     workerResult = null,
     haloReview = null,
     boundedScope = [],
@@ -93,18 +131,26 @@ export class TrackRunner {
     if (resolvedWorkerResult === null && typeof this.#invokeWorker === "function") {
       const harness = composeModelAwareHarness({
         role: effectiveRole,
+        modelSlug,
         track: "L",
         contextDigest,
       });
-      resolvedWorkerResult = await this.#invokeWorker(effectiveRole, {
-        run_id: runId,
-        track: "L",
-        task,
-        bounded_scope: boundedScope,
-        acceptance_criteria: acceptanceCriteria,
-        plan_version: planVersion,
-        harness,
-      });
+      resolvedWorkerResult = unwrapPacket(
+        await this.#invokeWorker(effectiveRole, {
+          run_id: runId,
+          track: "L",
+          task,
+          bounded_scope: boundedScope,
+          acceptance_criteria: acceptanceCriteria,
+          plan_version: planVersion,
+          harness,
+        })
+      );
+      if (resolvedWorkerResult?.ok === false) {
+        throw new Error(
+          `Track L worker '${effectiveRole}' failed: ${resolvedWorkerResult.error || "FAILED"}`
+        );
+      }
       if (resolvedWorkerResult?.status === "REROUTE_REQUIRED") {
         const nextRole = String(resolvedWorkerResult.reroute_to || "bobcat").trim().toLowerCase();
         if (!["bobcat", "bulldozer"].includes(nextRole)) {
@@ -115,19 +161,43 @@ export class TrackRunner {
         rerouteReason = resolvedWorkerResult.reason ?? "worker signaled REROUTE_REQUIRED";
         const nextHarness = composeModelAwareHarness({
           role: effectiveRole,
+          modelSlug: null,
           track: "L",
           contextDigest,
         });
-        resolvedWorkerResult = await this.#invokeWorker(effectiveRole, {
-          run_id: runId,
-          track: "L",
-          task,
-          rerouted_from: reroutedFrom,
-          bounded_scope: boundedScope,
-          acceptance_criteria: acceptanceCriteria,
-          plan_version: planVersion,
-          harness: nextHarness,
-        });
+        resolvedWorkerResult = unwrapPacket(
+          await this.#invokeWorker(effectiveRole, {
+            run_id: runId,
+            track: "L",
+            task,
+            rerouted_from: reroutedFrom,
+            bounded_scope: boundedScope,
+            acceptance_criteria: acceptanceCriteria,
+            plan_version: planVersion,
+            harness: nextHarness,
+          })
+        );
+        if (resolvedWorkerResult?.ok === false) {
+          throw new Error(
+            `Track L worker '${effectiveRole}' failed: ${resolvedWorkerResult.error || "FAILED"}`
+          );
+        }
+      }
+    } else if (resolvedWorkerResult !== null) {
+      resolvedWorkerResult = unwrapPacket(resolvedWorkerResult);
+    }
+
+    if (
+      ["jaguar", "puma"].includes(effectiveRole) &&
+      resolvedWorkerResult &&
+      typeof resolvedWorkerResult === "object" &&
+      ("facts" in resolvedWorkerResult ||
+        "changes_made" in resolvedWorkerResult ||
+        resolvedWorkerResult.status === "REROUTE_REQUIRED")
+    ) {
+      const lwCheck = validateLightweightResult(effectiveRole, resolvedWorkerResult);
+      if (!lwCheck.valid) {
+        throw new Error(`Invalid lightweight worker result from '${effectiveRole}': ${lwCheck.reason}`);
       }
     }
 
@@ -159,7 +229,7 @@ export class TrackRunner {
       if (typeof this.#invokeHalo !== "function") {
         throw new Error("Track L requires invokeHalo for mandatory Strix Halo review");
       }
-      rawHalo = await this.#invokeHalo(reviewRequest);
+      rawHalo = hydrateHaloResponse(await this.#invokeHalo(reviewRequest), reviewRequest);
     }
 
     const bindingCheck = validateHaloReviewBinding(rawHalo, {
@@ -177,31 +247,228 @@ export class TrackRunner {
     }
 
     let zenVerdict = null;
+    let escalatedLedgerMeta = null;
     if (highRiskEscalation) {
       if (typeof this.#invokeZen !== "function") {
         throw new Error("High-risk Track L escalation requires invokeZen handler");
       }
-      zenVerdict = await this.#invokeZen({
-        run_id: runId,
-        track: "L",
-        escalated_for_high_risk: true,
-        plan_version: planVersion,
-        task,
-        bounded_scope: boundedScope,
-        acceptance_criteria: acceptanceCriteria,
-        halo_review: rawHalo,
-      });
-      if (zenVerdict?.verdict !== "GO") {
-        throw new Error(
-          `High-risk Track L Zen escalation failed with verdict '${zenVerdict?.verdict ?? "UNKNOWN"}'`
-        );
+      const targetLedgerPath = this.ledgerPath
+        ? resolve(this.ledgerPath)
+        : join(this.cwd, ".ntg", "ledger.json");
+      let releaseLock = null;
+      if (!this.ledger) {
+        releaseLock = LedgerKernel.acquireLock(targetLedgerPath, { handleSignals: false });
+      }
+      try {
+        let durableLedger = this.ledger;
+        if (!durableLedger) {
+          if (existsSync(targetLedgerPath)) {
+            durableLedger = LedgerKernel.load(targetLedgerPath);
+          } else {
+            durableLedger = new LedgerKernel({
+              goal: goal || task || `Escalated Track L run ${runId}`,
+              plan_version: planVersion,
+              track: "S",
+              milestones: [
+                {
+                  id: runId,
+                  title: goal || task || runId,
+                  objective: task || goal || `Execute ${runId}`,
+                  bounded_scope: Array.isArray(boundedScope) ? [...boundedScope] : [],
+                  acceptance_criteria: Array.isArray(acceptanceCriteria)
+                    ? [...acceptanceCriteria]
+                    : [],
+                  non_goals: [],
+                  dependencies: [],
+                },
+              ],
+            });
+          }
+          this.ledger = durableLedger;
+        }
+        if (!durableLedger.milestones.some((m) => m.id === runId)) {
+          durableLedger.milestones.push({
+            id: runId,
+            title: goal || task || runId,
+            objective: task || goal || `Execute ${runId}`,
+            acceptance_criteria: Array.isArray(acceptanceCriteria) ? [...acceptanceCriteria] : [],
+            non_goals: [],
+            dependencies: [],
+            bounded_scope: Array.isArray(boundedScope) ? [...boundedScope] : [],
+            coverage: [],
+            verify: [],
+          });
+        }
+        durableLedger.track = durableLedger.track || "S";
+        durableLedger.assurance_badge = "ZEN_DURABLE";
+        if (
+          durableLedger.current_milestone === null &&
+          !durableLedger.completed_milestones.includes(runId)
+        ) {
+          durableLedger.delegate(runId);
+        }
+        const candidateEvidence = !isEvidenceEmpty(resolvedEvidence)
+          ? resolvedEvidence
+          : Array.isArray(resolvedEvidence) || typeof resolvedEvidence === "string"
+            ? resolvedEvidence
+            : resolvedEvidence && typeof resolvedEvidence === "object"
+              ? [resolvedEvidence]
+              : [task || "completed"];
+        const candidatePacket = {
+          milestone_id: runId,
+          plan_version: durableLedger.plan_version,
+          status: "DONE",
+          changes_made:
+            Array.isArray(resolvedWorkerResult?.changes_made) ||
+            typeof resolvedWorkerResult?.changes_made === "string"
+              ? resolvedWorkerResult.changes_made
+              : Array.isArray(boundedScope)
+                ? [...boundedScope]
+                : [],
+          verification_evidence: candidateEvidence,
+          unresolved_unknowns:
+            Array.isArray(resolvedWorkerResult?.unresolved_unknowns) ||
+            typeof resolvedWorkerResult?.unresolved_unknowns === "string"
+              ? resolvedWorkerResult.unresolved_unknowns
+              : [],
+          scope_deviations:
+            Array.isArray(resolvedWorkerResult?.scope_deviations) ||
+            typeof resolvedWorkerResult?.scope_deviations === "string"
+              ? resolvedWorkerResult.scope_deviations
+              : [],
+          candidate_artifact_ref:
+            resolvedWorkerResult?.candidate_artifact_ref ??
+            resolvedWorkerResult?.artifact_ref ??
+            reviewedDiffDigest,
+        };
+        const { result_ref: escalatedResultRef, candidate_record: escalatedCandidate } =
+          durableLedger.receiveCandidate(candidatePacket, { cwd: this.cwd });
+        durableLedger.recordHaloReview({
+          ...rawHalo,
+          milestone_id: runId,
+          caller: rawHalo.caller ?? caller,
+          candidate_id_or_run_id: rawHalo.candidate_id_or_run_id ?? runId,
+          plan_version: durableLedger.plan_version,
+        });
+        durableLedger.save(targetLedgerPath);
+
+        try {
+          zenVerdict = unwrapPacket(
+            await this.#invokeZen({
+              milestone_id: runId,
+              run_id: runId,
+              result_ref: escalatedResultRef,
+              track: "L",
+              escalated_for_high_risk: true,
+              plan_version: durableLedger.plan_version,
+              task,
+              bounded_scope: boundedScope,
+              acceptance_criteria: acceptanceCriteria,
+              candidate: escalatedCandidate,
+              halo_review: rawHalo,
+            })
+          );
+        } catch (zenError) {
+          if (zenError?.code !== "LEDGER_INTEGRITY" && durableLedger.current_milestone === runId) {
+            durableLedger.recordBlockedOrFailure({
+              milestoneId: runId,
+              status: "INVOCATION_FAILURE",
+              evidence: {
+                classification: "OBSERVED",
+                error: String(zenError?.message ?? zenError),
+                result_ref: escalatedResultRef,
+              },
+            });
+            durableLedger.save(targetLedgerPath);
+          }
+          throw zenError;
+        }
+
+        if (zenVerdict?.verdict !== "GO") {
+          if (zenVerdict?.verdict === "NO-GO") {
+            durableLedger.recordZenNoGo({
+              ...zenVerdict,
+              milestone_id: zenVerdict.milestone_id ?? runId,
+              plan_version: zenVerdict.plan_version ?? durableLedger.plan_version,
+              result_ref: zenVerdict.result_ref ?? escalatedResultRef,
+              verdict: "NO-GO",
+              verification_evidence: !isEvidenceEmpty(zenVerdict.verification_evidence)
+                ? zenVerdict.verification_evidence
+                : [
+                    {
+                      classification: "OBSERVED",
+                      criterion:
+                        (Array.isArray(acceptanceCriteria) && acceptanceCriteria[0]) ||
+                        task ||
+                        runId,
+                      result:
+                        zenVerdict.repair_needs || "High-risk Track L Zen escalation returned NO-GO",
+                    },
+                  ],
+              repair_needs:
+                zenVerdict.repair_needs ||
+                zenVerdict.reason ||
+                "High-risk Track L Zen escalation returned NO-GO",
+            });
+          } else {
+            durableLedger.recordBlockedOrFailure({
+              milestoneId: runId,
+              status: "INVOCATION_FAILURE",
+              evidence: {
+                classification: "OBSERVED",
+                verdict: zenVerdict?.verdict ?? "UNKNOWN",
+                result_ref: escalatedResultRef,
+              },
+            });
+          }
+          durableLedger.save(targetLedgerPath);
+          throw new Error(
+            `High-risk Track L Zen escalation failed with verdict '${zenVerdict?.verdict ?? "UNKNOWN"}'`
+          );
+        }
+
+        if (isEvidenceEmpty(zenVerdict.verification_evidence)) {
+          durableLedger.recordBlockedOrFailure({
+            milestoneId: runId,
+            status: "INVOCATION_FAILURE",
+            evidence: {
+              classification: "OBSERVED",
+              error: "Zen GO missing verification_evidence",
+              result_ref: escalatedResultRef,
+            },
+          });
+          durableLedger.save(targetLedgerPath);
+          throw new Error("High-risk Track L Zen GO requires non-empty OBSERVED verification_evidence");
+        }
+        const zenGoPacket = {
+          ...zenVerdict,
+          milestone_id: zenVerdict.milestone_id ?? runId,
+          plan_version: zenVerdict.plan_version ?? durableLedger.plan_version,
+          result_ref: zenVerdict.result_ref ?? escalatedResultRef,
+          verdict: "GO",
+          verification_evidence: zenVerdict.verification_evidence,
+        };
+        durableLedger.recordZenGo(zenGoPacket);
+        durableLedger.save(targetLedgerPath);
+        escalatedLedgerMeta = {
+          escalated: true,
+          ledger_path: targetLedgerPath,
+          milestone_id: runId,
+          result_ref: escalatedResultRef,
+          zen_verdict: zenVerdict.verdict,
+          assurance_badge: "ZEN_DURABLE",
+          verified: true,
+        };
+      } finally {
+        releaseLock?.();
       }
     }
 
+    const assuranceBadge = zenVerdict ? "ZEN_DURABLE" : "HALO_LIGHTWEIGHT";
     const record = this.lightweightLog.recordRun({
       run_id: runId,
       track: "L",
-      assurance_badge: "HALO_LIGHTWEIGHT",
+      assurance_badge: assuranceBadge,
       status: "COMPLETED",
       plan_version: planVersion,
       goal: goal || task,
@@ -211,18 +478,12 @@ export class TrackRunner {
       acceptance_criteria_digest: acceptanceCriteriaDigest,
       evidence_basis: resolvedEvidence,
       halo_review: rawHalo,
-      escalated_to_ledger: zenVerdict
-        ? {
-            escalated: true,
-            zen_verdict: zenVerdict.verdict,
-            verified: true,
-          }
-        : null,
+      escalated_to_ledger: escalatedLedgerMeta,
     });
 
     return {
       track: "L",
-      assurance_badge: "HALO_LIGHTWEIGHT",
+      assurance_badge: assuranceBadge,
       run_id: runId,
       worker_role: effectiveRole,
       rerouted_from: reroutedFrom,
@@ -280,7 +541,10 @@ export class TrackRunner {
           track: normalizedTrack,
           acceptance_criteria: contract.acceptance_criteria ?? [],
         });
-        rawHalo = await haloFn(req);
+        rawHalo = hydrateHaloResponse(await haloFn(req), req);
+        if (rawHalo?.ok === false) {
+          throw new Error(`Strix Halo invocation failed: ${rawHalo.error || "FAILED"}`);
+        }
       }
       if (!rawHalo && requireHalo) {
         throw new Error(`Track ${normalizedTrack} requires a fresh bound Strix Halo ACCEPT review`);

@@ -126,7 +126,13 @@ test("1.x plugin.json round-trip and explicit Compatibility Adapter migration pa
   const planPath = join(dir, "plan.json");
 
   const origPlugin = JSON.parse(readFileSync(ROOT_PLUGIN, "utf8"));
-  writeFileSync(pluginPath, JSON.stringify(origPlugin, null, 2));
+  assert.doesNotMatch(origPlugin.description, /Excavator/);
+  const v1PluginFixture = {
+    ...origPlugin,
+    description:
+      "A thin Antigravity-native orchestration layer. Steamroller supervises Piledriver planning and Bulldozer milestones with independent Zen review; Jaguar, Puma, Bobcat, Strix Halo, and Excavator roles.",
+  };
+  writeFileSync(pluginPath, JSON.stringify(v1PluginFixture, null, 2));
 
   // Write 1.x ledger + plan into protected paths via adapter setup
   const v1Ledger = JSON.parse(readFileSync(FIXTURE_LEDGER, "utf8"));
@@ -142,11 +148,11 @@ test("1.x plugin.json round-trip and explicit Compatibility Adapter migration pa
 
   const loadedPlugin = loadV1PluginConfig(pluginPath);
   assert.equal(loadedPlugin.name, "native-gravity");
-  assert.equal(loadedPlugin.$schema, origPlugin.$schema);
+  assert.equal(loadedPlugin.$schema, v1PluginFixture.$schema);
 
   // Save without altering description -> preserves exact fields
   saveV1CompatiblePluginConfig(loadedPlugin, pluginPath);
-  assert.deepEqual(loadV1PluginConfig(pluginPath), origPlugin);
+  assert.deepEqual(loadV1PluginConfig(pluginPath), v1PluginFixture);
 
   // Explicit migration through Compatibility Adapter internal path
   const migrated = migrateProtectedConfigViaAdapter({

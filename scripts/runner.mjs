@@ -27,7 +27,7 @@ import {
 const ROLE_BODY_ROLES = Object.freeze(["steamroller", "piledriver", "bulldozer", "instinct", "navi"]);
 // Zen is not runner-supervised: ntg-vnext invokes it natively, outside the
 // supervisor's role packets.
-const NATIVE_ROLE_BODY_ROLES = Object.freeze(["zen"]);
+const NATIVE_ROLE_BODY_ROLES = Object.freeze(["zen", "strix-halo", "bobcat", "jaguar", "puma"]);
 const RUNNER_DIR = dirname(fileURLToPath(import.meta.url));
 
 /** Leading AGY frontmatter block of a role file (its metadata, not prompt text). */

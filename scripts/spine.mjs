@@ -1,13 +1,15 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { AuthoritativeLedger, deepClone, deepFreeze, generateResultRef, normalizeCandidateArtifactRef, UncoveredCriteriaError, uncoveredAcceptanceCriteria } from './ledger.mjs';
 import { buildScopeMap, checkCoverageTable, checkTestIntegrity, isPathInScope, runCoverageProbes, scopeChanges, snapshotScope, snapshotTestIntegrity } from './coverage.mjs';
 import { acquireLedgerLock, LedgerIntegrityError } from './ledger-lock.mjs';
-import { InvalidHandoffPacketError, InvalidResponseFormatError, invoke, parseResponsePacket } from './runner.mjs';
+import { InvalidHandoffPacketError, InvalidResponseFormatError, invoke, loadNativeRoleBody, parseResponseEnvelope, parseResponsePacket, realAgyRefusalUnderNodeTest, resolveSlug } from './runner.mjs';
 import { projectFailureRecord, projectFailureTelemetry, redactTelemetryValue } from './telemetry.mjs';
+import { computeAcceptanceDigest } from '../src/core/lightweight-log.mjs';
+import { buildContextDigest, composeModelAwareHarness, validateLightweightResult } from '../src/harness/index.mjs';
 import { SteamrollerController } from '../src/runtime/steamroller-controller.mjs';
 import { TrackRunner } from '../src/runtime/track-runner.mjs';
 
@@ -48,17 +50,19 @@ const SALVAGE_INSTRUCTION = 'The previous Bulldozer session for this milestone e
   + 'write the ledger or claim global completion.';
 
 /**
- * Stage 2 (subagent redesign 2026-11-08, §5.2): the Strix Halo advisor gate
- * is off by default. `NTG_STRIX` re-enables the ADVISOR_GATE ceremony for a
- * run, restoring the Stage 1 coordinator instruction byte for byte. The
- * role itself stays registered until the Stage 2 measurement gate orders its
- * deletion (§3 "Strix Halo advisor gate" row).
+ * NTG 2.0 Strix Halo advisor gate policy: enabled by default on all tracks,
+ * unconditionally required on Track M (and Track L), and opt-out only on Track S
+ * via NTG_STRIX=0|off|false.
  */
 export const STRIX_FLAG_ENV = 'NTG_STRIX';
 
 /** True when the Strix Halo advisor gate is enabled for this run. */
-export function advisorGateEnabled(env = process.env) {
-  return ['1', 'on', 'true'].includes(String(env?.[STRIX_FLAG_ENV] ?? '').trim().toLowerCase());
+export function advisorGateEnabled(env = process.env, { track = null } = {}) {
+  const normalizedTrack = String(track ?? '').trim().toUpperCase();
+  if (normalizedTrack === 'M' || normalizedTrack === 'L') return true;
+  const raw = String(env?.[STRIX_FLAG_ENV] ?? '').trim().toLowerCase();
+  if (['0', 'off', 'false'].includes(raw)) return false;
+  return true;
 }
 
 /**
@@ -230,33 +234,47 @@ function selectAltTarget(summaries, milestoneId) {
  * Steamroller's coordinator and the default vNext runtime (44G, #134), driven
  * by `scripts/ntg-vnext.mjs`. The exact-role adapter uses invoke(role, packet, options) and
  * returns {ok, response}. Bulldozer milestone packets may invoke specialists:
- * Jaguar (retrieval), Puma (mechanical), Bobcat (implementation). Excavator
- * is temporarily disabled pending native Argon selection. Strix Halo
- * advises Bobcat locally. invokeZen is a required independent host-native call
- * returning Zen's packet, never a worker's relay. Specialists receive only
- * relevant milestone slices, never the ledger API, path, or global authority.
+ * Jaguar (retrieval), Puma (mechanical), Bobcat (implementation), and
+ * Strix Halo (cross-caller review). Recovery is led by Bulldozer + Instinct
+ * (Excavator is retired in NTG 2.0). invokeZen is a required independent
+ * host-native call returning Zen's packet, never a worker's relay. Specialists
+ * receive only relevant milestone slices, never the ledger API, path, or
+ * global authority.
  */
 export class MinimalSpine {
   #ledger;
   #path;
+  #track = null;
   #invokeRole;
   #invokeZen;
   #invokeSpecialist;
+  #invokeHalo;
   #runnerOptions;
   #busy = false;
   #releaseLock;
+  #pendingHaloReviews = new Map();
+  controller;
+  trackRunner;
 
-  constructor({ ledgerPath, plan, invokeRole = invoke, invokeZen, invokeSpecialist, runnerOptions = {}, handleSignals = true }) {
+  constructor({ ledgerPath, plan, track = null, controller = null, trackRunner = null, invokeRole = invoke, invokeZen, invokeSpecialist, invokeHalo = null, runnerOptions = {}, handleSignals = true }) {
     if (typeof ledgerPath !== 'string' || !ledgerPath.trim()) {
       throw new TypeError('A supervisor-owned ledgerPath is required');
     }
     if (typeof invokeZen !== 'function') {
       throw new TypeError('An independent native Zen invocation is required');
     }
+    if (track !== null && track !== undefined) {
+      const normalized = String(track).trim().toUpperCase();
+      if (!['S', 'M'].includes(normalized)) {
+        throw new Error(`MinimalSpine supports durable tracks S or M only, got '${track}'`);
+      }
+      this.#track = normalized;
+    }
     this.#path = ledgerPath;
     this.#invokeRole = invokeRole;
     this.#invokeZen = invokeZen;
     this.#invokeSpecialist = invokeSpecialist;
+    this.#invokeHalo = invokeHalo;
     this.#runnerOptions = runnerOptions;
     // Callers embedding a spine (daemon, test harness) can opt out of
     // SIGINT/SIGTERM/SIGHUP ownership via handleSignals:false; the lock's
@@ -265,15 +283,38 @@ export class MinimalSpine {
     try {
       if (plan !== undefined) {
         if (existsSync(ledgerPath)) throw new Error('Refusing to replace an existing ledger');
-        this.#ledger = new AuthoritativeLedger(plan);
+        const effectivePlan = this.#track ? { ...plan, track: this.#track } : plan;
+        this.#ledger = new AuthoritativeLedger(effectivePlan);
         this.#ledger.save(this.#path);
       } else {
         this.#ledger = AuthoritativeLedger.load(ledgerPath);
+        if (this.#track && this.#ledger.track !== this.#track) {
+          this.#ledger.track = this.#track;
+          this.#ledger.assurance_badge = 'ZEN_DURABLE';
+          this.#ledger.save(this.#path);
+        } else if (!this.#track && this.#ledger.track) {
+          this.#track = this.#ledger.track;
+        }
       }
     } catch (error) {
       this.close();
       throw error;
     }
+    const coverageCwd = this.#runnerOptions.coverageCwd ?? process.cwd();
+    const lightweightLogPath = join(dirname(resolve(ledgerPath)), 'lightweight-runs.jsonl');
+    this.controller = controller ?? new SteamrollerController({
+      ledger: this.#ledger,
+      ledgerPath: this.#path,
+      lightweightLogPath,
+      trackRunner,
+      invokeRole: this.#invokeRole,
+      invokeSpecialist: this.#invokeSpecialist,
+      invokeHalo: req => this.#invokeHaloGate(req),
+      invokeZen: this.#invokeZen,
+      cwd: coverageCwd,
+    });
+    this.controller.bindSpine(this);
+    this.trackRunner = this.controller.trackRunner;
   }
 
   /** Explicitly end ownership before another supervisor resumes this ledger. */
@@ -285,6 +326,24 @@ export class MinimalSpine {
 
   #open() {
     if (!this.#releaseLock) throw new Error('Spine is closed');
+  }
+
+  get ledger() {
+    return this.#ledger;
+  }
+
+  setTrack(track) {
+    this.#idle();
+    if (track === null || track === undefined) return this.#track;
+    const normalized = String(track).trim().toUpperCase();
+    if (!['S', 'M'].includes(normalized)) {
+      throw new Error(`MinimalSpine supports durable tracks S or M only, got '${track}'`);
+    }
+    this.#track = normalized;
+    this.#ledger.track = normalized;
+    this.#ledger.assurance_badge = 'ZEN_DURABLE';
+    this.#ledger.save(this.#path);
+    return normalized;
   }
 
   get state() {
@@ -375,7 +434,6 @@ export class MinimalSpine {
    *   - bobcat (bounded implementation)
    * Bobcat may invoke:
    *   - strix-halo (Bobcat-local implementation advisor)
-   * Excavator has no nested delegation and never invokes Zen.
    * Specialists receive the milestone packet's relevant slice, never the ledger
    * or global authority. Outputs flow back without touching ledger state directly.
    */
@@ -464,6 +522,10 @@ export class MinimalSpine {
       ...slice,
       milestone_id: activeMilestoneId,
       plan_version: this.state.plan_version,
+      harness: slice.harness ?? composeModelAwareHarness({
+        role: targetRole,
+        track: this.#track ?? this.#ledger.track ?? 'S',
+      }),
     }));
 
     const failedStep = {
@@ -488,18 +550,100 @@ export class MinimalSpine {
         if (result.ok === false) {
           throw new Error(`${targetRole} invocation failed: ${JSON.stringify(result)}`);
         }
+        let parsedPacket;
         if (typeof result.response === 'string') {
           // Same fail-closed packet boundary as #exact; raw prose is never passed through.
           const parsed = parseResponsePacket(result);
           if (!parsed.ok) {
             throw new InvalidResponseFormatError(targetRole, parsed.error);
           }
-          return deepFreeze(deepClone(parsed.packet));
+          parsedPacket = deepFreeze(deepClone(parsed.packet));
+        } else {
+          parsedPacket = deepFreeze(deepClone(result));
         }
-        return deepFreeze(deepClone(result));
+        if (
+          ['jaguar', 'puma'].includes(targetRole) &&
+          parsedPacket &&
+          typeof parsedPacket === 'object' &&
+          ('facts' in parsedPacket || 'changes_made' in parsedPacket || parsedPacket.status === 'REROUTE_REQUIRED')
+        ) {
+          const lwCheck = validateLightweightResult(targetRole, parsedPacket);
+          if (!lwCheck.valid) {
+            throw new InvalidResponseFormatError(targetRole, lwCheck.reason);
+          }
+        }
+        if (
+          targetRole === 'strix-halo' &&
+          activeMilestoneId &&
+          ['ACCEPT', 'REVISE', 'ESCALATE'].includes(parsedPacket?.verdict)
+        ) {
+          this.#pendingHaloReviews.set(activeMilestoneId, { ...parsedPacket, caller: callerRole });
+        }
+        return parsedPacket;
       }
       return result;
     });
+  }
+
+  async #invokeHaloGate(req) {
+    if (typeof this.#invokeHalo === 'function') {
+      return await this.#invokeHalo(req);
+    }
+    if (typeof this.#invokeSpecialist === 'function') {
+      return await this.invokeStrixHalo(req, { caller: req.caller ?? 'steamroller' });
+    }
+    if (this.#invokeRole !== invoke) {
+      return await this.#exact(
+        'strix-halo',
+        'Review the candidate diff and acceptance criteria and return a JSON Halo review packet with verdict ACCEPT, REVISE, or ESCALATE.',
+        req
+      );
+    }
+    return this.#nativeHaloGate(req);
+  }
+
+  #nativeHaloGate(req) {
+    const agyPath = this.#runnerOptions.agyPath || process.env.AGY_PATH || 'agy';
+    const refusal = realAgyRefusalUnderNodeTest(this.#runnerOptions.agyPath);
+    if (refusal) {
+      throw new Error(refusal.message);
+    }
+    const slug = resolveSlug('strix-halo', {
+      agyPath,
+      installedModels: this.#runnerOptions.installedModels,
+    });
+    const instruction =
+      'Review the candidate deliverable against the acceptance criteria and return only a bare JSON '
+      + 'Halo review packet with caller, candidate_id_or_run_id, reviewed_diff_digest, '
+      + 'acceptance_criteria_digest, plan_version, evidence_basis, verdict (ACCEPT, REVISE, or ESCALATE), and findings. Request:\n'
+      + JSON.stringify(req);
+    const prompt = `${loadNativeRoleBody('strix-halo')}\n\n${instruction}`;
+    const args = ['--model', slug, '--output-format', 'json', '--dangerously-skip-permissions', '-p', prompt];
+    const env = { ...process.env, NTG_ACTIVE_ROLE: 'strix-halo' };
+    if (process.env.NTG_LIVE_TESTS !== '1') env.SKIP_LIVE_TESTS = '1';
+    const r = spawnSync(agyPath, args, {
+      cwd: this.#runnerOptions.coverageCwd ?? process.cwd(),
+      env,
+      encoding: 'utf8',
+      timeout: this.#runnerOptions.timeout ?? 600000,
+      killSignal: 'SIGKILL',
+      maxBuffer: 20 * 1024 * 1024,
+    });
+    if (r.error) throw r.error;
+    if (r.status !== 0) {
+      throw new Error(`strix-halo invocation exited ${r.status}: ${(r.stderr || '').slice(-500)}`);
+    }
+    const envelope = parseResponseEnvelope(r.stdout, { role: 'strix-halo', slug });
+    if (!envelope.ok) {
+      throw new Error(
+        `strix-halo envelope rejected: ${envelope.error}${envelope.finished_reason ? ` (${envelope.finished_reason})` : ''}`
+      );
+    }
+    const parsed = parseResponsePacket(envelope);
+    if (!parsed.ok) {
+      throw new Error(`strix-halo response is not a JSON packet: ${parsed.error}`);
+    }
+    return parsed.packet;
   }
 
   async invokeJaguar(slice, options = {}) {
@@ -650,7 +794,7 @@ export class MinimalSpine {
   }
 
   /** DONE is explicit candidate status, never automatic verified completion. */
-  async runMilestone(milestoneId) {
+  async runMilestone(milestoneId, options = {}) {
     this.#idle();
     const coverageCwd = this.#runnerOptions.coverageCwd ?? process.cwd();
     // Stage 1 (subagent redesign 2026-11-08, §2.4/§2.6): the packet carries
@@ -659,10 +803,30 @@ export class MinimalSpine {
     // are the salvage trigger's "delegation snapshot" and the Stage 2
     // test-integrity baseline; a repair re-delegation refreshes both.
     let contract = this.#ledger.delegate(milestoneId);
+    const classification = this.controller.classifyTrack({
+      task: contract.objective || this.#ledger.goal,
+      targetFiles: contract.bounded_scope,
+      milestoneCount: this.#ledger.milestones.length,
+      trackOverride: options.track ?? this.#track ?? this.#ledger.track ?? null,
+    });
+    const effectiveTrack = classification.track === 'L' ? 'S' : classification.track;
+    const requireHalo = options.requireHalo !== undefined
+      ? Boolean(options.requireHalo)
+      : effectiveTrack === 'M';
     const coverageProbes = Array.isArray(contract.coverage) ? contract.coverage : [];
     const enrichPacket = (packet) => {
       packet.scope_map = buildScopeMap(packet.bounded_scope, { cwd: coverageCwd });
       packet.coverage_sites = runCoverageProbes(coverageProbes, { cwd: coverageCwd });
+      packet.context_digest = buildContextDigest({
+        boundedScope: packet.bounded_scope,
+        cwd: coverageCwd,
+        acceptanceCriteria: packet.acceptance_criteria,
+      });
+      packet.harness = composeModelAwareHarness({
+        role: 'bulldozer',
+        track: effectiveTrack,
+        contextDigest: packet.context_digest,
+      });
       return packet;
     };
     enrichPacket(contract);
@@ -676,12 +840,15 @@ export class MinimalSpine {
         + 'mechanical text/config edits, Bobcat for bounded implementation and repair, '
         + 'and Strix Halo when formative implementation review is needed. '
         + 'Return architectural questions as NEEDS_DEEP through Steamroller. '
-        + (advisorGateEnabled()
+        + (advisorGateEnabled(process.env, { track: effectiveTrack })
           ? 'For Bobcat, set ADVISOR_GATE REQUIRED for substantive work or NONE only '
             + 'for low-risk mechanical work; Bobcat, Bulldozer, or Steamroller may invoke Strix Halo when required. '
           : 'The Strix Halo advisor gate is disabled for this run: do not require or wait for '
             + 'an advisor verdict; check implementation work through your own verification and '
             + 'the coverage table instead. ')
+        + (effectiveTrack === 'M'
+          ? 'Track M policy is active: a fresh bound Strix Halo ACCEPT review is mandatory before Zen summative verification. '
+          : '')
         + 'Puma and Jaguar have no subagents and Puma has no advisor ceremony. '
         + 'If a required specialist is unavailable, return BLOCKED, not a gate waiver. '
         + 'Inspect specialist results and actual evidence yourself. Worker READY and '
@@ -756,6 +923,7 @@ export class MinimalSpine {
       // run, so the repair budget is per milestone per run.
       const inRunNoGos = [];
       for (let attempt = 0; ; attempt += 1) {
+        this.#pendingHaloReviews.delete(milestoneId);
         const executeInstruction = attempt === 0 ? instruction : repairInstruction;
         let verifyResults = null;
         let treeDigest = null;
@@ -857,7 +1025,7 @@ export class MinimalSpine {
           throw new Error('Bulldozer cannot issue result references or Zen authority');
         }
         const { result_ref, candidate_record } = this.#ledger.receiveCandidate(candidate);
-        // The immutable candidate binding must be durable before Zen is invoked.
+        // The immutable candidate binding must be durable before Halo/Zen are invoked.
         this.#ledger.save(this.#path);
         const request = deepFreeze(deepClone({
           milestone_id: contract.milestone_id,
@@ -871,14 +1039,59 @@ export class MinimalSpine {
           ...(verifyResults ? { verify_results: verifyResults } : {}),
           ...(treeDigest ? { delivered_tree_digest: treeDigest } : {}),
         }));
-        const verdict = deepClone(await this.#step(
-          { tool: 'zen_review', args: { milestone_id: contract.milestone_id, plan_version: contract.plan_version, result_ref } },
-          () => this.#invokeZen(request)
-        ));
+        const pendingHalo = this.#pendingHaloReviews.get(milestoneId) ?? null;
+        this.#pendingHaloReviews.delete(milestoneId);
+        const preExistingHalo = candidate.halo_review
+          ?? (pendingHalo
+            ? {
+                ...pendingHalo,
+                caller: pendingHalo.caller ?? 'steamroller',
+                candidate_id_or_run_id:
+                  pendingHalo.candidate_id_or_run_id ??
+                  candidate_record.candidate_artifact_ref ??
+                  result_ref,
+                reviewed_diff_digest: pendingHalo.reviewed_diff_digest ?? treeDigest,
+                acceptance_criteria_digest:
+                  pendingHalo.acceptance_criteria_digest ??
+                  computeAcceptanceDigest(contract.acceptance_criteria ?? []),
+                plan_version: pendingHalo.plan_version ?? contract.plan_version,
+                evidence_basis:
+                  pendingHalo.evidence_basis ?? candidate_record.verification_evidence,
+              }
+            : null);
+        const trackVerification = await this.trackRunner.verifyTrackSMCandidate({
+          track: effectiveTrack,
+          milestoneId: contract.milestone_id,
+          candidate: candidate_record,
+          contract,
+          haloReview: preExistingHalo,
+          requireHalo,
+          caller: preExistingHalo?.caller ?? 'steamroller',
+          currentDiffDigest: treeDigest,
+          invokeHalo: req => this.#invokeHaloGate(req),
+          invokeZen: async (smRequest) => {
+            const reqWithHalo = smRequest?.halo_review && !request.halo_review
+              ? deepFreeze(deepClone({ ...request, halo_review: smRequest.halo_review }))
+              : request;
+            return deepClone(await this.#step(
+              { tool: 'zen_review', args: { milestone_id: contract.milestone_id, plan_version: contract.plan_version, result_ref } },
+              () => this.#invokeZen(reqWithHalo)
+            ));
+          },
+        });
+        const verdict = deepClone(trackVerification.zen_verdict);
         this.#applyZenVerdict(contract, result_ref, verdict);
         this.#ledger.save(this.#path);
         if (verdict.verdict === 'GO') {
-          return { status: 'DONE', result_ref, verdict, verified: true };
+          return {
+            status: 'DONE',
+            track: effectiveTrack,
+            halo_status: trackVerification.halo_status,
+            halo_review: trackVerification.halo_review,
+            result_ref,
+            verdict,
+            verified: true,
+          };
         }
         // Stage 2 fixed-rule DECIDE (§2.7): one automatic repair per milestone
         // per run; a second only when the new NO-GO signature differs; the
@@ -887,7 +1100,13 @@ export class MinimalSpine {
         const decision = decideRepairAction({ noGoRecords: inRunNoGos, repairsUsed: attempt });
         if (decision.action !== 'REPAIR') {
           return {
-            status: 'DONE', result_ref, verdict, verified: false,
+            status: 'DONE',
+            track: effectiveTrack,
+            halo_status: trackVerification.halo_status,
+            halo_review: trackVerification.halo_review,
+            result_ref,
+            verdict,
+            verified: false,
             question: repairStopQuestion(milestoneId, {
               repairsUsed: attempt, repeatedSignature: decision.repeatedSignature,
             }),

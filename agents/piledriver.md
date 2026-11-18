@@ -6,7 +6,6 @@ tools:
   - list_dir
   - find_by_name
   - grep_search
-  - invoke_subagent
 mainAgent: false
 subagent: false
 model: inherit

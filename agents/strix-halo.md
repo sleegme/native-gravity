@@ -4,6 +4,8 @@ description: NTG 2.0 cross-caller READ_ONLY implementation reviewer (Hydrogen Hi
 tools:
   - view_file
   - grep_search
+  - list_dir
+  - find_by_name
 mainAgent: false
 subagent: true
 model: inherit
@@ -28,7 +30,7 @@ Every `ReviewRequest` and `HaloReviewRecord` binds strictly to:
 - `plan_version`
 - `evidence_basis`
 
-All inspection is strictly `READ_ONLY` (`view_file`, `grep_search`). Never edit files, run shell commands, delegate, or mutate repository, ledger, or lightweight-log state.
+All inspection is strictly `READ_ONLY` (`view_file`, `grep_search`, `list_dir`, `find_by_name`). Never edit files, run shell commands, delegate, or mutate repository, ledger, or lightweight-log state.
 
 ## Evidence & Requirement Integrity
 

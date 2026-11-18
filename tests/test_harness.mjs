@@ -96,6 +96,12 @@ test("composeModelAwareHarness binds Layer 1 + Layer 2 + Layer 3 without expandi
   assert.deepEqual(envelope.layer2.authority.allowedDelegations, []);
   assert.equal(envelope.layer2.track, "L");
   assert.deepEqual(envelope.layer3, { delivered_diff_digest: "sha256:123" });
+
+  const jaguarDefault = composeModelAwareHarness({ role: "jaguar", track: "L" });
+  assert.equal(jaguarDefault.layer1.family, "Gemini 3.8 Flash");
+
+  const bobcatDefault = composeModelAwareHarness({ role: "bobcat", track: "S" });
+  assert.equal(bobcatDefault.layer1.family, "Gemini 4 Hydrogen");
 });
 
 test("buildContextDigest builds compact scope, symbol, failure, and digest metadata", () => {

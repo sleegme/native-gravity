@@ -122,7 +122,7 @@ test('planning stays advisory; native work and independent GO survive fresh resu
   assert.deepEqual(f.spine.state, before);
   await assert.rejects(f.spine.runMilestone('two'));
   assert.equal((await f.spine.runMilestone('one')).verified, true);
-  assert.deepEqual(f.calls, ['piledriver', 'bulldozer', 'bobcat', 'zen']);
+  assert.deepEqual(f.calls, ['piledriver', 'bulldozer', 'bobcat', 'strix-halo', 'zen']);
   assert.deepEqual(f.spine.state.completed_milestones, ['one']);
   assert.throws(() => f.spine.declareGlobalCompletion());
   const resumed = f.resume();
@@ -191,7 +191,7 @@ for (const delegations of [[], [{ role: 'bobcat' }, { role: 'jaguar' }],
       review: request => verdict(request),
     });
     assert.equal((await f.spine.runMilestone('one')).verified, true);
-    assert.deepEqual(f.calls, ['bulldozer', 'zen']);
+    assert.deepEqual(f.calls, ['bulldozer', 'strix-halo', 'zen']);
     assert.deepEqual(AuthoritativeLedger.load(f.ledgerPath).getState().completed_milestones, ['one']);
   });
 }
@@ -320,7 +320,7 @@ test('unwrapped candidate still needs an independent matching Zen GO', async t =
   assert.equal(result.verified, false);
   // Stage 2 bounded repair: the repeated identical NO-GO signature stops the
   // run with a plain question after exactly one automatic repair.
-  assert.deepEqual(f.calls, ['zen', 'zen']);
+  assert.deepEqual(f.calls, ['strix-halo', 'zen', 'strix-halo', 'zen']);
   assert.equal(typeof result.question, 'string');
   assert.ok(result.question.includes('one'));
   assert.deepEqual(spine.state.completed_milestones, []);
@@ -650,7 +650,7 @@ test('runner TIMEOUT is durable and the same milestone can be redelegated', asyn
   assert.deepEqual(recovered.completed_milestones, ['one']);
   assert.equal(recovered.verification.one.result_ref, result.result_ref);
   assert.deepEqual(recovered.evidence.one.failure_evidence, failed.evidence.one.failure_evidence);
-  assert.deepEqual(f.calls, ['bulldozer', 'bobcat', 'zen']);
+  assert.deepEqual(f.calls, ['bulldozer', 'bobcat', 'strix-halo', 'zen']);
 });
 
 test('pending review forbids concurrent work, replan, completion, and resumed retry', { timeout: 3000 }, async t => {
@@ -796,7 +796,7 @@ for (const patch of [
       },
     });
     assert.equal((await f.spine.runMilestone('one')).verified, true);
-    assert.deepEqual(f.calls, ['bulldozer', 'zen']);
+    assert.deepEqual(f.calls, ['bulldozer', 'strix-halo', 'zen']);
   });
 }
 
@@ -832,7 +832,7 @@ for (const patch of [
       },
     });
     assert.equal((await f.spine.runMilestone('one')).verified, true);
-    assert.deepEqual(f.calls, ['bulldozer', 'bulldozer', 'zen']);
+    assert.deepEqual(f.calls, ['bulldozer', 'bulldozer', 'strix-halo', 'zen']);
     assert.deepEqual(f.resume().state.completed_milestones, ['one']);
   });
 }
@@ -935,7 +935,8 @@ for (const role of ['jaguar', 'puma', 'bobcat', 'strix-halo']) {
     let response;
     let wrapped;
     const f = fixture(t, {
-      invokeSpecialist: async () => wrapped ? { ok: true, response } : response,
+      invokeSpecialist: async (_role, packet) =>
+        packet?.candidate_id_or_run_id ? { verdict: 'ACCEPT' } : (wrapped ? { ok: true, response } : response),
       output: async (contract, { spine, dir }) => {
         const options = { caller: role === 'strix-halo' ? 'bobcat' : 'bulldozer' };
         for (wrapped of [true, false]) {
@@ -984,6 +985,9 @@ test('specialists receive milestone packet slice and never ledger or global auth
   let capturedPacket;
   const f = fixture(t, {
     invokeSpecialist: async (role, packet) => {
+      if (role === 'strix-halo' && packet?.candidate_id_or_run_id) {
+        return { verdict: 'ACCEPT' };
+      }
       capturedPacket = packet;
       return { status: 'SUCCESS', received: true };
     },
@@ -1595,7 +1599,7 @@ test('coordinator transport death with in-scope changes triggers one packet-only
   const result = await spine.runMilestone('one');
   assert.equal(result.verified, true);
   assert.deepEqual(invokeRoleCalls.map(call => call.role), ['bulldozer', 'bulldozer']);
-  assert.deepEqual(f.calls, ['zen']);
+  assert.deepEqual(f.calls, ['strix-halo', 'zen']);
 });
 
 test('salvage failure records BLOCKED and keeps the produced work intact', async t => {
@@ -1685,34 +1689,69 @@ const testIntegrityPlan = () => ({
   }],
 });
 
-test('advisorGateEnabled: off unless NTG_STRIX opts in', () => {
-  assert.equal(advisorGateEnabled({}), false);
-  assert.equal(advisorGateEnabled({ NTG_STRIX: undefined }), false);
-  assert.equal(advisorGateEnabled({ NTG_STRIX: '' }), false);
-  assert.equal(advisorGateEnabled({ NTG_STRIX: 'off' }), false);
-  assert.equal(advisorGateEnabled({ NTG_STRIX: '0' }), false);
+test('advisorGateEnabled: enabled by default, mandatory on Track M/L, Track S opt-out via NTG_STRIX=0|off|false', () => {
+  assert.equal(advisorGateEnabled({}), true);
+  assert.equal(advisorGateEnabled({ NTG_STRIX: undefined }), true);
+  assert.equal(advisorGateEnabled({ NTG_STRIX: '' }), true);
   assert.equal(advisorGateEnabled({ NTG_STRIX: '1' }), true);
   assert.equal(advisorGateEnabled({ NTG_STRIX: 'on' }), true);
   assert.equal(advisorGateEnabled({ NTG_STRIX: 'TRUE' }), true);
+  assert.equal(advisorGateEnabled({ NTG_STRIX: 'off' }), false);
+  assert.equal(advisorGateEnabled({ NTG_STRIX: '0' }), false);
+  assert.equal(advisorGateEnabled({ NTG_STRIX: 'false' }), false);
+  assert.equal(advisorGateEnabled({ NTG_STRIX: '0' }, { track: 'M' }), true);
+  assert.equal(advisorGateEnabled({ NTG_STRIX: 'off' }, { track: 'L' }), true);
+  assert.equal(advisorGateEnabled({ NTG_STRIX: '0' }, { track: 'S' }), false);
 });
 
-test('Strix advisor gate is off by default; NTG_STRIX restores the ADVISOR_GATE instruction', async t => {
+test('Strix advisor gate is enabled by default; Track S allows opt-out via NTG_STRIX=0 while Track M enforces Halo', async t => {
   const tasks = [];
-  const f = fixture(t, { review: request => verdict(request) });
+  const trackSPlan = {
+    goal: 'Single bounded Track S edit',
+    constraints: [],
+    decision_invariants: [],
+    plan_version: 'v1',
+    track: 'S',
+    milestones: [{
+      id: 'one',
+      title: 'one',
+      objective: 'Deliver one',
+      bounded_scope: ['one.txt'],
+      acceptance_criteria: ['content matches milestone ID'],
+      non_goals: [],
+      dependencies: [],
+    }],
+  };
+  const f = fixture(t, { initialPlan: trackSPlan, review: request => verdict(request) });
   const spine = f.resume({
     invokeRole: async (role, packet, runnerOptions = {}) => {
       tasks.push(packet.task);
       return f.options.invokeRole(role, packet, runnerOptions);
     },
   });
-  assert.equal((await spine.runMilestone('one')).verified, true);
-  assert.ok(!tasks[0].includes('ADVISOR_GATE'));
-  assert.ok(tasks[0].includes('advisor gate is disabled for this run'));
-  process.env.NTG_STRIX = '1';
+  process.env.NTG_STRIX = '0';
   try {
-    assert.equal((await spine.runMilestone('two')).verified, true);
-    assert.ok(tasks[1].includes('set ADVISOR_GATE REQUIRED for substantive work'));
-    assert.ok(!tasks[1].includes('advisor gate is disabled'));
+    assert.equal((await spine.runMilestone('one')).verified, true);
+    assert.ok(!tasks[0].includes('ADVISOR_GATE'));
+    assert.ok(tasks[0].includes('advisor gate is disabled for this run'));
+  } finally {
+    delete process.env.NTG_STRIX;
+  }
+
+  const tasksM = [];
+  const fM = fixture(t, { review: request => verdict(request) });
+  const spineM = fM.resume({
+    invokeRole: async (role, packet, runnerOptions = {}) => {
+      tasksM.push(packet.task);
+      return fM.options.invokeRole(role, packet, runnerOptions);
+    },
+  });
+  process.env.NTG_STRIX = '0';
+  try {
+    assert.equal((await spineM.runMilestone('one')).verified, true);
+    assert.ok(tasksM[0].includes('set ADVISOR_GATE REQUIRED for substantive work'));
+    assert.ok(tasksM[0].includes('Track M policy is active'));
+    assert.ok(!tasksM[0].includes('advisor gate is disabled'));
   } finally {
     delete process.env.NTG_STRIX;
   }
@@ -1867,7 +1906,7 @@ test('bounded repair: the same NO-GO signature twice stops with a plain question
   assert.equal(contracts[1].repair.attempt, 1);
   assert.equal(typeof contracts[1].repair.prior_result_ref, 'string');
   assert.ok(tasks[1].includes('targeted repair'));
-  assert.deepEqual(f.calls, ['bulldozer', 'zen', 'bulldozer', 'zen']);
+  assert.deepEqual(f.calls, ['bulldozer', 'strix-halo', 'zen', 'bulldozer', 'strix-halo', 'zen']);
   assert.equal(spine.state.verification.one.verdict, 'NO-GO');
   assert.deepEqual(spine.state.completed_milestones, []);
   const history = spine.state._verification_history.filter(v => v.verdict === 'NO-GO');
@@ -2105,7 +2144,12 @@ test('TrackRunner: Track L Halo binding, staleness rejection, high-risk Zen esca
     invokeZen: async (req) => {
       zenEscalated += 1;
       assert.equal(req.escalated_for_high_risk, true);
-      return { verdict: 'GO' };
+      return {
+        verdict: 'GO',
+        verification_evidence: [
+          { classification: 'OBSERVED', criterion: 'readme present', result: 'verified readme.txt' },
+        ],
+      };
     },
   });
   const escRes = await escalatedRunner.runTrackL({
@@ -2116,7 +2160,13 @@ test('TrackRunner: Track L Halo binding, staleness rejection, high-risk Zen esca
     highRiskEscalation: true,
   });
   assert.equal(escRes.zen_status, 'ESCALATED');
+  assert.equal(escRes.assurance_badge, 'ZEN_DURABLE');
+  assert.equal(escRes.record.assurance_badge, 'ZEN_DURABLE');
+  assert.equal(new LightweightLog(logPath).getByRunId('run-l-high-risk')?.assurance_badge, 'ZEN_DURABLE');
   assert.equal(zenEscalated, 1);
+  const durableDisk = AuthoritativeLedger.load(join(dir, '.ntg', 'ledger.json')).getState();
+  assert.deepEqual(durableDisk.completed_milestones, ['run-l-high-risk']);
+  assert.equal(durableDisk.verification['run-l-high-risk'].verdict, 'GO');
 
   // Track M requires Halo ACCEPT + Zen GO, never Halo alone
   const contract = ledger.delegate('m-sm');
@@ -2237,4 +2287,26 @@ test('SteamrollerController.recoverMilestone: Bulldozer (Hydrogen XHigh) + on-de
     }),
     /Recovery safety cap \(3\) exceeded/
   );
+});
+
+test('Track M runMilestone rejects candidate before Zen when Strix Halo returns REVISE', async t => {
+  const f = fixture(t, {
+    invokeSpecialist: async (role) => {
+      f.calls.push(role);
+      if (role === 'strix-halo') {
+        return { verdict: 'REVISE', findings: ['Missing edge-case validation'] };
+      }
+      return { status: 'READY' };
+    },
+  });
+
+  await assert.rejects(
+    f.spine.runMilestone('one', { track: 'M' }),
+    /Halo review for 'one' rejected.*REVISE/
+  );
+  assert.deepEqual(f.calls, ['bulldozer', 'bobcat', 'strix-halo']);
+  assert.ok(!f.calls.includes('zen'), 'Zen must not be invoked when Track M Halo rejects');
+  const disk = AuthoritativeLedger.load(f.ledgerPath).getState();
+  assert.deepEqual(disk.completed_milestones, []);
+  assert.equal(disk.current_milestone, null);
 });

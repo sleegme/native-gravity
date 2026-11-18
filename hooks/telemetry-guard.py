@@ -19,6 +19,7 @@ post-failure/post-edit retry).
 import hashlib
 import json
 import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -74,15 +75,46 @@ def call_signature(tool_name: str, args: Any) -> str:
 
 def load_session_state(state_path: Path) -> dict[str, Any]:
     try:
-        return json.loads(state_path.read_text(encoding="utf-8"))
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state.setdefault("last_workspace_fingerprint", None)
+        state.setdefault("last_tool", None)
+        return state
     except (OSError, ValueError):
         return {
             "total_calls": 0,
             "last_signature": None,
+            "last_tool": None,
+            "last_workspace_fingerprint": None,
             "consecutive_identical_calls": 0,
             "stagnant_identical_streak": 0,
             "recent_signatures": [],
         }
+
+
+def compute_workspace_fingerprint(cwd: Path) -> Optional[str]:
+    try:
+        status_proc = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=str(cwd),
+            text=True,
+            capture_output=True,
+            timeout=2,
+        )
+        if status_proc.returncode != 0:
+            return None
+        diff_proc = subprocess.run(
+            ["git", "diff", "--numstat"],
+            cwd=str(cwd),
+            text=True,
+            capture_output=True,
+            timeout=2,
+        )
+        if diff_proc.returncode != 0:
+            return None
+        combined = f"{status_proc.stdout}\n---\n{diff_proc.stdout}"
+        return hashlib.sha256(combined.encode("utf-8")).hexdigest()
+    except (OSError, subprocess.TimeoutExpired):
+        return None
 
 
 def save_session_state(state_path: Path, state: dict[str, Any]) -> None:
@@ -98,7 +130,13 @@ def append_telemetry(log_path: Path, record: dict[str, Any]) -> None:
         handle.write(json.dumps(record, sort_keys=True) + "\n")
 
 
-def extract_observation_signals(payload: dict[str, Any], state: dict[str, Any], signature: str, tool_name: str) -> dict[str, Any]:
+def extract_observation_signals(
+    payload: dict[str, Any],
+    state: dict[str, Any],
+    signature: str,
+    tool_name: str,
+    current_fingerprint: Optional[str] = None,
+) -> dict[str, Any]:
     obs = payload.get("telemetry") if isinstance(payload.get("telemetry"), dict) else {}
 
     same_signature = state.get("last_signature") == signature
@@ -113,8 +151,11 @@ def extract_observation_signals(payload: dict[str, Any], state: dict[str, Any], 
         output_novelty = not same_signature
 
     # Signal 2: OBSERVED workspace state change (or mutating/stateful tool boundary)
+    prev_fp = state.get("last_workspace_fingerprint")
     if "workspace_state_changed" in obs:
         workspace_state_changed = bool(obs["workspace_state_changed"])
+    elif current_fingerprint is not None and prev_fp is not None and current_fingerprint != prev_fp:
+        workspace_state_changed = True
     else:
         workspace_state_changed = tool_name in EDIT_OR_STATE_TOOLS and not same_signature
 
@@ -128,7 +169,15 @@ def extract_observation_signals(payload: dict[str, Any], state: dict[str, Any], 
     if "post_failure_or_edit_retry" in obs:
         post_failure_or_edit_retry = bool(obs["post_failure_or_edit_retry"])
     else:
-        post_failure_or_edit_retry = bool(payload.get("error") or obs.get("after_failure") or obs.get("after_edit"))
+        post_failure_or_edit_retry = bool(
+            payload.get("error")
+            or obs.get("after_failure")
+            or obs.get("after_edit")
+            or (
+                state.get("last_tool") in EDIT_OR_STATE_TOOLS
+                and state.get("consecutive_identical_calls", 0) <= 2
+            )
+        )
 
     return {
         "output_novelty": output_novelty,
@@ -168,11 +217,17 @@ def evaluate(payload: Any, env: Optional[dict[str, str]] = None, session_start: 
     state_path = resolve_state_path(log_path, conversation_id, env=active_env)
     state = load_session_state(state_path)
 
+    cwd_val = payload.get("cwd") if isinstance(payload, dict) else None
+    cwd_path = Path(cwd_val) if isinstance(cwd_val, str) and cwd_val else Path.cwd()
+    current_fingerprint = compute_workspace_fingerprint(cwd_path)
+
     state["total_calls"] = int(state.get("total_calls", 0)) + 1
     same_as_last = state.get("last_signature") == signature
     state["consecutive_identical_calls"] = int(state.get("consecutive_identical_calls", 0)) + 1 if same_as_last else 1
 
-    signals = extract_observation_signals(payload, state, signature, tool_name)
+    signals = extract_observation_signals(
+        payload, state, signature, tool_name, current_fingerprint=current_fingerprint
+    )
     non_progressing_identical = (
         same_as_last
         and not signals["output_novelty"]
@@ -186,13 +241,23 @@ def evaluate(payload: Any, env: Optional[dict[str, str]] = None, session_start: 
         state["stagnant_identical_streak"] = 0
 
     state["last_signature"] = signature
+    state["last_tool"] = tool_name
+    state["last_workspace_fingerprint"] = current_fingerprint
     recent = list(state.get("recent_signatures", []))
     recent.append(signature)
     state["recent_signatures"] = recent[-20:]
     save_session_state(state_path, state)
 
     # Confirm non-progressing wasteful looping only after repeated stagnant identical observations
-    confirmed_wasteful_loop = non_progressing_identical and state["stagnant_identical_streak"] >= 2
+    has_explicit_telemetry = isinstance(payload.get("telemetry"), dict)
+    if has_explicit_telemetry:
+        confirmed_wasteful_loop = non_progressing_identical and state["stagnant_identical_streak"] >= 2
+    else:
+        confirmed_wasteful_loop = (
+            non_progressing_identical
+            and state["stagnant_identical_streak"] >= 3
+            and not signals["workspace_state_changed"]
+        )
 
     record = {
         "event": "tool_observation",

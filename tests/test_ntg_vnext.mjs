@@ -13,6 +13,7 @@ import { symlinkSync } from 'node:fs';
 
 const CLI = new URL('../scripts/ntg-vnext.mjs', import.meta.url).pathname;
 import { parseResponseEnvelope, parseResponsePacket } from '../scripts/runner.mjs';
+import { LightweightLog } from '../src/core/lightweight-log.mjs';
 
 const observed = [{ classification: 'OBSERVED', criterion: 'content matches', result: 'inspected' }];
 const plan = (version = 'v1', ids = ['one', 'two']) => ({
@@ -39,6 +40,7 @@ function harness(t, { zen = () => 'GO' } = {}) {
       timeouts.push(runnerOptions.timeout);
       escalations.push(runnerOptions.escalate === true);
       if (role === 'piledriver') return envelope({ recommendation: 'advisory only' });
+      if (role === 'strix-halo') return envelope({ verdict: 'ACCEPT', findings: [] });
       const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
       contracts.push(contract);
       if (role === 'instinct') {
@@ -76,7 +78,7 @@ test('run --all promotes milestones in dependency order and declares completion 
   await h.cli('init', '--plan', h.write('plan.json', plan()));
   const { code, out } = await h.cli('run', '--all');
   assert.equal(code, 0);
-  assert.deepEqual(h.calls, ['bulldozer', 'zen:one', 'bulldozer', 'zen:two']);
+  assert.deepEqual(h.calls, ['bulldozer', 'strix-halo', 'zen:one', 'bulldozer', 'strix-halo', 'zen:two']);
   assert.deepEqual(out.state.completed_milestones, ['one', 'two']);
   assert.ok(out.global_completion);
 });
@@ -1385,4 +1387,91 @@ test('tactical-replan bumps plan_version and marks prior Zen GO verdicts STALE',
   assert.equal(disk.verification.one.is_stale, true);
   assert.equal(disk.verification.one.plan_version, 'v1');
   assert.equal(disk._verification_history.some(v => v.is_stale === true && v.plan_version === 'v1'), true);
+});
+
+test('run --track L executes via SteamrollerController and records HALO_LIGHTWEIGHT without durable ledger', async t => {
+  const h = harness(t);
+  const { code, out } = await h.cli('run', '--track', 'L', '--task', 'Fix README typo');
+  assert.equal(code, 0);
+  assert.equal(out.track, 'L');
+  assert.equal(out.assurance_badge, 'HALO_LIGHTWEIGHT');
+  assert.ok(h.calls.includes('strix-halo'));
+  assert.equal(h.calls.some(c => c.startsWith('zen:')), false);
+  assert.equal(existsSync(h.ledger), false);
+  const log = new LightweightLog(join(dirname(h.ledger), 'lightweight-runs.jsonl'));
+  const entries = log.readAll();
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].assurance_badge, 'HALO_LIGHTWEIGHT');
+});
+
+test('run --track L --escalate verifies with Zen and persists ZEN_DURABLE to lightweight log and ledger', async t => {
+  const h = harness(t);
+  const { code, out } = await h.cli('run', '--track', 'L', '--task', 'Sensitive security fix', '--escalate');
+  assert.equal(code, 0);
+  assert.equal(out.track, 'L');
+  assert.equal(out.assurance_badge, 'ZEN_DURABLE');
+  assert.ok(h.calls.includes('strix-halo'));
+  const zenCall = h.calls.find(c => c.startsWith('zen:'));
+  assert.ok(zenCall);
+  const runId = zenCall.slice('zen:'.length);
+  const log = new LightweightLog(join(dirname(h.ledger), 'lightweight-runs.jsonl'));
+  const entries = log.readAll();
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].assurance_badge, 'ZEN_DURABLE');
+  assert.equal(entries[0].escalated_to_ledger?.zen_verdict, 'GO');
+  assert.equal(existsSync(h.ledger), true);
+  const disk = AuthoritativeLedger.load(h.ledger).getState();
+  assert.ok(disk.completed_milestones.includes(runId));
+  assert.equal(disk.verification[runId]?.verdict, 'GO');
+});
+
+test('run --track S sets Track S policy, omits strix-halo by default, and requires Zen GO', async t => {
+  const h = harness(t);
+  await h.cli('init', '--plan', h.write('plan.json', plan('v1', ['one'])));
+  const { code, out } = await h.cli('run', '--track', 'S');
+  assert.equal(code, 0);
+  assert.equal(out.track, 'S');
+  assert.equal(out.assurance_badge, 'ZEN_DURABLE');
+  assert.equal(out.halo_status, 'OMITTED');
+  assert.deepEqual(h.calls, ['bulldozer', 'zen:one']);
+  assert.deepEqual(out.state.completed_milestones, ['one']);
+});
+
+test('run --track M enforces mandatory strix-halo before Zen and rejects on Halo REVISE', async t => {
+  const h = harness(t);
+  await h.cli('init', '--plan', h.write('plan.json', plan('v1', ['one'])));
+  const { code, out } = await h.cli('run', '--track', 'M');
+  assert.equal(code, 0);
+  assert.equal(out.track, 'M');
+  assert.equal(out.assurance_badge, 'ZEN_DURABLE');
+  assert.deepEqual(h.calls, ['bulldozer', 'strix-halo', 'zen:one']);
+
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-vnext-revise-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const ledger = join(dir, 'ledger.json');
+  const planPath = join(dir, 'plan.json');
+  writeFileSync(planPath, JSON.stringify(plan('v1', ['one'])));
+  let zenCalls = 0;
+  const reviseDeps = {
+    handleSignals: false,
+    invokeRole: async (role, packet) => {
+      if (role === 'strix-halo') return envelope({ verdict: 'REVISE', findings: ['defect'] });
+      const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+      return envelope({
+        milestone_id: contract.milestone_id, plan_version: contract.plan_version, status: 'DONE',
+        changes_made: contract.bounded_scope, verification_evidence: observed, unresolved_unknowns: [],
+        scope_deviations: [], candidate_artifact_ref: `sha256:${contract.milestone_id}`,
+      });
+    },
+    invokeZen: async () => {
+      zenCalls += 1;
+      throw new Error('Zen should not be called when Halo REVISE rejects');
+    },
+  };
+  await main(['init', '--ledger', ledger, '--plan', planPath], reviseDeps);
+  await assert.rejects(
+    () => main(['run', '--ledger', ledger, '--track', 'M'], reviseDeps),
+    /REVISE|halo|defect/i,
+  );
+  assert.equal(zenCalls, 0);
 });

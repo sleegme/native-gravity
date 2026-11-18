@@ -55,3 +55,22 @@ for (const file of agentFiles) {
     assert.equal(name[1].trim(), file.replace(/\.md$/, ""));
   });
 }
+
+test("piledriver and strix-halo frontmatter tool boundaries match NTG 2.0 spec", () => {
+  const parseTools = (file) => {
+    const text = readFileSync(new URL(file, AGENTS_DIR), "utf8");
+    const fm = frontmatterLines(text).join("\n");
+    const m = fm.match(/^tools:\n((?:  - .+\n)+)/m);
+    assert.ok(m, `${file} must declare tools`);
+    return m[1].trim().split("\n").map(l => l.trim().slice(2));
+  };
+
+  const piledriverTools = parseTools("piledriver.md");
+  assert.ok(!piledriverTools.includes("invoke_subagent"), "piledriver must not have invoke_subagent");
+  assert.ok(!piledriverTools.includes("run_command"), "piledriver must not have run_command");
+
+  const strixTools = parseTools("strix-halo.md");
+  for (const required of ["view_file", "grep_search", "list_dir", "find_by_name"]) {
+    assert.ok(strixTools.includes(required), `strix-halo must include ${required}`);
+  }
+});

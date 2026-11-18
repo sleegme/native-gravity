@@ -111,6 +111,65 @@ class ObservationFirstTelemetryTests(unittest.TestCase):
             self.assertEqual(res3["decision"], "deny")
             self.assertIn("non-progressing identical loop", res3["reason"])
 
+    def test_ambient_pretooluse_resets_stagnation_on_edit_or_workspace_change(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "init"], cwd=str(repo), check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=str(repo), check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=str(repo), check=True, capture_output=True)
+            target = repo / "app.mjs"
+            target.write_text("export const x = 1;\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.mjs"], cwd=str(repo), check=True, capture_output=True)
+            subprocess.run(["git", "commit", "-m", "init"], cwd=str(repo), check=True, capture_output=True)
+
+            log_path = Path(tmp) / "telemetry.jsonl"
+            state_dir = Path(tmp) / "state"
+            env = {
+                "NTG_SUPERVISOR_PID": "12345",
+                "NTG_ACTIVE_ROLE": "bobcat",
+                "NTG_TELEMETRY_LOG": str(log_path),
+                "NTG_TELEMETRY_STATE_DIR": str(state_dir),
+            }
+            status_payload = {
+                "conversationId": "conv-ambient",
+                "cwd": str(repo),
+                "toolCall": {"name": "run_command", "args": {"CommandLine": "git status --short"}},
+            }
+            write_payload = {
+                "conversationId": "conv-ambient",
+                "cwd": str(repo),
+                "toolCall": {"name": "write_file", "args": {"Path": str(target)}},
+            }
+
+            self.assertEqual(run_telemetry(status_payload, env)["decision"], "allow")
+            self.assertEqual(run_telemetry(status_payload, env)["decision"], "allow")
+            self.assertEqual(run_telemetry(status_payload, env)["decision"], "allow")
+
+            # Intervening edit tool resets stagnation and allows subsequent identical test/status runs
+            self.assertEqual(run_telemetry(write_payload, env)["decision"], "allow")
+            self.assertEqual(run_telemetry(status_payload, env)["decision"], "allow")
+            self.assertEqual(run_telemetry(status_payload, env)["decision"], "allow")
+
+            # Actual workspace file change resets stagnation even on further identical status calls
+            target.write_text("export const x = 2;\n", encoding="utf-8")
+            self.assertEqual(run_telemetry(status_payload, env)["decision"], "allow")
+            target.write_text("export const x = 3;\nexport const y = 4;\n", encoding="utf-8")
+            self.assertEqual(run_telemetry(status_payload, env)["decision"], "allow")
+            target.write_text("export const x = 4;\nexport const y = 5;\nexport const z = 6;\n", encoding="utf-8")
+            self.assertEqual(run_telemetry(status_payload, env)["decision"], "allow")
+
+            # Ambient identical read calls with no state change deny only at streak >= 3 (4th call)
+            read_payload = {
+                "conversationId": "conv-ambient-read",
+                "cwd": str(repo),
+                "toolCall": {"name": "view_file", "args": {"Path": str(target)}},
+            }
+            self.assertEqual(run_telemetry(read_payload, env)["decision"], "allow")
+            self.assertEqual(run_telemetry(read_payload, env)["decision"], "allow")
+            self.assertEqual(run_telemetry(read_payload, env)["decision"], "allow")
+            self.assertEqual(run_telemetry(read_payload, env)["decision"], "deny")
+
     def test_hooks_json_drops_budget_guard_and_registers_telemetry_guard(self):
         config = json.loads((ROOT / "hooks.json").read_text())
         self.assertNotIn("role-budget-boundary", config)

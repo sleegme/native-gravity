@@ -1,7 +1,0 @@
-{"type":"transition_applied","payload":{"type":"transition_applied","status":"running","residency_state":"resident"}}
-{"type":"child_error","payload":{"message":"Codex error: The usage limit has been reached","stop_reason":"error"}}
-{"type":"retry_fallback_applied","payload":{"from":"openai-codex/gpt-6-astra","to":"openai-codex/gpt-5.6-sol","chain_key":"openai-codex/gpt-6-astra","reason":"hard-error"}}
-{"type":"child_error","payload":{"message":"Codex error: The usage limit has been reached","stop_reason":"error"}}
-{"type":"transition_applied","payload":{"type":"transition_applied","status":"error","residency_state":"resident"}}
-{"type":"transition_applied","payload":{"type":"transition_applied","status":"error","residency_state":"evicted"}}
-{"type":"evicted","payload":{"cause":"evict"}}

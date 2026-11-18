@@ -1,4 +1,4 @@
-import { normalizeRoleName, ROLE_AUTHORITY_TABLE } from "../core/model-router.mjs";
+import { normalizeRoleName, ROLE_AUTHORITY_TABLE, ROLE_POLICY_TABLE } from "../core/model-router.mjs";
 import { buildLayer1Calibration } from "./model-calibration.mjs";
 
 export const HALO_CALLERS = Object.freeze(["steamroller", "bulldozer", "bobcat"]);
@@ -137,7 +137,8 @@ export function composeModelAwareHarness({ role, modelSlug, contextDigest = null
   if (!authority || !directive) {
     throw new Error(`Unknown harness role '${role}'`);
   }
-  const layer1 = buildLayer1Calibration(modelSlug || authority.harnessTier);
+  const policy = ROLE_POLICY_TABLE[normalized];
+  const layer1 = buildLayer1Calibration(modelSlug || policy?.family || authority.harnessTier);
   return Object.freeze({
     layer1,
     layer2: Object.freeze({

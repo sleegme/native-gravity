@@ -62,6 +62,7 @@ class UniversalSafetyGuardTests(unittest.TestCase):
                 "cat plugin.json",
                 "sudo systemctl status example-service",
                 "npm test",
+                "rm /tmp/foo/hooks/bar.txt",
             ]:
                 with self.subTest(role=role, command=command):
                     self.assertEqual(run_guard(cmd_call(command), env=env)["decision"], "allow")
@@ -73,11 +74,18 @@ class UniversalSafetyGuardTests(unittest.TestCase):
                 ("write_file", "Path"),
                 ("edit_file", "Path"),
             ]:
-                with self.subTest(role=role, tool=tool_name):
-                    self.assertEqual(
-                        run_guard(file_call(tool_name, key, "src/core/example.mjs"), env=env)["decision"],
-                        "allow",
-                    )
+                for allowed_path in (
+                    "src/core/example.mjs",
+                    "src/hooks/useAuth.ts",
+                    "packages/ui/hooks/index.ts",
+                    "/tmp/test/plugin.json",
+                    "/tmp/foo/hooks/bar.txt",
+                ):
+                    with self.subTest(role=role, tool=tool_name, path=allowed_path):
+                        self.assertEqual(
+                            run_guard(file_call(tool_name, key, allowed_path), env=env)["decision"],
+                            "allow",
+                        )
 
     def test_protected_paths_blocked_across_file_mutation_tools(self):
         protected_targets = [
@@ -124,6 +132,10 @@ class UniversalSafetyGuardTests(unittest.TestCase):
             "NTG_EXCAVATOR=1 rm .ntg/ledger.json",
             "NTG_LEDGER_INTERNAL=1 echo '{}' > .ntg/ledger.json",
             "git checkout -- hooks.json",
+            "python3 -c \"open('plug'+'in.json','w').write('{}')\"",
+            "find .ntg -name '*.json' -delete",
+            "tar -xf /tmp/evil.tar .ntg/ledger.json",
+            "git stash push .ntg/ledger.json",
         ]
         for command in shell_mutations:
             with self.subTest(command=command):
@@ -155,8 +167,12 @@ class UniversalSafetyGuardTests(unittest.TestCase):
             "pkexec cat /etc/shadow",
             "ssh root@localhost id",
             "ssh root@127.0.0.1 whoami",
+            "ssh -l root localhost",
+            "ssh root@127.0.0.2",
+            "doas id",
             "cat ~/.bash_history",
             "grep pass ~/.zsh_history",
+            "base64 ~/.bash_history",
             "apt-get full-upgrade -y",
             "pacman -Syu",
             "dnf system-upgrade",
@@ -169,6 +185,7 @@ class UniversalSafetyGuardTests(unittest.TestCase):
             "export NTG_ACTIVE_ROLE=bobcat",
             "unset NTG_ACTIVE_ROLE",
             "env -u NTG_SUPERVISOR_PID node test.mjs",
+            "env -i PATH=/usr/bin:/bin bash -c 'echo hi'",
             "NTG_SUPERVISOR_PID=1 node test.mjs",
             "SKIP_LIVE_TESTS=0 node --test tests/test_ledger.mjs",
             "unset SKIP_LIVE_TESTS",

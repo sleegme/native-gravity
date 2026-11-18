@@ -2,3 +2,7 @@
 __pycache__/
 navi-windows-*.schemas.local.json
 *.diagnostics.local.json
+node_modules/
+.omo/
+.commandcode/
+.ntg/

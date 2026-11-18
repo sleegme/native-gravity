@@ -54,6 +54,7 @@ SHELLS = {"bash", "dash", "fish", "ksh", "sh", "zsh"}
 HISTORY_TOOLS = {"awk", "cat", "grep", "head", "less", "more", "rg", "sed", "tail"}
 HISTORY_NAMES = (".bash_history", ".zsh_history")
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]", "[::1"}
+LOOPBACK_IP_RE = re.compile(r"^127\.\d+\.\d+\.\d+$")
 
 PROTECTED_EXACT_NAMES = frozenset({"hooks.json", "plugin.json"})
 PROTECTED_NTG_FILES = frozenset({
@@ -68,21 +69,24 @@ PROTECTED_BASENAMES = frozenset({
     "hooks.json",
     "plugin.json",
 })
+NON_PROTECTED_PARENTS = frozenset({"tmp", "test", "tests", "fixtures"})
+HOOKS_EXCLUDED_PARENTS = frozenset({
+    "src", "packages", "node_modules", ".git", "tmp", "test", "tests", "fixtures",
+})
 PROTECTED_REGEX = re.compile(
-    r"(?:^|[\s'\"=/\\])(?:\./)?"
-    r"(?:[A-Za-z0-9_.\-]+/)*("
-    r"\.ntg/ledger\.json(?:\.lock)?"
-    r"|\.ntg/lightweight-runs\.jsonl"
+    r"(?:^|[\s'\"=/\\:(,])((?:\./|/|\\|[A-Za-z0-9_.\-]+[/\\])*(?:"
+    r"\.ntg(?:/[A-Za-z0-9_.\-*/]*)?"
     r"|hooks\.json"
     r"|plugin\.json"
-    r"|hooks/[A-Za-z0-9_.\-*/]+"
+    r"|hooks/[A-Za-z0-9_.\-*]*\.py"
     r"|hooks/?"
-    r")(?=$|[\s'\",:;)])"
+    r"))(?=$|[\s'\",:;)])"
 )
 
 MUTATING_SHELL_COMMANDS = frozenset({
     "rm", "rmdir", "unlink", "mv", "cp", "dd", "truncate", "touch",
     "chmod", "chown", "chgrp", "ln", "install", "tee", "patch",
+    "tar", "rsync", "unzip",
 })
 INLINE_EXEC_COMMANDS = frozenset({"python", "python3", "node", "perl", "ruby", "eval"})
 INLINE_MUTATION_HINT = re.compile(
@@ -140,6 +144,14 @@ def normalize_rel_path(raw_path: str) -> str:
     return posixpath.normpath(cleaned)
 
 
+def _is_temp_or_test_parent(parent_parts: list[str]) -> bool:
+    if any(p in NON_PROTECTED_PARENTS for p in parent_parts):
+        return True
+    if "tmp" in parent_parts and any(p.startswith("ntg-") for p in parent_parts):
+        return True
+    return False
+
+
 def is_protected_path(raw_path: str) -> bool:
     if not isinstance(raw_path, str) or not raw_path.strip():
         return False
@@ -152,17 +164,23 @@ def is_protected_path(raw_path: str) -> bool:
     for suffix in PROTECTED_NTG_FILES:
         if norm == suffix or norm.endswith("/" + suffix):
             return True
-    if norm in PROTECTED_EXACT_NAMES or parts[-1] in PROTECTED_EXACT_NAMES:
+    if norm == ".ntg" or norm.endswith("/.ntg") or parts[-1] == ".ntg":
         return True
     if parts[-1] in {"ledger.json", "ledger.json.lock", "lightweight-runs.jsonl"} and (
         len(parts) == 1 or parts[-2] == ".ntg"
     ):
         return True
-    # Any path inside a `hooks` directory (e.g. hooks/*.py, hooks/__init__.py)
-    if "hooks" in parts[:-1]:
+    if norm in PROTECTED_EXACT_NAMES or parts[-1] in PROTECTED_EXACT_NAMES:
+        if not _is_temp_or_test_parent(parts[:-1]):
+            return True
+    # Narrow `hooks` protection to root `hooks` dir and `hooks/*.py`
+    if norm == "hooks":
         return True
-    if parts[-1] == "hooks" and len(parts) >= 1:
+    if parts[-1] == "hooks" and not any(p in HOOKS_EXCLUDED_PARENTS for p in parts[:-1]):
         return True
+    if len(parts) >= 2 and parts[-2] == "hooks" and parts[-1].endswith(".py"):
+        if not any(p in HOOKS_EXCLUDED_PARENTS for p in parts[:-2]):
+            return True
     return False
 
 
@@ -204,9 +222,18 @@ def check_env_spoofing(command: str, words: list[str]) -> Optional[str]:
             j = i + 1
             while j < len(words):
                 opt = words[j]
+                if opt == "--":
+                    break
+                if opt in {"-i", "-", "--ignore-environment"} or (
+                    opt.startswith("-") and not opt.startswith("--") and "i" in opt[1:]
+                ):
+                    return SPOOF_REASON
                 if opt in {"-u", "--unset"} and j + 1 < len(words):
                     if words[j + 1] in PROTECTED_ENV_VARS or words[j + 1] == "SKIP_LIVE_TESTS":
                         return SPOOF_REASON
+                    j += 2
+                    continue
+                if opt in {"-C", "--chdir"} and j + 1 < len(words):
                     j += 2
                     continue
                 if opt.startswith("--unset="):
@@ -217,6 +244,8 @@ def check_env_spoofing(command: str, words: list[str]) -> Optional[str]:
                     target = opt[2:]
                     if target in PROTECTED_ENV_VARS or target == "SKIP_LIVE_TESTS":
                         return SPOOF_REASON
+                if not opt.startswith("-") and not ASSIGNMENT.match(opt):
+                    break
                 j += 1
     return None
 
@@ -282,12 +311,53 @@ def split_sudo(args: list[str]) -> tuple[bool, list[str]]:
     return stdin_password, args[index:]
 
 
+def _is_local_host(host: str) -> bool:
+    h = host.strip().lower()
+    return h in LOCAL_HOSTS or bool(LOOPBACK_IP_RE.match(h))
+
+
 def is_root_local_ssh(args: list[str]) -> bool:
-    for arg in args:
-        user, at, host = arg.lower().partition("@")
-        if at and user == "root" and host in LOCAL_HOSTS:
-            return True
-    return False
+    has_root_user_flag = False
+    hosts: list[str] = []
+    ssh_value_flags = set("bcDEeFIiJLlmOopQRSWw")
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        lower = arg.lower()
+        if arg == "-l" and i + 1 < len(args):
+            if args[i + 1].strip().lower() == "root":
+                has_root_user_flag = True
+            i += 2
+            continue
+        if lower.startswith("-l") and len(arg) > 2:
+            if lower[2:] == "root":
+                has_root_user_flag = True
+            i += 1
+            continue
+        if arg == "-o" and i + 1 < len(args):
+            if args[i + 1].strip().lower().replace(" ", "") == "user=root":
+                has_root_user_flag = True
+            i += 2
+            continue
+        if lower.startswith("-o") and len(arg) > 2:
+            if lower[2:].lstrip("=").strip().replace(" ", "") == "user=root":
+                has_root_user_flag = True
+            i += 1
+            continue
+        if arg.startswith("-") and len(arg) == 2 and arg[1] in ssh_value_flags and i + 1 < len(args):
+            i += 2
+            continue
+        if arg.startswith("-"):
+            i += 1
+            continue
+        user, at, host = lower.partition("@")
+        if at:
+            if user == "root" and _is_local_host(host):
+                return True
+        else:
+            hosts.append(lower)
+        i += 1
+    return has_root_user_flag and any(_is_local_host(h) for h in hosts)
 
 
 def reads_history(name: str, args: list[str]) -> bool:
@@ -356,8 +426,9 @@ def words_touch_protected_path(args: list[str]) -> bool:
     for arg in args:
         if is_protected_path(arg):
             return True
-        if PROTECTED_REGEX.search(arg):
-            return True
+        for match in PROTECTED_REGEX.finditer(arg):
+            if is_protected_path(match.group(1)):
+                return True
     return False
 
 
@@ -387,13 +458,20 @@ def is_destructive_command(name: str, args: list[str]) -> bool:
 def check_redirect_to_protected_path(text: str) -> bool:
     for match in re.finditer(r"(?:>>?|>\||2>>?)\s*([^\s;&|]+)", text):
         target = match.group(1).strip("'\"")
-        if is_protected_path(target) or PROTECTED_REGEX.search(target):
+        if is_protected_path(target):
             return True
+        for sub in PROTECTED_REGEX.finditer(target):
+            if is_protected_path(sub.group(1)):
+                return True
     return False
 
 
 def command_mutates_protected_path(name: str, args: list[str]) -> bool:
     if name in MUTATING_SHELL_COMMANDS and words_touch_protected_path(args):
+        return True
+    if name == "find" and words_touch_protected_path(args) and any(
+        a in {"-delete", "-exec", "-execdir"} for a in args
+    ):
         return True
     if name in {"sed", "perl"}:
         in_place = any(a == "-i" or a.startswith("-i") or a == "--in-place" or a.startswith("--in-place=") for a in args)
@@ -401,7 +479,13 @@ def command_mutates_protected_path(name: str, args: list[str]) -> bool:
             return True
     if name == "git" and args:
         sub = args[0]
-        if sub in {"checkout", "restore", "reset", "clean", "rm", "mv", "commit", "apply"} and words_touch_protected_path(args[1:]):
+        if (
+            sub in {
+                "checkout", "restore", "reset", "clean", "rm", "mv",
+                "commit", "apply", "stash", "merge", "rebase", "cherry-pick",
+            }
+            and words_touch_protected_path(args[1:])
+        ):
             return True
     if name in INLINE_EXEC_COMMANDS:
         joined = " ".join(args)
@@ -410,7 +494,14 @@ def command_mutates_protected_path(name: str, args: list[str]) -> bool:
             or any(a in {"-c", "-e"} for a in args)
             or name in {"python", "python3"} and any(a.startswith("-c") for a in args)
         )
-        if is_inline_code and words_touch_protected_path(args) and INLINE_MUTATION_HINT.search(joined):
+        dequoted = re.sub(r"['\"\s+]", "", joined)
+        touches_obfuscated = any(
+            target in dequoted
+            for target in ("ledger.json", "lightweight-runs.jsonl", "hooks.json", "plugin.json")
+        )
+        if is_inline_code and INLINE_MUTATION_HINT.search(joined) and (
+            words_touch_protected_path(args) or touches_obfuscated
+        ):
             return True
     return False
 
@@ -429,7 +520,7 @@ def violation_in_command(words: list[str], depth: int) -> Optional[str]:
             return PRIVILEGE_REASON
         return violation_in_command(target, depth + 1)
 
-    if name in {"su", "pkexec"}:
+    if name in {"su", "pkexec", "doas"}:
         return PRIVILEGE_REASON
 
     if name == "ssh" and is_root_local_ssh(args):
@@ -461,6 +552,8 @@ def violation_in_command(words: list[str], depth: int) -> Optional[str]:
 
 def violation_in_body(text: str, depth: int = 0) -> Optional[str]:
     if loop_guesses_password(text):
+        return PRIVILEGE_REASON
+    if any(h in text for h in HISTORY_NAMES):
         return PRIVILEGE_REASON
     if check_redirect_to_protected_path(text):
         return PROTECTED_PATH_REASON

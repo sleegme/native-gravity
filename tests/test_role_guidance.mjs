@@ -40,8 +40,8 @@ const BASE_PREFIXES = {
     sha256: "4625cbd42a851137f4c646d5016ac2e4aef9b3239bdb815b9711d0098404c079",
   },
   "agents/strix-halo.md": {
-    length: 2386,
-    sha256: "8bc9ee84675dc5787cc97ad49068f0140dde77d53128a67dd7cbd5998ed363bf",
+    length: 2444,
+    sha256: "9e60678abe862e187cd22ded49bd897d08892bd7ecf8e32ee4ca93a9ee8a1949",
   },
   "agents/zen.md": {
     length: 2384,

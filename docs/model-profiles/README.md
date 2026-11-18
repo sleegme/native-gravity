@@ -44,8 +44,8 @@ The native `model:` values accepted by AGY 1.3.6 are tiers (`inherit`,
 `flash`, `pro`, `flash_lite`), not exact slugs. Native `pro` did not select
 Argon in observed child metadata; exact Argon frontmatter failed to register.
 Runner roles and Zen use explicit family/effort policies instead. See
-[Argon](gemini-4-argon.md) for verified mappings, the blocked native
-Excavator pin, and cost guidance.
+[Argon](gemini-4-argon.md) for verified mappings, the retired 1.x Excavator
+bridge notes, and cost guidance.
 
 ## Current profiles
 

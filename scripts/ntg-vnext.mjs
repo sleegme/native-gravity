@@ -36,14 +36,14 @@ import { existsSync, readFileSync, readdirSync, realpathSync, unlinkSync } from 
 import { basename, dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { MinimalSpine, recommendNeedsAlt } from './spine.mjs';
+import { MinimalSpine, recommendNeedsAlt, SteamrollerController, TrackRunner } from './spine.mjs';
 import { createEventLog, makeEvent } from './events.mjs';
 import { AuthoritativeLedger, computeUsageRollup } from './ledger.mjs';
 import { countProbeHits, MAX_PROBE_HITS } from './coverage.mjs';
 import { parseLockFileContent, verifyLedgerIntegrity } from './ledger-lock.mjs';
-import { invoke, loadNativeRoleBody, parseResponseEnvelope, parseResponsePacket, resolveSlug,
-  QUOTA_EXHAUSTED_RE, argonBreakerBlocksSlug, argonQuotaBreakerState, tripArgonQuotaBreaker,
-  isArgonSlug, formatDurationKo } from './runner.mjs';
+import { invoke, loadNativeRoleBody, ModelRouter, parseResponseEnvelope, parseResponsePacket,
+  realAgyRefusalUnderNodeTest, resolveSlug, QUOTA_EXHAUSTED_RE, argonBreakerBlocksSlug,
+  argonQuotaBreakerState, tripArgonQuotaBreaker, isArgonSlug, formatDurationKo } from './runner.mjs';
 import { createInterface } from 'node:readline';
 import { reportIssueCli } from './report-issue.mjs';
 
@@ -313,6 +313,67 @@ export function nativeZen(request, { agyPath = process.env.AGY_PATH || 'agy', cw
   return packet;
 }
 
+/**
+ * Native specialist invocation for direct workers (Bobcat, Jaguar, Puma) and
+ * cross-caller Strix Halo review when running live without injected test adapters.
+ */
+export function nativeSpecialist(role, slice, { agyPath: explicitAgyPath, cwd = process.cwd(), timeout = 600000, installedModels } = {}) {
+  const normalizedRole = typeof role === 'string' && role.trim().toLowerCase() === 'strix_halo'
+    ? 'strix-halo'
+    : String(role || '').trim().toLowerCase();
+  const refusal = realAgyRefusalUnderNodeTest(explicitAgyPath);
+  if (refusal) {
+    throw new Error(refusal.message);
+  }
+  const agyPath = explicitAgyPath || process.env.AGY_PATH || 'agy';
+  const startTime = Date.now();
+  const slug = resolveSlug(normalizedRole, { agyPath, installedModels });
+  const instruction = normalizedRole === 'strix-halo'
+    ? 'Review the candidate deliverable against the acceptance criteria and return only a bare JSON '
+      + 'Halo review packet with caller, candidate_id_or_run_id, reviewed_diff_digest, '
+      + 'acceptance_criteria_digest, plan_version, evidence_basis, verdict (ACCEPT, REVISE, or ESCALATE), and findings. Request:\n'
+      + JSON.stringify(slice)
+    : `Execute only the bounded ${normalizedRole} assignment and return only a bare JSON `
+      + 'result packet (including status, changes_made or facts, and verification_evidence). Assignment:\n'
+      + JSON.stringify(slice);
+  const prompt = `${loadNativeRoleBody(normalizedRole)}\n\n${instruction}`;
+  const args = [
+    '--model', slug,
+    '--output-format', 'json', '--dangerously-skip-permissions', '-p', prompt,
+  ];
+  const env = { ...process.env, NTG_ACTIVE_ROLE: normalizedRole };
+  if (process.env.NTG_LIVE_TESTS !== '1') env.SKIP_LIVE_TESTS = '1';
+  const r = spawnSync(agyPath, args, {
+    cwd,
+    env,
+    encoding: 'utf8',
+    timeout,
+    killSignal: 'SIGKILL',
+    maxBuffer: 20 * 1024 * 1024,
+  });
+  const duration_ms = Math.max(0, Date.now() - startTime);
+  if (r.error) throw r.error;
+  if (r.status !== 0) {
+    throw new Error(`${normalizedRole} invocation exited ${r.status}: ${(r.stderr || '').slice(-500)}`);
+  }
+  const envelope = parseResponseEnvelope(r.stdout, { role: normalizedRole, slug });
+  if (!envelope.ok) {
+    throw new Error(
+      `${normalizedRole} envelope rejected: ${envelope.error}${envelope.finished_reason ? ` (${envelope.finished_reason})` : ''}`
+    );
+  }
+  const parsed = parseResponsePacket(envelope);
+  if (!parsed.ok) {
+    throw new Error(`${normalizedRole} response is not a JSON packet: ${parsed.error}`);
+  }
+  const packet = { ...parsed.packet };
+  delete packet.usage;
+  if (envelope.usage !== undefined) packet.usage = envelope.usage;
+  packet.duration_ms = duration_ms;
+  packet.slug = slug;
+  return packet;
+}
+
 function nextEligible(state) {
   const done = new Set(state.completed_milestones);
   return state.milestones.find(m => !done.has(m.id)
@@ -450,6 +511,9 @@ export async function main(argv, deps = {}) {
   if (opts.command === 'init') {
     initialPlan = readJson(opts.plan);
     validateProbeHitCounts(initialPlan);
+    if (opts.track) {
+      initialPlan = { ...initialPlan, track: opts.track };
+    }
   }
 
   const getLedger = () => AuthoritativeLedger.getInstance(opts.ledger);
@@ -506,9 +570,11 @@ export async function main(argv, deps = {}) {
     } catch (error) {
       // Incident WQ-5: verify the durable ledger survived the invocation
       // before recording anything, so a violation is never saved over.
-      verifyLedgerIntegrity(opts.ledger, {
-        role, milestoneId, invocationError: String(error?.message ?? error),
-      });
+      if (spine) {
+        verifyLedgerIntegrity(opts.ledger, {
+          role, milestoneId, invocationError: String(error?.message ?? error),
+        });
+      }
       const elapsed = Math.max(0, Date.now() - startTime);
       if (milestoneId) {
         const ledger = getLedger();
@@ -538,7 +604,9 @@ export async function main(argv, deps = {}) {
 
     // Incident WQ-5: the durable ledger must have survived the invocation
     // before its result is accounted and saved.
-    verifyLedgerIntegrity(opts.ledger, { role, milestoneId });
+    if (spine) {
+      verifyLedgerIntegrity(opts.ledger, { role, milestoneId });
+    }
 
     const elapsed = Math.max(0, Date.now() - startTime);
     const duration_ms = typeof result?.duration_ms === 'number' ? result.duration_ms : elapsed;
@@ -599,7 +667,7 @@ export async function main(argv, deps = {}) {
 
   const wrappedInvokeZen = async (request) => {
     const startTime = Date.now();
-    const milestoneId = request?.milestone_id ?? spine?.state?.current_milestone ?? null;
+    const milestoneId = request?.milestone_id ?? request?.run_id ?? spine?.state?.current_milestone ?? null;
     let slug = null;
     try {
       slug = resolveZenModel();
@@ -614,9 +682,11 @@ export async function main(argv, deps = {}) {
     } catch (error) {
       // Incident WQ-5: verify the durable ledger survived the invocation
       // before recording anything, so a violation is never saved over.
-      verifyLedgerIntegrity(opts.ledger, {
-        role: 'zen', milestoneId, invocationError: String(error?.message ?? error),
-      });
+      if (spine) {
+        verifyLedgerIntegrity(opts.ledger, {
+          role: 'zen', milestoneId, invocationError: String(error?.message ?? error),
+        });
+      }
       const elapsed = Math.max(0, Date.now() - startTime);
       if (milestoneId) {
         const ledger = getLedger();
@@ -645,7 +715,9 @@ export async function main(argv, deps = {}) {
 
     // Incident WQ-5: the durable ledger must have survived the invocation
     // before its verdict is accounted and saved.
-    verifyLedgerIntegrity(opts.ledger, { role: 'zen', milestoneId });
+    if (spine) {
+      verifyLedgerIntegrity(opts.ledger, { role: 'zen', milestoneId });
+    }
 
     const elapsed = Math.max(0, Date.now() - startTime);
     const duration_ms = typeof verdict?.duration_ms === 'number' ? verdict.duration_ms : elapsed;
@@ -689,20 +761,38 @@ export async function main(argv, deps = {}) {
     await emitEvent({ role, milestone: milestoneId, event: 'start' });
 
     let result;
+    const normalizedRole = typeof role === 'string' && role.trim().toLowerCase() === 'strix_halo'
+      ? 'strix-halo'
+      : String(role || '').trim().toLowerCase();
+    const hasJsonLine = typeof slice?.task === 'string' && /\n\s*\{/.test(slice.task);
+    const rolePacket = hasJsonLine
+      ? slice
+      : {
+          ...(slice && typeof slice === 'object' && !Array.isArray(slice) ? slice : { payload: slice }),
+          task: `${typeof slice?.task === 'string' && slice.task.trim() ? slice.task.trim() : `Execute ${normalizedRole}`}\n${JSON.stringify(slice ?? {})}`,
+        };
     try {
       if (deps.invokeSpecialist) {
         result = await deps.invokeSpecialist(role, slice, specialistOptions);
       } else if (deps.invokeRole) {
-        result = await deps.invokeRole(role, slice, { timeout: roleTimeoutMs(role), ...spineRunnerOptions, ...specialistOptions });
+        result = await deps.invokeRole(role, rolePacket, { timeout: roleTimeoutMs(role), ...spineRunnerOptions, ...specialistOptions });
+      } else if (['strix-halo', 'bobcat', 'jaguar', 'puma'].includes(normalizedRole)) {
+        result = nativeSpecialist(normalizedRole, slice, {
+          timeout: roleTimeoutMs(normalizedRole),
+          ...spineRunnerOptions,
+          ...specialistOptions,
+        });
       } else {
-        result = await invoke(role, slice, { timeout: roleTimeoutMs(role), ...spineRunnerOptions, ...specialistOptions });
+        result = await invoke(role, rolePacket, { timeout: roleTimeoutMs(role), ...spineRunnerOptions, ...specialistOptions });
       }
     } catch (error) {
       // Incident WQ-5: verify the durable ledger survived the invocation
       // before recording anything, so a violation is never saved over.
-      verifyLedgerIntegrity(opts.ledger, {
-        role, milestoneId, invocationError: String(error?.message ?? error),
-      });
+      if (spine) {
+        verifyLedgerIntegrity(opts.ledger, {
+          role, milestoneId, invocationError: String(error?.message ?? error),
+        });
+      }
       const elapsed = Math.max(0, Date.now() - startTime);
       if (milestoneId) {
         const ledger = getLedger();
@@ -732,7 +822,9 @@ export async function main(argv, deps = {}) {
 
     // Incident WQ-5: the durable ledger must have survived the invocation
     // before its result is accounted and saved.
-    verifyLedgerIntegrity(opts.ledger, { role, milestoneId });
+    if (spine) {
+      verifyLedgerIntegrity(opts.ledger, { role, milestoneId });
+    }
 
     const elapsed = Math.max(0, Date.now() - startTime);
     const duration_ms = typeof result?.duration_ms === 'number' ? result.duration_ms : elapsed;
@@ -780,10 +872,55 @@ export async function main(argv, deps = {}) {
     return result;
   };
 
+  const controller = new SteamrollerController({
+    ledgerPath: opts.ledger,
+    lightweightLogPath: deps.lightweightLogPath ?? join(dirname(resolve(opts.ledger)), 'lightweight-runs.jsonl'),
+    modelRouter: new ModelRouter(deps.runnerOptions ?? {}),
+    invokeRole: wrappedInvokeRole,
+    invokeSpecialist: wrappedInvokeSpecialist,
+    invokeZen: wrappedInvokeZen,
+    cwd: spineRunnerOptions.coverageCwd ?? process.cwd(),
+  });
+
+  const isTrackLRun =
+    opts.command === 'run' &&
+    (opts.track === 'L' ||
+      (!existsSync(opts.ledger) &&
+        !opts.plan &&
+        typeof opts.task === 'string' &&
+        opts.task.trim() &&
+        controller.classifyTrack({ task: opts.task, trackOverride: opts.track }).track === 'L'));
+
+  if (isTrackLRun) {
+    const planDoc = opts.plan && existsSync(opts.plan) ? readJson(opts.plan) : null;
+    const planMilestone = planDoc?.milestones?.find(m => !opts.milestone || m.id === opts.milestone) ?? null;
+    const lResult = await controller.runTrackL({
+      runId: opts.milestone ?? `track-l-${Date.now()}`,
+      task: opts.task || planMilestone?.objective || planDoc?.goal || 'Lightweight Track L task',
+      goal: planDoc?.goal || opts.task || '',
+      workerRole: deps.workerRole ?? 'bobcat',
+      boundedScope: planMilestone?.bounded_scope ?? [],
+      acceptanceCriteria: planMilestone?.acceptance_criteria ?? [],
+      planVersion: planDoc?.plan_version ?? 1,
+      highRiskEscalation: Boolean(opts.escalate),
+    });
+    return {
+      code: 0,
+      out: {
+        track: 'L',
+        assurance_badge: lResult.assurance_badge,
+        results: [lResult],
+        record: lResult.record,
+      },
+    };
+  }
+
   try {
     spine = new MinimalSpine({
       ledgerPath: opts.ledger,
       plan: initialPlan,
+      track: opts.track,
+      controller,
       invokeRole: wrappedInvokeRole,
       invokeZen: wrappedInvokeZen,
       invokeSpecialist: wrappedInvokeSpecialist,
@@ -851,19 +988,52 @@ export async function main(argv, deps = {}) {
         return { code: review.verified ? 0 : 2, out: { review, state: spine.state } };
       }
       case 'run': {
+        const classification = controller.classifyTrack({
+          task: opts.task || spine.state.goal,
+          targetFiles: spine.state.milestones.flatMap(m => m.bounded_scope ?? []),
+          milestoneCount: spine.state.milestones.length,
+          highRisk: Boolean(opts.escalate),
+          trackOverride: opts.track ?? spine.state.track ?? null,
+        });
+        const effectiveTrack = classification.track === 'L' ? 'S' : classification.track;
+        if (opts.track) {
+          spine.setTrack(effectiveTrack);
+        }
         const results = [];
         let id = opts.milestone ?? nextEligible(spine.state);
         while (id) {
-          const result = await spine.runMilestone(id);
+          const result = await controller.runMilestone(id, { track: effectiveTrack });
           results.push({ milestone_id: id, ...result });
-          if (!result.verified) return { code: 2, out: { results, state: spine.state } };
+          if (!result.verified) {
+            return {
+              code: 2,
+              out: {
+                track: effectiveTrack,
+                assurance_badge: 'ZEN_DURABLE',
+                halo_status: result.halo_status ?? null,
+                results,
+                state: spine.state,
+              },
+            };
+          }
           if (!opts.all || opts.milestone) break;
           id = nextEligible(spine.state);
         }
         const remaining = nextEligible(spine.state);
         const completion = remaining === null && spine.state.completed_milestones.length === spine.state.milestones.length
           ? spine.declareGlobalCompletion() : null;
-        return { code: 0, out: { results, global_completion: completion, next_milestone: remaining, state: spine.state } };
+        return {
+          code: 0,
+          out: {
+            track: effectiveTrack,
+            assurance_badge: 'ZEN_DURABLE',
+            halo_status: results.at(-1)?.halo_status ?? null,
+            results,
+            global_completion: completion,
+            next_milestone: remaining,
+            state: spine.state,
+          },
+        };
       }
       default:
         throw new Error(USAGE);

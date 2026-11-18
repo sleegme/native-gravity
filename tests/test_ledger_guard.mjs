@@ -42,6 +42,7 @@ function guardHarness(t, { sabotage } = {}) {
     handleSignals: false,
     invokeRole: async (role, packet) => {
       calls.push(role);
+      if (role === 'strix-halo') return envelope({ verdict: 'ACCEPT', findings: [] });
       if (role === 'bulldozer' && sabotage) sabotage({ ntg, ledger, lock });
       const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
       return envelope({
@@ -142,7 +143,7 @@ test('a normal run is unchanged: the guard stays silent and accounting and compl
   await h.cli('init', '--plan', h.write('plan.json', plan()));
   const { code, out } = await h.cli('run', '--all');
   assert.equal(code, 0);
-  assert.deepEqual(h.calls, ['bulldozer', 'zen:one', 'bulldozer', 'zen:two']);
+  assert.deepEqual(h.calls, ['bulldozer', 'strix-halo', 'zen:one', 'bulldozer', 'strix-halo', 'zen:two']);
   assert.deepEqual(out.state.completed_milestones, ['one', 'two']);
   assert.ok(out.global_completion);
   const disk = JSON.parse(readFileSync(h.ledger, 'utf8'));

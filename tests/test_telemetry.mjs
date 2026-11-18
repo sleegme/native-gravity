@@ -54,6 +54,7 @@ function fixture(t, { bulldozer, zen, piledriver, invokeSpecialist, initialPlan 
     plan: initialPlan,
     invokeSpecialist,
     invokeRole: async (role, packet, runnerOptions = {}) => {
+      if (role === 'strix-halo') return envelope({ verdict: 'ACCEPT', findings: [] });
       // Exercise the shipped runner boundary, not an invented packet transport.
       assert.ok(composeBoundedPrompt(role, packet));
       const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
