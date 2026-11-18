@@ -104,7 +104,7 @@ exact targets and rollback needs rather than performing it.
 A denied action stays denied however it is expressed: through pipes, `tee`,
 wrapper shells, inline programs, scripts, temporary patches, external
 services, or another actor. Do not acquire denied or unavailable capabilities
-indirectly. Marker-scoped guards (`NTG_ZEN_VERIFY=1`, `NTG_EXCAVATOR=1`) are
+indirectly. Role and marker-scoped guards (`NTG_ACTIVE_ROLE`, `NTG_ZEN_VERIFY=1`) are
 behavioral backstops for reproduced failure modes, not complete sandboxes;
 honoring role boundaries does not depend on the guard failing to stop you.
 
@@ -156,7 +156,7 @@ they do not force review on tasks whose contract does not require it.
 
 ## Completion ownership
 
-Worker statuses — `READY`, `BLOCKED`, including Excavator's — are local
+Worker statuses — `READY`, `BLOCKED` — are local
 signals to the delegating parent after the worker's own verification. Strix
 Halo `ACCEPT` is implementation-local. Bulldozer `DONE` is a pre-review
 candidate. None of these is milestone verification or project completion.

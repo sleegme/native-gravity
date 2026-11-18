@@ -17,49 +17,35 @@ const ROLE_FILES = [
   "agents/zen.md",
 ];
 
-// Base byte lengths and SHA-256 hashes computed from commit 2ff0083,
-// except agents/zen.md and rules/orchestration.md recomputed after PR #169
-// legitimately changed their base (Zen -> Claude Opus 5.5 High), and
-// agents/zen.md recomputed again so Zen must run the guard-allowed named test
-// files instead of avoiding "tests that may write".
-// Bulldozer and orchestration baselines reflect the temporary Excavator
-// disablement (#173) and its follow-up TEMPORARY headless path
-// (scripts/excavator-agy.mjs, exact Argon High via run_command).
-// #167 legitimately changed the Bulldozer base: the self-referential
-// scripts/spine.mjs mention was removed to stop runner-inspection loops.
-// Stage 1 of the subagent redesign (2026-11-08, §2.3/§2.6) legitimately
-// changed the Bulldozer, Jaguar, Bobcat and orchestration bases: the
-// thin-crew contract replaces Bulldozer's direct-inspection clause, Jaguar
-// and Bobcat gain budget/coverage-table sections, and the packet/result
-// field lists gained the code-built coverage fields.
+// NTG 2.0 re-baselined prefix lengths and SHA-256 hashes (m2 role update):
+// Bulldozer receives general run_command access (Excavator retired); Strix Halo
+// accepts Steamroller, Bulldozer, and Bobcat callers; Jaguar & Puma retain
+// 3.8 Flash Low Lightweight Worker Harness boundaries; Bobcat targets Hydrogen
+// Medium; Zen enforces NTG_ACTIVE_ROLE=zen across shell and file boundaries.
 const BASE_PREFIXES = {
   "agents/bulldozer.md": {
-    length: 11367,
-    sha256: "3cba2cf2f019f5870411f92b00f5f0f93083c854b5414bf6dd254b1861eaf056",
+    length: 4143,
+    sha256: "092eecf22c21525f0976d3c191a4e68af6cba3ea105c9d7f8e710bf1dd94f55e",
   },
   "agents/jaguar.md": {
-    length: 4019,
-    sha256: "3dd81b4c437a00071ee24c138ce46f0bb800f8d3c1cc7bd3fef99a5b779579fc",
+    length: 1404,
+    sha256: "8b7a5178278915b40c50783ee3ab343c96f64127d9a46e35e6c526de804e976c",
   },
   "agents/puma.md": {
-    length: 4097,
-    sha256: "c909a903c8dcacf7851b7e1f626de80e957f9f4c00ffab90f5a74257f1b17345",
+    length: 1486,
+    sha256: "0ad177834a60f580c297d4d5d0848b9e3838dcfba3069693bd443172e81f92f9",
   },
   "agents/bobcat.md": {
-    length: 5131,
-    sha256: "2b965081fd40fac86df6e00775a8021bb66240a63d9aef1cd85bfbe425e06b9f",
+    length: 2898,
+    sha256: "4625cbd42a851137f4c646d5016ac2e4aef9b3239bdb815b9711d0098404c079",
   },
   "agents/strix-halo.md": {
-    length: 4984,
-    sha256: "42cd5172d1a201484814fa67ecf58399efc4f878ec55f92b34a3cdbc01b180e5",
+    length: 2444,
+    sha256: "9e60678abe862e187cd22ded49bd897d08892bd7ecf8e32ee4ca93a9ee8a1949",
   },
   "agents/zen.md": {
-    length: 4790,
-    sha256: "364c9002bd1e116e22392eb25627c5703b8cbb06d8302b769c19cae49765e772",
-  },
-  "rules/orchestration.md": {
-    length: 19803,
-    sha256: "3d8e5c509dd2c8872d6f3c19717379334cbe5b5ea09b743bf57983fcdb416667",
+    length: 2384,
+    sha256: "c5001f0081f2777bd5e5c0876bd523c321dfac1f6450eab065476115df983443",
   },
 };
 
@@ -80,7 +66,7 @@ function parseAgent(relPath) {
   return { frontmatter, body, tools, text };
 }
 
-test("Byte-prefix equality and appended heading hold for all 7 guidance files", () => {
+test("Byte-prefix equality and appended heading hold for all 6 role guidance files", () => {
   for (const [relPath, base] of Object.entries(BASE_PREFIXES)) {
     const fullPath = join(ROOT, relPath);
     const currentBuf = readFileSync(fullPath);
@@ -106,9 +92,9 @@ test("Byte-prefix equality and appended heading hold for all 7 guidance files", 
   }
 });
 
-test("Tool authority: non-run_command roles omit wf and ctx tools from guidance", () => {
+test("Tool authority: non-run_command roles omit wf and ctx tools; Bulldozer has general run_command without Excavator", () => {
   for (const relPath of ROLE_FILES) {
-    const { tools } = parseAgent(relPath);
+    const { tools, text } = parseAgent(relPath);
     const fullPath = join(ROOT, relPath);
     const currentBuf = readFileSync(fullPath);
     const base = BASE_PREFIXES[relPath];
@@ -116,25 +102,27 @@ test("Tool authority: non-run_command roles omit wf and ctx tools from guidance"
 
     if (["agents/jaguar.md", "agents/puma.md", "agents/strix-halo.md"].includes(relPath)) {
       assert.ok(!tools.includes("run_command"), `${relPath} must not have run_command`);
-      // Non-run_command roles must not mention wf.search, tools/ctx, or wf.ctx outside permitted negative notice
       const PROHIBITION = "(no `wf.search` or `tools/ctx` or `wf.ctx`)";
       const outsideNegativeNotice = appended.replace(PROHIBITION, "");
       assert.doesNotMatch(outsideNegativeNotice, /wf\.search/, `${relPath} must not mention wf.search`);
       assert.doesNotMatch(outsideNegativeNotice, /tools\/ctx/, `${relPath} must not mention tools/ctx`);
       assert.doesNotMatch(outsideNegativeNotice, /wf\.ctx/, `${relPath} must not mention wf.ctx`);
-    } else if (relPath === "agents/bulldozer.md") {
-      // TEMPORARY (#173 follow-up): Bulldozer carries run_command solely to
-      // dispatch the headless Excavator script; remove together with that path.
-      assert.ok(tools.includes("run_command"), `${relPath} must have run_command for the TEMPORARY headless excavator dispatch`);
-      assert.match(readFileSync(fullPath, "utf8"), /scripts\/excavator-agy\.mjs/, `${relPath} must scope run_command to scripts/excavator-agy.mjs`);
-      const PROHIBITION = "(no `wf.search` or `tools/ctx` or `wf.ctx`)";
-      const outsideNegativeNotice = appended.replace(PROHIBITION, "");
-      assert.doesNotMatch(outsideNegativeNotice, /wf\.search/, `${relPath} must not mention wf.search`);
-      assert.doesNotMatch(outsideNegativeNotice, /tools\/ctx/, `${relPath} must not mention tools/ctx`);
-      assert.doesNotMatch(outsideNegativeNotice, /wf\.ctx/, `${relPath} must not mention wf.ctx`);
-    } else if (["agents/bobcat.md", "agents/zen.md"].includes(relPath)) {
+    } else if (["agents/bulldozer.md", "agents/bobcat.md", "agents/zen.md"].includes(relPath)) {
       assert.ok(tools.includes("run_command"), `${relPath} must have run_command`);
+      if (relPath === "agents/bulldozer.md") {
+        assert.doesNotMatch(text, /scripts\/excavator-agy\.mjs/, "Bulldozer must not reference retired excavator-agy.mjs");
+        assert.match(text, /hooks\/shell-safety-guard\.py/, "Bulldozer must document universal shell-safety-guard.py");
+      }
     }
   }
 });
 
+test("NTG 2.0 role contracts: Puma retained separately, Strix Halo multi-caller", () => {
+  const puma = parseAgent("agents/puma.md");
+  const strix = parseAgent("agents/strix-halo.md");
+  assert.match(puma.body, /REROUTE_REQUIRED/);
+  assert.match(puma.body, /3\.8 Flash Low/);
+  assert.match(strix.body, /Steamroller.*Bulldozer.*Bobcat/i);
+  assert.match(strix.body, /reviewed_diff_digest/);
+  assert.match(strix.body, /acceptance_criteria_digest/);
+});

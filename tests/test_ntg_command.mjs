@@ -605,3 +605,21 @@ test('review: invokes review with default or specified ledger and passes --miles
     harness.cleanup();
   }
 });
+
+
+test('run: forwards NTG 2.0 --track option to runner', () => {
+  const harness = createTestHarness();
+  try {
+    const exitCode = runNtgCommand(['run', '--track', 'L'], {
+      vnextScript: harness.stubScript,
+      env: { STUB_LOG_FILE: harness.logFile },
+      stdio: 'pipe',
+    });
+    assert.equal(exitCode, 0);
+    const invocations = harness.readInvocations();
+    assert.equal(invocations.length, 1);
+    assert.deepEqual(invocations[0].argv, ['run', '--ledger', DEFAULT_LEDGER, '--track', 'L']);
+  } finally {
+    harness.cleanup();
+  }
+});

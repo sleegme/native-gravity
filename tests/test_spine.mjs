@@ -6,8 +6,10 @@ import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFile
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { advisorGateEnabled, decideRepairAction, MAX_REPAIR_ATTEMPTS, MinimalSpine, recommendNeedsAlt, repairStopQuestion, zenNoGoSignature } from '../scripts/spine.mjs';
-import { AuthoritativeLedger, UncoveredCriteriaError } from '../scripts/ledger.mjs';
+import { advisorGateEnabled, decideRepairAction, MAX_REPAIR_ATTEMPTS, MinimalSpine, recommendNeedsAlt, repairStopQuestion, SteamrollerController, SteamrollerSpine, TrackRunner, zenNoGoSignature } from '../scripts/spine.mjs';
+import { AuthoritativeLedger, computeDeliveredTreeDigest, StaleVerdictError, UncoveredCriteriaError, uncoveredAcceptanceCriteria } from '../scripts/ledger.mjs';
+import { AuthorityExpansionError, ModelRouter } from '../src/core/model-router.mjs';
+import { LightweightLog, computeAcceptanceDigest, computeDiffDigest } from '../src/core/lightweight-log.mjs';
 import { InvalidHandoffPacketError, InvalidResponseFormatError, composeBoundedPrompt, invoke, parseResponseEnvelope } from '../scripts/runner.mjs';
 import { runCoverageProbes, snapshotScope } from '../scripts/coverage.mjs';
 
@@ -40,6 +42,7 @@ function fixture(t, { output, review, initialPlan = plan(), invokeSpecialist, ru
   const ledgerPath = join(dir, 'ledger.json');
   const calls = [];
   let spine;
+  let inBulldozerOutput = false;
   const invokeRole = async (role, packet, runnerOptions = {}) => {
     calls.push(role);
     // Exercise the shipped runner boundary, not an invented packet transport.
@@ -47,7 +50,14 @@ function fixture(t, { output, review, initialPlan = plan(), invokeSpecialist, ru
     const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
     if (role === 'piledriver') return envelope({ recommendation: 'retain plan' });
     assert.equal(role, 'bulldozer');
-    if (output) return envelope(await output(contract, { spine, dir, calls, runnerOptions }));
+    if (output) {
+      inBulldozerOutput = true;
+      try {
+        return envelope(await output(contract, { spine, dir, calls, runnerOptions }));
+      } finally {
+        inBulldozerOutput = false;
+      }
+    }
     // Model only the native host: Bobcat creates a real artifact and reports
     // READY inside Bulldozer, which independently checks it before issuing DONE.
     calls.push('bobcat');
@@ -61,6 +71,9 @@ function fixture(t, { output, review, initialPlan = plan(), invokeSpecialist, ru
   };
   const defaultInvokeSpecialist = async (role, packet, options) => {
     calls.push(role);
+    if (output && !inBulldozerOutput && role !== 'strix-halo') {
+      return await output(packet, { spine, dir, calls, runnerOptions: options });
+    }
     if (role === 'jaguar') {
       return { status: 'SUCCESS', findings: [`factual discovery for ${packet.milestone_id}`] };
     }
@@ -73,7 +86,16 @@ function fixture(t, { output, review, initialPlan = plan(), invokeSpecialist, ru
       return { status: 'READY', artifact };
     }
     if (role === 'strix-halo') {
-      return { verdict: 'ACCEPT', notes: 'contract verified locally' };
+      return {
+        caller: packet.caller ?? options?.caller ?? 'bulldozer',
+        candidate_id_or_run_id: packet.candidate_id_or_run_id,
+        reviewed_diff_digest: packet.reviewed_diff_digest,
+        acceptance_criteria_digest: packet.acceptance_criteria_digest,
+        plan_version: packet.plan_version,
+        evidence_basis: packet.evidence_basis,
+        verdict: 'ACCEPT',
+        notes: 'contract verified locally',
+      };
     }
     throw new Error(`Unexpected specialist role: ${role}`);
   };
@@ -120,7 +142,7 @@ test('planning stays advisory; native work and independent GO survive fresh resu
   assert.deepEqual(f.spine.state, before);
   await assert.rejects(f.spine.runMilestone('two'));
   assert.equal((await f.spine.runMilestone('one')).verified, true);
-  assert.deepEqual(f.calls, ['piledriver', 'bulldozer', 'bobcat', 'zen']);
+  assert.deepEqual(f.calls, ['piledriver', 'bulldozer', 'bobcat', 'strix-halo', 'zen']);
   assert.deepEqual(f.spine.state.completed_milestones, ['one']);
   assert.throws(() => f.spine.declareGlobalCompletion());
   const resumed = f.resume();
@@ -141,7 +163,7 @@ for (const status of ['READY', undefined, null, '', 'ACCEPT', 'GO', 'done']) {
   });
 }
 
-for (const role of ['zen', 'piledriver', 'steamroller', 'strix-halo', 'excavator', 'unknown']) {
+for (const role of ['zen', 'piledriver', 'steamroller', 'excavator', 'unknown']) {
   for (const status of ['DONE', 'BLOCKED', 'NEEDS_DEEP']) {
     test(`native packet delegation to ${role} rejects ${status} before review`, async t => {
       const f = fixture(t, {
@@ -180,7 +202,7 @@ for (const delegations of [null, {}, 'bobcat', [{}], [null], [[]], ['bobcat'],
 
 for (const delegations of [[], [{ role: 'bobcat' }, { role: 'jaguar' }],
   [{ role: 'puma' }],
-  [{ role: ' Excavator ', transport: 'scripts/excavator-agy.mjs', status: 'READY' }],
+  [{ role: 'strix-halo', verdict: 'ACCEPT' }],
   [{ role: ' Bobcat ', task: 'bounded implementation' }],
   [{ role: 'bobcat' }, { role: 'strix-halo', verdict: 'ACCEPT' }]]) {
   test(`allowed native delegations enter independent review: ${JSON.stringify(delegations)}`, async t => {
@@ -189,58 +211,20 @@ for (const delegations of [[], [{ role: 'bobcat' }, { role: 'jaguar' }],
       review: request => verdict(request),
     });
     assert.equal((await f.spine.runMilestone('one')).verified, true);
-    assert.deepEqual(f.calls, ['bulldozer', 'zen']);
+    assert.deepEqual(f.calls, ['bulldozer', 'strix-halo', 'zen']);
     assert.deepEqual(AuthoritativeLedger.load(f.ledgerPath).getState().completed_milestones, ['one']);
-  });
-}
-
-// TEMPORARY headless Excavator transport (#174, gate B1): Bulldozer relays the
-// headless worker outcome in its packet. The declared delegation is accepted
-// only with the sanctioned transport marker; a bare excavator role would claim
-// native spawning, which stays rejected below.
-for (const status of ['DONE', 'BLOCKED', 'NEEDS_DEEP']) {
-  test(`declared headless excavator delegation preserves the ${status} outcome`, async t => {
-    const delegation = { role: 'excavator', transport: 'scripts/excavator-agy.mjs', status: 'BLOCKED' };
-    if (status === 'DONE') {
-      const f = fixture(t, {
-        output: contract => candidate(contract, { delegations: [delegation] }),
-        review: request => verdict(request),
-      });
-      assert.equal((await f.spine.runMilestone('one')).verified, true);
-      assert.deepEqual(f.calls, ['bulldozer', 'zen']);
-      assert.deepEqual(AuthoritativeLedger.load(f.ledgerPath).getState().completed_milestones, ['one']);
-    } else {
-      const f = fixture(t, {
-        output: contract => candidate(contract, {
-          status,
-          delegations: [delegation],
-          ...(status === 'BLOCKED'
-            ? { blockers: ['headless excavator returned RATE_LIMITED for the hard repair'] }
-            : { escalation_needs: ['repair question the headless worker could not settle'] }),
-        }),
-      });
-      const result = await f.spine.runMilestone('one');
-      assert.equal(result.status, status);
-      assert.equal(result.verified, false);
-      assert.ok(!f.calls.includes('zen'));
-      const disk = AuthoritativeLedger.load(f.ledgerPath).getState();
-      assert.deepEqual(disk.completed_milestones, []);
-      assert.equal(disk.current_milestone, null);
-      assert.equal(disk.evidence.one.failure_evidence[0].status, status);
-      if (status === 'BLOCKED') {
-        assert.match(disk.blockers[0].description, /RATE_LIMITED/);
-      }
-    }
   });
 }
 
 for (const delegation of [
   { role: 'excavator' },
+  { role: ' Excavator ', transport: 'scripts/excavator-agy.mjs', status: 'READY' },
+  { role: 'excavator', transport: 'scripts/excavator-agy.mjs' },
   { role: 'excavator', transport: 'invoke_subagent' },
   { role: 'excavator', transport: 'scripts/other.mjs' },
   { role: 'excavator', transport: 42 },
 ]) {
-  test(`excavator delegation without the sanctioned headless transport stays rejected: ${JSON.stringify(delegation)}`, async t => {
+  test(`retired excavator delegation is always rejected in NTG 2.0: ${JSON.stringify(delegation)}`, async t => {
     const f = fixture(t, {
       output: contract => candidate(contract, { delegations: [delegation] }),
     });
@@ -262,7 +246,7 @@ test('construction cannot omit the independent Zen adapter', t => {
 test('spine ownership refuses duplicate startup before reading or replacing state', async t => {
   const f = fixture(t);
   const before = readFileSync(f.ledgerPath, 'utf8');
-  assert.equal(readFileSync(`${f.ledgerPath}.lock`, 'utf8'), `${process.pid}\n`);
+  assert.match(readFileSync(`${f.ledgerPath}.lock`, 'utf8'), new RegExp(`^${process.pid}\\ntoken:[0-9a-f-]+\\n$`));
   for (const options of [f.options, { ...f.options, plan: plan() }]) {
     assert.throws(() => new MinimalSpine(options), { code: 'LEDGER_LOCKED' });
     assert.equal(readFileSync(f.ledgerPath, 'utf8'), before);
@@ -305,7 +289,7 @@ for (const termination of ['normal', 'SIGINT', 'SIGTERM']) {
       await exited;
     });
     assert.deepEqual(await ready, ['ready', undefined]);
-    assert.equal(readFileSync(`${f.ledgerPath}.lock`, 'utf8'), `${child.pid}\n`);
+    assert.match(readFileSync(`${f.ledgerPath}.lock`, 'utf8'), new RegExp(`^${child.pid}\\ntoken:[0-9a-f-]+\\n$`));
     assert.throws(() => new MinimalSpine(f.options), { code: 'LEDGER_LOCKED' });
     if (termination === 'normal') child.send('finish');
     else child.kill(termination);
@@ -356,7 +340,7 @@ test('unwrapped candidate still needs an independent matching Zen GO', async t =
   assert.equal(result.verified, false);
   // Stage 2 bounded repair: the repeated identical NO-GO signature stops the
   // run with a plain question after exactly one automatic repair.
-  assert.deepEqual(f.calls, ['zen', 'zen']);
+  assert.deepEqual(f.calls, ['strix-halo', 'zen', 'strix-halo', 'zen']);
   assert.equal(typeof result.question, 'string');
   assert.ok(result.question.includes('one'));
   assert.deepEqual(spine.state.completed_milestones, []);
@@ -377,7 +361,7 @@ console.log(JSON.stringify({ status: 'SUCCESS', response: '' }));
     invokeRole: invoke,
     runnerOptions: {
       agyPath: script,
-      installedModels: [{ slug: 'gemini-3.8-flash-high', description: 'Gemini 3.8 Flash (High)' }],
+      installedModels: [{ slug: 'gemini-4-hydrogen-xhigh', description: 'Gemini 4 Hydrogen (XHigh)' }],
       env: { MUTATIONS_FILE: mutations },
     },
   });
@@ -686,7 +670,7 @@ test('runner TIMEOUT is durable and the same milestone can be redelegated', asyn
   assert.deepEqual(recovered.completed_milestones, ['one']);
   assert.equal(recovered.verification.one.result_ref, result.result_ref);
   assert.deepEqual(recovered.evidence.one.failure_evidence, failed.evidence.one.failure_evidence);
-  assert.deepEqual(f.calls, ['bulldozer', 'bobcat', 'zen']);
+  assert.deepEqual(f.calls, ['bulldozer', 'bobcat', 'strix-halo', 'zen']);
 });
 
 test('pending review forbids concurrent work, replan, completion, and resumed retry', { timeout: 3000 }, async t => {
@@ -784,7 +768,7 @@ test('SIGKILL between durable delegation and candidate requires observed crash r
   assert.equal(readFileSync(f.ledgerPath, 'utf8'), bytes);
   // SIGKILL cannot release ownership. Recover the stale lock only after the
   // exact owner is observed dead; never manufacture a clean ledger resume.
-  assert.equal(readFileSync(`${f.ledgerPath}.lock`, 'utf8'), `${child.pid}\n`);
+  assert.match(readFileSync(`${f.ledgerPath}.lock`, 'utf8'), new RegExp(`^${child.pid}\\ntoken:[0-9a-f-]+\\n$`));
   assert.throws(() => f.resume(), { code: 'LEDGER_LOCKED' });
   unlinkSync(`${f.ledgerPath}.lock`);
   const resumed = f.resume();
@@ -832,7 +816,7 @@ for (const patch of [
       },
     });
     assert.equal((await f.spine.runMilestone('one')).verified, true);
-    assert.deepEqual(f.calls, ['bulldozer', 'zen']);
+    assert.deepEqual(f.calls, ['bulldozer', 'strix-halo', 'zen']);
   });
 }
 
@@ -868,7 +852,7 @@ for (const patch of [
       },
     });
     assert.equal((await f.spine.runMilestone('one')).verified, true);
-    assert.deepEqual(f.calls, ['bulldozer', 'bulldozer', 'zen']);
+    assert.deepEqual(f.calls, ['bulldozer', 'bulldozer', 'strix-halo', 'zen']);
     assert.deepEqual(f.resume().state.completed_milestones, ['one']);
   });
 }
@@ -937,7 +921,25 @@ test('specialists can be invoked under an active milestone without touching ledg
       const bobcatResult = await spine.invokeBobcat({ task: 'implement feature', advisor_gate: 'REQUIRED' });
       assert.equal(bobcatResult.status, 'READY');
 
-      const strixResult = await spine.invokeStrixHalo({ task: 'check implementation' }, { caller: 'bobcat' });
+      const artifact = bobcatResult.artifact;
+      const hash = createHash('sha256').update(readFileSync(artifact)).digest('hex');
+      const finalEvidence = [
+        ...observed,
+        { classification: 'OBSERVED', specialist: 'jaguar', findings: jaguarResult.findings },
+        { classification: 'OBSERVED', specialist: 'puma', edits: pumaResult.edits },
+        { classification: 'OBSERVED', specialist: 'strix-halo', verdict: 'ACCEPT' },
+      ];
+      const strixResult = await spine.invokeStrixHalo(
+        {
+          task: 'check implementation',
+          candidate_id_or_run_id: `sha256:${hash}`,
+          reviewed_diff_digest: computeDeliveredTreeDigest(contract.bounded_scope, { cwd: dir }),
+          acceptance_criteria_digest: computeAcceptanceDigest(contract.acceptance_criteria),
+          plan_version: contract.plan_version,
+          evidence_basis: finalEvidence,
+        },
+        { caller: 'bobcat' }
+      );
       assert.equal(strixResult.verdict, 'ACCEPT');
 
       // Ledger on disk is STILL untouched
@@ -945,16 +947,9 @@ test('specialists can be invoked under an active milestone without touching ledg
       assert.deepEqual(spine.state.completed_milestones, []);
 
       // Bulldozer produces candidate with observed evidence
-      const artifact = bobcatResult.artifact;
-      const hash = createHash('sha256').update(readFileSync(artifact)).digest('hex');
       return candidate(contract, {
         candidate_artifact_ref: `sha256:${hash}`,
-        verification_evidence: [
-          ...observed,
-          { classification: 'OBSERVED', specialist: 'jaguar', findings: jaguarResult.findings },
-          { classification: 'OBSERVED', specialist: 'puma', edits: pumaResult.edits },
-          { classification: 'OBSERVED', specialist: 'strix-halo', verdict: strixResult.verdict },
-        ],
+        verification_evidence: finalEvidence,
       });
     },
   });
@@ -971,7 +966,18 @@ for (const role of ['jaguar', 'puma', 'bobcat', 'strix-halo']) {
     let response;
     let wrapped;
     const f = fixture(t, {
-      invokeSpecialist: async () => wrapped ? { ok: true, response } : response,
+      invokeSpecialist: async (_role, packet) =>
+        packet?.candidate_id_or_run_id
+          ? {
+              caller: packet.caller ?? 'steamroller',
+              candidate_id_or_run_id: packet.candidate_id_or_run_id,
+              reviewed_diff_digest: packet.reviewed_diff_digest,
+              acceptance_criteria_digest: packet.acceptance_criteria_digest,
+              plan_version: packet.plan_version,
+              evidence_basis: packet.evidence_basis,
+              verdict: 'ACCEPT',
+            }
+          : (wrapped ? { ok: true, response } : response),
       output: async (contract, { spine, dir }) => {
         const options = { caller: role === 'strix-halo' ? 'bobcat' : 'bulldozer' };
         for (wrapped of [true, false]) {
@@ -1020,6 +1026,17 @@ test('specialists receive milestone packet slice and never ledger or global auth
   let capturedPacket;
   const f = fixture(t, {
     invokeSpecialist: async (role, packet) => {
+      if (role === 'strix-halo' && packet?.candidate_id_or_run_id) {
+        return {
+          caller: packet.caller ?? 'steamroller',
+          candidate_id_or_run_id: packet.candidate_id_or_run_id,
+          reviewed_diff_digest: packet.reviewed_diff_digest,
+          acceptance_criteria_digest: packet.acceptance_criteria_digest,
+          plan_version: packet.plan_version,
+          evidence_basis: packet.evidence_basis,
+          verdict: 'ACCEPT',
+        };
+      }
       capturedPacket = packet;
       return { status: 'SUCCESS', received: true };
     },
@@ -1068,14 +1085,24 @@ test('specialist invocation is prohibited without an active milestone', async t 
   await assert.rejects(f.spine.invokeStrixHalo({ task: 'gate' }), /Specialist invocation requires an active milestone/);
 });
 
-test('specialist routing strictly enforces caller-role boundaries', async t => {
+test('specialist routing strictly enforces NTG 2.0 caller-role boundaries', async t => {
   const f = fixture(t, {
     output: async (contract, { spine }) => {
-      // 1. Bulldozer cannot invoke Strix Halo directly (Strix Halo is Bobcat-local gate)
-      await assert.rejects(
-        spine.invokeSpecialist('strix-halo', { task: 'review' }, { caller: 'bulldozer' }),
-        /Strix Halo is a Bobcat-local advisor gate; Bulldozer cannot invoke Strix Halo directly/
-      );
+      writeFileSync(join(f.dir, `${contract.milestone_id}.txt`), contract.milestone_id);
+      const hash = createHash('sha256').update(contract.milestone_id).digest('hex');
+      const boundSlice = {
+        task: 'review',
+        candidate_id_or_run_id: `sha256:${hash}`,
+        reviewed_diff_digest: computeDeliveredTreeDigest(contract.bounded_scope, { cwd: f.dir }),
+        acceptance_criteria_digest: computeAcceptanceDigest(contract.acceptance_criteria),
+        plan_version: contract.plan_version,
+        evidence_basis: observed,
+      };
+      // 1. Steamroller, Bulldozer, and Bobcat are all permitted to invoke Strix Halo
+      for (const caller of ['steamroller', 'bulldozer', 'bobcat']) {
+        const res = await spine.invokeSpecialist('strix-halo', boundSlice, { caller });
+        assert.equal(res.verdict, 'ACCEPT');
+      }
 
       // 2. Bobcat cannot invoke Jaguar, Puma, or Bobcat
       for (const forbidden of ['jaguar', 'puma', 'bobcat']) {
@@ -1093,8 +1120,8 @@ test('specialist routing strictly enforces caller-role boundaries', async t => {
         );
       }
 
-      // 4. Unauthorized callers (e.g. steamroller or unknown) cannot invoke specialists
-      for (const caller of ['steamroller', 'piledriver', 'zen', 'external']) {
+      // 4. Unauthorized callers (non-execution roles) cannot invoke specialists
+      for (const caller of ['piledriver', 'zen', 'instinct', 'navi', 'external']) {
         await assert.rejects(
           spine.invokeSpecialist('jaguar', { task: 'work' }, { caller }),
           new RegExp(`Caller "${caller}" is not authorized to invoke specialists under a milestone`)
@@ -1109,7 +1136,7 @@ test('specialist routing strictly enforces caller-role boundaries', async t => {
         );
       }
 
-      // 6. Disabled Excavator cannot reach any invocation adapter.
+      // 6. Retired Excavator cannot reach any invocation adapter.
       for (const role of ['excavator', ' Excavator ']) {
         await assert.rejects(
           spine.invokeSpecialist(role, { task: 'diagnose and repair' }, { caller: 'bulldozer' }),
@@ -1117,8 +1144,6 @@ test('specialist routing strictly enforces caller-role boundaries', async t => {
         );
       }
       assert.ok(!f.calls.includes('excavator'));
-      writeFileSync(join(f.dir, `${contract.milestone_id}.txt`), contract.milestone_id);
-      const hash = createHash('sha256').update(contract.milestone_id).digest('hex');
       return candidate(contract, { candidate_artifact_ref: `sha256:${hash}` });
     },
   });
@@ -1135,7 +1160,16 @@ test('Strix Halo REVISE leads to repair and re-check before Bobcat READY', async
         if (strixAttempts === 1) {
           return { verdict: 'REVISE', defect: 'Missing boundary check on empty input' };
         }
-        return { verdict: 'ACCEPT', notes: 'Defect corrected and verified' };
+        return {
+          caller: packet.caller ?? 'bobcat',
+          candidate_id_or_run_id: packet.candidate_id_or_run_id,
+          reviewed_diff_digest: packet.reviewed_diff_digest,
+          acceptance_criteria_digest: packet.acceptance_criteria_digest,
+          plan_version: packet.plan_version,
+          evidence_basis: packet.evidence_basis,
+          verdict: 'ACCEPT',
+          notes: 'Defect corrected and verified',
+        };
       }
       return { status: 'READY' };
     },
@@ -1145,13 +1179,23 @@ test('Strix Halo REVISE leads to repair and re-check before Bobcat READY', async
       assert.equal(check1.verdict, 'REVISE');
       assert.equal(check1.defect, 'Missing boundary check on empty input');
 
-      // Bobcat repairs and re-checks
-      const check2 = await spine.invokeStrixHalo({ task: 'check v2 after repair' }, { caller: 'bobcat' });
-      assert.equal(check2.verdict, 'ACCEPT');
-
+      // Bobcat repairs and re-checks with bound artifact & evidence
       const artifact = join(dir, `${contract.milestone_id}.txt`);
       writeFileSync(artifact, contract.milestone_id);
       const hash = createHash('sha256').update(readFileSync(artifact)).digest('hex');
+      const check2 = await spine.invokeStrixHalo(
+        {
+          task: 'check v2 after repair',
+          candidate_id_or_run_id: `sha256:${hash}`,
+          reviewed_diff_digest: computeDeliveredTreeDigest(contract.bounded_scope, { cwd: dir }),
+          acceptance_criteria_digest: computeAcceptanceDigest(contract.acceptance_criteria),
+          plan_version: contract.plan_version,
+          evidence_basis: observed,
+        },
+        { caller: 'bobcat' }
+      );
+      assert.equal(check2.verdict, 'ACCEPT');
+
       return candidate(contract, { candidate_artifact_ref: `sha256:${hash}` });
     },
   });
@@ -1617,7 +1661,8 @@ test('coordinator transport death with in-scope changes triggers one packet-only
       return { ok: false, error: 'TURN_ENDED_EARLY', slug: 'gemini-3.8-flash-high',
         finished_reason: 'error', message: 'turn ended early' };
     }
-    assert.equal(runnerOptions.env?.NTG_SALVAGE, '1');
+    assert.equal(runnerOptions.env?.NTG_SALVAGE, undefined);
+    assert.equal(runnerOptions.env?.NTG_BUDGET_ROOT_MAX_CALLS, undefined);
     assert.equal(runnerOptions.timeout, 600000);
     assert.ok(packet.task.includes('salvage mode'));
     assert.ok(contract.salvage);
@@ -1630,7 +1675,7 @@ test('coordinator transport death with in-scope changes triggers one packet-only
   const result = await spine.runMilestone('one');
   assert.equal(result.verified, true);
   assert.deepEqual(invokeRoleCalls.map(call => call.role), ['bulldozer', 'bulldozer']);
-  assert.deepEqual(f.calls, ['zen']);
+  assert.deepEqual(f.calls, ['strix-halo', 'zen']);
 });
 
 test('salvage failure records BLOCKED and keeps the produced work intact', async t => {
@@ -1720,34 +1765,73 @@ const testIntegrityPlan = () => ({
   }],
 });
 
-test('advisorGateEnabled: off unless NTG_STRIX opts in', () => {
-  assert.equal(advisorGateEnabled({}), false);
-  assert.equal(advisorGateEnabled({ NTG_STRIX: undefined }), false);
-  assert.equal(advisorGateEnabled({ NTG_STRIX: '' }), false);
-  assert.equal(advisorGateEnabled({ NTG_STRIX: 'off' }), false);
-  assert.equal(advisorGateEnabled({ NTG_STRIX: '0' }), false);
+test('advisorGateEnabled: enabled by default, mandatory on Track M/L, Track S opt-out via NTG_STRIX=0|off|false', () => {
+  assert.equal(advisorGateEnabled({}), true);
+  assert.equal(advisorGateEnabled({ NTG_STRIX: undefined }), true);
+  assert.equal(advisorGateEnabled({ NTG_STRIX: '' }), true);
   assert.equal(advisorGateEnabled({ NTG_STRIX: '1' }), true);
   assert.equal(advisorGateEnabled({ NTG_STRIX: 'on' }), true);
   assert.equal(advisorGateEnabled({ NTG_STRIX: 'TRUE' }), true);
+  assert.equal(advisorGateEnabled({ NTG_STRIX: 'off' }), false);
+  assert.equal(advisorGateEnabled({ NTG_STRIX: '0' }), false);
+  assert.equal(advisorGateEnabled({ NTG_STRIX: 'false' }), false);
+  assert.equal(advisorGateEnabled({ NTG_STRIX: '0' }, { track: 'M' }), true);
+  assert.equal(advisorGateEnabled({ NTG_STRIX: 'off' }, { track: 'L' }), true);
+  assert.equal(advisorGateEnabled({ NTG_STRIX: '0' }, { track: 'S' }), false);
 });
 
-test('Strix advisor gate is off by default; NTG_STRIX restores the ADVISOR_GATE instruction', async t => {
+test('Strix advisor gate is enabled by default; Track S allows opt-out via NTG_STRIX=0 while Track M enforces Halo', async t => {
   const tasks = [];
-  const f = fixture(t, { review: request => verdict(request) });
+  const trackSPlan = {
+    goal: 'Single bounded Track S edit',
+    constraints: [],
+    decision_invariants: [],
+    plan_version: 'v1',
+    track: 'S',
+    milestones: [{
+      id: 'one',
+      title: 'one',
+      objective: 'Deliver one',
+      bounded_scope: ['one.txt'],
+      acceptance_criteria: ['content matches milestone ID'],
+      non_goals: [],
+      dependencies: [],
+    }],
+  };
+  const f = fixture(t, { initialPlan: trackSPlan, review: request => verdict(request) });
   const spine = f.resume({
     invokeRole: async (role, packet, runnerOptions = {}) => {
       tasks.push(packet.task);
       return f.options.invokeRole(role, packet, runnerOptions);
     },
+    invokeSpecialist: async (role, packet, opts) => {
+      tasks.push(packet.task);
+      return f.options.invokeSpecialist(role, packet, opts);
+    },
   });
-  assert.equal((await spine.runMilestone('one')).verified, true);
-  assert.ok(!tasks[0].includes('ADVISOR_GATE'));
-  assert.ok(tasks[0].includes('advisor gate is disabled for this run'));
-  process.env.NTG_STRIX = '1';
+  process.env.NTG_STRIX = '0';
   try {
-    assert.equal((await spine.runMilestone('two')).verified, true);
-    assert.ok(tasks[1].includes('set ADVISOR_GATE REQUIRED for substantive work'));
-    assert.ok(!tasks[1].includes('advisor gate is disabled'));
+    assert.equal((await spine.runMilestone('one')).verified, true);
+    assert.ok(!tasks[0].includes('ADVISOR_GATE'));
+    assert.ok(tasks[0].includes('advisor gate is disabled for this run'));
+  } finally {
+    delete process.env.NTG_STRIX;
+  }
+
+  const tasksM = [];
+  const fM = fixture(t, { review: request => verdict(request) });
+  const spineM = fM.resume({
+    invokeRole: async (role, packet, runnerOptions = {}) => {
+      tasksM.push(packet.task);
+      return fM.options.invokeRole(role, packet, runnerOptions);
+    },
+  });
+  process.env.NTG_STRIX = '0';
+  try {
+    assert.equal((await spineM.runMilestone('one')).verified, true);
+    assert.ok(tasksM[0].includes('set ADVISOR_GATE REQUIRED for substantive work'));
+    assert.ok(tasksM[0].includes('Track M policy is active'));
+    assert.ok(!tasksM[0].includes('advisor gate is disabled'));
   } finally {
     delete process.env.NTG_STRIX;
   }
@@ -1902,7 +1986,7 @@ test('bounded repair: the same NO-GO signature twice stops with a plain question
   assert.equal(contracts[1].repair.attempt, 1);
   assert.equal(typeof contracts[1].repair.prior_result_ref, 'string');
   assert.ok(tasks[1].includes('targeted repair'));
-  assert.deepEqual(f.calls, ['bulldozer', 'zen', 'bulldozer', 'zen']);
+  assert.deepEqual(f.calls, ['bulldozer', 'strix-halo', 'zen', 'bulldozer', 'strix-halo', 'zen']);
   assert.equal(spine.state.verification.one.verdict, 'NO-GO');
   assert.deepEqual(spine.state.completed_milestones, []);
   const history = spine.state._verification_history.filter(v => v.verdict === 'NO-GO');
@@ -1973,4 +2057,1195 @@ test('repairStopQuestion names the milestone and offers plain choices', () => {
   const exhausted = repairStopQuestion('two', { repairsUsed: 2, repeatedSignature: false });
   assert.ok(exhausted.includes('two'));
   assert.ok(exhausted.includes('2'));
+});
+
+
+test('SteamrollerController: Track L/S/M classification, authority-decoupled routing, and 3.8 Flash Low rerouting', () => {
+  assert.equal(SteamrollerSpine, MinimalSpine);
+  const installedModels = [
+    { slug: 'gemini-4-argon-medium', description: 'Gemini 4 Argon (Medium)' },
+    { slug: 'gemini-4-argon-high', description: 'Gemini 4 Argon (High)' },
+    { slug: 'gemini-4-hydrogen-medium', description: 'Gemini 4 Hydrogen (Medium)' },
+    { slug: 'gemini-4-hydrogen-high', description: 'Gemini 4 Hydrogen (High)' },
+    { slug: 'gemini-4-hydrogen-xhigh', description: 'Gemini 4 Hydrogen (XHigh)' },
+    { slug: 'gemini-3.8-flash-low', description: 'Gemini 3.8 Flash (Low)' },
+    { slug: 'claude-sonnet-5-5-high', description: 'Claude Sonnet 5.5 (High)' },
+    { slug: 'claude-opus-5-5-high', description: 'Claude Opus 5.5 (High)' },
+  ];
+  const controller = new SteamrollerController({
+    modelRouter: new ModelRouter({ installedModels }),
+  });
+
+  assert.equal(controller.classifyTrack({ task: 'Fix README typo', targetFiles: ['README.md'] }).track, 'L');
+  assert.equal(controller.classifyTrack({ task: 'Refactor auth schema persistence', targetFiles: ['src/auth.mjs'] }).track, 'S');
+  assert.equal(controller.classifyTrack({ task: 'Multi-milestone migration', milestoneCount: 3 }).track, 'M');
+  assert.equal(controller.classifyTrack({ trackOverride: 'l' }).track, 'L');
+  assert.throws(() => controller.classifyTrack({ trackOverride: 'X' }), /Invalid track/);
+
+  const reroutedPuma = controller.selectWorkerRoute({
+    track: 'S',
+    task: 'Implement stateful API validation logic',
+    preferredRole: 'puma',
+    requiresSubstantiveCode: true,
+    targetFiles: ['src/api.mjs'],
+  });
+  assert.equal(reroutedPuma.reroutedFrom, 'puma');
+  assert.equal(reroutedPuma.signal, 'REROUTE_REQUIRED');
+  assert.equal(reroutedPuma.role, 'bobcat');
+  assert.equal(reroutedPuma.slug, 'gemini-4-hydrogen-medium');
+
+  const mRoute = controller.selectWorkerRoute({
+    track: 'M',
+    task: 'Coordinate multi-file milestone',
+    targetFiles: ['a.mjs', 'b.mjs', 'c.mjs'],
+  });
+  assert.equal(mRoute.role, 'bulldozer');
+  assert.equal(mRoute.slug, 'gemini-4-hydrogen-xhigh');
+
+  const overriddenPuma = controller.resolveRoleModel('puma', { modelOverride: 'gemini-4-hydrogen-medium' });
+  assert.equal(overriddenPuma.overridden, true);
+  assert.equal(overriddenPuma.authority.canRunCommand, false);
+  assert.equal(overriddenPuma.authority.canWriteLedger, false);
+  assert.throws(
+    () => controller.resolveRoleModel('puma', { canRunCommand: true }),
+    AuthorityExpansionError
+  );
+});
+
+test('TrackRunner: Track L Halo binding, staleness rejection, high-risk Zen escalation, and Track S/M strict separation', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-track-runner-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'readme.txt'), 'hello ntg 2.0\n');
+  const logPath = join(dir, 'lightweight-runs.jsonl');
+
+  const ledger = new AuthoritativeLedger({
+    goal: 'Track S/M validation',
+    constraints: [],
+    decision_invariants: ['INV-1'],
+    plan_version: 'v1',
+    milestones: [
+      {
+        id: 'm-sm',
+        title: 'sm',
+        objective: 'deliver sm',
+        bounded_scope: ['readme.txt'],
+        acceptance_criteria: ['readme present'],
+        non_goals: [],
+        dependencies: [],
+      },
+    ],
+  });
+
+  const runner = new TrackRunner({
+    ledger,
+    lightweightLog: new LightweightLog(logPath),
+    cwd: dir,
+    invokeWorker: async (role, packet) => ({
+      status: 'READY',
+      worker_role: role,
+      changes_made: packet.bounded_scope,
+      verification_evidence: ['observed readme present'],
+    }),
+    invokeHalo: async (req) => ({
+      caller: req.caller,
+      candidate_id_or_run_id: req.candidate_id_or_run_id,
+      reviewed_diff_digest: req.reviewed_diff_digest,
+      acceptance_criteria_digest: req.acceptance_criteria_digest,
+      plan_version: req.plan_version,
+      evidence_basis: req.evidence_basis,
+      verdict: 'ACCEPT',
+    }),
+  });
+
+  const lResult = await runner.runTrackL({
+    runId: 'run-l-1',
+    task: 'Implement stateful API validation handler',
+    workerRole: 'puma',
+    requiresSubstantiveCode: true,
+    boundedScope: ['readme.txt'],
+    acceptanceCriteria: ['readme present'],
+    planVersion: 'v1',
+  });
+  assert.equal(lResult.track, 'L');
+  assert.equal(lResult.assurance_badge, 'HALO_LIGHTWEIGHT');
+  assert.equal(lResult.zen_status, 'OMITTED');
+  assert.equal(lResult.rerouted_from, 'puma');
+  assert.equal(lResult.worker_role, 'bobcat');
+  assert.equal(new LightweightLog(logPath).getByRunId('run-l-1')?.assurance_badge, 'HALO_LIGHTWEIGHT');
+
+  const lDeep = await runner.runTrackL({
+    runId: 'run-l-arch',
+    task: 'Architectural concurrency refactor across readme module',
+    workerRole: 'puma',
+    boundedScope: ['readme.txt'],
+    acceptanceCriteria: ['readme present'],
+    planVersion: 'v1',
+  });
+  assert.equal(lDeep.rerouted_from, 'puma');
+  assert.equal(lDeep.worker_role, 'bulldozer');
+
+  // Stale Halo diff digest must be rejected
+  await assert.rejects(
+    runner.runTrackL({
+      runId: 'run-l-stale',
+      task: 'Update readme',
+      boundedScope: ['readme.txt'],
+      acceptanceCriteria: ['readme present'],
+      planVersion: 'v1',
+      evidenceBasis: ['observed readme present'],
+      haloReview: {
+        caller: 'steamroller',
+        candidate_id_or_run_id: 'run-l-stale',
+        reviewed_diff_digest: 'sha256:stale-digest',
+        acceptance_criteria_digest: computeAcceptanceDigest(['readme present']),
+        plan_version: 'v1',
+        evidence_basis: ['observed readme present'],
+        verdict: 'ACCEPT',
+      },
+    }),
+    /STALE/
+  );
+
+  // High-risk Track L escalation reaches Zen
+  let zenEscalated = 0;
+  const escalatedRunner = new TrackRunner({
+    lightweightLog: new LightweightLog(logPath),
+    cwd: dir,
+    invokeWorker: async () => ({ status: 'READY', changes_made: ['readme.txt'], verification_evidence: ['checked'] }),
+    invokeHalo: async (req) => ({
+      caller: req.caller,
+      candidate_id_or_run_id: req.candidate_id_or_run_id,
+      reviewed_diff_digest: req.reviewed_diff_digest,
+      acceptance_criteria_digest: req.acceptance_criteria_digest,
+      plan_version: req.plan_version,
+      evidence_basis: req.evidence_basis,
+      verdict: 'ACCEPT',
+    }),
+    invokeZen: async (req) => {
+      zenEscalated += 1;
+      assert.equal(req.escalated_for_high_risk, true);
+      return {
+        milestone_id: req.milestone_id,
+        plan_version: req.plan_version,
+        result_ref: req.result_ref,
+        verdict: 'GO',
+        verification_evidence: [
+          { classification: 'OBSERVED', criterion: 'readme present', result: 'verified readme.txt' },
+        ],
+      };
+    },
+  });
+  const escRes = await escalatedRunner.runTrackL({
+    runId: 'run-l-high-risk',
+    task: 'Sensitive security change',
+    boundedScope: ['readme.txt'],
+    acceptanceCriteria: ['readme present'],
+    highRiskEscalation: true,
+  });
+  assert.equal(escRes.zen_status, 'ESCALATED');
+  assert.equal(escRes.assurance_badge, 'ZEN_DURABLE');
+  assert.equal(escRes.record.assurance_badge, 'ZEN_DURABLE');
+  assert.equal(new LightweightLog(logPath).getByRunId('run-l-high-risk')?.assurance_badge, 'ZEN_DURABLE');
+  assert.equal(zenEscalated, 1);
+  const durableDisk = AuthoritativeLedger.load(join(dir, '.ntg', 'ledger.json')).getState();
+  assert.deepEqual(durableDisk.completed_milestones, ['run-l-high-risk']);
+  assert.equal(durableDisk.verification['run-l-high-risk'].verdict, 'GO');
+
+  // Track M requires Halo ACCEPT + Zen GO, never Halo alone
+  const contract = ledger.delegate('m-sm');
+  const diffDigest = computeDiffDigest(['readme.txt'], { cwd: dir });
+  const criteriaDigest = computeAcceptanceDigest(contract.acceptance_criteria);
+  await assert.rejects(
+    runner.verifyTrackSMCandidate({
+      track: 'M',
+      milestoneId: 'm-sm',
+      contract,
+      candidate: { candidate_artifact_ref: 'sha256:cand-1', verification_evidence: ['checked'] },
+      haloReview: {
+        caller: 'bulldozer',
+        candidate_id_or_run_id: 'sha256:cand-1',
+        reviewed_diff_digest: diffDigest,
+        acceptance_criteria_digest: criteriaDigest,
+        plan_version: 'v1',
+        evidence_basis: ['checked'],
+        verdict: 'ACCEPT',
+      },
+    }),
+    /requires Zen summative verification/
+  );
+
+  // Track S rejects bare { verdict: 'GO' } and requires full bound OBSERVED evidence (#233)
+  await assert.rejects(
+    runner.verifyTrackSMCandidate({
+      track: 'S',
+      milestoneId: 'm-sm',
+      contract,
+      requireHalo: false,
+      candidate: { candidate_artifact_ref: 'sha256:cand-1', verification_evidence: ['checked'] },
+      invokeZen: async () => ({ verdict: 'GO' }),
+    }),
+    /Zen verdict does not match/
+  );
+
+  const sRes = await runner.verifyTrackSMCandidate({
+    track: 'S',
+    milestoneId: 'm-sm',
+    contract,
+    requireHalo: false,
+    candidate: { candidate_artifact_ref: 'sha256:cand-1', verification_evidence: ['checked'] },
+    invokeZen: async (req) => ({
+      milestone_id: req.milestone_id,
+      plan_version: req.plan_version,
+      result_ref: req.result_ref,
+      verdict: 'GO',
+      verification_evidence: [
+        { classification: 'OBSERVED', criterion: 'readme present', result: 'verified' },
+      ],
+    }),
+  });
+  assert.equal(sRes.track, 'S');
+  assert.equal(sRes.halo_status, 'OMITTED');
+  assert.equal(sRes.verified, true);
+});
+
+test('SteamrollerController.recoverMilestone: Bulldozer (Hydrogen XHigh) + on-demand Instinct bounded by max_recovery_retries = 3', async () => {
+  const installedModels = [
+    { slug: 'gemini-4-hydrogen-xhigh', description: 'Gemini 4 Hydrogen (XHigh)' },
+    { slug: 'claude-sonnet-5-5-high', description: 'Claude Sonnet 5.5 (High)' },
+    { slug: 'claude-opus-5-5-high', description: 'Claude Opus 5.5 (High)' },
+  ];
+  const ledger = new AuthoritativeLedger({
+    goal: 'Recover milestone',
+    constraints: [],
+    decision_invariants: [],
+    plan_version: 'v1',
+    milestones: [
+      {
+        id: 'm-rec',
+        title: 'rec',
+        objective: 'fix bug',
+        bounded_scope: ['src/x.mjs'],
+        acceptance_criteria: ['fixed'],
+        non_goals: [],
+        dependencies: [],
+      },
+    ],
+  });
+  const controller = new SteamrollerController({
+    ledger,
+    modelRouter: new ModelRouter({ installedModels }),
+  });
+
+  const calls = [];
+  const rec1 = await controller.recoverMilestone({
+    milestoneId: 'm-rec',
+    failureReason: 'Initial failure',
+    invokeBulldozer: async (pkt, opts) => {
+      calls.push(['bulldozer', opts.slug, pkt.attempt]);
+      return { status: 'READY' };
+    },
+    invokeInstinct: async () => {
+      calls.push(['instinct']);
+      return { diagnosis: 'alt' };
+    },
+  });
+  assert.equal(rec1.recovery_lead, 'bulldozer');
+  assert.equal(rec1.bulldozer_slug, 'gemini-4-hydrogen-xhigh');
+  assert.equal(rec1.attempt, 1);
+  assert.equal(rec1.instinct_invoked, false);
+
+  const rec2 = await controller.recoverMilestone({
+    milestoneId: 'm-rec',
+    failureReason: 'Same-class repeated failure',
+    invokeBulldozer: async (pkt, opts) => {
+      calls.push(['bulldozer', opts.slug, pkt.attempt, Boolean(pkt.instinct_advice)]);
+      return { status: 'READY' };
+    },
+    invokeInstinct: async (_pkt, opts) => {
+      calls.push(['instinct', opts.slug]);
+      return { hypotheses: ['h1'], recommendation: 'test alternate framing' };
+    },
+  });
+  assert.equal(rec2.attempt, 2);
+  assert.equal(rec2.instinct_invoked, true);
+  assert.equal(rec2.instinct_slug, 'claude-sonnet-5-5-high');
+  assert.equal(ledger.getState().evidence.alt_framing.length, 1);
+  assert.equal(ledger.getState().evidence.alt_framing[0].adopted, false);
+
+  const rec3 = await controller.recoverMilestone({
+    milestoneId: 'm-rec',
+    failureReason: 'Third try',
+    escalateInstinct: true,
+    invokeBulldozer: async () => ({ status: 'READY' }),
+    invokeInstinct: async (_pkt, opts) => ({ slug: opts.slug }),
+  });
+  assert.equal(rec3.attempt, 3);
+  assert.equal(rec3.instinct_slug, 'claude-opus-5-5-high');
+
+  await assert.rejects(
+    controller.recoverMilestone({
+      milestoneId: 'm-rec',
+      failureReason: 'Fourth try exceeds cap',
+      invokeBulldozer: async () => ({ status: 'READY' }),
+    }),
+    /Recovery safety cap \(3\) exceeded/
+  );
+});
+
+test('Track M runMilestone rejects candidate before Zen when Strix Halo returns REVISE', async t => {
+  const f = fixture(t, {
+    invokeSpecialist: async (role, packet) => {
+      f.calls.push(role);
+      if (role === 'strix-halo') {
+        return {
+          caller: packet.caller ?? 'steamroller',
+          candidate_id_or_run_id: packet.candidate_id_or_run_id,
+          reviewed_diff_digest: packet.reviewed_diff_digest,
+          acceptance_criteria_digest: packet.acceptance_criteria_digest,
+          plan_version: packet.plan_version,
+          evidence_basis: packet.evidence_basis,
+          verdict: 'REVISE',
+          findings: ['Missing edge-case validation'],
+        };
+      }
+      return { status: 'READY' };
+    },
+  });
+
+  await assert.rejects(
+    f.spine.runMilestone('one', { track: 'M' }),
+    /Halo review for 'one' rejected.*REVISE/
+  );
+  assert.deepEqual(f.calls, ['bulldozer', 'bobcat', 'strix-halo']);
+  assert.ok(!f.calls.includes('zen'), 'Zen must not be invoked when Track M Halo rejects');
+  const disk = AuthoritativeLedger.load(f.ledgerPath).getState();
+  assert.deepEqual(disk.completed_milestones, []);
+  assert.equal(disk.current_milestone, null);
+});
+
+test('Issue #232: Strix Halo binding fails closed without host hydration across Track L, Track S/M, and pending Halo receipts', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-halo-232-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'doc.txt'), 'v1 content\n');
+
+  const diffDigest = computeDiffDigest(['doc.txt'], { cwd: dir });
+  const criteria = ['doc matches'];
+  const criteriaDigest = computeAcceptanceDigest(criteria);
+
+  const makeRunner = ({ ledger = null, haloImpl } = {}) =>
+    new TrackRunner({
+      ledger,
+      lightweightLog: new LightweightLog(join(dir, 'lightweight-runs.jsonl')),
+      cwd: dir,
+      invokeWorker: async () => ({ status: 'READY', changes_made: ['doc.txt'], verification_evidence: ['checked'] }),
+      invokeHalo: haloImpl,
+      invokeZen: async (req) => ({
+        milestone_id: req.milestone_id,
+        plan_version: req.plan_version,
+        result_ref: req.result_ref,
+        verdict: 'GO',
+        verification_evidence: [{ classification: 'OBSERVED', criterion: 'doc matches', result: 'verified' }],
+      }),
+    });
+
+  // 1. Track L rejects if Halo omits candidate_id_or_run_id (no host hydration)
+  const omittedCandRunner = makeRunner({
+    haloImpl: async (req) => ({
+      caller: req.caller,
+      reviewed_diff_digest: req.reviewed_diff_digest,
+      acceptance_criteria_digest: req.acceptance_criteria_digest,
+      plan_version: req.plan_version,
+      evidence_basis: req.evidence_basis,
+      verdict: 'ACCEPT',
+    }),
+  });
+  await assert.rejects(
+    omittedCandRunner.runTrackL({
+      runId: 'run-missing-id',
+      task: 'Update doc.txt',
+      boundedScope: ['doc.txt'],
+      acceptanceCriteria: criteria,
+      planVersion: 'v1',
+    }),
+    /missing required binding field 'candidate_id_or_run_id'/
+  );
+
+  // 2. Track M rejects if Halo returns different candidate_id_or_run_id
+  const makeSmLedger = () => {
+    const ledger = new AuthoritativeLedger({
+      goal: 'Halo strict test',
+      constraints: [],
+      decision_invariants: [],
+      plan_version: 'v1',
+      milestones: [
+        {
+          id: 'm1',
+          title: 'm1',
+          objective: 'check',
+          bounded_scope: ['doc.txt'],
+          acceptance_criteria: criteria,
+          non_goals: [],
+          dependencies: [],
+        },
+      ],
+    });
+    const contract = ledger.delegate('m1');
+    const cand = ledger.receiveCandidate({
+      milestone_id: 'm1',
+      plan_version: 'v1',
+      status: 'DONE',
+      changes_made: ['doc.txt'],
+      verification_evidence: ['obs-1'],
+      unresolved_unknowns: [],
+      scope_deviations: [],
+      candidate_artifact_ref: 'sha256:cand-actual',
+    });
+    return { ledger, contract, cand: cand.candidate_record };
+  };
+
+  {
+    const { ledger, contract, cand } = makeSmLedger();
+    const smRunner = makeRunner({
+      ledger,
+      haloImpl: async (req) => ({
+        caller: req.caller,
+        candidate_id_or_run_id: 'sha256:cand-WRONG',
+        reviewed_diff_digest: req.reviewed_diff_digest,
+        acceptance_criteria_digest: req.acceptance_criteria_digest,
+        plan_version: req.plan_version,
+        evidence_basis: req.evidence_basis,
+        verdict: 'ACCEPT',
+      }),
+    });
+    await assert.rejects(
+      smRunner.verifyTrackSMCandidate({ track: 'M', milestoneId: 'm1', contract, candidate: cand }),
+      /candidate_id_or_run_id.*does not match current/
+    );
+    assert.equal(ledger.halo_reviews.m1.is_stale, true);
+  }
+
+  // 3. Track M rejects + marks STALE if Halo returns different evidence_basis
+  {
+    const { ledger, contract, cand } = makeSmLedger();
+    const smRunner = makeRunner({
+      ledger,
+      haloImpl: async (req) => ({
+        caller: req.caller,
+        candidate_id_or_run_id: req.candidate_id_or_run_id,
+        reviewed_diff_digest: req.reviewed_diff_digest,
+        acceptance_criteria_digest: req.acceptance_criteria_digest,
+        plan_version: req.plan_version,
+        evidence_basis: ['stale-evidence-only'],
+        verdict: 'ACCEPT',
+      }),
+    });
+    await assert.rejects(
+      smRunner.verifyTrackSMCandidate({ track: 'M', milestoneId: 'm1', contract, candidate: cand }),
+      /evidence_basis changed.*STALE/
+    );
+    assert.equal(ledger.halo_reviews.m1.is_stale, true);
+  }
+
+  // 4. Track L/M reject if diff, criteria, or plan_version mismatches (including missing plan_version)
+  for (const [label, patch] of [
+    ['wrong diff', { reviewed_diff_digest: 'sha256:wrong-diff' }],
+    ['wrong criteria', { acceptance_criteria_digest: 'sha256:wrong-crit' }],
+    ['wrong plan_version', { plan_version: 'v99' }],
+    ['missing plan_version', { plan_version: undefined }],
+  ]) {
+    await assert.rejects(
+      makeRunner({
+        haloImpl: async (req) => ({
+          caller: req.caller,
+          candidate_id_or_run_id: req.candidate_id_or_run_id,
+          reviewed_diff_digest: req.reviewed_diff_digest,
+          acceptance_criteria_digest: req.acceptance_criteria_digest,
+          plan_version: req.plan_version,
+          evidence_basis: req.evidence_basis,
+          verdict: 'ACCEPT',
+          ...patch,
+        }),
+      }).runTrackL({
+        runId: `run-${label}`,
+        task: 'Update doc.txt',
+        boundedScope: ['doc.txt'],
+        acceptanceCriteria: criteria,
+        planVersion: 'v1',
+      }),
+      /STALE|missing required binding field|does not match/
+    );
+  }
+
+  // 5. Pending Halo receipt inside SteamrollerController.runMilestone omits binding fields -> host rejects without hydrating
+  {
+    const fPending = fixture(t, {
+      invokeSpecialist: async (role) => {
+        fPending.calls.push(role);
+        if (role === 'strix-halo') {
+          // Deliberately omit binding fields on pending Halo receipt
+          return { verdict: 'ACCEPT', notes: 'incomplete pending review' };
+        }
+        return { status: 'READY' };
+      },
+      output: async (contract, { spine }) => {
+        await spine.invokeStrixHalo({ task: 'partial review' }, { caller: 'bobcat' });
+        return candidate(contract, { candidate_artifact_ref: 'sha256:pending-test' });
+      },
+    });
+    await assert.rejects(
+      fPending.spine.runMilestone('one', { track: 'M' }),
+      /missing required binding field/
+    );
+    assert.ok(!fPending.calls.includes('zen'), 'incomplete pending Halo must block before Zen');
+  }
+
+  // 6. Exact 5-field match passes Track L close AND Track M pre-Zen gate
+  {
+    const exactTrackL = await makeRunner({
+      haloImpl: async (req) => ({
+        caller: req.caller,
+        candidate_id_or_run_id: req.candidate_id_or_run_id,
+        reviewed_diff_digest: diffDigest,
+        acceptance_criteria_digest: criteriaDigest,
+        plan_version: 'v1',
+        evidence_basis: req.evidence_basis,
+        verdict: 'ACCEPT',
+      }),
+    }).runTrackL({
+      runId: 'run-exact-ok',
+      task: 'Update doc.txt',
+      boundedScope: ['doc.txt'],
+      acceptanceCriteria: criteria,
+      planVersion: 'v1',
+    });
+    assert.equal(exactTrackL.assurance_badge, 'HALO_LIGHTWEIGHT');
+
+    const { ledger, contract, cand } = makeSmLedger();
+    const smExact = await makeRunner({
+      ledger,
+      haloImpl: async (req) => ({
+        caller: req.caller,
+        candidate_id_or_run_id: 'sha256:cand-actual',
+        reviewed_diff_digest: req.reviewed_diff_digest,
+        acceptance_criteria_digest: criteriaDigest,
+        plan_version: 'v1',
+        evidence_basis: ['obs-1'],
+        verdict: 'ACCEPT',
+      }),
+    }).verifyTrackSMCandidate({ track: 'M', milestoneId: 'm1', contract, candidate: cand });
+    assert.equal(smExact.halo_status, 'ACCEPTED');
+    assert.equal(smExact.verified, true);
+  }
+});
+
+test('Issue #233: TrackRunner Zen verification enforces LedgerKernel strict binding and OBSERVED evidence on Track S/M and Track L escalation', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-zen-233-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'item.txt'), 'content\n');
+
+  const criteria = ['criterion A', 'criterion B'];
+  const basePlan = {
+    goal: 'Strict Zen test',
+    constraints: [],
+    decision_invariants: [],
+    plan_version: 'v1',
+    milestones: [
+      {
+        id: 'm1',
+        title: 'm1',
+        objective: 'check strict zen',
+        bounded_scope: ['item.txt'],
+        acceptance_criteria: criteria,
+        non_goals: [],
+        dependencies: [],
+      },
+    ],
+  };
+
+  const fullEvidence = [
+    { classification: 'OBSERVED', criterion: 'criterion A', result: 'ok A' },
+    { classification: 'OBSERVED', criterion: 'criterion B', result: 'ok B' },
+  ];
+
+  const runVerifySM = async (zenResponse) => {
+    const ledger = new AuthoritativeLedger(basePlan);
+    const contract = ledger.delegate('m1');
+    const cand = ledger.receiveCandidate({
+      milestone_id: 'm1',
+      plan_version: 'v1',
+      status: 'DONE',
+      changes_made: ['item.txt'],
+      verification_evidence: ['checked'],
+      unresolved_unknowns: [],
+      scope_deviations: [],
+      candidate_artifact_ref: 'sha256:item-1',
+    });
+    const runner = new TrackRunner({
+      ledger,
+      lightweightLog: new LightweightLog(join(dir, 'lw.jsonl')),
+      cwd: dir,
+    });
+    return runner.verifyTrackSMCandidate({
+      track: 'S',
+      milestoneId: 'm1',
+      contract,
+      requireHalo: false,
+      candidate: cand.candidate_record,
+      invokeZen: async (req) =>
+        typeof zenResponse === 'function' ? zenResponse(req) : zenResponse,
+    });
+  };
+
+  // 1. Bare { verdict: 'GO' } -> reject
+  await assert.rejects(runVerifySM({ verdict: 'GO' }), /does not match the current candidate binding/);
+
+  // 2. Wrong milestone_id -> reject
+  await assert.rejects(
+    runVerifySM((req) => ({
+      milestone_id: 'wrong-m',
+      plan_version: req.plan_version,
+      result_ref: req.result_ref,
+      verdict: 'GO',
+      verification_evidence: fullEvidence,
+    })),
+    /milestone_id/
+  );
+
+  // 3. Wrong plan_version -> reject
+  await assert.rejects(
+    runVerifySM((req) => ({
+      milestone_id: req.milestone_id,
+      plan_version: 'v999',
+      result_ref: req.result_ref,
+      verdict: 'GO',
+      verification_evidence: fullEvidence,
+    })),
+    /plan_version/
+  );
+
+  // 4. Wrong result_ref -> reject
+  await assert.rejects(
+    runVerifySM((req) => ({
+      milestone_id: req.milestone_id,
+      plan_version: req.plan_version,
+      result_ref: 'ref-sha256-wrong',
+      verdict: 'GO',
+      verification_evidence: fullEvidence,
+    })),
+    /result_ref/
+  );
+
+  // 5. Empty evidence -> reject
+  await assert.rejects(
+    runVerifySM((req) => ({
+      milestone_id: req.milestone_id,
+      plan_version: req.plan_version,
+      result_ref: req.result_ref,
+      verdict: 'GO',
+      verification_evidence: [],
+    })),
+    /directly observed verification evidence/
+  );
+
+  // 6. INFERRED / UNKNOWN evidence included -> reject
+  for (const classification of ['INFERRED', 'UNKNOWN']) {
+    await assert.rejects(
+      runVerifySM((req) => ({
+        milestone_id: req.milestone_id,
+        plan_version: req.plan_version,
+        result_ref: req.result_ref,
+        verdict: 'GO',
+        verification_evidence: [fullEvidence[0], { classification, criterion: 'criterion B', result: 'guessed' }],
+      })),
+      new RegExp(`not observed: ${classification}: criterion B`)
+    );
+  }
+
+  // 7. Partial criterion coverage -> reject (UncoveredCriteriaError)
+  await assert.rejects(
+    runVerifySM((req) => ({
+      milestone_id: req.milestone_id,
+      plan_version: req.plan_version,
+      result_ref: req.result_ref,
+      verdict: 'GO',
+      verification_evidence: [fullEvidence[0]],
+    })),
+    UncoveredCriteriaError
+  );
+
+  // 8. Exact OBSERVED evidence + exact binding -> verified: true
+  const validRes = await runVerifySM((req) => ({
+    milestone_id: req.milestone_id,
+    plan_version: req.plan_version,
+    result_ref: req.result_ref,
+    verdict: 'GO',
+    verification_evidence: fullEvidence,
+  }));
+  assert.equal(validRes.verified, true);
+
+  // 9. High-risk Track L escalation enforces the exact same fail-closed Zen binding & coverage rules
+  const runHighRiskTrackL = async (zenBuilder) => {
+    const subDir = mkdtempSync(join(dir, 'hr-'));
+    writeFileSync(join(subDir, 'item.txt'), 'content\n');
+    const escRunner = new TrackRunner({
+      ledgerPath: join(subDir, '.ntg', 'ledger.json'),
+      lightweightLog: new LightweightLog(join(subDir, '.ntg', 'lightweight-runs.jsonl')),
+      cwd: subDir,
+      invokeWorker: async () => ({ status: 'READY', changes_made: ['item.txt'], verification_evidence: ['checked'] }),
+      invokeHalo: async (req) => ({
+        caller: req.caller,
+        candidate_id_or_run_id: req.candidate_id_or_run_id,
+        reviewed_diff_digest: req.reviewed_diff_digest,
+        acceptance_criteria_digest: req.acceptance_criteria_digest,
+        plan_version: req.plan_version,
+        evidence_basis: req.evidence_basis,
+        verdict: 'ACCEPT',
+      }),
+      invokeZen: async (req) => zenBuilder(req),
+    });
+    return escRunner.runTrackL({
+      runId: 'run-hr',
+      task: 'High-risk config change',
+      boundedScope: ['item.txt'],
+      acceptanceCriteria: criteria,
+      highRiskEscalation: true,
+    });
+  };
+
+  await assert.rejects(runHighRiskTrackL(() => ({ verdict: 'GO' })), /candidate binding/);
+  await assert.rejects(
+    runHighRiskTrackL((req) => ({
+      milestone_id: req.milestone_id,
+      plan_version: req.plan_version,
+      result_ref: req.result_ref,
+      verdict: 'GO',
+      verification_evidence: [fullEvidence[0]],
+    })),
+    UncoveredCriteriaError
+  );
+  const escOk = await runHighRiskTrackL((req) => ({
+    milestone_id: req.milestone_id,
+    plan_version: req.plan_version,
+    result_ref: req.result_ref,
+    verdict: 'GO',
+    verification_evidence: fullEvidence,
+  }));
+  assert.equal(escOk.assurance_badge, 'ZEN_DURABLE');
+  assert.equal(escOk.zen_verdict.verdict, 'GO');
+});
+
+test('Issue #235: SteamrollerController semantic routing selects Puma/Jaguar/Bobcat/Bulldozer without lexical false promotions', () => {
+  const installedModels = [
+    { slug: 'gemini-4-argon-medium', description: 'Gemini 4 Argon (Medium)' },
+    { slug: 'gemini-4-hydrogen-medium', description: 'Gemini 4 Hydrogen (Medium)' },
+    { slug: 'gemini-4-hydrogen-xhigh', description: 'Gemini 4 Hydrogen (XHigh)' },
+    { slug: 'gemini-3.8-flash-low', description: 'Gemini 3.8 Flash (Low)' },
+  ];
+  const controller = new SteamrollerController({
+    modelRouter: new ModelRouter({ installedModels }),
+  });
+
+  // 1-file docs typo/config edit -> Puma automatically (no preferredRole)
+  const docRoute = controller.selectWorkerRoute({
+    track: 'L',
+    task: 'Fix typo in README.md',
+    targetFiles: ['README.md'],
+  });
+  assert.equal(docRoute.role, 'puma');
+  assert.equal(docRoute.slug, 'gemini-3.8-flash-low');
+
+  // architecture.md doc edit -> Track L + Puma, never Track M / Bulldozer
+  const archDocTrack = controller.classifyTrack({
+    task: 'Fix wording in docs/architecture.md',
+    targetFiles: ['docs/architecture.md'],
+  });
+  assert.equal(archDocTrack.track, 'L');
+  const archDocRoute = controller.selectWorkerRoute({
+    track: archDocTrack.track,
+    task: 'Fix wording in docs/architecture.md',
+    targetFiles: ['docs/architecture.md'],
+  });
+  assert.equal(archDocRoute.role, 'puma');
+
+  // Read-only locate/inspect -> Jaguar even when targetFiles is non-empty
+  const locateRoute = controller.selectWorkerRoute({
+    track: 'L',
+    task: 'Locate saveLedger callers',
+    targetFiles: ['src/core/ledger-kernel.mjs', 'scripts/ntg-vnext.mjs'],
+  });
+  assert.equal(locateRoute.role, 'jaguar');
+
+  // 5-file trivial mechanical rename -> Puma, not Bulldozer by keyword alone
+  const renameRoute = controller.selectWorkerRoute({
+    track: 'L',
+    task: 'Rename security_header key across 5 files',
+    targetFiles: ['a.mjs', 'b.mjs', 'c.mjs', 'd.mjs', 'e.mjs'],
+    isMechanicalEdit: true,
+  });
+  assert.equal(renameRoute.role, 'puma');
+
+  // 1-file substantive state/API change -> Bobcat + Track S
+  const substantiveTrack = controller.classifyTrack({
+    task: 'Implement stateful API validation handler',
+    targetFiles: ['src/handler.mjs'],
+  });
+  assert.equal(substantiveTrack.track, 'S');
+  const substantiveRoute = controller.selectWorkerRoute({
+    track: substantiveTrack.track,
+    task: 'Implement stateful API validation handler',
+    targetFiles: ['src/handler.mjs'],
+  });
+  assert.equal(substantiveRoute.role, 'bobcat');
+
+  // Genuine cross-cutting migration -> Track M + Bulldozer
+  const migrationTrack = controller.classifyTrack({
+    task: 'Cross-cutting database migration across runtime and ledger',
+    targetFiles: ['src/db.mjs', 'src/runtime.mjs', 'src/ledger.mjs'],
+    crossFileDependency: true,
+  });
+  assert.equal(migrationTrack.track, 'M');
+  const migrationRoute = controller.selectWorkerRoute({
+    track: migrationTrack.track,
+    task: 'Cross-cutting database migration across runtime and ledger',
+    targetFiles: ['src/db.mjs', 'src/runtime.mjs', 'src/ledger.mjs'],
+    crossFileDependency: true,
+  });
+  assert.equal(migrationRoute.role, 'bulldozer');
+});
+
+test('Issue #235 / PR #231 Finding 1: Durable runMilestone routes Track S directly to Bobcat/Puma/Jaguar without Bulldozer hop, reserving Bulldozer for coordinator/recovery work', async t => {
+  const installedModels = [
+    { slug: 'gemini-4-argon-medium', description: 'Gemini 4 Argon (Medium)' },
+    { slug: 'gemini-4-hydrogen-medium', description: 'Gemini 4 Hydrogen (Medium)' },
+    { slug: 'gemini-4-hydrogen-high', description: 'Gemini 4 Hydrogen (High)' },
+    { slug: 'gemini-4-hydrogen-xhigh', description: 'Gemini 4 Hydrogen (XHigh)' },
+    { slug: 'gemini-3.8-flash-low', description: 'Gemini 3.8 Flash (Low)' },
+  ];
+
+  const runDirectCase = async ({ objective, boundedScope, criterion, workerReply, zenVerdicts = ['GO'], track = 'S', runOpts = {} }) => {
+    const dir = mkdtempSync(join(tmpdir(), 'ntg-durable-route-'));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    for (const filePath of boundedScope) {
+      const fullPath = join(dir, filePath);
+      mkdirSync(join(fullPath, '..'), { recursive: true });
+      writeFileSync(fullPath, 'baseline\n');
+    }
+    const calls = [];
+    const controller = new SteamrollerController({
+      ledgerPath: join(dir, 'ledger.json'),
+      track,
+      cwd: dir,
+      acquireLock: true,
+      handleSignals: false,
+      modelRouter: new ModelRouter({ installedModels }),
+      plan: {
+        goal: objective,
+        constraints: [],
+        decision_invariants: [],
+        plan_version: 'v1',
+        track,
+        milestones: [
+          {
+            id: 'm1',
+            title: 'm1',
+            objective,
+            bounded_scope: boundedScope,
+            acceptance_criteria: [criterion],
+            non_goals: [],
+            dependencies: [],
+          },
+        ],
+      },
+      invokeSpecialist: async (role, packet) => {
+        calls.push(role);
+        return typeof workerReply === 'function' ? workerReply(role, packet, dir) : workerReply;
+      },
+      invokeRole: async (role, packet) => {
+        calls.push(role);
+        assert.equal(role, 'bulldozer');
+        const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+        return envelope({
+          milestone_id: contract.milestone_id,
+          plan_version: contract.plan_version,
+          status: 'DONE',
+          changes_made: contract.bounded_scope,
+          verification_evidence: [{ classification: 'OBSERVED', criterion, result: 'repaired by bulldozer' }],
+          unresolved_unknowns: [],
+          scope_deviations: [],
+          candidate_artifact_ref: computeDeliveredTreeDigest(contract.bounded_scope, { cwd: dir }),
+        });
+      },
+      invokeZen: async (req) => {
+        calls.push('zen');
+        const v = zenVerdicts.shift() ?? 'GO';
+        return {
+          milestone_id: req.milestone_id,
+          plan_version: req.plan_version,
+          result_ref: req.result_ref,
+          verdict: v,
+          verification_evidence: [{ classification: 'OBSERVED', criterion, result: 'verified live tree' }],
+          ...(v === 'NO-GO' ? { repair_needs: 'fix defect' } : {}),
+        };
+      },
+    });
+    t.after(() => controller.close());
+    const result = await controller.runMilestone('m1', runOpts);
+    return { result, calls, state: controller.state };
+  };
+
+  // 1. Bounded Track S implementation -> Bobcat directly (no Bulldozer hop)
+  const bobcatRun = await runDirectCase({
+    objective: 'Implement stateful API validation handler',
+    boundedScope: ['src/handler.mjs'],
+    criterion: 'handler validates state transitions',
+    workerReply: (_role, _packet, dir) => {
+      writeFileSync(join(dir, 'src/handler.mjs'), 'export function validate() { return true; }\n');
+      return { status: 'READY', artifact: join(dir, 'src/handler.mjs') };
+    },
+  });
+  assert.equal(bobcatRun.result.verified, true);
+  assert.equal(bobcatRun.result.worker_role, 'bobcat');
+  assert.deepEqual(bobcatRun.calls, ['bobcat', 'zen']);
+  assert.ok(!bobcatRun.calls.includes('bulldozer'));
+
+  // 2. Bounded Track S mechanical/doc edit -> Puma directly (no Bulldozer hop),
+  // without synthesizing criterion-level OBSERVED evidence from a bare READY claim.
+  const pumaRun = await runDirectCase({
+    objective: 'Fix typo in README.md',
+    boundedScope: ['README.md'],
+    criterion: 'README typo fixed',
+    workerReply: (_role, _packet, dir) => {
+      writeFileSync(join(dir, 'README.md'), 'Native Gravity 2.0\n');
+      return { status: 'READY', changes_made: ['README.md'] };
+    },
+  });
+  assert.equal(pumaRun.result.verified, true);
+  assert.equal(pumaRun.result.worker_role, 'puma');
+  assert.deepEqual(pumaRun.calls, ['puma', 'zen']);
+  assert.ok(!pumaRun.calls.includes('bulldozer'));
+  const pumaCand = pumaRun.state.evidence.m1.candidates[0];
+  assert.deepEqual(
+    uncoveredAcceptanceCriteria(['README typo fixed'], pumaCand.verification_evidence),
+    ['README typo fixed']
+  );
+  assert.equal(
+    pumaCand.verification_evidence.some(
+      (item) =>
+        item &&
+        typeof item === 'object' &&
+        ((item.classification === 'OBSERVED' && item.criterion !== undefined) ||
+          /completed bounded milestone|delivered bounded scope/.test(String(item.result ?? '')))
+    ),
+    false
+  );
+  const pumaTreeFact = pumaCand.verification_evidence.find(
+    (item) => item && typeof item === 'object' && item.source === 'host_tree_digest'
+  );
+  assert.equal(pumaTreeFact?.classification, 'OBSERVED');
+  assert.deepEqual(pumaTreeFact?.changed_files, ['README.md']);
+  assert.deepEqual(pumaTreeFact?.added_files, []);
+  assert.match(String(pumaTreeFact?.delivered_tree_digest ?? ''), /^sha256:/);
+  assert.equal(
+    pumaCand.verification_evidence.some(
+      (item) =>
+        item &&
+        typeof item === 'object' &&
+        item.classification === 'UNKNOWN' &&
+        item.criterion === 'README typo fixed'
+    ),
+    true
+  );
+  assert.ok(pumaCand.unresolved_unknowns.includes('README typo fixed'));
+
+  // 3. Bounded Track S read-only discovery -> Jaguar directly (no Bulldozer hop)
+  const jaguarRun = await runDirectCase({
+    objective: 'Locate all saveLedger callers',
+    boundedScope: ['src/ledger.mjs'],
+    criterion: 'callers catalogued',
+    workerReply: () => ({ status: 'READY', facts: ['src/ledger.mjs:10 saveLedger'] }),
+  });
+  assert.equal(jaguarRun.result.verified, true);
+  assert.equal(jaguarRun.result.worker_role, 'jaguar');
+  assert.deepEqual(jaguarRun.calls, ['jaguar', 'zen']);
+  assert.ok(!jaguarRun.calls.includes('bulldozer'));
+  const jaguarCand = jaguarRun.state.evidence.m1.candidates[0];
+  assert.deepEqual(
+    uncoveredAcceptanceCriteria(['callers catalogued'], jaguarCand.verification_evidence),
+    ['callers catalogued']
+  );
+  assert.ok(jaguarCand.verification_evidence.includes('src/ledger.mjs:10 saveLedger'));
+
+  // 4. Lightweight worker REROUTE_REQUIRED escalates cleanly to Bobcat without Bulldozer
+  const rerouteToBobcat = await runDirectCase({
+    objective: 'Fix typo in README.md',
+    boundedScope: ['README.md'],
+    criterion: 'README typo fixed',
+    workerReply: (role, _packet, dir) => {
+      if (role === 'puma') {
+        return { status: 'REROUTE_REQUIRED', reroute_to: 'bobcat', reason: 'needs code awareness' };
+      }
+      writeFileSync(join(dir, 'README.md'), 'Updated via Bobcat\n');
+      return { status: 'READY', artifact: join(dir, 'README.md') };
+    },
+  });
+  assert.equal(rerouteToBobcat.result.verified, true);
+  assert.equal(rerouteToBobcat.result.worker_role, 'bobcat');
+  assert.deepEqual(rerouteToBobcat.calls, ['puma', 'bobcat', 'zen']);
+
+  // 5. Track S Zen NO-GO routes recovery repair to Bulldozer (Hydrogen XHigh)
+  const recoveryRun = await runDirectCase({
+    objective: 'Implement stateful API validation handler',
+    boundedScope: ['src/handler.mjs'],
+    criterion: 'handler validates state transitions',
+    workerReply: (_role, _packet, dir) => {
+      writeFileSync(join(dir, 'src/handler.mjs'), 'export function validate() { return false; }\n');
+      return { status: 'READY', changes_made: ['src/handler.mjs'] };
+    },
+    zenVerdicts: ['NO-GO', 'GO'],
+  });
+  assert.equal(recoveryRun.result.verified, true);
+  assert.equal(recoveryRun.result.worker_role, 'bulldozer');
+  assert.deepEqual(recoveryRun.calls, ['bobcat', 'zen', 'bulldozer', 'zen']);
+
+  // 6. Direct worker READY without verification_evidence AND without any host-observed
+  // artifact, bounded-tree diff, or verify command result is rejected as BLOCKED before Zen.
+  const emptyClaimRun = await runDirectCase({
+    objective: 'Fix typo in README.md',
+    boundedScope: ['README.md'],
+    criterion: 'README typo fixed',
+    workerReply: () => ({ status: 'READY', changes_made: ['README.md'] }),
+  });
+  assert.equal(emptyClaimRun.result.status, 'BLOCKED');
+  assert.equal(emptyClaimRun.result.verified, false);
+  assert.equal(emptyClaimRun.result.worker_role, 'puma');
+  assert.ok(!emptyClaimRun.calls.includes('zen'));
+  assert.deepEqual(emptyClaimRun.calls, ['puma', 'puma', 'puma']);
+
+  // 7. Explicit worker verification_evidence is preserved as-is without host synthesis.
+  const explicitWorkerEvidence = [
+    { classification: 'OBSERVED', criterion: 'README typo fixed', result: 'checked README typo manually' },
+  ];
+  const explicitRun = await runDirectCase({
+    objective: 'Fix typo in README.md',
+    boundedScope: ['README.md'],
+    criterion: 'README typo fixed',
+    workerReply: () => ({
+      status: 'READY',
+      changes_made: ['README.md'],
+      verification_evidence: explicitWorkerEvidence,
+    }),
+  });
+  assert.equal(explicitRun.result.verified, true);
+  assert.deepEqual(explicitRun.state.evidence.m1.candidates[0].verification_evidence, explicitWorkerEvidence);
+});
+
+test('PR #231 Finding 2: delivered_tree_digest is durably bound before Zen and reviewCandidate refuses to promote when bounded files change', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-tree-bind-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const ledgerPath = join(dir, 'ledger.json');
+  writeFileSync(join(dir, 'src.mjs'), 'export const v = 0;\n');
+
+  const initialCriteria = ['content updated to v1'];
+  const controllerPlan = {
+    goal: 'Bind delivered working tree digest durably across Zen pending retry',
+    constraints: [],
+    decision_invariants: [],
+    plan_version: 'v1',
+    track: 'S',
+    milestones: [
+      {
+        id: 'm1',
+        title: 'm1',
+        objective: 'Implement stateful v1 handler',
+        bounded_scope: ['src.mjs'],
+        acceptance_criteria: initialCriteria,
+        non_goals: [],
+        dependencies: [],
+      },
+    ],
+  };
+
+  let zenCalls = 0;
+  const controller = new SteamrollerController({
+    ledgerPath,
+    plan: controllerPlan,
+    track: 'S',
+    cwd: dir,
+    acquireLock: true,
+    handleSignals: false,
+    invokeSpecialist: async (_role, packet) => {
+      writeFileSync(join(dir, 'src.mjs'), 'export const v = 1;\n');
+      return {
+        status: 'READY',
+        artifact: join(dir, 'src.mjs'),
+        verification_evidence: [
+          { classification: 'OBSERVED', criterion: 'content updated to v1', result: 'wrote v1' },
+        ],
+      };
+    },
+    invokeZen: async () => {
+      zenCalls += 1;
+      throw Object.assign(
+        new Error('zen invocation exited 3: Individual quota reached'),
+        { code: 'ZEN_REVIEW_PENDING' }
+      );
+    },
+  });
+  t.after(() => controller.close());
+
+  await assert.rejects(controller.runMilestone('m1'), /Individual quota reached/);
+  assert.equal(zenCalls, 1);
+
+  const expectedDigest = computeDeliveredTreeDigest(['src.mjs'], { cwd: dir });
+  const persisted = AuthoritativeLedger.load(ledgerPath).getState();
+  const persistedCandidate = persisted.evidence.m1.candidates[0];
+  assert.equal(persistedCandidate.delivered_tree_digest, expectedDigest);
+  assert.equal(persistedCandidate.payload.delivered_tree_digest, expectedDigest);
+  assert.equal(persisted.current_milestone, null);
+  assert.deepEqual(persisted.completed_milestones, []);
+  controller.close();
+
+  // Mutate the bounded file after candidate persistence while Zen is pending.
+  writeFileSync(join(dir, 'src.mjs'), 'export const v = 999;\n');
+
+  let gateRetryZenCalls = 0;
+  const resumed = new SteamrollerController({
+    ledgerPath,
+    track: 'S',
+    cwd: dir,
+    acquireLock: true,
+    handleSignals: false,
+    invokeZen: async (req) => {
+      gateRetryZenCalls += 1;
+      return {
+        milestone_id: req.milestone_id,
+        plan_version: req.plan_version,
+        result_ref: req.result_ref,
+        verdict: 'GO',
+        verification_evidence: [
+          { classification: 'OBSERVED', criterion: 'content updated to v1', result: 'should never run' },
+        ],
+      };
+    },
+  });
+  t.after(() => resumed.close());
+
+  await assert.rejects(
+    resumed.reviewCandidate('m1'),
+    err => err instanceof StaleVerdictError && /delivered_tree_digest/.test(err.message) && /STALE/.test(err.message)
+  );
+  assert.equal(gateRetryZenCalls, 0, 'Zen must not be invoked when bounded working tree drifted');
+
+  const afterRejection = AuthoritativeLedger.load(ledgerPath).getState();
+  assert.deepEqual(afterRejection.completed_milestones, []);
+  assert.equal(afterRejection.current_milestone, null);
+  assert.equal(afterRejection.evidence.m1.candidates[0].is_stale, true);
+
+  // Even reverting the file cannot revive an already-marked STALE candidate.
+  writeFileSync(join(dir, 'src.mjs'), 'export const v = 1;\n');
+  await assert.rejects(
+    resumed.reviewCandidate('m1'),
+    err => err instanceof StaleVerdictError && /marked STALE/.test(err.message)
+  );
+  assert.equal(gateRetryZenCalls, 0);
 });

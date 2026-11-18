@@ -1,84 +1,42 @@
-# Architecture
+# Architecture (NTG 2.0)
 
 [한국어](ko/architecture.md) · [Usage](usage.md) · [Internals](internals.md)
 
 ## Design intent
 
-Native Gravity makes multi-step work easy to follow by giving it three things: a
-plan, saved progress and results that someone else has checked. Users bring the
-goals and the boundaries. Choosing and coordinating internal agents is the
-product's job, and adding internal roles should never mean more roles for users
-to learn.
+Native Gravity 2.0 (Season 2) shifts from a static headless spine to an **interactive Antigravity-native Steamroller control plane** paired with a thin deterministic **`LedgerKernel`** (`src/core/ledger-kernel.mjs`) and **`LightweightLog`** (`src/core/lightweight-log.mjs`). Users provide natural-language goals or plans and criteria; Steamroller selects tracks and internal roles transparently without surfacing internal state or jargon.
 
-Implementation records call the current design vNext. It's the runtime that
-ships today, not a second product mode or a future option you have to switch on.
-The [contract](specs/vnext-architecture-contract.md) is the normative source.
-This page explains why the structure looks the way it does instead of repeating
-the contract's fields.
+The canonical Season 2 contract is [specs/ntg-2.0-architecture-contract.md](specs/ntg-2.0-architecture-contract.md) (superseding [specs/vnext-architecture-contract.md](specs/vnext-architecture-contract.md) on `feat/ntg-2.0.0`).
 
-## Keep Antigravity native
-
-Antigravity owns agent execution, sessions, workspaces, models and tool
-permissions. NTG brings role contracts, work routing, milestone ordering and
-ownership of progress. A narrow coordinator calls the critical roles with
-explicit model policies, while specialists stay native Antigravity subagents.
-That way the host keeps all its capabilities and NTG doesn't grow into a
-general workflow platform.
-
-## Separate execution from completion
+## Hybrid control plane & track routing
 
 ```text
-User's plan
-  -> progress owner chooses one eligible step
-  -> bounded execution produces a candidate
-  -> independent review checks the candidate and criteria
-  -> progress owner records verification or repair needs
-  -> next step, or project completion
+User goal (/ntg)
+  -> Steamroller (Carbon Medium -> Gemini 4 Argon Medium)
+       ├─ Track L (HALO_LIGHTWEIGHT)  : Direct / Lightweight workers -> Fresh Bound Strix Halo (ACCEPT) [+ Zen if high-risk] -> .ntg/lightweight-runs.jsonl
+       ├─ Track S (ZEN_DURABLE)       : 1x approval -> Direct/Bobcat (+ conditional Halo) -> Independent Zen GO -> .ntg/ledger.json
+       └─ Track M (ZEN_DURABLE)       : 1x approval -> Bulldozer (Hydrogen XHigh) [Jaguar/Puma/Bobcat + required Halo] -> Independent Zen GO -> .ntg/ledger.json
 ```
 
-However confident the executor is, that confidence can't turn into completion.
-Local checks during the work help with implementation, but the independent
-milestone review is a separate authority. Keeping the two apart stops a
-delegated "done" from quietly becoming a project-level success.
+- **Track L** eliminates unnecessary ceremony on small low-risk changes while still binding fresh `Strix Halo` verification (`reviewed_diff_digest`, `acceptance_criteria_digest`, `plan_version`, `evidence_basis`). Steamroller escalates high-risk Track L tasks to Zen on judgment.
+- **Track S / M** keep durable `ZEN_DURABLE` assurance. After **one initial plain-language confirmation**, execution runs continuously; re-approval is requested only on a **Material Replan** (which changes user goal, acceptance criteria, or invariants) or confirmation gates, whereas **Tactical Replans** adapt remaining milestones seamlessly while incrementing `plan_version` and invalidating all stale verdicts.
 
-Every step carries its objective, its allowed scope, what it excludes and its
-acceptance criteria. Work is routed by what kind of work it is, not only by how
-big it looks: discovery, mechanical edits, ordinary implementation and hard
-diagnosis each call for different execution behavior. The names and
-permissions of those roles are implementation details, covered in
-[Internals](internals.md#role-ownership-and-routing).
+## Authority vs. capability decoupling
 
-## Save progress outside conversation
+Model routing (`src/core/model-router.mjs`) optimizes intelligence/latency per task without ever altering immutable role boundaries (`ROLE_AUTHORITY_TABLE`):
 
-The ledger records the adopted plan, dependencies, evidence, reviews, blockers
-and the next action. A fresh process picks up from that state rather than from
-conversation memory. Only one milestone runs or is under review at a time, and a
-single owner writes the authoritative progress.
+- **Steamroller** (`Gemini 4 Argon Medium`; orchestrator model `gemini-pro-orchestrator-g1-pro` excluded from default routing): supervisor and ledger owner.
+- **Piledriver** (`Gemini 4 Argon High`, `READ_ONLY`): bounded architecture, planning, and replan advice (`NEEDS_DEEP`).
+- **Bulldozer** (`Gemini 4 Hydrogen XHigh`): selective milestone coordinator and primary recovery lead (replacing retired **Excavator** alongside **Instinct**), holding guarded general `run_command` shell access enforced by `hooks/shell-safety-guard.py`.
+- **Strix Halo** (`Gemini 4 Hydrogen High`, `READ_ONLY`): unified cross-caller quality reviewer callable by Steamroller, Bulldozer, and Bobcat via `ReviewRequest` (`ACCEPT | REVISE | ESCALATE`). Halo never replaces Zen `GO` on durable tracks.
+- **Bobcat** (`Gemini 4 Hydrogen Medium`): substantive code, API/stateful logic, and test implementation + local verification.
+- **Jaguar** (`Gemini 3.8 Flash Low`, `READ_ONLY`) and **Puma** (`Gemini 3.8 Flash Low`, separate mechanical/formatting worker): governed by Lightweight Worker Harness, emitting `REROUTE_REQUIRED` cleanly to Bobcat or Bulldozer when complexity exceeds `3.8 Flash Low`.
+- **Instinct** (`Claude Sonnet 5.5 High` / escalated `Claude Opus 5.5 High`, `READ_ONLY`): on-demand alternate framing (`NEEDS_ALT`) and second-leg recovery advisor.
+- **Zen** (`Claude Opus 5.5 High` with `Gemini 4 Argon High` quota fallback): non-mutating summative verification gate (`NTG_ACTIVE_ROLE=zen` enforced across shell and file-mutation tools).
+- **Navi** (`Gemini 4 Argon Medium`): isolated Linux desktop leaf running in a private `HOME` with `cu` MCP (`NEEDS_CONFIRMATION` for external/irreversible effects).
 
-A review belongs to one specific candidate and plan version. If the candidate
-changes, it needs a new review. A material replan takes away the old completion
-authority: kept milestones are checked again in dependency order, and the old
-evidence stays as history. Revalidating costs something, but it means an old
-approval never gets applied to a new contract.
+## Model-Aware Harness, Safety & Telemetry
 
-Planning advice and alternate-framing advice stay advisory. They can help a user
-revise the plan, but advice on its own never adopts a plan or completes a step.
+`src/harness/` pairs model-common Layer 1 calibration (preserving native strengths such as Hydrogen multi-step test-driven iteration and Argon architectural synthesis) with Layer 2 role directives and Layer 3 auto-injected `ContextDigest`. `hooks/shell-safety-guard.py` enforces protected state/hook paths and role mutation locks universally across both shell commands and file-mutation tools with zero bypass markers, while `hooks/telemetry-guard.py` records observation-first tool telemetry in `.ntg/telemetry.jsonl`.
 
-## Implemented design and remaining questions
-
-Milestone execution, independent review, material replanning, resuming in a
-fresh context, Linux crash recovery and alternate-framing advice are all
-implemented. [Status](status.md) records how far each was validated and where
-the limits are; none of it is a broad claim about reliability or performance.
-
-There's no interface yet that turns a natural-language goal into an adopted
-plan, so users write a plan file for now. Exact-model Zen is still an open
-comparison question, not an announced feature or a setting users need. Model
-profiles are provisional research and haven't changed deployed routing.
-
-For the named topology, model resolution, packet validation and recovery
-mechanisms, read [Internals](internals.md). The completed activation and
-transition record lives in
-[Internals' migration orientation](internals.md#activation-and-transition-record)
-and the [Status history](status.md#release-and-migration-history). The
-historical implementation slices in Specs aren't a pending roadmap.
+For exact APIs, lock protocols, and test gates, see [Internals](internals.md) and [Status](status.md).

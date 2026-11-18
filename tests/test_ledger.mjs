@@ -5,6 +5,7 @@ import { join } from "node:path";
 import process from "node:process";
 import {
   AuthoritativeLedger,
+  LedgerKernel,
   InvalidTransitionError,
   StaleVerdictError,
   MismatchedResultRefError,
@@ -13,11 +14,13 @@ import {
   RefRebindingError,
   BlockerNotFoundError,
   generateResultRef,
+  computeDeliveredTreeDigest,
   incrementPlanVersion,
   parseVersion,
   validateCandidateSemantics,
   validateZenGoSemantics,
 } from "../scripts/ledger.mjs";
+import { LightweightLog, computeAcceptanceDigest, computeDiffDigest } from "../src/core/lightweight-log.mjs";
 
 console.log("=== Native Gravity 44C Authoritative Project Ledger Tests ===");
 
@@ -2885,6 +2888,291 @@ runTest("Stage 1: a material replan carries coverage and verify through the new 
   ledger.materialReplan(replan);
   assert.deepStrictEqual(ledger.milestones[0].coverage, replan.milestones[0].coverage);
   assert.deepStrictEqual(ledger.milestones[0].verify, replan.milestones[0].verify);
+});
+
+runTest("NTG 2.0 (#201 A1/A3/A7): replan clears active_candidate, cwd binds delivered_tree_digest, blocker rejects non-OBSERVED objects", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ntg-kernel-201-"));
+  try {
+    writeFileSync(join(dir, "runner.mjs"), "console.log('v1');\n");
+    writeFileSync(join(dir, "test.mjs"), "console.log('ok');\n");
+    const plan = {
+      goal: "Test 201 invariants",
+      plan_version: "v1",
+      constraints: [],
+      decision_invariants: [],
+      milestones: [
+        {
+          id: "M1",
+          title: "M1",
+          objective: "Deliver M1",
+          bounded_scope: ["runner.mjs", "test.mjs"],
+          acceptance_criteria: ["AC1"],
+          non_goals: [],
+          dependencies: [],
+        },
+      ],
+    };
+    const kernel = new LedgerKernel(plan);
+    kernel.delegate("M1");
+    const expectedDigest = computeDeliveredTreeDigest(["runner.mjs", "test.mjs"], { cwd: dir });
+    const candRes = kernel.receiveCandidate(
+      sampleCandidate({
+        milestone_id: "M1",
+        verification_evidence: [{ classification: "OBSERVED", criterion: "AC1", result: "verified" }],
+      }),
+      { cwd: dir }
+    );
+    assert.strictEqual(candRes.candidate_record.delivered_tree_digest, expectedDigest);
+    assert.ok(kernel.evidence.M1.active_candidate);
+
+    // Reject forged delivered_tree_digest when cwd is verified
+    kernel.recordZenNoGo(
+      sampleVerdict({
+        milestone_id: "M1",
+        result_ref: candRes.result_ref,
+        verdict: "NO-GO",
+        repair_needs: "try again",
+      })
+    );
+    kernel.delegate("M1");
+    assert.throws(
+      () =>
+        kernel.receiveCandidate(
+          sampleCandidate({
+            milestone_id: "M1",
+            delivered_tree_digest: "sha256:forged",
+            verification_evidence: [{ classification: "OBSERVED", criterion: "AC1", result: "verified" }],
+          }),
+          { cwd: dir }
+        ),
+      InvalidTransitionError
+    );
+
+    // Record blocker and enforce A7 OBSERVED check
+    kernel.recordBlockedOrFailure({ milestoneId: "M1", blockers: ["missing key"] });
+    const blockerId = kernel.blockers[0].id;
+    assert.throws(
+      () => kernel.resolveBlocker(blockerId, { classification: "INFERRED", result: "maybe fixed" }),
+      InvariantViolationError
+    );
+    assert.throws(() => kernel.resolveBlocker(blockerId, {}), InvariantViolationError);
+    kernel.resolveBlocker(blockerId, { classification: "OBSERVED", result: "key verified" });
+    assert.strictEqual(kernel.blockers.length, 0);
+
+    // #201 A1: replan separates prior active_candidate from new plan version
+    kernel.materialReplan({ ...plan, plan_version: "v2" });
+    assert.strictEqual(kernel.evidence.M1.active_candidate, undefined);
+    assert.ok(Array.isArray(kernel.evidence.M1.candidates) && kernel.evidence.M1.candidates.length === 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+runTest("NTG 2.0: tacticalReplan increments plan_version and marks ALL prior Zen GO verdicts and Halo receipts STALE", () => {
+  const plan = samplePlan();
+  const kernel = new LedgerKernel(plan);
+  kernel.delegate("M1");
+  const cand = kernel.receiveCandidate(sampleCandidate({ milestone_id: "M1" }));
+  const criteriaDigest = computeAcceptanceDigest(plan.milestones[0].acceptance_criteria);
+  kernel.recordHaloReview({
+    caller: "bobcat",
+    milestone_id: "M1",
+    candidate_id_or_run_id: cand.result_ref,
+    reviewed_diff_digest: "sha256:diff1",
+    acceptance_criteria_digest: criteriaDigest,
+    plan_version: "v1",
+    evidence_basis: ["tests passed"],
+    verdict: "ACCEPT",
+  });
+  kernel.recordZenGo(sampleVerdict({ milestone_id: "M1", result_ref: cand.result_ref }));
+  assert.deepStrictEqual(kernel.completed_milestones, ["M1"]);
+  assert.strictEqual(kernel.verification.M1.is_stale, false);
+  assert.strictEqual(kernel.halo_reviews.M1.is_stale, false);
+
+  // Tactical replan cannot alter goal
+  assert.throws(
+    () => kernel.tacticalReplan({ goal: "Different goal", milestones: plan.milestones }),
+    InvalidTransitionError
+  );
+
+  // Tactical replan succeeds when restructuring milestones while preserving goal & invariants
+  kernel.tacticalReplan({ milestones: plan.milestones });
+  assert.strictEqual(kernel.plan_version, "v2");
+  assert.deepStrictEqual(kernel.completed_milestones, []);
+  assert.strictEqual(kernel.verification.M1.is_stale, true);
+  assert.strictEqual(kernel.halo_reviews.M1.is_stale, true);
+  assert.strictEqual(kernel.evidence.M1.active_candidate, undefined);
+  assert.throws(() => kernel.declareGlobalCompletion(), InvariantViolationError);
+});
+
+runTest("NTG 2.0: Halo review binding invalidates on diff, criteria, plan_version, or evidence drift and never replaces Zen GO", () => {
+  const plan = samplePlan();
+  const kernel = new LedgerKernel(plan);
+  const criteriaDigest = computeAcceptanceDigest(plan.milestones[0].acceptance_criteria);
+
+  kernel.recordHaloReview({
+    caller: "steamroller",
+    milestone_id: "M1",
+    candidate_id_or_run_id: "run-1",
+    reviewed_diff_digest: "sha256:diff-a",
+    acceptance_criteria_digest: criteriaDigest,
+    plan_version: "v1",
+    evidence_basis: ["test-a ok"],
+    verdict: "ACCEPT",
+  });
+
+  assert.strictEqual(
+    kernel.isHaloReviewFresh("M1", {
+      candidate_id_or_run_id: "run-1",
+      reviewed_diff_digest: "sha256:diff-a",
+      acceptance_criteria_digest: criteriaDigest,
+      plan_version: "v1",
+      evidence_basis: ["test-a ok"],
+    }).fresh,
+    true
+  );
+
+  // Halo ACCEPT cannot promote M1 or satisfy declareGlobalCompletion
+  assert.deepStrictEqual(kernel.completed_milestones, []);
+  assert.throws(() => kernel.declareGlobalCompletion(), InvariantViolationError);
+
+  // Changing diff digest invalidates Halo ACCEPT as STALE
+  const afterDiffChange = kernel.isHaloReviewFresh("M1", {
+    candidate_id_or_run_id: "run-1",
+    reviewed_diff_digest: "sha256:diff-b",
+    acceptance_criteria_digest: criteriaDigest,
+    plan_version: "v1",
+    evidence_basis: ["test-a ok"],
+  });
+  assert.strictEqual(afterDiffChange.fresh, false);
+  assert.strictEqual(kernel.halo_reviews.M1.is_stale, true);
+});
+
+runTest("NTG 2.0: Track L LightweightLog separates HALO_LIGHTWEIGHT from LedgerKernel Track S/M", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ntg-track-l-"));
+  try {
+    const log = new LightweightLog(join(dir, ".ntg", "lightweight-runs.jsonl"));
+    const diffDigest = computeDiffDigest({ files: ["a.mjs"], patch: "+1" });
+    const critDigest = computeAcceptanceDigest(["lint passes"]);
+
+    // Reject Track L completion without fresh bound Halo ACCEPT
+    assert.throws(
+      () =>
+        log.recordRun({
+          run_id: "run-l-1",
+          track: "L",
+          assurance_badge: "HALO_LIGHTWEIGHT",
+          status: "COMPLETED",
+          plan_version: "v1",
+          reviewed_diff_digest: diffDigest,
+          acceptance_criteria_digest: critDigest,
+        }),
+      /requires fresh bound Halo ACCEPT/
+    );
+
+    const saved = log.recordRun({
+      run_id: "run-l-1",
+      track: "L",
+      assurance_badge: "HALO_LIGHTWEIGHT",
+      status: "COMPLETED",
+      plan_version: "v1",
+      goal: "Small config fix",
+      worker_role: "puma",
+      reviewed_diff_digest: diffDigest,
+      acceptance_criteria_digest: critDigest,
+      halo_review: {
+        caller: "steamroller",
+        candidate_id_or_run_id: "run-l-1",
+        reviewed_diff_digest: diffDigest,
+        acceptance_criteria_digest: critDigest,
+        plan_version: "v1",
+        evidence_basis: ["node --check ok"],
+        verdict: "ACCEPT",
+        is_stale: false,
+      },
+    });
+    assert.strictEqual(saved.assurance_badge, "HALO_LIGHTWEIGHT");
+    assert.strictEqual(log.readAll().length, 1);
+    assert.strictEqual(log.getByRunId("run-l-1").halo_review.verdict, "ACCEPT");
+
+    // LedgerKernel rejects track: 'L'
+    assert.throws(
+      () => new LedgerKernel({ ...samplePlan(), track: "L" }),
+      InvariantViolationError
+    );
+
+    // LedgerKernel enforces orchestration-level recovery retry safety cap separately
+    const kernel = new LedgerKernel(samplePlan());
+    assert.strictEqual(kernel.recordRecoveryAttempt("M1").attempt, 1);
+    assert.strictEqual(kernel.recordRecoveryAttempt("M1").attempt, 2);
+    assert.strictEqual(kernel.recordRecoveryAttempt("M1").attempt, 3);
+    assert.throws(() => kernel.recordRecoveryAttempt("M1"), InvariantViolationError);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+runTest("PR #231 Finding 2: reopenLastCandidateReview rejects mutated bounded tree, marks candidate stale, and blocks subsequent reopen", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ntg-reopen-drift-"));
+  try {
+    writeFileSync(join(dir, "runner.mjs"), "console.log('v1');\n");
+    const plan = {
+      goal: "Detect tree drift on reopen",
+      plan_version: "v1",
+      constraints: [],
+      decision_invariants: [],
+      milestones: [
+        {
+          id: "M1",
+          title: "M1",
+          objective: "Deliver runner",
+          bounded_scope: ["runner.mjs"],
+          acceptance_criteria: ["AC1"],
+          non_goals: [],
+          dependencies: [],
+        },
+      ],
+    };
+    const kernel = new LedgerKernel(plan);
+    kernel.delegate("M1");
+    const expectedDigest = computeDeliveredTreeDigest(["runner.mjs"], { cwd: dir });
+    const cand = kernel.receiveCandidate(
+      sampleCandidate({
+        milestone_id: "M1",
+        verification_evidence: [{ classification: "OBSERVED", criterion: "AC1", result: "verified" }],
+      }),
+      { cwd: dir, deliveredTreeDigest: expectedDigest }
+    );
+    assert.strictEqual(cand.candidate_record.delivered_tree_digest, expectedDigest);
+    assert.strictEqual(cand.candidate_record.payload.delivered_tree_digest, expectedDigest);
+
+    kernel.recordBlockedOrFailure({
+      milestoneId: "M1",
+      status: "INVOCATION_FAILURE",
+      evidence: { classification: "OBSERVED", error: "ZEN_REVIEW_PENDING" },
+    });
+
+    // Mutate bounded file before gate-only reopen
+    writeFileSync(join(dir, "runner.mjs"), "console.log('mutated');\n");
+
+    assert.throws(
+      () => kernel.reopenLastCandidateReview("M1", { cwd: dir }),
+      (err) => err instanceof StaleVerdictError && /delivered_tree_digest/.test(err.message) && /STALE/.test(err.message)
+    );
+    assert.strictEqual(kernel.current_milestone, null);
+    assert.strictEqual(kernel.evidence.M1.candidates[0].is_stale, true);
+    assert.strictEqual(kernel.evidence.M1.active_candidate, undefined);
+    assert.deepStrictEqual(kernel.completed_milestones, []);
+
+    // Subsequent reopen refuses even after reverting content
+    writeFileSync(join(dir, "runner.mjs"), "console.log('v1');\n");
+    assert.throws(
+      () => kernel.reopenLastCandidateReview("M1", { cwd: dir }),
+      (err) => err instanceof StaleVerdictError && /marked STALE/.test(err.message)
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 console.log("=========================================================");

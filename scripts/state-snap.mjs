@@ -107,6 +107,9 @@ export function renderStateSnap(ledger, { ledgerLabel = '<ledger>' } = {}) {
 
   lines.push(clipLine(`ledger: ${ledgerLabel}`));
   lines.push(clipLine(`plan_version: ${ledger?.plan_version ?? '-'} · goal: ${ledger?.goal ?? '-'}`));
+  if (ledger?.track || ledger?.assurance_badge) {
+    lines.push(clipLine(`track: ${ledger?.track ?? '-'} · assurance: ${ledger?.assurance_badge ?? '-'}`));
+  }
   lines.push(clipLine(`progress: ${completed.length}/${milestones.length} done · current: ${ledger?.current_milestone ?? '-'} · blockers: ${blockers.length}`));
   if (ledger?.next_action) lines.push(clipLine(`next_action: ${ledger.next_action}`));
 
@@ -114,6 +117,7 @@ export function renderStateSnap(ledger, { ledgerLabel = '<ledger>' } = {}) {
     const id = m?.id ?? '?';
     const entry = (ledger?.evidence ?? {})[id];
     const verification = (ledger?.verification ?? {})[id];
+    const halo = (ledger?.halo_reviews ?? {})[id];
     const candidate = lastCandidateOf(entry);
     const candidates = Array.isArray(entry?.candidates) ? entry.candidates : [];
 
@@ -145,6 +149,9 @@ export function renderStateSnap(ledger, { ledgerLabel = '<ledger>' } = {}) {
       lines.push(clipLine(`  ref_link: ${refLink(verification, candidate)}`));
     } else {
       lines.push(clipLine('  verification: none'));
+    }
+    if (halo) {
+      lines.push(clipLine(`  halo: ${halo.verdict ?? '-'} · stale=${halo.is_stale ? 'yes' : 'no'} · caller=${halo.caller ?? '-'}`));
     }
   }
 

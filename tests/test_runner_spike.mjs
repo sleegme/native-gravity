@@ -119,7 +119,7 @@ runTest("1.4: Deterministic resolution against cached installed models for all r
   const mockSurface = [
     { slug: "gemini-4-argon-medium", description: "Gemini 4 Argon (Medium)" },
     { slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" },
-    { slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" },
+    { slug: "gemini-4-hydrogen-xhigh", description: "Gemini 4 Hydrogen (XHigh)" },
     { slug: "claude-sonnet-5-5-high", description: "Claude Sonnet 5.5 (High)" },
     { slug: "claude-opus-5-5-high", description: "Claude Opus 5.5 (High)" },
   ];
@@ -132,7 +132,7 @@ runTest("1.4: Deterministic resolution against cached installed models for all r
   assert.strictEqual(piledriverUpper, "gemini-4-argon-high");
 
   const bulldozerSlug = resolveSlug("bulldozer", { installedModels: mockSurface });
-  assert.strictEqual(bulldozerSlug, "gemini-3.8-flash-high");
+  assert.strictEqual(bulldozerSlug, "gemini-4-hydrogen-xhigh");
 
   const steamrollerSlug = resolveSlug("steamroller", { installedModels: mockSurface });
   assert.strictEqual(steamrollerSlug, "gemini-4-argon-medium");
@@ -140,8 +140,8 @@ runTest("1.4: Deterministic resolution against cached installed models for all r
   // Verify ROLE_POLICY_TABLE definitions
   assert.strictEqual(ROLE_POLICY_TABLE.piledriver.family, "Gemini 4 Argon");
   assert.strictEqual(ROLE_POLICY_TABLE.piledriver.effort, "High");
-  assert.strictEqual(ROLE_POLICY_TABLE.bulldozer.family, "Gemini 3.8 Flash");
-  assert.strictEqual(ROLE_POLICY_TABLE.bulldozer.effort, "High");
+  assert.strictEqual(ROLE_POLICY_TABLE.bulldozer.family, "Gemini 4 Hydrogen");
+  assert.strictEqual(ROLE_POLICY_TABLE.bulldozer.effort, "XHigh");
   assert.strictEqual(ROLE_POLICY_TABLE.steamroller.family, "Gemini 4 Argon");
   assert.strictEqual(ROLE_POLICY_TABLE.steamroller.effort, "Medium");
   // Zen is policy-resolved for its native invocation without becoming a runner role.
@@ -184,9 +184,9 @@ else runTest("1.6: Live installed surface resolution against system agy models",
   const pSlug = resolveSlug("piledriver");
   assert.strictEqual(pSlug, "gemini-4-argon-high");
 
-  // Verify bulldozer resolves live to gemini-3.8-flash-high
+  // Verify bulldozer resolves live to gemini-4-hydrogen-xhigh
   const bSlug = resolveSlug("bulldozer");
-  assert.strictEqual(bSlug, "gemini-3.8-flash-high");
+  assert.strictEqual(bSlug, "gemini-4-hydrogen-xhigh");
 
   // Verify Zen resolves live to claude-opus-5-5-high for its native invocation
   const zSlug = resolveSlug("zen");
@@ -198,15 +198,10 @@ else runTest("1.6: Live installed surface resolution against system agy models",
     console.log(`  ${role} -> ${slug}`);
   }
   assert.strictEqual(resolveSlug("instinct", { installedModels: models, escalate: true }), "claude-opus-5-5-high");
-  // Native selectors are not exact-model policies. Do not treat availability
-  // of an Argon slug as proof that a native worker used it.
-  for (const role of ["excavator", "strix-halo"]) {
-    assert.match(machineBody(role), /^model: flash$/m);
-  }
 });
 
 runTest("1.7: Argon policies fail closed on a retired Pro or wrong-effort surface", () => {
-  for (const role of ["piledriver", "steamroller", "zen", "excavator"]) {
+  for (const role of ["piledriver", "steamroller", "zen"]) {
     for (const installedModels of [["gemini-3.1-pro-high"], ["gemini-4-argon-low"]]) {
       assert.throws(() => resolveSlug(role, { installedModels }),
         err => err instanceof UnresolvedModelSlugError && err.reason === "NOT_FOUND");
@@ -374,7 +369,7 @@ console.log(JSON.stringify({ status: "SUCCESS", response: "" }));
     agyPath: mockScript,
     installedModels: [
       { slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" },
-      { slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" },
+      { slug: "gemini-4-hydrogen-xhigh", description: "Gemini 4 Hydrogen (XHigh)" },
     ],
     env: { MOCK_CALLS_FILE: callsFile },
   };
@@ -968,7 +963,7 @@ runTest("2.7b: Timeout with pending background task in stderr returns BACKGROUND
     const invokeRes = invoke("bulldozer", { task: "Test" }, {
       agyPath: "mock-agy",
       timeout: 5000,
-      installedModels: [{ slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" }],
+      installedModels: [{ slug: "gemini-4-hydrogen-xhigh", description: "Gemini 4 Hydrogen (XHigh)" }],
     });
     assert.strictEqual(invokeRes.ok, false);
     assert.strictEqual(invokeRes.error, "BACKGROUND_TASK_PENDING");
@@ -977,7 +972,7 @@ runTest("2.7b: Timeout with pending background task in stderr returns BACKGROUND
     // invoke() passes the remaining budget (deadline - now), so it is at most 5000 ms.
     assert.ok(invokeRes.timeout > 0 && invokeRes.timeout <= 5000, `timeout ${invokeRes.timeout}`);
     assert.strictEqual(invokeRes.stderr, bgStderr);
-    assert.strictEqual(invokeRes.slug, "gemini-3.8-flash-high");
+    assert.strictEqual(invokeRes.slug, "gemini-4-hydrogen-xhigh");
     assert.strictEqual(invokeRes.role, "bulldozer");
   } finally {
     transport.mock.restore();
@@ -1013,14 +1008,14 @@ runTest("2.7c (control, same on base): Timeout without pending background task i
     const invokeRes = invoke("bulldozer", { task: "Test" }, {
       agyPath: "mock-agy",
       timeout: 5000,
-      installedModels: [{ slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" }],
+      installedModels: [{ slug: "gemini-4-hydrogen-xhigh", description: "Gemini 4 Hydrogen (XHigh)" }],
     });
     assert.strictEqual(invokeRes.ok, false);
     assert.strictEqual(invokeRes.error, "TIMEOUT");
     // invoke() passes the remaining budget (deadline - now), so it is at most 5000 ms.
     assert.ok(invokeRes.timeout > 0 && invokeRes.timeout <= 5000, `timeout ${invokeRes.timeout}`);
     assert.strictEqual(invokeRes.stderr, genericStderr);
-    assert.strictEqual(invokeRes.slug, "gemini-3.8-flash-high");
+    assert.strictEqual(invokeRes.slug, "gemini-4-hydrogen-xhigh");
     assert.strictEqual(invokeRes.role, "bulldozer");
     assert.strictEqual(invokeRes.line, undefined);
   } finally {
@@ -1484,7 +1479,7 @@ if (skipLive) {
     assert.ok(res.usage && typeof res.usage.total_tokens === "number", "Expected usage statistics");
   });
 
-  runTest("5.2: Live Bulldozer bounded invocation (gemini-3.8-flash-high)", () => {
+  runTest("5.2: Live Bulldozer bounded invocation (gemini-4-hydrogen-xhigh)", () => {
     const res = invoke("bulldozer", { task: "Reply with exactly: BULLDOZER_SPIKE_PASS" });
     assert.strictEqual(
       res.ok,
@@ -1492,7 +1487,7 @@ if (skipLive) {
       `Expected res.ok === true, got error: ${res.error} (${res.stderr || res.message})`
     );
     assert.strictEqual(res.role, "bulldozer");
-    assert.strictEqual(res.slug, "gemini-3.8-flash-high");
+    assert.strictEqual(res.slug, "gemini-4-hydrogen-xhigh");
     assert.ok(typeof res.response === "string", "Expected response to be string");
     assert.ok(
       res.response.includes("BULLDOZER_SPIKE_PASS"),
@@ -1513,7 +1508,7 @@ function withRoleBodies(fn) {
   const cwd = join(root, "neutral");
   const capture = join(root, "transport-called");
   const agyPath = join(root, "agy.mjs");
-  const installedModels = ["gemini-4-argon-medium", "gemini-3.8-flash-high", "claude-sonnet-5-5-high", "gemini-4-argon-high"];
+  const installedModels = ["gemini-4-argon-medium", "gemini-4-hydrogen-xhigh", "claude-sonnet-5-5-high", "gemini-4-argon-high"];
   try {
     mkdirSync(roleBodyDir);
     mkdirSync(cwd);
@@ -1735,7 +1730,7 @@ const claudeSurface = [
   { slug: "claude-opus-5-5-low", description: "Claude Opus 5.5 (Low)" },
   { slug: "claude-opus-5-5-medium", description: "Claude Opus 5.5 (Medium)" },
   { slug: "claude-opus-5-5-high", description: "Claude Opus 5.5 (High)" },
-  { slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" },
+  { slug: "gemini-4-hydrogen-xhigh", description: "Gemini 4 Hydrogen (XHigh)" },
 ];
 
 runTest("7.0: a different version with a prefix-colliding slug never satisfies the instinct family", () => {
@@ -1752,9 +1747,9 @@ runTest("7.0: a different version with a prefix-colliding slug never satisfies t
     }
   }
   // Exact families on the same surface still resolve, including Gemini roles.
-  const mixed = ["claude-sonnet-5-50-high", "claude-sonnet-5-5-high", "gemini-3.8-flash-high", "claude-opus-5-5-high", "gemini-4-argon-high"];
+  const mixed = ["claude-sonnet-5-50-high", "claude-sonnet-5-5-high", "gemini-4-hydrogen-xhigh", "claude-opus-5-5-high", "gemini-4-argon-high"];
   assert.strictEqual(resolveSlug("instinct", { installedModels: mixed }), "claude-sonnet-5-5-high");
-  assert.strictEqual(resolveSlug("bulldozer", { installedModels: mixed }), "gemini-3.8-flash-high");
+  assert.strictEqual(resolveSlug("bulldozer", { installedModels: mixed }), "gemini-4-hydrogen-xhigh");
   assert.strictEqual(resolveSlug("piledriver", { installedModels: mixed }), "gemini-4-argon-high");
 });
 
@@ -1770,7 +1765,7 @@ runTest("7.1: instinct targets Claude Sonnet 5.5 High and Opus 5.5 High only on 
 
   // Escalation is instinct-scoped; other roles keep their policy models.
   assert.strictEqual(resolveSlug("piledriver", { installedModels: claudeSurface, escalate: true }), "gemini-4-argon-high");
-  assert.strictEqual(resolveSlug("bulldozer", { installedModels: claudeSurface, escalate: true }), "gemini-3.8-flash-high");
+  assert.strictEqual(resolveSlug("bulldozer", { installedModels: claudeSurface, escalate: true }), "gemini-4-hydrogen-xhigh");
   assert.strictEqual(resolveSlug("steamroller", { installedModels: claudeSurface, escalate: true }), "gemini-4-argon-medium");
 });
 

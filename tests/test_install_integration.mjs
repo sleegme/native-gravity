@@ -209,9 +209,16 @@ test('npm pack --dry-run: files list contains expected packaged files', () => {
     'scripts/npm-install.mjs',
     'scripts/install.sh',
     'scripts/install.ps1',
+    'scripts/coverage.mjs',
     'plugin.json',
     'hooks.json',
+    'hooks/shell-safety-guard.py',
+    'hooks/telemetry-guard.py',
     'agents/bobcat.md',
+    'src/core/ledger-kernel.mjs',
+    'src/core/model-router.mjs',
+    'src/runtime/steamroller-controller.mjs',
+    'src/runtime/track-runner.mjs',
     'rules/harness.md',
     'rules/orchestration.md',
     'skills/ntg/SKILL.md',
@@ -226,6 +233,8 @@ test('npm pack --dry-run: files list contains expected packaged files', () => {
       `npm pack files list must include: ${expected}`
     );
   }
+  assert.equal(filePaths.includes('scripts/excavator-agy.mjs'), false);
+  assert.equal(filePaths.includes('agents/excavator.md'), false);
 });
 
 test('package.json metadata completeness: required fields are present and valid', () => {
@@ -360,9 +369,16 @@ test('publish readiness evidence record: matches schema and dry-run pack output'
     'scripts/npm-install.mjs',
     'scripts/install.sh',
     'scripts/install.ps1',
+    'scripts/coverage.mjs',
     'plugin.json',
     'hooks.json',
+    'hooks/shell-safety-guard.py',
+    'hooks/telemetry-guard.py',
     'agents/bobcat.md',
+    'src/core/ledger-kernel.mjs',
+    'src/core/model-router.mjs',
+    'src/runtime/steamroller-controller.mjs',
+    'src/runtime/track-runner.mjs',
     'rules/harness.md',
     'rules/orchestration.md',
     'skills/ntg/SKILL.md',

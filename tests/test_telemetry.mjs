@@ -54,6 +54,19 @@ function fixture(t, { bulldozer, zen, piledriver, invokeSpecialist, initialPlan 
     plan: initialPlan,
     invokeSpecialist,
     invokeRole: async (role, packet, runnerOptions = {}) => {
+      if (role === 'strix-halo') {
+        const req = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+        return envelope({
+          caller: req.caller,
+          candidate_id_or_run_id: req.candidate_id_or_run_id,
+          reviewed_diff_digest: req.reviewed_diff_digest,
+          acceptance_criteria_digest: req.acceptance_criteria_digest,
+          plan_version: req.plan_version,
+          evidence_basis: req.evidence_basis,
+          verdict: 'ACCEPT',
+          findings: [],
+        });
+      }
       // Exercise the shipped runner boundary, not an invented packet transport.
       assert.ok(composeBoundedPrompt(role, packet));
       const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));

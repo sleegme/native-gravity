@@ -1,0 +1,633 @@
+{
+  "goal": "Design and execute a clean-room core rewrite of Native Gravity into NTG 2.0 (Season 2): an autonomous LLM orchestration system centered on interactive Steamroller + LedgerKernel, resolving governing spec conflicts in m0 before runtime implementation, with Hydrogen XHigh/High/Medium execution and review tiers, Flash Low lightweight workers, model-aware harnesses, universal mutation safety guards, 1.x data/config round-trip compatibility, and a simple /ntg user entry flow.",
+  "plan_version": "v1",
+  "constraints": [
+    "PO_CONFIRMED: Steamroller routes Carbon (Medium) -> Gemini 4 Argon (Medium) by default; AGY Orchestrator (gemini-pro-orchestrator-g1-pro) is excluded from default routing.",
+    "PO_CONFIRMED: Role lineup — Piledriver (Argon High), Bulldozer (Hydrogen XHigh), Bobcat (Hydrogen Medium), Strix Halo (Hydrogen High), Jaguar (Gemini 3.8 Flash Low), Puma (Gemini 3.8 Flash Low, NOT merged into Bobcat), Excavator (COMPLETELY RETIRED, replaced by Bulldozer + Instinct), Zen (Opus 5.5 High with fallback permitted).",
+    "CONFIRMED: Model routing is decoupled from role authority — Steamroller may dynamically override a role's model (capability/intelligence selection) without expanding that role's tool permissions, mutation authority, delegation authority, or verification requirements.",
+    "PO_CONFIRMED: Strix Halo (Hydrogen High) is invocable by Steamroller, Bulldozer, and Bobcat.",
+    "PO_CONFIRMED: Track verification & completion guarantees — Track L (Halo REQUIRED, Zen OMITTED by default, lightweight log), Track S (Halo CONDITIONAL, Zen REQUIRED, ledger), Track M (Halo REQUIRED, Zen REQUIRED, ledger). High-risk escalation is judged by Steamroller; Halo and Zen verdicts remain strictly distinguished.",
+    "CONFIRMED: Halo reviews bind to candidate/run ID, reviewed diff/tree digest, acceptance criteria digest, and plan_version; any change to the deliverable, criteria, or evidence basis invalidates prior Halo ACCEPT as STALE.",
+    "PO_CONFIRMED: Tactical Replan marks all existing Zen GO verdicts STALE and requires full revalidation.",
+    "PO_CONFIRMED: Tool repetition uses a strict observation-first telemetry policy — legacy hard-count budget-guard blocking is removed and never runs alongside the new telemetry policy; orchestration-level recovery safety caps are kept separate from per-turn tool/read count limits.",
+    "CONFIRMED: Universal safety boundaries protect authoritative/safety paths (.ntg/ledger.json, lock, lightweight log, hooks, plugin.json) and non-mutating roles across BOTH run_command AND file-mutation tools (write_to_file, replace_file_content, write_file, edit_file, etc.), with zero model-controlled bypass markers or shell exceptions; only LedgerKernel, LightweightLog, and the 1.x Compatibility Adapter mutate protected paths through internal host-process APIs.",
+    "PO_CONFIRMED: Model-Aware Harness uses Model-Common Calibration + Role-Specific Directives (optimizing prompts, context delivery, and tool interfaces) without homogenizing or suppressing native model traits, including a Lightweight Worker Harness from initial NTG 2.0 implementation. Reference GJC/OmO concepts without copying code or prompts.",
+    "CONFIRMED: Branch-local NTG 2.0 governing contracts (AGENTS.md, canonical architecture contract, rules/orchestration.md) must be aligned and verified in m0 BEFORE m1-m3 runtime code implementation, separate from m2 agent-file verification.",
+    "PO_CONFIRMED: Core runtime is rewritten from the ground up while preserving 1.x data and configuration compatibility (.ntg/ledger.json, plan.json, plugin.json, /ntg UX) verified via round-trip tests — no obligation to preserve 1.x MinimalSpine internal execution flow."
+  ],
+  "decision_invariants": [
+    {
+      "id": "DI-NTG2-00",
+      "provenance": "CONFIRMED_REFINEMENT",
+      "decision": "Separate m0 governing-spec verification from m2 agent-role verification: m0 establishes branch-local governing contracts (AGENTS.md, docs/specs/ntg-2.0-architecture-contract.md, docs/specs/vnext-architecture-contract.md, rules/orchestration.md) and verifies them with tests/test_governing_spec.mjs while decoupling rules/orchestration.md from tests/test_role_guidance.mjs so un-updated agents/*.md are not prematurely tested in m0; agents/*.md and role guidance/frontmatter tests update and run in m2.",
+      "source_ref": "NTG 2.0 Consistency Refinements #1, #2 (second pass)",
+      "affects_milestones": ["m0", "m2", "m4"]
+    },
+    {
+      "id": "DI-NTG2-01",
+      "provenance": "PO_CONFIRMED_AND_REFINED",
+      "decision": "Steamroller operates as an AGY interactive orchestrator coupled with LedgerKernel (hybrid control plane), autonomously deciding Track classification (L/S/M), dynamic model routing, delegation paths, Instinct invocation, and recovery retries within an orchestration-level hard safety cap. Model routing is capability selection only and never expands role authority (tool, mutation, delegation, or verification permissions).",
+      "source_ref": "PO Final Decisions §1, §3; Refinements #6, #1 (second pass)",
+      "affects_milestones": ["m0", "m1", "m3"]
+    },
+    {
+      "id": "DI-NTG2-02",
+      "provenance": "MIXED (PO_CONFIRMED + EXISTING_BASELINE_DEFAULT)",
+      "decision": "Model lineup — PO_CONFIRMED: Steamroller (Carbon Medium -> gemini-4-argon-medium, excluding AGY Orchestrator), Piledriver (gemini-4-argon-high), Bulldozer (gemini-4-hydrogen-xhigh), Strix Halo (gemini-4-hydrogen-high), Bobcat (gemini-4-hydrogen-medium), Jaguar & Puma (gemini-3.8-flash-low, kept separate), Zen (claude-opus-5-5-high w/ fallback). EXISTING_BASELINE_DEFAULT: Zen fallback (gemini-4-argon-high), Instinct (claude-sonnet-5-5-high / opus-5-5-high), Navi (gemini-4-argon-medium).",
+      "source_ref": "PO Final Decisions §1; Refinements #2, #11",
+      "affects_milestones": ["m0", "m2"]
+    },
+    {
+      "id": "DI-NTG2-03",
+      "provenance": "PO_CONFIRMED_AND_REFINED",
+      "decision": "Excavator is completely retired and legacy role/guard tests are audited and disposed in m2 (removing agents/excavator.md, scripts/excavator-agy.mjs, hooks/excavator-shell-guard.py, hooks/bulldozer-shell-guard.py, hooks/budget-guard.py, and obsolete test_excavator_agy.mjs, test_excavator_shell_guard.py, test_bulldozer_shell_guard.py, test_budget_guard.py, test_runner_bulldozer_marker.mjs, plus runner budget/marker plumbing and retired hooks.json registrations verified directly in m2). Hard recovery uses Bulldozer (Hydrogen XHigh) + Instinct. Preserved safety invariants operate universally across BOTH run_command AND file-mutation tools via hooks/shell-safety-guard.py and tests/test_shell_safety_guard.py with zero model-controlled bypass markers or shell exceptions.",
+      "source_ref": "PO Final Decisions §1, §3; Refinements #7, #3 & #4 (second pass); Final Contract Refinements #1, #2",
+      "affects_milestones": ["m2", "m3", "m4"]
+    },
+    {
+      "id": "DI-NTG2-04",
+      "provenance": "PO_CONFIRMED_AND_REFINED",
+      "decision": "Bulldozer (Hydrogen XHigh) is granted general run_command shell access enforced across all mutation paths (shell + file tools) by universal hooks/shell-safety-guard.py, while Strix Halo (Hydrogen High) is invocable by Steamroller, Bulldozer, and Bobcat via a unified caller-aware ReviewRequest contract.",
+      "source_ref": "PO Final Decisions §2, §3; Refinement #3 (second pass)",
+      "affects_milestones": ["m2", "m3"]
+    },
+    {
+      "id": "DI-NTG2-05",
+      "provenance": "PO_CONFIRMED_AND_REFINED",
+      "decision": "Track completion guarantees strictly separate Halo (formative ACCEPT/REVISE/ESCALATE -> HALO_LIGHTWEIGHT on Track L) from Zen (independent summative GO/NO-GO -> ZEN_DURABLE on Track S/M and Steamroller-escalated high-risk tasks). Halo reviews bind to candidate/run ID, reviewed_diff_digest, acceptance_criteria_digest, and plan_version and become STALE on any change. Tactical Replan marks all prior Zen GO verdicts STALE for full revalidation.",
+      "source_ref": "PO Final Decisions §2, §3; Refinement #5",
+      "affects_milestones": ["m1", "m3"]
+    },
+    {
+      "id": "DI-NTG2-06",
+      "provenance": "PO_CONFIRMED_AND_REFINED",
+      "decision": "NTG 2.0 implements a Model-Aware Harness (Model-Common Calibration + Role-Specific Directives) optimizing prompts, context delivery, and tool interfaces while preserving native model traits and avoiding behavioral homogenization or micro-management. Lightweight Worker Harness (Jaguar/Puma on 3.8 Flash Low) is included from initial implementation; unsuitable tasks reroute cleanly. Legacy hard-count budget-guard blocking (hooks/budget-guard.py, hooks.json role-budget-boundary, runner.mjs BULLDOZER_BUDGET_DEFAULTS) is removed and replaced with observation-first hooks/telemetry-guard.py, kept strictly separate from orchestration recovery retry safety caps.",
+      "source_ref": "PO Final Decisions §4; Refinements #2, #3, #4, #1 (second pass)",
+      "affects_milestones": ["m2", "m3"]
+    },
+    {
+      "id": "DI-NTG2-07",
+      "provenance": "PO_CONFIRMED_AND_REFINED",
+      "decision": "Core runtime is rewritten cleanly from scratch (replacing MinimalSpine), maintaining backward compatibility for 1.x ledger.json, plan.json, plugin.json, and simple /ntg user entry UX, verified via full load->operate->save->reload round-trip tests; any protected data/config migration runs exclusively through the Compatibility Adapter's explicit internal code path (src/core/v1-compat.mjs), never via model-facing tools.",
+      "source_ref": "PO Final Decisions §5; Refinement #9; Final Contract Refinement #1",
+      "affects_milestones": ["m1", "m3", "m4"]
+    }
+  ],
+  "architecture_blueprint": {
+    "version": "2.0.0",
+    "status": "PO_DECISIONS_AND_FINAL_CONSISTENCY_COMPLETE",
+    "branch": "feat/ntg-2.0.0",
+    "baseline_commit": "32f0ada",
+    "provenance_legend": {
+      "PO_CONFIRMED": "Explicitly decided and locked by the Product Owner.",
+      "EXISTING_BASELINE_DEFAULT": "Retained baseline setting from vNext 1.x not overridden by PO.",
+      "DESIGN_DEFAULT": "Implementation/architecture default proposed within PO constraints.",
+      "HYPOTHESIS": "Empirical hypothesis requiring live probes or measurement."
+    },
+    "governing_spec_transition": {
+      "provenance": "DESIGN_DEFAULT",
+      "milestone": "m0",
+      "rationale": "Avoid contradictory authority during m1-m3 by updating branch-local governing specs BEFORE runtime implementation, while keeping actual agents/*.md edits and agent guidance checks in m2 so m0 never evaluates un-updated agent files against NTG 2.0 rules.",
+      "m0_targets": [
+        "AGENTS.md",
+        "docs/specs/ntg-2.0-architecture-contract.md (canonical Season 2 spec)",
+        "docs/specs/vnext-architecture-contract.md (marked superseded on feat/ntg-2.0.0 with pointer to NTG 2.0 contract)",
+        "rules/orchestration.md",
+        "tests/test_governing_spec.mjs (verifies governing contract consistency in m0)",
+        "tests/test_role_guidance.mjs (decoupled from rules/orchestration.md so agent checks wait cleanly for m2)"
+      ],
+      "m2_agent_targets": [
+        "agents/*.md",
+        "tests/test_agent_frontmatter.mjs",
+        "tests/test_role_guidance.mjs (re-baselined and run when agents/*.md are updated in m2)"
+      ],
+      "m4_targets": [
+        "README.md",
+        "docs/architecture.md",
+        "docs/usage.md",
+        "docs/internals.md",
+        "docs/ko/* (EN/KO parity & final user-doc polish)"
+      ]
+    },
+    "po_decisions_summary": {
+      "orchestration_model": "Interactive AGY Steamroller + thin LedgerKernel (core ground-up rewrite)",
+      "compatibility_scope": "1.x data & config round-trip compatibility (.ntg/ledger.json, plan.json, plugin.json, /ntg UX); legacy MinimalSpine internal execution flow deprecated",
+      "excluded_models": ["gemini-pro-orchestrator-g1-pro (AGY Orchestrator excluded from Steamroller default routing)"],
+      "retired_roles": ["excavator (replaced by Bulldozer Hydrogen XHigh + Instinct)"]
+    },
+    "roles": {
+      "steamroller": {
+        "provenance": "PO_CONFIRMED",
+        "role_title": "Autonomous Interactive Orchestrator & Kernel Owner",
+        "model_priority_candidates": [
+          { "model_family": "Carbon", "effort": "Medium", "provenance": "PO_CONFIRMED", "note": "Primary when exposed on AGY catalog" },
+          { "model_family": "Gemini 4 Argon", "effort": "Medium", "resolved_slug": "gemini-4-argon-medium", "provenance": "PO_CONFIRMED" }
+        ],
+        "excluded_from_default": ["gemini-pro-orchestrator-g1-pro"],
+        "dynamic_routing_contract": {
+          "provenance": "PO_CONFIRMED_AND_REFINED",
+          "capability_vs_authority_boundary": "Model selection controls capability/intelligence only. Dynamic model overrides NEVER expand a role's tool permissions, mutation authority, delegation authority, or verification requirements.",
+          "reroute_principle": "When a task exceeds a lightweight worker's capability (e.g., 3.8 Flash Low), Steamroller reroutes to a higher-tier role (e.g., Bobcat on Hydrogen Medium) or applies an authorized capability upgrade without altering authority boundaries."
+        },
+        "execution_mode": "AGY Interactive Session + LedgerKernel CLI/API",
+        "responsibilities": [
+          "Autonomously classify tasks into Track L, Track S, or Track M.",
+          "Decide whether to consult Piledriver, execute via direct workers (Jaguar/Puma/Bobcat), or delegate to Bulldozer (Hydrogen XHigh).",
+          "Judge high-risk escalation (e.g., requiring Zen on small high-risk changes).",
+          "Autonomously choose Instinct invocation timing and failure retry counts within LedgerKernel's orchestration-level hard safety cap.",
+          "Maintain user-facing communication in plain language without leaking internal ledger/role plumbing."
+        ]
+      },
+      "piledriver": {
+        "provenance": "PO_CONFIRMED",
+        "role_title": "Bounded Architect, Planner & Replan Advisor",
+        "model_family": "Gemini 4 Argon",
+        "effort": "High",
+        "resolved_slug": "gemini-4-argon-high",
+        "permissions": "READ_ONLY (no edits, no shell, no delegation, advisory only; enforced on both shell and file-mutation tools)",
+        "responsibilities": [
+          "Initial milestone graph and interface architecture for Track M / complex tasks.",
+          "Tactical and material replan proposals and NEEDS_DEEP trade-off resolution."
+        ]
+      },
+      "bulldozer": {
+        "provenance": "PO_CONFIRMED",
+        "role_title": "Selective Execution Coordinator & Primary Recovery Lead",
+        "model_family": "Gemini 4 Hydrogen",
+        "effort": "XHigh",
+        "resolved_slug": "gemini-4-hydrogen-xhigh",
+        "dispatch_mode": "selective (complex milestones, multi-worker synthesis, and primary recovery alongside Instinct)",
+        "permissions": "Read tools + subagent orchestration (Jaguar, Puma, Bobcat, Strix Halo) + GENERAL run_command shell access enforced across all mutation paths (shell + file tools) by universal hooks/shell-safety-guard.py (no direct ledger/hook mutation, no Zen invocation).",
+        "responsibilities": [
+          "Decompose and coordinate complex milestones across Jaguar, Puma, and Bobcat.",
+          "Execute build/integration/test and diagnostic commands via general shell within universal safety boundaries.",
+          "Lead root-cause failure diagnosis and recovery (replacing retired Excavator) with optional Instinct escalation."
+        ]
+      },
+      "bobcat": {
+        "provenance": "PO_CONFIRMED",
+        "role_title": "Substantive Implementation & Local Verification Worker",
+        "model_family": "Gemini 4 Hydrogen",
+        "effort": "Medium",
+        "resolved_slug": "gemini-4-hydrogen-medium",
+        "permissions": "File read/write within scope + run_command (both guarded against protected ledger/hook paths and unsafe effects by hooks/shell-safety-guard.py) + invoke_subagent limited to Strix Halo.",
+        "responsibilities": [
+          "Perform substantive feature implementation, refactoring, stateful/API logic, bug fixes, and test authorship.",
+          "Invoke Strix Halo (Hydrogen High) when implementing under Track L/M or when local complex review is needed."
+        ]
+      },
+      "strix_halo": {
+        "provenance": "PO_CONFIRMED",
+        "role_title": "Cross-Caller Implementation Reviewer & Quality Advisor",
+        "model_family": "Gemini 4 Hydrogen",
+        "effort": "High",
+        "resolved_slug": "gemini-4-hydrogen-high",
+        "allowed_callers": ["steamroller", "bulldozer", "bobcat"],
+        "permissions": "READ_ONLY (view_file, grep_search, list_dir, find_by_name; blocked from edits/shell/delegation across tool boundaries).",
+        "verdicts": ["ACCEPT", "REVISE", "ESCALATE"],
+        "track_requirements": {
+          "track_l": "REQUIRED (acts as Track L completion gate when Zen is omitted)",
+          "track_s": "CONDITIONAL (invoked when complexity/risk/stalls warrant)",
+          "track_m": "REQUIRED (formative pre-Zen quality review)"
+        }
+      },
+      "jaguar": {
+        "provenance": "PO_CONFIRMED",
+        "role_title": "Lightweight Codebase Scout & Fact Collector",
+        "model_family": "Gemini 3.8 Flash",
+        "effort": "Low",
+        "resolved_slug": "gemini-3.8-flash-low",
+        "harness_tier": "lightweight-worker-harness",
+        "permissions": "READ_ONLY (no edits, no shell, no delegation)",
+        "reroute_policy": "Tasks requiring deep cross-cutting reasoning unsuitable for Flash Low are rerouted by Steamroller/Bulldozer rather than inflating Jaguar's scope or authority."
+      },
+      "puma": {
+        "provenance": "PO_CONFIRMED",
+        "role_title": "Lightweight Mechanical, Formatting & Config Worker (Retained Separately)",
+        "model_family": "Gemini 3.8 Flash",
+        "effort": "Low",
+        "resolved_slug": "gemini-3.8-flash-low",
+        "harness_tier": "lightweight-worker-harness",
+        "permissions": "Bounded text/config file edits (view/list/find/grep/write/replace guarded against protected ledger/hook paths; no shell, no delegation)",
+        "rationale": "Retained as a separate low-cost mechanical/formatting/config worker on 3.8 Flash Low; substantive code/state/test changes route to Bobcat (Hydrogen Medium)."
+      },
+      "zen": {
+        "provenance": "MIXED (Primary PO_CONFIRMED; Fallback model/effort EXISTING_BASELINE_DEFAULT)",
+        "role_title": "Independent Summative Verification Gate",
+        "model_family": "Claude Opus 5.5",
+        "effort": "High",
+        "resolved_slug": "claude-opus-5-5-high",
+        "quota_fallback": {
+          "provenance": "EXISTING_BASELINE_DEFAULT (PO permitted fallback; exact family/effort carried from 1.x baseline)",
+          "model_family": "Gemini 4 Argon",
+          "effort": "High",
+          "resolved_slug": "gemini-4-argon-high"
+        },
+        "permissions": "Non-mutating verification enforced at execution boundary across BOTH run_command AND file-mutation tools via runner-injected NTG_ACTIVE_ROLE=zen in hooks/shell-safety-guard.py & hooks/zen-shell-guard.py; read tools + test execution; zero edits or delegation.",
+        "verdicts": ["GO", "NO-GO"]
+      },
+      "instinct": {
+        "provenance": "EXISTING_BASELINE_DEFAULT (PO confirmed autonomous Steamroller invocation timing)",
+        "role_title": "Autonomous On-Demand Alternate-Framing Specialist",
+        "model_family": "Claude Sonnet 5.5",
+        "effort": "High",
+        "resolved_slug": "claude-sonnet-5-5-high",
+        "escalated": {
+          "model_family": "Claude Opus 5.5",
+          "effort": "High",
+          "resolved_slug": "claude-opus-5-5-high"
+        },
+        "permissions": "READ_ONLY advisory specialist (no edits, no shell, no delegation).",
+        "dispatch_mode": "Autonomous decision by Steamroller (also available as second leg of Bulldozer + Instinct recovery)."
+      },
+      "navi": {
+        "provenance": "EXISTING_BASELINE_DEFAULT",
+        "role_title": "Isolated Desktop GUI Leaf",
+        "model_family": "Gemini 4 Argon",
+        "effort": "Medium",
+        "resolved_slug": "gemini-4-argon-medium"
+      },
+      "excavator": {
+        "provenance": "PO_CONFIRMED",
+        "disposition": "RETIRED_COMPLETELY",
+        "replacement": "Bulldozer (Gemini 4 Hydrogen XHigh) + Instinct",
+        "preserved_invariants": "Privilege-escalation, destructive-effect, protected ledger/hook path integrity across shell and file tools, and marker anti-spoofing rules live in universal hooks/shell-safety-guard.py."
+      }
+    },
+    "track_verification_and_state_policy": {
+      "track_l": {
+        "provenance": "PO_CONFIRMED (filename & initial-approval UX DESIGN_DEFAULT)",
+        "name": "Lightweight Track",
+        "halo_policy": "REQUIRED",
+        "zen_policy": "OMITTED_BY_DEFAULT (Steamroller escalates to Zen if task turns out high-risk)",
+        "approval_ux_policy": {
+          "provenance": "DESIGN_DEFAULT (not PO_CONFIRMED)",
+          "behavior": "Lightweight direct execution with mandatory Halo review; Steamroller confirms before external/destructive actions or if escalated to Track S/M."
+        },
+        "persistence": ".ntg/lightweight-runs.jsonl (DESIGN_DEFAULT lightweight execution & Halo receipt log)",
+        "assurance_badge": "HALO_LIGHTWEIGHT"
+      },
+      "track_s": {
+        "provenance": "PO_CONFIRMED",
+        "name": "Standard Durable Track",
+        "halo_policy": "CONDITIONAL (Steamroller/Bulldozer/Bobcat invoke on complex logic or pre-Zen polish)",
+        "zen_policy": "REQUIRED",
+        "approval_ux_policy": {
+          "provenance": "CONFIRMED_REFINEMENT",
+          "behavior": "One initial plain-language plan approval on the normal execution path; exceptions requiring re-approval under PO policy (e.g., Material Replan changing goal/acceptance/invariants or external/irreversible confirmation gates) still trigger explicit user confirmation."
+        },
+        "persistence": ".ntg/ledger.json (1.x compatible schema + NTG 2.0 track/assurance fields)",
+        "assurance_badge": "ZEN_DURABLE"
+      },
+      "track_m": {
+        "provenance": "PO_CONFIRMED",
+        "name": "Multi-Milestone / Complex Track",
+        "halo_policy": "REQUIRED",
+        "zen_policy": "REQUIRED (per milestone)",
+        "approval_ux_policy": {
+          "provenance": "CONFIRMED_REFINEMENT",
+          "behavior": "One initial plain-language plan approval on the normal execution path; Material Replan or destructive/external confirmation gates remain explicit re-approval exceptions."
+        },
+        "persistence": ".ntg/ledger.json",
+        "assurance_badge": "ZEN_DURABLE"
+      },
+      "verdict_distinction": "LedgerKernel and LightweightLog store halo_reviews and zen_verdicts in separate typed fields. Halo ACCEPT closes Track L (HALO_LIGHTWEIGHT) only when fresh and bound; it never substitutes for Zen GO on Track S/M or high-risk work (ZEN_DURABLE).",
+      "halo_invalidation_policy": {
+        "provenance": "CONFIRMED_REFINEMENT",
+        "binding_fields": ["candidate_id_or_run_id", "reviewed_diff_digest", "acceptance_criteria_digest", "plan_version", "evidence_basis"],
+        "stale_conditions": [
+          "Delivered files or working-tree diff digest changes after Halo review.",
+          "Acceptance criteria or governing task contract changes.",
+          "plan_version increments (Tactical or Material Replan).",
+          "Referenced evidence basis or test state changes."
+        ],
+        "rule": "Any stale Halo ACCEPT cannot be reused for a modified deliverable; a fresh Halo review against the current digest and contract is required."
+      },
+      "replanning_policy": {
+        "provenance": "PO_CONFIRMED",
+        "tactical_replan": "Autonomously adopted by Steamroller (often with Piledriver advice) when execution strategy, scope boundaries, or remaining milestone structure changes without altering user-approved goal/acceptance. Marks ALL existing Zen GO verdicts (and Halo receipts bound to prior plan_version) STALE and requires full Zen revalidation (unchanged code need not be rewritten, only re-verified).",
+        "material_replan": "Changes user-approved goal, weakens/modifies acceptance_criteria, alters decision_invariants, or adds destructive side effects. Requires explicit user re-approval before adoption (exception to normal-path initial 1x approval) and marks all prior Zen GO verdicts STALE."
+      }
+    },
+    "dedicated_harness_architecture": {
+      "provenance": "PO_CONFIRMED_AND_REFINED",
+      "clean_room_provenance": "Design principles inspired by GJC and OmO (layered calibration, targeted context delivery, model-ergonomic tool interfaces); zero code or prompt text copied.",
+      "layers": [
+        {
+          "layer": "Layer 1: Model-Common Calibration",
+          "purpose": "Preserve each model family's native reasoning, tool-use, and delegation tendencies without forcing uniform behavior. Intervene strictly on observed cross-model failures or host/tool interface friction (evidence labeling OBSERVED/INFERRED/UNKNOWN, interface error clarity, no assumption filling), cleanly separated from role directives."
+        },
+        {
+          "layer": "Layer 2: Role-Specific Directives",
+          "purpose": "Provide concise role authority boundaries, allowed/disallowed tools, caller/callee contracts, and track verification semantics without micro-managing step-by-step model reasoning."
+        },
+        {
+          "layer": "Layer 3: Context & Tool Interface Optimization",
+          "purpose": "Auto-inject ContextDigest (scope_map, git diff stat, changed symbol ranges, failure summary) into delegation/review packets; keep tool interfaces crisp; provide unified Kernel CLI/API entry."
+        },
+        {
+          "layer": "Lightweight Worker Harness (Jaguar & Puma, Gemini 3.8 Flash Low)",
+          "purpose": "Included from initial NTG 2.0 implementation: strictly bounded inputs, explicit fact/edit schemas, context-capped file-reading helpers, and reroute signals when a task exceeds Flash Low capability."
+        }
+      ],
+      "observation_first_telemetry": {
+        "provenance": "PO_CONFIRMED_AND_REFINED",
+        "policy": "True observation-first telemetry (hooks/telemetry-guard.py logging to .ntg/telemetry.jsonl). All legacy hard-count budget blocking (hooks/budget-guard.py, hooks.json role-budget-boundary, runner.mjs BULLDOZER_BUDGET_DEFAULTS) is removed so it never coexists with observation-first telemetry. Repetition count is strictly a telemetry signal, NEVER an automatic waste verdict or count-based block threshold (no fixed repetition-count threshold triggers auto-denial).",
+        "distinction_from_safety_cap": "Per-turn tool/read count limits are retired completely; orchestration-level recovery safety caps (LedgerKernel bounding maximum milestone recovery retries against runaway infinite loops, DESIGN_DEFAULT: 3) remain strictly at the milestone retry boundary.",
+        "evaluated_signals": [
+          "Whether repeated calls return identical outputs vs. new information",
+          "Whether new OBSERVED evidence or workspace state change occurred",
+          "Whether overall task progress is advancing",
+          "Whether the call is a reasonable retry after a failure or edit"
+        ],
+        "intervention_rule": "Apply selective, minimal intervention (e.g., surface diagnostic hint or require alternative action) only when telemetry confirms non-progressing wasteful looping."
+      }
+    },
+    "universal_safety_guard_contract": {
+      "provenance": "CONFIRMED_REFINEMENT",
+      "script": "hooks/shell-safety-guard.py",
+      "registered_tool_matchers": [
+        "^run_command$",
+        "^(write_to_file|replace_file_content|multi_replace_file_content|write_file|edit_file)$"
+      ],
+      "rationale": "Because Bulldozer (Hydrogen XHigh) gains general run_command access and Excavator's role wrapper is retired, protected-path and authority invariants must be enforced across ALL mutation pathways (both shell commands AND file-mutation tools) so a model cannot bypass shell protections by switching to a file tool.",
+      "authoritative_writers": {
+        "ledger_and_lock": {
+          "paths": [".ntg/ledger.json", ".ntg/ledger.json.lock"],
+          "sole_authoritative_writer": "LedgerKernel (src/core/ledger-kernel.mjs) and lock-manager.mjs via internal host Node.js FS APIs"
+        },
+        "lightweight_log": {
+          "paths": [".ntg/lightweight-runs.jsonl"],
+          "sole_authoritative_writer": "LightweightLog / LedgerKernel internal APIs (src/core/lightweight-log.mjs)"
+        },
+        "v1_compatibility_migration": {
+          "paths": ["protected 1.x ledger/config targets during migration"],
+          "sole_authoritative_writer": "Compatibility Adapter (src/core/v1-compat.mjs) explicit internal migration code path"
+        },
+        "model_facing_tools": "Worker, coordinator, and model-facing tools (run_command, write_to_file, replace_file_content, multi_replace_file_content, write_file, edit_file) can NEVER directly mutate authoritative state/config paths.",
+        "no_bypass_markers_or_exceptions": "No model-controlled bypass markers or shell exceptions may exist to evade the universal guard. Authoritative kernel/adapter components execute outside model PreToolUse mutation tools via internal host-process APIs, allowing the guard to deny protected-path mutations unconditionally."
+      },
+      "enforced_boundaries": [
+        "Protected-path mutation invariant (shell AND file-mutation tools): unconditionally deny direct writes, replacements, truncations, moves, or deletes targeting .ntg/ledger.json, .ntg/ledger.json.lock, .ntg/lightweight-runs.jsonl, hooks.json, hooks/*.py, or plugin.json from model-facing worker/coordinator tool calls, with zero model-controlled bypass markers or shell exceptions.",
+        "Role-mutation authority invariant (shell AND file-mutation tools): deny file-mutation tools and mutating shell commands when runner-injected NTG_ACTIVE_ROLE is non-mutating / READ_ONLY (zen, strix-halo, jaguar, piledriver, instinct).",
+        "Privilege-escalation & credential-bypass prevention: deny stdin/piped password injection into sudo, su, pkexec, localhost root SSH, shell-history credential mining, and wrapper/pipe/subshell equivalents.",
+        "Unauthorized persistent/destructive effect prevention: deny exploratory full-system upgrades and unauthorized destructive host/repo mutations.",
+        "Environment & marker anti-spoofing: inspect runner-injected NTG_ACTIVE_ROLE (e.g., Zen non-mutating enforcement regardless of command string) and block commands attempting to unset/override NTG_ACTIVE_ROLE, NTG_SUPERVISOR_PID, or SKIP_LIVE_TESTS.",
+        "Direct test coverage: verified directly by tests/test_shell_safety_guard.py across allow, deny, shell bypass, file-mutation-tool bypass, and marker/exception-absence cases."
+      ]
+    },
+    "legacy_component_and_test_disposition": {
+      "provenance": "CONFIRMED_REFINEMENT",
+      "retired_code_and_hooks_in_m2": [
+        "scripts/excavator-agy.mjs",
+        "agents/excavator.md",
+        "hooks/excavator-shell-guard.py",
+        "hooks/bulldozer-shell-guard.py",
+        "hooks/budget-guard.py",
+        "hooks.json entries: excavator-migration-boundary, bulldozer-no-shell-boundary, role-budget-boundary",
+        "scripts/runner.mjs: BULLDOZER_BUDGET_DEFAULTS, bulldozerBudgetContext, NTG_BULLDOZER_NO_SHELL, NTG_BUDGET_* caps"
+      ],
+      "removed_legacy_tests_in_m2": [
+        "tests/test_excavator_agy.mjs",
+        "tests/test_excavator_shell_guard.py",
+        "tests/test_bulldozer_shell_guard.py",
+        "tests/test_budget_guard.py",
+        "tests/test_runner_bulldozer_marker.mjs"
+      ],
+      "migrated_guard_and_telemetry_tests_in_m2": [
+        "tests/test_shell_safety_guard.py (inherits privilege/destructive/protected-path/anti-spoof invariants across shell + file tools)",
+        "tests/test_zen_shell_guard.py (verifies env-scoped NTG_ACTIVE_ROLE=zen non-mutation)",
+        "tests/test_telemetry_guard.py (verifies observation-first telemetry and absence of count-only blocking)",
+        "tests/test_hook_snap.mjs (or dedicated compact wiring/disposition check in m2 directly verifying hooks.json registration cleanup, universal/telemetry hook wiring, absence of retired Excavator/guard/budget files, and zero leftover retired Excavator/budget/marker plumbing in scripts/runner.mjs)"
+      ],
+      "packaging_and_snap_test_alignment_in_m4": [
+        "tests/test_npm_install.mjs, tests/test_install_integration.mjs updated if packaged file lists change so full discovery passes cleanly."
+      ]
+    },
+    "compatibility_contract": {
+      "provenance": "PO_CONFIRMED_AND_REFINED",
+      "round_trip_requirement": "Compatibility is proven only by executing load -> state/config operation -> save -> reload round-trip tests verifying semantic preservation on real 1.x fixtures for ledger.json, plan.json, and plugin.json (tests/test_v1_compat_roundtrip.mjs). Internal MinimalSpine execution compatibility is explicitly not required."
+    },
+    "resolved_conflicts": [
+      {
+        "id": "CONFLICT-01",
+        "topic": "Governing Spec Timing & Verification Split (m0 vs m2 vs m4)",
+        "resolution": "Transition AGENTS.md, canonical NTG 2.0 spec, and rules/orchestration.md in m0 verified by tests/test_governing_spec.mjs (decoupling rules/orchestration.md from test_role_guidance.mjs); edit and verify agents/*.md in m2; polish user guides and EN/KO parity in m4."
+      },
+      {
+        "id": "CONFLICT-02",
+        "topic": "Steamroller Exclusion of AGY Orchestrator & Decoupled Authority",
+        "resolution": "Default priority strictly Carbon (Medium) -> Gemini 4 Argon (Medium), excluding gemini-pro-orchestrator-g1-pro from default routing; dynamic capability overrides never expand role authority."
+      },
+      {
+        "id": "CONFLICT-03",
+        "topic": "Jaguar & Puma (3.8 Flash Low) Retention vs. Merge",
+        "resolution": "Retain Jaguar and Puma separately on Gemini 3.8 Flash Low with Lightweight Worker Harness; Bobcat (Hydrogen Medium) handles substantive code, and tasks unsuited for Flash Low reroute cleanly."
+      },
+      {
+        "id": "CONFLICT-04",
+        "topic": "Strix Halo Multi-Caller Support & Invalidation Binding",
+        "resolution": "Allow Steamroller, Bulldozer, and Bobcat to invoke Strix Halo (Hydrogen High) via a unified ReviewRequest; bind Halo verdicts to diff/tree digest, acceptance digest, and plan_version so stale verdicts cannot be reused."
+      },
+      {
+        "id": "CONFLICT-05",
+        "topic": "Track Verification, Approval Exceptions & Full Tactical Replan Revalidation",
+        "resolution": "Separate HALO_LIGHTWEIGHT (.ntg/lightweight-runs.jsonl) on Track L (approval UX marked DESIGN_DEFAULT) from ZEN_DURABLE (.ntg/ledger.json) on Track S/M (1x initial normal-path approval with Material Replan & confirmation exceptions). Tactical Replan invalidates all prior Zen GO verdicts."
+      },
+      {
+        "id": "CONFLICT-06",
+        "topic": "Excavator Retirement, Bulldozer General Shell & Universal Mutation Safety",
+        "resolution": "Retire Excavator, bulldozer-shell-guard, and obsolete tests completely in m2; enforce protected ledger/hook paths and role boundaries across BOTH shell commands AND file-mutation tools in hooks/shell-safety-guard.py."
+      },
+      {
+        "id": "CONFLICT-07",
+        "topic": "Retiring Legacy Hard-Count budget-guard for Observation-First Telemetry",
+        "resolution": "Remove hooks/budget-guard.py, role-budget-boundary, BULLDOZER_BUDGET_DEFAULTS, and test_budget_guard.py completely in m2; separate orchestration recovery safety caps from retired per-turn tool/read count caps; calibrate model friction without suppressing native model traits."
+      },
+      {
+        "id": "CONFLICT-08",
+        "topic": "Ground-Up Core Rewrite + 1.x Data/Config Round-Trip Verification",
+        "resolution": "Rewrite runtime core cleanly while verifying 1.x ledger.json, plan.json, and plugin.json compatibility via full load->operate->save->reload round-trip tests and full JS+Python test discovery in m4."
+      }
+    ]
+  },
+  "milestones": [
+    {
+      "id": "m0",
+      "title": "Phase 0: NTG 2.0 Governing Spec Alignment & Core ModelRouter",
+      "objective": "Resolve old vNext spec conflicts up front by establishing the branch-local NTG 2.0 governing contract (AGENTS.md, docs/specs/ntg-2.0-architecture-contract.md, rules/orchestration.md) verified via tests/test_governing_spec.mjs (decoupling orchestration.md from test_role_guidance.mjs so un-updated agents/*.md remain clean until m2), and build the clean-room ModelRouter with PO-confirmed role slots, authority-decoupled dynamic capability overrides, session-level `agy models` catalog caching (#230), and provenance tags.",
+      "bounded_scope": [
+        "AGENTS.md",
+        "docs/specs/ntg-2.0-architecture-contract.md",
+        "docs/specs/vnext-architecture-contract.md",
+        "rules/orchestration.md",
+        "tests/test_governing_spec.mjs",
+        "tests/test_role_guidance.mjs",
+        "src/core/model-router.mjs",
+        "scripts/runner.mjs",
+        "docs/model-profiles/",
+        "tests/test_model_router.mjs",
+        "tests/test_runner_spike.mjs"
+      ],
+      "non_goals": [
+        "Do not assume or hardcode unreleased model slugs such as Carbon or Helix.",
+        "Do not allow dynamic model routing overrides to expand role tool/mutation/delegation/verification permissions.",
+        "Do not rewrite agents/*.md or run agent-file prefix checks in m0 (belongs to m2)."
+      ],
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Branch-local AGENTS.md, canonical NTG 2.0 architecture contract, and rules/orchestration.md align cleanly with NTG 2.0 PO decisions before m1-m3 runtime code begins, verified by tests/test_governing_spec.mjs.",
+        "tests/test_role_guidance.mjs is decoupled from rules/orchestration.md so m0 does not conflict with un-updated agents/*.md.",
+        "ModelRouter resolves Steamroller (Carbon Medium -> gemini-4-argon-medium, explicitly excluding gemini-pro-orchestrator-g1-pro), Piledriver (gemini-4-argon-high), Bulldozer (gemini-4-hydrogen-xhigh), Strix Halo (gemini-4-hydrogen-high), Bobcat (gemini-4-hydrogen-medium), Jaguar & Puma (gemini-3.8-flash-low), and Zen (claude-opus-5-5-high w/ gemini-4-argon-high baseline fallback).",
+        "ModelRouter validates Steamroller dynamic model overrides fail-closed against the installed catalog while keeping role authority strictly decoupled from selected model.",
+        "listInstalledModels() is cached at runner session scope so `agy models` runs at most once per session (#230).",
+        "tests/test_governing_spec.mjs, tests/test_model_router.mjs, and tests/test_runner_spike.mjs pass under SKIP_LIVE_TESTS=1."
+      ],
+      "verify": [
+        "SKIP_LIVE_TESTS=1 node --test tests/test_governing_spec.mjs tests/test_model_router.mjs tests/test_runner_spike.mjs"
+      ]
+    },
+    {
+      "id": "m1",
+      "title": "Phase 1: Clean-Room LedgerKernel, Track L Log, Halo Invalidation & 1.x Round-Trip Compat",
+      "objective": "Build the new thin LedgerKernel, lock manager, Track L lightweight log (.ntg/lightweight-runs.jsonl), and 1.x compatibility layer; fix #201 A1/A2/A3/A7 defects; implement Halo artifact/diff/version binding and staleness invalidation alongside full Zen GO revalidation on Tactical Replan; and verify 1.x ledger.json, plan.json, and plugin.json compatibility via load->operate->save->reload round-trip tests.",
+      "bounded_scope": [
+        "src/core/ledger-kernel.mjs",
+        "src/core/lightweight-log.mjs",
+        "src/core/lock-manager.mjs",
+        "src/core/v1-compat.mjs",
+        "scripts/ledger.mjs",
+        "scripts/ledger-lock.mjs",
+        "tests/test_ledger.mjs",
+        "tests/test_ledger_guard.mjs",
+        "tests/test_v1_compat_roundtrip.mjs"
+      ],
+      "non_goals": [
+        "Do not preserve 1.x MinimalSpine internal execution flow.",
+        "Do not allow Halo ACCEPT to satisfy Track S/M Zen GO requirements or allow stale Halo ACCEPT reuse."
+      ],
+      "dependencies": ["m0"],
+      "acceptance_criteria": [
+        "1.x fixtures for ledger.json, plan.json, and plugin.json pass full load -> state/config operation -> save -> reload round-trip semantic preservation tests in tests/test_v1_compat_roundtrip.mjs; protected data/config migration runs exclusively via Compatibility Adapter's explicit internal code path (src/core/v1-compat.mjs).",
+        "#201 A1, A2, A3, A7 invariants are resolved cleanly in LedgerKernel (candidate separation on replan, owner-token verified lock recovery, code-computed delivered_tree_digest binding, explicit blocker resolution).",
+        "Tactical Replan increments plan_version and marks all existing Zen GO verdicts and prior Halo receipts STALE for full revalidation.",
+        "Halo reviews bind to candidate/run ID, reviewed_diff_digest, acceptance_criteria_digest, and plan_version; changing files, criteria, or evidence invalidates prior Halo ACCEPT.",
+        "Track L writes HALO_LIGHTWEIGHT records exclusively via LightweightLog / LedgerKernel internal APIs to .ntg/lightweight-runs.jsonl cleanly separated from Track S/M ZEN_DURABLE records owned by LedgerKernel in .ntg/ledger.json."
+      ],
+      "verify": [
+        "SKIP_LIVE_TESTS=1 node --test tests/test_ledger.mjs tests/test_ledger_guard.mjs tests/test_v1_compat_roundtrip.mjs"
+      ]
+    },
+    {
+      "id": "m2",
+      "title": "Phase 2: Model-Aware Harnesses, Role/Test Cleanup & Universal Mutation Safety Guards",
+      "objective": "Implement the Model-Aware Harness (Model-Common Calibration preserving native model traits + Role-Specific Directives + ContextDigest + Lightweight Worker Harness for Jaguar/Puma 3.8 Flash Low); update agents/*.md and agent-role tests together; retire Excavator, legacy shell guards, hard-count budget-guard, retired hooks.json registrations, runner budget/marker plumbing, and obsolete legacy tests (verified directly in m2 via updated tests/test_hook_snap.mjs or a compact wiring/disposition regression test); grant Bulldozer general shell access under universal hooks/shell-safety-guard.py protecting BOTH shell AND file-mutation tools with zero model-controlled bypasses; migrate Zen guard to runner-injected NTG_ACTIVE_ROLE=zen (#201 A4); and deploy observation-first telemetry.",
+      "bounded_scope": [
+        "src/harness/",
+        "agents/",
+        "scripts/runner.mjs",
+        "scripts/excavator-agy.mjs",
+        "scripts/hook-snap.mjs",
+        "hooks/shell-safety-guard.py",
+        "hooks/zen-shell-guard.py",
+        "hooks/telemetry-guard.py",
+        "hooks/budget-guard.py",
+        "hooks/bulldozer-shell-guard.py",
+        "hooks/excavator-shell-guard.py",
+        "hooks.json",
+        "tests/test_shell_safety_guard.py",
+        "tests/test_zen_shell_guard.py",
+        "tests/test_telemetry_guard.py",
+        "tests/test_agent_frontmatter.mjs",
+        "tests/test_role_guidance.mjs",
+        "tests/test_hook_snap.mjs",
+        "tests/test_excavator_agy.mjs",
+        "tests/test_excavator_shell_guard.py",
+        "tests/test_bulldozer_shell_guard.py",
+        "tests/test_budget_guard.py",
+        "tests/test_runner_bulldozer_marker.mjs"
+      ],
+      "non_goals": [
+        "Do not copy verbatim code or prompts from GJC or OmO.",
+        "Do not normalize away model-specific reasoning/delegation strengths or merge Puma into Bobcat.",
+        "Do not keep hard-count tool/read blocking alongside observation-first telemetry.",
+        "Do not introduce model-controlled bypass markers or shell exceptions to route around the universal safety guard."
+      ],
+      "dependencies": ["m1"],
+      "acceptance_criteria": [
+        "Model-Common Calibration adjusts only observed cross-model friction/interface issues while preserving native model behavior, cleanly separated from role directives, and includes Lightweight Worker Harness (Jaguar/Puma 3.8 Flash Low) from initial implementation.",
+        "agents/*.md, tests/test_agent_frontmatter.mjs, and tests/test_role_guidance.mjs are updated together: Excavator retired, Puma retained separately on 3.8 Flash Low, Bobcat Hydrogen Medium, Strix Halo Hydrogen High callable by Steamroller/Bulldozer/Bobcat.",
+        "Legacy hard-count budget-guard (hooks/budget-guard.py, hooks.json role-budget-boundary, runner.mjs BULLDOZER_BUDGET_DEFAULTS) and legacy role/guard tests (test_excavator_agy.mjs, test_excavator_shell_guard.py, test_bulldozer_shell_guard.py, test_budget_guard.py, test_runner_bulldozer_marker.mjs) are removed, with safety/telemetry invariants migrated into new suites.",
+        "Direct m2 wiring/disposition verification (via updated tests/test_hook_snap.mjs or a compact disposition test within it) confirms hooks.json dropped retired registrations and registered universal safety + telemetry hooks, retired Excavator/guard/budget files are absent, and scripts/runner.mjs contains zero remaining retired Excavator or budget/marker plumbing.",
+        "hooks/shell-safety-guard.py enforces unconditionally across BOTH run_command AND file-mutation tools (write_to_file, replace_file_content, write_file, edit_file, etc.) with zero model-controlled bypass markers or shell exceptions, and tests/test_shell_safety_guard.py directly verifies prevention of protected-path tampering (respecting LedgerKernel/LightweightLog/Compatibility Adapter sole-writer boundaries), READ_ONLY role mutations, privilege escalation/bypasses, persistent/destructive ops, and marker anti-spoofing.",
+        "Zen non-mutation enforces via runner-injected NTG_ACTIVE_ROLE=zen across shell and file-mutation boundaries (#201 A4).",
+        "hooks/telemetry-guard.py operates strictly observation-first (evaluating output novelty, OBSERVED state changes, progress, and post-failure retries without count-only auto-blocking)."
+      ],
+      "verify": [
+        "python3 -m unittest tests/test_shell_safety_guard.py tests/test_zen_shell_guard.py tests/test_telemetry_guard.py -v && SKIP_LIVE_TESTS=1 node --test tests/test_agent_frontmatter.mjs tests/test_role_guidance.mjs tests/test_hook_snap.mjs"
+      ]
+    },
+    {
+      "id": "m3",
+      "title": "Phase 3: Autonomous Interactive Steamroller Runtime & Recovery Loop",
+      "objective": "Replace MinimalSpine completely with the interactive AGY Steamroller + LedgerKernel runtime: autonomous Track L/S/M routing, selective Direct vs. Worker vs. Bulldozer (Hydrogen XHigh) delegation, authority-decoupled dynamic model routing, cross-caller Strix Halo (Hydrogen High) integration with staleness checks, high-risk Zen escalation, and Bulldozer + Instinct recovery governed by Steamroller retry judgment within an orchestration-level hard safety cap.",
+      "bounded_scope": [
+        "src/runtime/steamroller-controller.mjs",
+        "src/runtime/track-runner.mjs",
+        "scripts/ntg-vnext.mjs",
+        "scripts/spine.mjs",
+        "tests/test_spine.mjs",
+        "tests/test_ntg_vnext.mjs",
+        "tests/test_coverage.mjs"
+      ],
+      "non_goals": [
+        "Do not force Bulldozer or Zen onto low-risk Track L tasks unless Steamroller escalates for high risk.",
+        "Do not allow dynamic model routing to mutate role permission boundaries."
+      ],
+      "dependencies": ["m2"],
+      "acceptance_criteria": [
+        "Interactive Steamroller autonomously classifies Track L/S/M, routes work to Direct/Lightweight workers or Bulldozer (Hydrogen XHigh), reroutes tasks unsuitable for 3.8 Flash Low, and triggers Piledriver/Instinct/Strix Halo on demand.",
+        "Recovery uses Bulldozer (Hydrogen XHigh) + Instinct governed by Steamroller's autonomous retry/framing decisions bounded by LedgerKernel's orchestration-level hard safety cap.",
+        "Track L enforces fresh bound Halo REQUIRED + Zen OMITTED (with high-risk escalation); Track S enforces Halo CONDITIONAL + Zen REQUIRED; Track M enforces both REQUIRED; stale Halo verdicts are rejected.",
+        "All mocked runtime integration suites pass with zero ambient agy launches."
+      ],
+      "verify": [
+        "SKIP_LIVE_TESTS=1 node --test tests/test_spine.mjs tests/test_ntg_vnext.mjs tests/test_coverage.mjs"
+      ]
+    },
+    {
+      "id": "m4",
+      "title": "Phase 4: Simple /ntg UX Entry, User Guides, EN/KO Parity & Full JS+Python Release Validation",
+      "objective": "Unify the user-facing /ntg entry point, ntg-command CLI, and status/DAG viewers (#200) without leaking internal orchestration state; finalize user-facing documentation and EN/KO parity; update packaging/install alignment tests for retired legacy files; verify 1.x data/config round-trip compatibility end to end; and execute the complete JS + Python offline test suite plus authorized controlled live probes.",
+      "bounded_scope": [
+        "skills/ntg/SKILL.md",
+        "scripts/ntg-command.mjs",
+        "scripts/state-snap.mjs",
+        "package.json",
+        "README.md",
+        "docs/architecture.md",
+        "docs/usage.md",
+        "docs/internals.md",
+        "docs/ko/",
+        "tests/test_ntg_command.mjs",
+        "tests/test_state_snap.mjs",
+        "tests/test_npm_install.mjs",
+        "tests/test_install_integration.mjs"
+      ],
+      "non_goals": [
+        "Do not defer authoritative NTG 2.0 spec/contract alignment to m4 (already completed in m0).",
+        "Do not require $NTG environment variables or expose internal ledger/result_ref terminology in normal user UX (#200)."
+      ],
+      "dependencies": ["m3"],
+      "acceptance_criteria": [
+        "/ntg UX routes seamlessly across Track L (DESIGN_DEFAULT lightweight direct UX), Track S, and Track M (one initial normal-path approval, with Material Replan and confirmation gates as explicit re-approval exceptions), plus /ntg graph and /ntg status compatibility (#200).",
+        "1.x ledger.json, plan.json, and plugin.json compatibility holds across full end-to-end UX and kernel round-trips.",
+        "User-facing guides (README.md, docs/usage.md, docs/architecture.md, docs/internals.md) and EN/KO documentation achieve full parity with NTG 2.0.",
+        "Package file lists and install tests (tests/test_npm_install.mjs, tests/test_install_integration.mjs) align cleanly with retired legacy artifacts so full JS (tests/*.mjs) + Python (tests/test_*.py) offline discovery passes cleanly with zero obsolete vNext assertions, accompanied by authorized controlled live smoke probes."
+      ],
+      "verify": [
+        "SKIP_LIVE_TESTS=1 node --test tests/*.mjs && python3 -m unittest discover -s tests -p 'test_*.py' -v"
+      ]
+    }
+  ]
+}

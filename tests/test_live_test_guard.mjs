@@ -25,6 +25,7 @@ import { ZenReviewPendingError, nativeZen } from '../scripts/ntg-vnext.mjs';
 const INSTALLED = [
   { slug: 'gemini-4-argon-high', description: 'Gemini 4 Argon (High)' },
   { slug: 'gemini-4-argon-medium', description: 'Gemini 4 Argon (Medium)' },
+  { slug: 'gemini-4-hydrogen-xhigh', description: 'Gemini 4 Hydrogen (XHigh)' },
   { slug: 'gemini-3.8-flash-high', description: 'Gemini 3.8 Flash (High)' },
   { slug: 'claude-opus-5-5-high', description: 'Claude Opus 5.5 (High)' },
 ];
@@ -224,10 +225,10 @@ test('an Argon quota failure trips the breaker; later Argon seats fail fast, Fla
   assert.equal(argonQuotaBreakerState().seat, 'piledriver');
   assert.equal(argonQuotaBreakerState().reset_seconds, 9000);
 
-  // Flash seats are unaffected by the Argon breaker.
+  // Non-Argon seats are unaffected by the Argon breaker.
   const flash = await invoke('bulldozer', { task: 'TASK_MARKER' }, opts);
   assert.equal(flash.ok, true, JSON.stringify(flash));
-  assert.deepEqual(mock.calls(), ['gemini-4-argon-high', 'gemini-3.8-flash-high']);
+  assert.deepEqual(mock.calls(), ['gemini-4-argon-high', 'gemini-4-hydrogen-xhigh']);
 });
 
 test('zen stops review-pending when the Argon fallback pool is also exhausted', t => {

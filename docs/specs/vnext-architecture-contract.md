@@ -1,7 +1,8 @@
-# Native Gravity vNext Architecture Contract
+# Native Gravity vNext Architecture Contract (Superseded on `feat/ntg-2.0.0`)
 
-> **Status:** Canonical vNext specification — issue #44A
-> **Branch:** `docs/issue-44-architecture-contract`
+> **Superseded Notice:** On branch `feat/ntg-2.0.0`, this 1.x vNext contract is superseded by the canonical Season 2 specification: [NTG 2.0 Architecture Contract](./ntg-2.0-architecture-contract.md). Consult `docs/specs/ntg-2.0-architecture-contract.md` for all NTG 2.0 runtime, role, model-routing, safety-guard, and verification contracts.
+>
+> **Historical Status:** Canonical vNext 1.x specification — issue #44A (retained as historical baseline reference and 1.x compatibility reference).
 
 This document is the canonical Native Gravity vNext architecture contract. It was the clean implementation contract for the issue #44 implementation slices (44B–44G) and is the specification of record for the released vNext runtime.
 

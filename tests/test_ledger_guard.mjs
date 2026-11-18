@@ -19,8 +19,9 @@ const CLI = new URL('../scripts/ntg-vnext.mjs', import.meta.url).pathname;
 const observed = [{ classification: 'OBSERVED', criterion: 'content matches', result: 'inspected' }];
 const plan = (version = 'v1', ids = ['one', 'two']) => ({
   goal: 'Deliver bounded artifacts', constraints: [], decision_invariants: [], plan_version: version,
+  ...(ids.length === 1 ? { track: 'S' } : {}),
   milestones: ids.map((id, index) => ({
-    id, title: id, objective: `Deliver ${id}`, bounded_scope: [`${id}.txt`],
+    id, title: id, objective: ids.length === 1 ? `Cross-cutting delivery of ${id}` : `Deliver ${id}`, bounded_scope: [`${id}.txt`],
     acceptance_criteria: ['content matches'], non_goals: [], dependencies: index ? [ids[index - 1]] : [],
   })),
 });
@@ -42,6 +43,19 @@ function guardHarness(t, { sabotage } = {}) {
     handleSignals: false,
     invokeRole: async (role, packet) => {
       calls.push(role);
+      if (role === 'strix-halo') {
+        const req = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+        return envelope({
+          caller: req.caller,
+          candidate_id_or_run_id: req.candidate_id_or_run_id,
+          reviewed_diff_digest: req.reviewed_diff_digest,
+          acceptance_criteria_digest: req.acceptance_criteria_digest,
+          plan_version: req.plan_version,
+          evidence_basis: req.evidence_basis,
+          verdict: 'ACCEPT',
+          findings: [],
+        });
+      }
       if (role === 'bulldozer' && sabotage) sabotage({ ntg, ledger, lock });
       const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
       return envelope({
@@ -142,7 +156,7 @@ test('a normal run is unchanged: the guard stays silent and accounting and compl
   await h.cli('init', '--plan', h.write('plan.json', plan()));
   const { code, out } = await h.cli('run', '--all');
   assert.equal(code, 0);
-  assert.deepEqual(h.calls, ['bulldozer', 'zen:one', 'bulldozer', 'zen:two']);
+  assert.deepEqual(h.calls, ['bulldozer', 'strix-halo', 'zen:one', 'bulldozer', 'strix-halo', 'zen:two']);
   assert.deepEqual(out.state.completed_milestones, ['one', 'two']);
   assert.ok(out.global_completion);
   const disk = JSON.parse(readFileSync(h.ledger, 'utf8'));
@@ -154,6 +168,7 @@ test('a normal run is unchanged: the guard stays silent and accounting and compl
 // Bulldozer invocation deletes .ntg/ and still returns a valid DONE packet.
 const MODELS = [
   'gemini-4-argon-high\tGemini 4 Argon (High)',
+  'gemini-4-hydrogen-xhigh\tGemini 4 Hydrogen (XHigh)',
   'gemini-3.8-flash-high\tGemini 3.8 Flash (High)',
   'claude-opus-5-5-high\tClaude Opus 5.5 (High)',
 ].join('\n');
@@ -196,4 +211,39 @@ if (argv[0] === 'models') {
   assert.match(run.stderr, /ntg-vnext: ledger integrity violated: .+ledger\.json\.lock was removed during execution/);
   assert.match(run.stderr, /after bulldozer invocation for milestone one/);
   assert.equal(existsSync(ntg), false, 'the CLI must not recreate the deleted ledger directory');
+});
+
+test('owner-token lock verification detects spoofed same-PID overwrites and gates stale recovery (#201 A2)', async t => {
+  const { acquireLedgerLock, recoverStaleLock, verifyLedgerIntegrity, LedgerLockedError } = await import('../scripts/ledger-lock.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-lock-token-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const ledger = join(dir, 'ledger.json');
+  writeFileSync(ledger, '{}');
+  const release = acquireLedgerLock(ledger, { handleSignals: false });
+  const token = release.ownerToken;
+  assert.ok(token);
+
+  // Overwriting the lock file with same PID but forged/missing token triggers LedgerIntegrityError
+  writeFileSync(`${ledger}.lock`, `${process.pid}\ntoken:forged-token\n`);
+  assert.throws(() => verifyLedgerIntegrity(ledger, { role: 'bulldozer', milestoneId: 'one' }), /owner token mismatch/);
+  release();
+
+  // Stale lock recovery requires matching owner token AND non-living PID
+  const staleRelease = acquireLedgerLock(ledger, { handleSignals: false, ownerToken: 'dead-owner-tok' });
+  const staleToken = staleRelease.ownerToken;
+  // Simulate dead process holding the lock by keeping the lock file and clearing in-process handler via manual write
+  staleRelease();
+  writeFileSync(`${ledger}.lock`, `999999999\ntoken:${staleToken}\n`);
+
+  assert.throws(
+    () => recoverStaleLock(ledger, { expectedToken: 'wrong-token', isProcessAlive: () => false }),
+    LedgerLockedError
+  );
+  assert.throws(
+    () => recoverStaleLock(ledger, { expectedToken: staleToken, isProcessAlive: () => true }),
+    LedgerLockedError
+  );
+  const recovered = recoverStaleLock(ledger, { expectedToken: staleToken, isProcessAlive: () => false });
+  assert.equal(recovered.recovered, true);
+  assert.equal(existsSync(`${ledger}.lock`), false);
 });

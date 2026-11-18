@@ -1,23 +1,22 @@
 # Native Gravity (NTG)
 
+[![XERJ Corpus Hub contributor](https://hub.xerj.org/contributors/sleegme/badge.svg)](https://hub.xerj.org/contributors/sleegme)
+
 [한국어](docs/ko/README.md)
 
 ## What is NTG?
 
-Native Gravity (NTG) is a plugin for Google Antigravity (`agy`) that helps complete multi-step coding tasks accurately from start to finish.
+Native Gravity 2.0 (NTG 2.0) is an Antigravity-native (`agy`) hybrid orchestration plugin centered on interactive **Steamroller** + **`LedgerKernel`** (`src/core/ledger-kernel.mjs`) and **`LightweightLog`** (`src/core/lightweight-log.mjs`).
 
-Once you enter a task and approve the plan, NTG breaks the work into steps and runs them. Because it separately verifies whether each step is properly finished and records your progress, you do not need to worry about how it works under the hood—just run it, and it carefully keeps track of the work in the background.
+Simply describe a task with `/ntg <task>`. Steamroller automatically classifies complexity across **Track L (`HALO_LIGHTWEIGHT`)**, **Track S (`ZEN_DURABLE`)**, and **Track M (`ZEN_DURABLE`)**, selects Direct/Lightweight specialists or **Bulldozer** (`Gemini 4 Hydrogen XHigh`), runs quality review (**Strix Halo**) and independent verification (**Zen**), and persists durable progress outside conversation memory.
 
-## The problem NTG solves
+## Key Capabilities
 
-When tasks grow larger, AI coding tools commonly run into the following problems:
-
-- **Tedious process management:** For multi-step work, you normally have to break down the instructions yourself, check the results, and resume interrupted work. With NTG, you just describe what to do and confirm the plan. NTG handles the execution and checks from there.
-- **Claiming "done" on unfinished work:** Even when the AI says it is finished, parts may be missing or differ from your requirements. NTG does not just take the coding AI's word for it—it runs a separate review. A step is marked complete only when its conditions are actually met, and stays incomplete if it fails to pass.
-- **Scope creep:** Each step clearly limits which files to edit, what work to do, and which areas to leave alone, keeping focus on one goal at a time.
-- **Task-specific context separation:** Separates context by role; in an observed initial Flash call sample, NTG Bulldozer used 9,883 input tokens compared to 14,302 for the AGY default agent (~31% fewer).
-- **Broken workflow when interrupted:** The overall plan, verified results, reasons for being blocked, and next steps are saved to a file. If you close a session and reopen it later, you can pick up right where you left off without giving instructions from scratch.
-- **Stale results kept after plan changes:** If the plan changes midway through, even steps that were already finished are re-verified from the beginning to make sure they match the new plan.
+- **Autonomous Track L / S / M routing:** Small, bounded low-risk edits run cleanly through **Track L (`HALO_LIGHTWEIGHT`)** with mandatory bound Strix Halo review; substantive single-milestone (**Track S**) and multi-milestone (**Track M**) tasks run with one plain-language approval and independent Zen verification.
+- **Independent summative verification:** Zen runs as a non-mutating summative gate (`NTG_ACTIVE_ROLE=zen`) separated cleanly from Strix Halo formative quality reviews (`ACCEPT | REVISE | ESCALATE`) and stale/invalidated diffs.
+- **Capability vs. authority separation:** Dynamic model routing (`ModelRouter` in `src/core/model-router.mjs`) optimizes model capability without ever granting extra shell, write, delegation, or verification permissions. Tasks unsuitable for `3.8 Flash Low` (`Jaguar`/`Puma`) reroute cleanly to `Bobcat` or `Bulldozer`.
+- **Universal safety guard & observation-first telemetry:** `hooks/shell-safety-guard.py` enforces mutation and privilege boundaries across both `run_command` and file tools, while `hooks/telemetry-guard.py` replaces hard per-turn count blocks with observation-first loop detection.
+- **Durable crash recovery & tactical/material replanning:** `LedgerKernel` tracks owner-token locks, re-validates stale verdicts whenever `plan_version` advances (both Tactical and Material replans), and preserves full 1.x `.ntg/ledger.json`, `plan.json`, and `plugin.json` compatibility (`src/core/v1-compat.mjs`).
 
 ## Installation
 
@@ -45,18 +44,18 @@ irm https://raw.githubusercontent.com/sleegme/native-gravity/v1.2.0/scripts/inst
 
 ## Usage
 
-For simple edits or short tasks, a standard `agy` chat is enough. For tasks that require multiple steps, enter the following in an `agy` session:
+Enter `/ntg` in an `agy` session:
 
 ```text
 /ntg <task>
 ```
 
-1. NTG analyzes your request and shows an easy-to-read work plan.
-2. Once you review and approve the plan, step-by-step execution and verification proceed in order.
-3. If you want to see the overall progress visually, you can open the progress graph with the command below:
+1. NTG classifies your task (Track L/S/M) and, for Track S/M, shows one concise plain-language plan for confirmation.
+2. Execution, Strix Halo review, recovery (Bulldozer + on-demand Instinct), and independent Zen verification proceed automatically.
+3. Visualize live milestone progress at any time:
 
 ```text
 /ntg graph
 ```
 
-See [docs/usage.md](docs/usage.md) for detailed usage instructions, and [docs/status.md](docs/status.md) for current working status and verification records.
+See [docs/usage.md](docs/usage.md) for detailed usage instructions, [docs/architecture.md](docs/architecture.md) for the Season 2 architecture overview, and [docs/status.md](docs/status.md) for current verification records.

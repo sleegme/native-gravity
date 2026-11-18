@@ -1,11 +1,9 @@
 // Regression guard for agent frontmatter that AGY silently drops.
 // An unquoted plain scalar containing ": " is invalid YAML; AGY then fails to
-// register the agent and invoke_subagent reports "not found or not allowed"
-// (observed for agents/excavator.md, AGY 1.3.3). Node has no YAML parser in
-// the standard library, so this checks the plain-scalar rule directly.
+// register the agent and invoke_subagent reports "not found or not allowed".
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 
 const AGENTS_DIR = new URL("../agents/", import.meta.url);
 const agentFiles = readdirSync(AGENTS_DIR).filter(name => name.endsWith(".md"));
@@ -16,15 +14,23 @@ function frontmatterLines(text) {
   return match[1].split("\n");
 }
 
-test("every agent file is found", () => {
-  assert.ok(agentFiles.length > 0);
-});
-
-test("Excavator remains shipped but is not registered as primary or subagent", () => {
-  const lines = frontmatterLines(readFileSync(new URL("excavator.md", AGENTS_DIR), "utf8"));
-  for (const key of ["mainAgent", "subagent"]) {
-    assert.equal(lines.find(line => line.startsWith(`${key}:`)), `${key}: false`);
-  }
+test("every active NTG 2.0 agent file is found and Excavator is completely retired", () => {
+  assert.equal(existsSync(new URL("excavator.md", AGENTS_DIR)), false, "agents/excavator.md must be deleted in NTG 2.0");
+  assert.deepEqual(
+    agentFiles.slice().sort(),
+    [
+      "bobcat.md",
+      "bulldozer.md",
+      "instinct.md",
+      "jaguar.md",
+      "navi.md",
+      "piledriver.md",
+      "puma.md",
+      "steamroller.md",
+      "strix-halo.md",
+      "zen.md",
+    ]
+  );
 });
 
 for (const file of agentFiles) {
@@ -49,3 +55,22 @@ for (const file of agentFiles) {
     assert.equal(name[1].trim(), file.replace(/\.md$/, ""));
   });
 }
+
+test("piledriver and strix-halo frontmatter tool boundaries match NTG 2.0 spec", () => {
+  const parseTools = (file) => {
+    const text = readFileSync(new URL(file, AGENTS_DIR), "utf8");
+    const fm = frontmatterLines(text).join("\n");
+    const m = fm.match(/^tools:\n((?:  - .+\n)+)/m);
+    assert.ok(m, `${file} must declare tools`);
+    return m[1].trim().split("\n").map(l => l.trim().slice(2));
+  };
+
+  const piledriverTools = parseTools("piledriver.md");
+  assert.ok(!piledriverTools.includes("invoke_subagent"), "piledriver must not have invoke_subagent");
+  assert.ok(!piledriverTools.includes("run_command"), "piledriver must not have run_command");
+
+  const strixTools = parseTools("strix-halo.md");
+  for (const required of ["view_file", "grep_search", "list_dir", "find_by_name"]) {
+    assert.ok(strixTools.includes(required), `strix-halo must include ${required}`);
+  }
+});

@@ -6,13 +6,14 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
-import { main, nativeZen, parseZenEnvelope, resolveInvocationTimeoutMs, ROLE_TIMEOUT_S, DEFAULT_RUNNER_TIMEOUT_S } from '../scripts/ntg-vnext.mjs';
-import { AuthoritativeLedger, computeUsageRollup } from '../scripts/ledger.mjs';
+import { breakStaleLedgerLock, main, nativeZen, parseZenEnvelope, resolveInvocationTimeoutMs, runCli, ROLE_TIMEOUT_S, DEFAULT_RUNNER_TIMEOUT_S } from '../scripts/ntg-vnext.mjs';
+import { AuthoritativeLedger, computeDeliveredTreeDigest, computeUsageRollup, StaleVerdictError } from '../scripts/ledger.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { symlinkSync } from 'node:fs';
 
 const CLI = new URL('../scripts/ntg-vnext.mjs', import.meta.url).pathname;
 import { parseResponseEnvelope, parseResponsePacket } from '../scripts/runner.mjs';
+import { LightweightLog, computeAcceptanceDigest } from '../src/core/lightweight-log.mjs';
 
 const observed = [{ classification: 'OBSERVED', criterion: 'content matches', result: 'inspected' }];
 const plan = (version = 'v1', ids = ['one', 'two']) => ({
@@ -22,6 +23,12 @@ const plan = (version = 'v1', ids = ['one', 'two']) => ({
     acceptance_criteria: ['content matches'], non_goals: [], dependencies: index ? [ids[index - 1]] : [],
   })),
 });
+const coordinatorTrackSPlan = () => {
+  const p = plan('v1', ['one']);
+  p.track = 'S';
+  p.milestones[0].objective = 'Cross-cutting delivery of one';
+  return p;
+};
 const envelope = value => parseResponseEnvelope(JSON.stringify({ status: 'SUCCESS', response: JSON.stringify(value) }));
 
 function harness(t, { zen = () => 'GO' } = {}) {
@@ -39,8 +46,34 @@ function harness(t, { zen = () => 'GO' } = {}) {
       timeouts.push(runnerOptions.timeout);
       escalations.push(runnerOptions.escalate === true);
       if (role === 'piledriver') return envelope({ recommendation: 'advisory only' });
+      if (role === 'strix-halo') {
+        const req = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+        return envelope({
+          caller: req.caller,
+          candidate_id_or_run_id: req.candidate_id_or_run_id,
+          reviewed_diff_digest: req.reviewed_diff_digest,
+          acceptance_criteria_digest: req.acceptance_criteria_digest,
+          plan_version: req.plan_version,
+          evidence_basis: req.evidence_basis,
+          verdict: 'ACCEPT',
+          findings: [],
+        });
+      }
       const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
       contracts.push(contract);
+      if (role === 'puma') {
+        return envelope({
+          status: 'READY',
+          changes_made: contract.bounded_scope?.length ? contract.bounded_scope : ['updated'],
+          verification_evidence: observed,
+        });
+      }
+      if (role === 'jaguar') {
+        return envelope({
+          status: 'READY',
+          facts: ['observed target'],
+        });
+      }
       if (role === 'instinct') {
         return envelope({
           current_framing: 'stalled framing',
@@ -76,7 +109,7 @@ test('run --all promotes milestones in dependency order and declares completion 
   await h.cli('init', '--plan', h.write('plan.json', plan()));
   const { code, out } = await h.cli('run', '--all');
   assert.equal(code, 0);
-  assert.deepEqual(h.calls, ['bulldozer', 'zen:one', 'bulldozer', 'zen:two']);
+  assert.deepEqual(h.calls, ['bulldozer', 'strix-halo', 'zen:one', 'bulldozer', 'strix-halo', 'zen:two']);
   assert.deepEqual(out.state.completed_milestones, ['one', 'two']);
   assert.ok(out.global_completion);
 });
@@ -104,7 +137,7 @@ for (const status of ['BLOCKED', 'NEEDS_DEEP']) {
       invokeSpecialist: () => assert.fail('must not dispatch a disabled repair worker'),
       invokeZen: () => assert.fail('blocked or escalated work must not reach Zen'),
     };
-    const result = await main(['run', '--ledger', h.ledger], deps);
+    const result = await main(['run', '--ledger', h.ledger, '--track', 'M'], deps);
     assert.equal(result.code, 2);
     assert.deepEqual(calls, ['bulldozer']);
     const state = AuthoritativeLedger.load(h.ledger).getState();
@@ -138,7 +171,7 @@ test('Zen NO-GO stops the run with exit 2 once the repair budget is spent; a rer
   const second = await h.cli('run');
   assert.equal(second.code, 0);
   assert.deepEqual(second.out.state.completed_milestones, ['one']);
-  assert.deepEqual(h.calls, ['bulldozer', 'zen:one', 'bulldozer', 'zen:one', 'bulldozer', 'zen:one']);
+  assert.deepEqual(h.calls, ['bobcat', 'zen:one', 'bulldozer', 'zen:one', 'bulldozer', 'zen:one']);
 });
 
 test('fresh-context resume continues from the ledger at the next eligible milestone', async t => {
@@ -330,8 +363,7 @@ if (argv[0] === 'models') {
 } else {
   writeFileSync(${JSON.stringify(join(dir, 'zen-args.json'))}, JSON.stringify(argv));
   writeFileSync(${JSON.stringify(join(dir, 'zen-boundary-env.json'))}, JSON.stringify({
-    marker: process.env.NTG_BULLDOZER_NO_SHELL,
-    binding: process.env.NTG_BULLDOZER_CONVERSATION_FILE,
+    activeRole: process.env.NTG_ACTIVE_ROLE,
   }));
   process.stdout.write(readFileSync(${JSON.stringify(join(dir, 'out.json'))}, 'utf8'));
 }
@@ -402,21 +434,20 @@ test('the configured timeout also bounds the default native Zen review', async t
   }
 });
 
-test('independent native Zen strips ambient Bulldozer shell context', t => {
-  const keys = ['NTG_BULLDOZER_NO_SHELL', 'NTG_BULLDOZER_CONVERSATION_FILE'];
+test('independent native Zen injects NTG_ACTIVE_ROLE=zen', t => {
+  const keys = ['NTG_ACTIVE_ROLE'];
   const saved = keys.map(key => process.env[key]);
   t.after(() => keys.forEach((key, index) => {
     if (saved[index] === undefined) delete process.env[key];
     else process.env[key] = saved[index];
   }));
-  process.env.NTG_BULLDOZER_NO_SHELL = '1';
-  process.env.NTG_BULLDOZER_CONVERSATION_FILE = 'parent-binding';
+  delete process.env.NTG_ACTIVE_ROLE;
   const agy = fakeZen(t, { status: 'SUCCESS', response: zenGo });
 
   const result = nativeZen({}, { agyPath: agy });
 
   assert.equal(result.verdict, 'GO');
-  assert.deepEqual(JSON.parse(readFileSync(join(dirname(agy), 'zen-boundary-env.json'), 'utf8')), {});
+  assert.deepEqual(JSON.parse(readFileSync(join(dirname(agy), 'zen-boundary-env.json'), 'utf8')), { activeRole: 'zen' });
 });
 
 test('Zen extracts one verdict from narration and fences (#180)', () => {
@@ -679,8 +710,8 @@ test('native Zen is model-pinned by policy and never by --agent', t => {
   // the runner roles pass through but native invocation must not.
   const prompt = args[args.indexOf('-p') + 1];
   assert.equal(prompt.startsWith('---'), false);
-  assert.match(prompt, /You are the independent, non-mutating verification gate\./);
-  assert.match(prompt, /Independently verify the candidate against its milestone contract\./);
+  assert.match(prompt, /You are the independent, non-mutating summative verification gate/);
+  assert.match(prompt, /NTG_ACTIVE_ROLE=zen/);
   assert.match(prompt, /criterion by its exact text/);
   assert.match(prompt, /"milestone_id":"one"/);
 });
@@ -751,7 +782,18 @@ test('usage telemetry: records per-role entries in ledger and surfaces rollup in
       if (role === 'bulldozer') {
         if (runnerOptions.invokeSpecialist) {
           await runnerOptions.invokeSpecialist('bobcat', { task: 'implement' });
-          await runnerOptions.invokeSpecialist('strix-halo', { task: 'review' }, { caller: 'bobcat' });
+          await runnerOptions.invokeSpecialist(
+            'strix-halo',
+            {
+              task: 'review',
+              candidate_id_or_run_id: 'sha256:one',
+              reviewed_diff_digest: computeDeliveredTreeDigest(['one.txt'], { cwd: process.cwd() }),
+              acceptance_criteria_digest: computeAcceptanceDigest(['content matches']),
+              plan_version: 'v1',
+              evidence_basis: observed,
+            },
+            { caller: 'bobcat' }
+          );
         }
         return {
           ok: true,
@@ -790,7 +832,15 @@ test('usage telemetry: records per-role entries in ledger and surfaces rollup in
           slug: 'gemini-3.8-flash-high',
           duration_ms: 80,
           usage: { input_tokens: 30, output_tokens: 5, total_tokens: 35 },
-          response: JSON.stringify({ verdict: 'ACCEPT' }),
+          response: JSON.stringify({
+            caller: options?.caller ?? 'bobcat',
+            candidate_id_or_run_id: slice?.candidate_id_or_run_id,
+            reviewed_diff_digest: slice?.reviewed_diff_digest,
+            acceptance_criteria_digest: slice?.acceptance_criteria_digest,
+            plan_version: slice?.plan_version,
+            evidence_basis: slice?.evidence_basis,
+            verdict: 'ACCEPT',
+          }),
         };
       }
       return { ok: true, response: '{}' };
@@ -809,7 +859,7 @@ test('usage telemetry: records per-role entries in ledger and surfaces rollup in
     },
   };
 
-  const runRes = await main(['run', '--ledger', h.ledger], customDeps);
+  const runRes = await main(['run', '--ledger', h.ledger, '--track', 'M'], customDeps);
   assert.equal(runRes.code, 0);
 
   const disk = JSON.parse(readFileSync(h.ledger, 'utf8'));
@@ -856,7 +906,7 @@ test('usage telemetry: records per-role entries in ledger and surfaces rollup in
 
 test('usage telemetry: native specialist delegations are recorded through the real runner invocation', async t => {
   const h = harness(t);
-  await h.cli('init', '--plan', h.write('plan.json', plan('v1', ['one'])));
+  await h.cli('init', '--plan', h.write('plan.json', coordinatorTrackSPlan()));
   const dir = mkdtempSync(join(tmpdir(), 'ntg-native-agy-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const agy = join(dir, 'agy.mjs');
@@ -885,7 +935,10 @@ console.log(JSON.stringify({
     handleSignals: false,
     runnerOptions: {
       agyPath: agy,
-      installedModels: [{ slug: 'gemini-3.8-flash-high', description: 'Gemini 3.8 Flash (High)' }],
+      installedModels: [
+        { slug: 'gemini-4-hydrogen-xhigh', description: 'Gemini 4 Hydrogen (XHigh)' },
+        { slug: 'gemini-3.8-flash-high', description: 'Gemini 3.8 Flash (High)' },
+      ],
     },
     invokeSpecialist: async () => {
       specialistCallbacks += 1;
@@ -943,7 +996,7 @@ console.log(JSON.stringify({
 
 test('usage telemetry: fabricated delegation duration and usage never become measured accounting', async t => {
   const h = harness(t);
-  await h.cli('init', '--plan', h.write('plan.json', plan('v1', ['one'])));
+  await h.cli('init', '--plan', h.write('plan.json', coordinatorTrackSPlan()));
   const dir = mkdtempSync(join(tmpdir(), 'ntg-native-agy-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const agy = join(dir, 'agy.mjs');
@@ -977,7 +1030,10 @@ console.log(JSON.stringify({
     handleSignals: false,
     runnerOptions: {
       agyPath: agy,
-      installedModels: [{ slug: 'gemini-3.8-flash-high', description: 'Gemini 3.8 Flash (High)' }],
+      installedModels: [
+        { slug: 'gemini-4-hydrogen-xhigh', description: 'Gemini 4 Hydrogen (XHigh)' },
+        { slug: 'gemini-3.8-flash-high', description: 'Gemini 3.8 Flash (High)' },
+      ],
     },
     invokeSpecialist: async () => {
       assert.fail('a model declaration must not trigger a specialist callback');
@@ -1021,7 +1077,7 @@ console.log(JSON.stringify({
 
 test('usage telemetry: response-body usage never replaces absent transport usage', async t => {
   const h = harness(t);
-  await h.cli('init', '--plan', h.write('plan.json', plan('v1', ['one'])));
+  await h.cli('init', '--plan', h.write('plan.json', coordinatorTrackSPlan()));
 
   const deps = {
     handleSignals: false,
@@ -1097,7 +1153,7 @@ test('usage telemetry: initial plan cannot manufacture measured usage (G3-1)', a
 
 test('usage telemetry: malformed persisted usage cannot make status throw (G3-2)', async t => {
   const h = harness(t);
-  await h.cli('init', '--plan', h.write('plan.json', plan('v1', ['one'])));
+  await h.cli('init', '--plan', h.write('plan.json', coordinatorTrackSPlan()));
 
   const deps = {
     handleSignals: false,
@@ -1206,7 +1262,7 @@ test('run applies per-role timeout defaults without --timeout; explicit override
     const dir = mkdtempSync(join(tmpdir(), 'ntg-vnext-role-timeout-'));
     t.after(() => rmSync(dir, { recursive: true, force: true }));
     const ledger = join(dir, 'ledger.json');
-    writeFileSync(join(dir, 'plan.json'), JSON.stringify(plan('v1', ['one'])));
+    writeFileSync(join(dir, 'plan.json'), JSON.stringify(coordinatorTrackSPlan()));
     await main(['init', '--ledger', ledger, '--plan', join(dir, 'plan.json')], deps);
     return ledger;
   };
@@ -1348,4 +1404,233 @@ test('init accepts a scoped probe and stores coverage on the milestone', async t
   const stored = result.out.state.milestones[0];
   assert.equal(stored.coverage[0].id, 'SAVE_SITES');
   assert.deepEqual(stored.verify, ['node --check scripts/ledger.mjs']);
+});
+
+
+test('breakStaleLedgerLock parses two-line pid+token lock format from lock-manager (#201 A2)', t => {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-vnext-token-lock-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const ledger = join(dir, 'ledger.json');
+  const child = spawnSync(process.execPath, ['-e', 'process.exit(0)'], { encoding: 'utf8' });
+  const exitedChild = spawnSync(process.execPath, ['-e', 'console.log(process.pid)'], { encoding: 'utf8' });
+  const deadPid = Number(exitedChild.stdout.trim());
+  assert.ok(Number.isInteger(deadPid) && deadPid > 0 && child.status === 0);
+  writeFileSync(`${ledger}.lock`, `${deadPid}\ntoken:11111111-2222-3333-4444-555555555555\n`);
+  const recovery = breakStaleLedgerLock(ledger);
+  assert.equal(recovery.dead_owner_pid, deadPid);
+  assert.equal(existsSync(`${ledger}.lock`), false);
+});
+
+test('tactical-replan bumps plan_version and marks prior Zen GO verdicts STALE', async t => {
+  const h = harness(t);
+  await h.cli('init', '--plan', h.write('plan.json', plan('v1', ['one'])));
+  const run1 = await h.cli('run');
+  assert.equal(run1.code, 0);
+  assert.equal(run1.out.state.verification.one.verdict, 'GO');
+  assert.deepEqual(run1.out.state.completed_milestones, ['one']);
+
+  const replanRes = await h.cli('tactical-replan', '--plan', h.write('tactical-plan.json', plan('v2', ['one', 'two'])));
+  assert.equal(replanRes.code, 0);
+  assert.equal(replanRes.out.state.plan_version, 'v2');
+  assert.deepEqual(replanRes.out.state.completed_milestones, []);
+  const disk = AuthoritativeLedger.load(h.ledger).getState();
+  assert.equal(disk.verification.one.is_stale, true);
+  assert.equal(disk.verification.one.plan_version, 'v1');
+  assert.equal(disk._verification_history.some(v => v.is_stale === true && v.plan_version === 'v1'), true);
+});
+
+test('run --track L executes via SteamrollerController and auto-selects Puma/Jaguar without preferredRole (#235)', async t => {
+  const h = harness(t);
+  const { code, out } = await h.cli('run', '--track', 'L', '--task', 'Fix README typo');
+  assert.equal(code, 0);
+  assert.equal(out.track, 'L');
+  assert.equal(out.assurance_badge, 'HALO_LIGHTWEIGHT');
+  assert.equal(out.results[0].worker_role, 'puma');
+  assert.ok(h.calls.includes('puma'));
+  assert.ok(h.calls.includes('strix-halo'));
+  assert.equal(h.calls.some(c => c.startsWith('zen:')), false);
+  assert.equal(existsSync(h.ledger), false);
+  const log = new LightweightLog(join(dirname(h.ledger), 'lightweight-runs.jsonl'));
+  const entries = log.readAll();
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].assurance_badge, 'HALO_LIGHTWEIGHT');
+  assert.equal(entries[0].worker_role, 'puma');
+
+  // Read-only locate/inspect task routes automatically to Jaguar
+  const jagRes = await h.cli('run', '--track', 'L', '--task', 'Locate all references in docs/architecture.md');
+  assert.equal(jagRes.code, 0);
+  assert.equal(jagRes.out.results[0].worker_role, 'jaguar');
+  assert.ok(h.calls.includes('jaguar'));
+});
+
+test('ntg-vnext runs directly on SteamrollerController without depending on MinimalSpine (#234)', () => {
+  const vnextSource = readFileSync(CLI, 'utf8');
+  assert.doesNotMatch(vnextSource, /from ['"]\.\/spine\.mjs['"]/);
+  assert.doesNotMatch(vnextSource, /\bnew MinimalSpine\b/);
+  assert.match(vnextSource, /from ['"]\.\.\/src\/runtime\/steamroller-controller\.mjs['"]/);
+  assert.match(vnextSource, /\bnew SteamrollerController\b/);
+
+  const spineSource = readFileSync(new URL('../scripts/spine.mjs', import.meta.url).pathname, 'utf8');
+  assert.ok(spineSource.split('\n').length < 60, 'scripts/spine.mjs should be a thin compatibility shim');
+  assert.match(spineSource, /steamroller-controller\.mjs/);
+});
+
+test('run --track L --escalate verifies with Zen and persists ZEN_DURABLE to lightweight log and ledger', async t => {
+  const h = harness(t);
+  const { code, out } = await h.cli('run', '--track', 'L', '--task', 'Sensitive security fix', '--escalate');
+  assert.equal(code, 0);
+  assert.equal(out.track, 'L');
+  assert.equal(out.assurance_badge, 'ZEN_DURABLE');
+  assert.ok(h.calls.includes('strix-halo'));
+  const zenCall = h.calls.find(c => c.startsWith('zen:'));
+  assert.ok(zenCall);
+  const runId = zenCall.slice('zen:'.length);
+  const log = new LightweightLog(join(dirname(h.ledger), 'lightweight-runs.jsonl'));
+  const entries = log.readAll();
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].assurance_badge, 'ZEN_DURABLE');
+  assert.equal(entries[0].escalated_to_ledger?.zen_verdict, 'GO');
+  assert.equal(existsSync(h.ledger), true);
+  const disk = AuthoritativeLedger.load(h.ledger).getState();
+  assert.ok(disk.completed_milestones.includes(runId));
+  assert.equal(disk.verification[runId]?.verdict, 'GO');
+});
+
+test('run --track S sets Track S policy, omits strix-halo by default, and requires Zen GO', async t => {
+  const h = harness(t);
+  await h.cli('init', '--plan', h.write('plan.json', plan('v1', ['one'])));
+  const { code, out } = await h.cli('run', '--track', 'S');
+  assert.equal(code, 0);
+  assert.equal(out.track, 'S');
+  assert.equal(out.assurance_badge, 'ZEN_DURABLE');
+  assert.equal(out.halo_status, 'OMITTED');
+  assert.deepEqual(h.calls, ['bobcat', 'zen:one']);
+  assert.deepEqual(out.state.completed_milestones, ['one']);
+});
+
+test('run --track M enforces mandatory strix-halo before Zen and rejects on Halo REVISE', async t => {
+  const h = harness(t);
+  await h.cli('init', '--plan', h.write('plan.json', plan('v1', ['one'])));
+  const { code, out } = await h.cli('run', '--track', 'M');
+  assert.equal(code, 0);
+  assert.equal(out.track, 'M');
+  assert.equal(out.assurance_badge, 'ZEN_DURABLE');
+  assert.deepEqual(h.calls, ['bulldozer', 'strix-halo', 'zen:one']);
+
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-vnext-revise-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const ledger = join(dir, 'ledger.json');
+  const planPath = join(dir, 'plan.json');
+  writeFileSync(planPath, JSON.stringify(plan('v1', ['one'])));
+  let zenCalls = 0;
+  const reviseDeps = {
+    handleSignals: false,
+    invokeRole: async (role, packet) => {
+      if (role === 'strix-halo') {
+        const req = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+        return envelope({
+          caller: req.caller,
+          candidate_id_or_run_id: req.candidate_id_or_run_id,
+          reviewed_diff_digest: req.reviewed_diff_digest,
+          acceptance_criteria_digest: req.acceptance_criteria_digest,
+          plan_version: req.plan_version,
+          evidence_basis: req.evidence_basis,
+          verdict: 'REVISE',
+          findings: ['defect'],
+        });
+      }
+      const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+      return envelope({
+        milestone_id: contract.milestone_id, plan_version: contract.plan_version, status: 'DONE',
+        changes_made: contract.bounded_scope, verification_evidence: observed, unresolved_unknowns: [],
+        scope_deviations: [], candidate_artifact_ref: `sha256:${contract.milestone_id}`,
+      });
+    },
+    invokeZen: async () => {
+      zenCalls += 1;
+      throw new Error('Zen should not be called when Halo REVISE rejects');
+    },
+  };
+  await main(['init', '--ledger', ledger, '--plan', planPath], reviseDeps);
+  await assert.rejects(
+    () => main(['run', '--ledger', ledger, '--track', 'M'], reviseDeps),
+    /REVISE|halo|defect/i,
+  );
+  assert.equal(zenCalls, 0);
+});
+
+test('PR #231 Finding 2 CLI: review refuses to promote after bounded file mutates while Zen pending', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-vnext-stale-review-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const ledger = join(dir, 'ledger.json');
+  const scopedFile = join(dir, 'one.txt');
+  writeFileSync(scopedFile, 'v1\n');
+  const planPath = join(dir, 'plan.json');
+  writeFileSync(planPath, JSON.stringify(plan('v1', ['one'])));
+
+  const deps = {
+    handleSignals: false,
+    runnerOptions: { coverageCwd: dir },
+    invokeRole: async (_role, packet) => {
+      const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+      writeFileSync(scopedFile, 'delivered v1\n');
+      return envelope({
+        milestone_id: contract.milestone_id,
+        plan_version: contract.plan_version,
+        status: 'DONE',
+        changes_made: contract.bounded_scope,
+        verification_evidence: observed,
+        unresolved_unknowns: [],
+        scope_deviations: [],
+        candidate_artifact_ref: computeDeliveredTreeDigest(['one.txt'], { cwd: dir }),
+      });
+    },
+  };
+
+  await main(['init', '--ledger', ledger, '--plan', planPath], deps);
+  await assert.rejects(
+    main(['run', '--ledger', ledger], {
+      ...deps,
+      invokeZen: async () => {
+        throw Object.assign(
+          new Error('zen invocation exited 3: Individual quota reached'),
+          { code: 'ZEN_REVIEW_PENDING' }
+        );
+      },
+    }),
+    /Individual quota reached/
+  );
+
+  // Mutate bounded file after candidate persistence while Zen review is pending.
+  writeFileSync(scopedFile, 'tampered after candidate persisted\n');
+
+  let zenCalledOnReview = 0;
+  const reviewCli = await runCli(['review', '--ledger', ledger], {
+    env: { NTG_NO_REPORT_PROMPT: '1' },
+    stdout: { write: () => {} },
+    stderr: { write: () => {} },
+    deps: {
+      ...deps,
+      invokeZen: async (req) => {
+        zenCalledOnReview += 1;
+        return {
+          milestone_id: req.milestone_id,
+          plan_version: req.plan_version,
+          result_ref: req.result_ref,
+          verdict: 'GO',
+          verification_evidence: observed,
+        };
+      },
+    },
+  });
+
+  assert.equal(reviewCli.code, 1);
+  assert.ok(reviewCli.error instanceof StaleVerdictError);
+  assert.match(reviewCli.error.message, /STALE/);
+  assert.equal(zenCalledOnReview, 0);
+
+  const after = AuthoritativeLedger.load(ledger).getState();
+  assert.deepEqual(after.completed_milestones, []);
+  assert.equal(after.current_milestone, null);
+  assert.equal(after.evidence.one.candidates[0].is_stale, true);
 });

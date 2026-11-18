@@ -1,23 +1,22 @@
 # Native Gravity (NTG)
 
+[![XERJ Corpus Hub contributor](https://hub.xerj.org/contributors/sleegme/badge.svg)](https://hub.xerj.org/contributors/sleegme)
+
 [English](../../README.md)
 
 ## NTG란?
 
-Native Gravity(NTG)는 Google Antigravity(`agy`)에서 여러 단계가 필요한 코딩 작업을 끝까지 정확하게 마무리하도록 돕는 플러그인입니다.
+Native Gravity 2.0(NTG 2.0)은 Google Antigravity(`agy`) 위에서 동작하는 하이브리드 오케스트레이션 플러그인으로, 인터랙티브 **Steamroller**와 **`LedgerKernel`** (`src/core/ledger-kernel.mjs`), **`LightweightLog`** (`src/core/lightweight-log.mjs`)를 중심으로 동작합니다.
 
-할 일을 입력하고 계획을 승인하면, NTG가 작업을 단계별로 나누어 실행합니다. 각 단계가 제대로 끝났는지 별도로 검증하고 진행 상황도 기록하므로, 복잡한 내부 동작을 신경 쓸 필요 없이 실행만 하면 뒤에서 꼼꼼하게 작업을 챙겨 줍니다.
+`/ntg <할 일>`만 입력하면 Steamroller가 작업 규모와 위험도를 판단해 **Track L (`HALO_LIGHTWEIGHT`)**, **Track S (`ZEN_DURABLE`)**, **Track M (`ZEN_DURABLE`)** 중 적절한 경로를 선택하고, 직접 실행/경량 워커(`Jaguar`/`Puma`/`Bobcat`) 또는 **Bulldozer** (`Gemini 4 Hydrogen XHigh`) 위임, **Strix Halo** 품질 리뷰, **Zen** 독립 검수, 세션 밖 진행 상태 저장을 자동으로 처리합니다.
 
-## NTG가 해결해주는 문제
+## 주요 기능
 
-AI 코딩 도구는 작업 규모가 커지면 흔히 다음과 같은 문제가 생깁니다.
-
-- **번거로운 과정 관리:** 여러 단계 작업을 할 때는 사용자가 직접 일을 나누어 지시하고, 결과를 확인하고, 끊긴 작업을 이어가야 합니다. NTG를 쓰면 할 일을 알려주고 계획만 확인하면 됩니다. 이후 실행과 점검은 NTG가 맡습니다.
-- **"다 했다"고 하지만 덜 끝난 결과:** AI가 끝났다고 답해도 빠진 내용이 있거나 요구사항과 다를 때가 있습니다. NTG는 코드를 작성한 AI의 말만 믿지 않고 별도 검토를 거칩니다. 조건이 실제로 충족될 때만 완료로 인정하며, 통과하지 못하면 미완료로 남깁니다.
-- **멋대로 넓어지는 작업 범위:** 단계마다 수정할 파일, 해야 할 일, 건드리지 말아야 할 영역을 명확히 제한해 한 번에 한 가지 목표에만 집중하게 합니다.
-- **작업별 컨텍스트 분리:** 역할별로 컨텍스트를 분리하며, 관찰된 초기 Flash 호출 샘플에서 입력 토큰이 AGY 기본 에이전트 14,302개 대비 NTG Bulldozer 9,883개(약 31% 감소)로 측정되었습니다.
-- **중단 시 끊기는 작업 흐름:** 전체 계획, 검증된 결과, 막힌 이유, 다음 할 일을 파일로 저장합니다. 세션을 닫았다가 다시 열어도 처음부터 다시 지시할 필요 없이 멈춘 지점부터 이어갈 수 있습니다.
-- **계획 변경 후에도 그대로 쓰이는 이전 결과:** 도중에 계획이 바뀌면, 이미 끝낸 단계라도 새 계획에 맞는지 처음부터 다시 검증합니다.
+- **자율 Track L / S / M 라우팅:** 단순하고 범위가 작은 변경은 경량 경로 **Track L (`HALO_LIGHTWEIGHT`)**에서 Strix Halo 리뷰를 거쳐 빠르게 처리하고, 실질적 단일 마일스톤(Track S)과 복합 마일스톤(Track M)은 한 번의 평어 승인 후 독립 Zen 검수를 거쳐 안전하게 완료합니다.
+- **독립 완료 검수와 품질 리뷰의 분리:** `NTG_ACTIVE_ROLE=zen`으로 비수정 경계가 강제되는 독립 최종 관문(Zen `GO | NO-GO`)과 다중 호출자 품질 리뷰(Strix Halo `ACCEPT | REVISE | ESCALATE`)를 엄격히 분리하며, diff나 기준이 바뀌면 기존 리뷰를 `STALE`로 무효화합니다.
+- **역량(Model)과 권한(Authority)의 분리:** `ModelRouter` (`src/core/model-router.mjs`)의 동적 모델 전환은 모델 지능만 조정할 뿐 역할의 파일 수정·셸·위임·검수 권한을 절대 확장하지 않습니다. `3.8 Flash Low` 한계를 넘는 작업은 `Bobcat` 또는 `Bulldozer`로 재라우팅됩니다.
+- **통합 변경 안전 가드와 관측 우선 텔레메트리:** `hooks/shell-safety-guard.py`가 `run_command`와 파일 수정 도구를 아울러 보호 경로 및 권한 상승을 차단하며, `hooks/telemetry-guard.py`는 단순 횟수 제한 대신 비진행 동일 루프만 최소 개입합니다.
+- **내구성 있는 크래시 복구 및 1.x 호환성:** 소유자 토큰 기반 락, Tactical/Material replan 시 `plan_version` 증가 및 기존 판정 무효화, 1.x `.ntg/ledger.json`·`plan.json`·`plugin.json` 양방향 호환(`src/core/v1-compat.mjs`)을 제공합니다.
 
 ## 설치 방법
 
@@ -45,18 +44,18 @@ irm https://raw.githubusercontent.com/sleegme/native-gravity/v1.2.0/scripts/inst
 
 ## 사용 방법
 
-간단한 수정이나 짧은 작업은 기본 `agy` 대화만으로도 충분합니다. 여러 단계가 필요한 작업은 `agy` 세션에서 다음과 같이 입력합니다.
+`agy` 세션에서 다음과 같이 입력합니다:
 
 ```text
 /ntg <할 일>
 ```
 
-1. NTG가 요청 내용을 분석해 읽기 쉬운 작업 계획을 보여줍니다.
-2. 계획을 확인하고 승인하면 단계별 작업과 검증이 차례대로 진행됩니다.
-3. 전체 진행 흐름을 시각적으로 보고 싶다면 아래 명령어로 진행 그래프를 열 수 있습니다.
+1. NTG가 작업을 Track L/S/M으로 분류하고, Track S/M일 경우 읽기 쉬운 1회 평어 요약으로 진행 여부를 확인합니다.
+2. 확인 후 실행, Strix Halo 리뷰, 실패 시 복구(Bulldozer + 온디맨드 Instinct), 독립 Zen 검수가 순서대로 진행됩니다.
+3. 전체 진행 흐름을 시각적으로 보고 싶다면 아래 명령어를 사용하세요:
 
 ```text
 /ntg graph
 ```
 
-자세한 사용법은 [docs/usage.md](../usage.md), 현재 동작 상태와 검증 기록은 [docs/status.md](../status.md)에서 확인할 수 있습니다.
+자세한 사용법은 [docs/usage.md](../usage.md), NTG 2.0 아키텍처 개요는 [docs/architecture.md](../architecture.md), 현재 동작 상태와 검증 기록은 [docs/status.md](../status.md)에서 확인할 수 있습니다.

@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
+import { computeDeliveredTreeDigest } from '../src/core/ledger-kernel.mjs';
+import { computeAcceptanceDigest } from '../src/core/lightweight-log.mjs';
 import { main } from '../scripts/ntg-vnext.mjs';
 import { parseResponseEnvelope } from '../scripts/runner.mjs';
 
@@ -13,9 +15,9 @@ const CLI = new URL('../scripts/ntg-vnext.mjs', import.meta.url).pathname;
 
 const observed = [{ classification: 'OBSERVED', criterion: 'content matches', result: 'inspected' }];
 const plan = (ids = ['one']) => ({
-  goal: 'Deliver bounded artifacts', constraints: [], decision_invariants: [], plan_version: 'v1',
+  goal: 'Deliver bounded artifacts', constraints: [], decision_invariants: [], plan_version: 'v1', track: 'S',
   milestones: ids.map((id, index) => ({
-    id, title: id, objective: `Deliver ${id}`, bounded_scope: [`${id}.txt`],
+    id, title: id, objective: `Cross-cutting delivery of ${id}`, bounded_scope: [`${id}.txt`],
     acceptance_criteria: ['content matches'], non_goals: [], dependencies: index ? [ids[index - 1]] : [],
   })),
 });
@@ -107,7 +109,18 @@ test('specialist adapter invocations emit events; declared native delegations em
       if (role !== 'bulldozer') return { ok: true, response: '{}' };
       if (runnerOptions.invokeSpecialist) {
         await runnerOptions.invokeSpecialist('bobcat', { task: 'implement' });
-        await runnerOptions.invokeSpecialist('strix-halo', { task: 'review' }, { caller: 'bobcat' });
+        await runnerOptions.invokeSpecialist(
+          'strix-halo',
+          {
+            task: 'review',
+            candidate_id_or_run_id: 'sha256:one',
+            reviewed_diff_digest: computeDeliveredTreeDigest(['one.txt'], { cwd: process.cwd() }),
+            acceptance_criteria_digest: computeAcceptanceDigest(['content matches']),
+            plan_version: 'v1',
+            evidence_basis: observed,
+          },
+          { caller: 'bobcat' }
+        );
       }
       return {
         ok: true,
@@ -121,11 +134,24 @@ test('specialist adapter invocations emit events; declared native delegations em
         }),
       };
     },
-    invokeSpecialist: async (role) => {
+    invokeSpecialist: async (role, slice) => {
       if (role === 'bobcat') {
         return { ok: true, slug: 'gemini-3.8-flash-high', duration_ms: 150, response: JSON.stringify({ status: 'READY' }) };
       }
-      return { ok: true, slug: 'gemini-3.8-flash-high', duration_ms: 80, response: JSON.stringify({ verdict: 'ACCEPT' }) };
+      return {
+        ok: true,
+        slug: 'gemini-3.8-flash-high',
+        duration_ms: 80,
+        response: JSON.stringify({
+          caller: 'bobcat',
+          candidate_id_or_run_id: slice?.candidate_id_or_run_id,
+          reviewed_diff_digest: slice?.reviewed_diff_digest,
+          acceptance_criteria_digest: slice?.acceptance_criteria_digest,
+          plan_version: slice?.plan_version,
+          evidence_basis: slice?.evidence_basis,
+          verdict: 'ACCEPT',
+        }),
+      };
     },
   } });
   await h.cli('init', '--plan', h.write('plan.json', plan()));

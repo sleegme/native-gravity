@@ -1,116 +1,87 @@
 ---
 name: ntg
-description: Orchestrates multi-step development tasks with Native Gravity vNext. Drafts and confirms plans for new tasks, checks status and resumes existing progress, or visualizes the milestone dependency graph via the packaged runner.
+description: Orchestrates single- and multi-step development tasks with Native Gravity 2.0 (NTG 2.0). Routes across Track L (HALO_LIGHTWEIGHT), Track S, and Track M (ZEN_DURABLE) via interactive Steamroller + LedgerKernel, checks status/resumes progress, or visualizes the milestone dependency graph.
 ---
 
 # Native Gravity Task Entry Point (`/ntg`)
 
-Use this skill when the user invokes `/ntg <task>`, `/ntg graph`, `/ntg version`, or asks Native Gravity to execute a multi-step task, view the progress graph, or check the installed version.
+Use this skill when the user invokes `/ntg <task>`, `/ntg graph`, `/ntg version`, or asks Native Gravity to execute a task, view the progress graph, or check the installed version.
 
 ## Responsibilities & Guardrails
 
-- **Entry point only:** This skill coordinates user interaction in the conversation. It does not impersonate Steamroller or write or modify the authoritative ledger (`.ntg/ledger.json`) directly.
-- **Plan confirmation before execution:** Always draft and show the complete plan to the user and obtain explicit confirmation before initializing or running any implementation.
-- **Preserve existing progress:** When a ledger already exists, do not overwrite or re-initialize it. Display current status and resume execution.
-- **Packaged resolution:** Execute scripts via the packaged helper (`scripts/ntg-command.mjs`) resolved relative to this plugin. Do not require `export NTG` or a checkout path.
-- **Preserve role settings:** Keep `mainAgent: false` for all plugin roles.
-- **Real runner adherence:** Execution and verification are handled by the real runner (`ntg-vnext.mjs`) and independent verifier. Never promise a different model or bypass the runner.
+- **Simple user entry point (#200):** Handle technical setup (plan initialization, Track L/S/M routing, runner invocation) seamlessly behind plain-language summaries. Never expose raw internal orchestration jargon (`result_ref`, internal ledger schemas, JSON scaffolding) or require `$NTG` environment variables unless explicitly requested.
+- **Track L / S / M routing:**
+  - **Track L (`HALO_LIGHTWEIGHT`):** Small, bounded low-risk changes. Execute cleanly through `Direct` workers (`Jaguar`/`Puma`/`Bobcat`), verify with fresh bound Strix Halo (`ACCEPT`), and record lightweight history without forcing heavy ceremony. Escalate to Zen only when Steamroller judges high risk.
+  - **Track S / M (`ZEN_DURABLE`):** Substantive single-milestone (Track S) or multi-milestone / cross-cutting work (Track M). Present one concise plain-language plan and obtain **one initial confirmation** before running. Material Replans and confirmation gates require explicit user re-approval.
+- **Preserve existing progress:** When `.ntg/ledger.json` already exists, never overwrite it. Summarize progress and resume safely.
+- **Packaged resolution:** Execute scripts via the packaged helper (`scripts/ntg-command.mjs`) resolved relative to this plugin.
+- **Authority & role boundaries:** Preserve `mainAgent: false` on subagent definitions, keep dynamic model capability routing decoupled from role permissions, and let the real runner / LedgerKernel / independent Zen verifier govern durable verification (`GO` / `NO-GO`).
 
 ## Progress Graph Routing (`/ntg graph`)
 
 When invoked with `/ntg graph` (or when the user asks to view or visualize the progress graph or milestone dependency DAG):
 - **Do NOT** treat `graph` as a task or draft a plan.
-- Instead, run the packaged helper's `graph` subcommand:
+- Run the packaged helper's `graph` subcommand:
   ```bash
   node "<helper-path>" graph --pane
   ```
-  (Where `<helper-path>` is resolved to `scripts/ntg-command.mjs` as described in [Resolving the Packaged Helper](#resolving-the-packaged-helper)).
-- `/ntg graph` opens a live DAG (`ntg-dag --watch --ledger <ledger>`) beside the user:
-  - **Inside herdr:** splits a pane running it.
-  - **Inside tmux:** splits a pane horizontally (`tmux split-window -h`).
-  - **In WSL / Windows / macOS / Linux:** opens a new terminal window (Windows Terminal / WSL `wt.exe`, macOS Terminal, Linux terminal emulator).
-  - **Fallback:** prints the graph once with a hint for live viewing.
-- `--pane` (always pass it from AGY) opens the pane even though `run_command` output is not a terminal.
-- In non-TTY environments without `--pane`, or when `--once` is supplied, it prints the graph once without opening a window/pane.
 - Forward optional flags if specified by the user:
   - `--ledger <path>` to target a custom ledger path (defaults to `.ntg/ledger.json`).
-  - `--once` to print the graph once without opening a window/pane.
+  - `--once` to print the graph once without opening a side pane or terminal.
 
 ## Version Routing (`/ntg version`)
 
 When invoked with `/ntg version` (or when the user asks to view or check the installed Native Gravity version):
 - **Do NOT** treat `version` as a task or draft a plan.
-- Instead, run the packaged helper's `version` subcommand:
+- Run:
   ```bash
   node "<helper-path>" version
   ```
-  (Where `<helper-path>` is resolved to `scripts/ntg-command.mjs` as described in [Resolving the Packaged Helper](#resolving-the-packaged-helper)).
 
 ## Step 1: Check Project State
 
-Check if `.ntg/ledger.json` already exists in the workspace.
+Check if `.ntg/ledger.json` already exists in the workspace (including clean/empty project directories without `AGENTS.md`, git history, or `$NTG`).
 
 ### Case A: Ledger Exists (Resumption)
 
 1. **Inspect status:**
-   Run the packaged helper `status` command:
    ```bash
    node "<helper-path>" status
    ```
-   (Where `<helper-path>` is resolved to `scripts/ntg-command.mjs` in this plugin's installation).
-2. **Report status & Resume:**
-   Summarize the current progress (completed milestones, active milestone, blockers) to the user.
-   Resume execution using the real runner:
+2. **Summarize & Resume:**
+   Summarize completed steps, active work, and any blockers in plain language, then resume:
    ```bash
    node "<helper-path>" run --all
    ```
 
 ### Case B: No Ledger Exists (Fresh Task)
 
-1. **Analyze the Request & Draft Plan:**
-   Break down the user's request into discrete, bounded milestones. Construct a plan JSON object:
-   ```json
-   {
-     "goal": "<concise statement of the overall goal>",
-     "plan_version": "v1",
-     "constraints": ["<project constraints>"],
-     "milestones": [
-       {
-         "id": "m1",
-         "title": "<milestone title>",
-         "objective": "<concrete objective>",
-         "acceptance_criteria": ["<testable criterion 1>", "<testable criterion 2>"],
-         "non_goals": ["<explicit non-goals>"],
-         "dependencies": [],
-         "bounded_scope": ["<file or path>"]
-       }
-     ]
-   }
-   ```
-2. **Present Plan & Request Confirmation:**
-   **Never show the raw plan JSON to the user.** The JSON is for the runner; the user approves a plain-language summary. Write it in the user's language, short enough to read in a few seconds:
-   - **What will happen:** one or two sentences stating the goal.
-   - **Steps:** one line per milestone, in everyday words (no ids, field names, or file-path lists unless the user must recognize them).
-   - **What changes / what stays untouched:** name anything deleted, overwritten, or installed, and anything explicitly protected. Call out irreversible actions (deletions, publishing) on their own line.
-   - **How we will know it worked:** one line.
-   End with a single plain question in the user's language asking whether to proceed (for Korean: "이대로 진행할까요?").
-   Show the JSON only if the user explicitly asks for it.
-   **DO NOT** run implementation or initialize the ledger before receiving explicit user confirmation.
+1. **Classify Track & Prepare Plan:**
+   Assess task scope and risk cleanly:
+   - Small, low-risk bounded work (`Track L`): run directly via lightweight workers + fresh bound Strix Halo (`HALO_LIGHTWEIGHT`), escalating to Zen only if high risk is identified.
+   - Substantive single-step or multi-step work (`Track S` or `Track M`): prepare a milestone plan JSON internally (`goal`, `plan_version`, `constraints`, `milestones` with `id`, `title`, `objective`, `acceptance_criteria`, `non_goals`, `dependencies`, `bounded_scope`).
+2. **Present Plain-Language Summary & Request Single Confirmation:**
+   **Never show raw plan JSON unless explicitly asked.** Present a concise summary in the user's language:
+   - **What will happen:** 1–2 sentences on the goal.
+   - **Steps:** plain-language bullet points (no internal IDs, field names, or raw file-path noise unless essential).
+   - **Impact / safety:** note any deletions, overwrites, installs, or protected items. Call out irreversible changes separately.
+   - **Verification:** one line stating independent review / check criteria.
+   End with a single question asking to proceed (Korean: `"이대로 진행할까요?"`).
+   Wait for user confirmation before initializing `.ntg/ledger.json` or running edits.
 3. **Execute upon Confirmation:**
-   Once the user approves the plan:
-   - Save the plan to `plan.json` in the workspace root.
-   - Initialize the ledger:
+   - Save the internal plan to `plan.json` (or initialize directly into `.ntg/ledger.json`):
      ```bash
      node "<helper-path>" init --plan plan.json
      ```
-   - Run the plan with the real runner:
+   - Run through the real runner:
      ```bash
      node "<helper-path>" run --all
      ```
+   - On subsequent Tactical Replans (same user goal and criteria), adapt remaining steps seamlessly; ask again only on Material Replans or confirmation gates.
 
 ## Resolving the Packaged Helper
 
-The helper script `scripts/ntg-command.mjs` is located within this plugin. To resolve its path:
+Resolve `scripts/ntg-command.mjs` inside this plugin:
 1. Relative to this skill file: `../../scripts/ntg-command.mjs`
-2. Or locate the plugin root via `agy plugin list --json` (entry with `name == "native-gravity"`, field `path`) and use `<path>/scripts/ntg-command.mjs`.
+2. Or locate the plugin root via `agy plugin list --json` (entry `name == "native-gravity"`, field `path`) and use `<path>/scripts/ntg-command.mjs`.
 Always wrap script and ledger paths in quotes to handle paths containing spaces.

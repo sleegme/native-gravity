@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -246,12 +246,51 @@ test('real repo snapshot runs clean against its own checkout', () => {
   const repoRoot = join(HERE, '..');
   const r = run(['--repo', repoRoot, '--installed', repoRoot], { env: cleanEnv({ AGY_PATH: '/nonexistent/agy' }) });
   assert.equal(r.status, 0, r.stderr);
-  // The checkout compares against itself: every hook file must MATCH.
+  // The checkout compares against itself: every NTG 2.0 hook file must MATCH.
   assert.match(r.stdout, /hooks\.json: MATCH/);
+  assert.match(r.stdout, /hooks\/shell-safety-guard\.py: MATCH/);
+  assert.match(r.stdout, /hooks\/telemetry-guard\.py: MATCH/);
   assert.match(r.stdout, /hooks\/zen-shell-guard\.py: MATCH/);
-  assert.match(r.stdout, /hooks\/excavator-shell-guard\.py: MATCH/);
-  assert.match(r.stdout, /hooks\/bulldozer-shell-guard\.py: MATCH/);
-  assert.match(r.stdout, /hooks\/budget-guard\.py: MATCH/);
+  assert.match(r.stdout, /registration vs files:\n  consistent/);
   assert.match(r.stdout, /agy plugin list: UNKNOWN \(agy not found\)/);
   assert.ok(!existsSync(join(repoRoot, 'ledger.json.lock')));
+});
+
+test('NTG 2.0 m2 hook wiring and legacy Excavator/budget disposition check', () => {
+  const repoRoot = join(HERE, '..');
+  const hooksConfig = JSON.parse(readFileSync(join(repoRoot, 'hooks.json'), 'utf8'));
+  const runnerSrc = readFileSync(join(repoRoot, 'scripts', 'runner.mjs'), 'utf8');
+
+  // Retired hooks.json boundaries are absent
+  for (const retired of ['excavator-migration-boundary', 'bulldozer-no-shell-boundary', 'role-budget-boundary']) {
+    assert.equal(hooksConfig[retired], undefined, `retired boundary ${retired} must be absent from hooks.json`);
+  }
+
+  // Required NTG 2.0 hooks are registered
+  assert.ok(hooksConfig['universal-mutation-safety-boundary']);
+  assert.ok(hooksConfig['zen-verification-boundary']);
+  assert.ok(hooksConfig['observation-telemetry-boundary']);
+
+  const safetyMatchers = hooksConfig['universal-mutation-safety-boundary'].PreToolUse.map(e => e.matcher);
+  assert.ok(safetyMatchers.some(m => m.includes('run_command')));
+  assert.ok(safetyMatchers.some(m => m.includes('write_to_file') && m.includes('replace_file_content') && m.includes('write_file') && m.includes('edit_file')));
+
+  // Retired Excavator, legacy guard, budget, and obsolete test files are absent
+  for (const retiredFile of [
+    'agents/excavator.md',
+    'scripts/excavator-agy.mjs',
+    'hooks/excavator-shell-guard.py',
+    'hooks/bulldozer-shell-guard.py',
+    'hooks/budget-guard.py',
+    'tests/test_excavator_agy.mjs',
+    'tests/test_excavator_shell_guard.py',
+    'tests/test_bulldozer_shell_guard.py',
+    'tests/test_budget_guard.py',
+    'tests/test_runner_bulldozer_marker.mjs',
+  ]) {
+    assert.equal(existsSync(join(repoRoot, retiredFile)), false, `retired file ${retiredFile} must be removed`);
+  }
+
+  // scripts/runner.mjs has zero remaining retired Excavator/budget/marker plumbing
+  assert.doesNotMatch(runnerSrc, /BULLDOZER_BUDGET_DEFAULTS|bulldozerBudgetContext|NTG_BULLDOZER_NO_SHELL|NTG_BUDGET_|excavator/i);
 });

@@ -140,3 +140,16 @@ test('main() is importable without running the CLI', () => {
   assert.equal(out.length, 1);
   assert.match(out[0], /plan_version: v2/);
 });
+
+
+test('renders NTG 2.0 track, assurance_badge, and halo_reviews when present', () => {
+  const ledger = JSON.parse(readFileSync(FIXTURE, 'utf8'));
+  ledger.track = 'M';
+  ledger.assurance_badge = 'ZEN_DURABLE';
+  ledger.halo_reviews = {
+    design: { verdict: 'ACCEPT', is_stale: false, caller: 'bobcat' },
+  };
+  const lines = renderStateSnap(ledger, { ledgerLabel: 'ledger.json' }).join('\n');
+  assert.match(lines, /track: M · assurance: ZEN_DURABLE/);
+  assert.match(lines, /  halo: ACCEPT · stale=no · caller=bobcat/);
+});
