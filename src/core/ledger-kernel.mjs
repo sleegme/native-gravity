@@ -1276,6 +1276,15 @@ export class LedgerKernel {
       const milestone = this.milestones.find((m) => m.id === this.current_milestone);
       const scopeDigest = computeDeliveredTreeDigest(milestone?.bounded_scope ?? [], { cwd: opts.cwd });
       if (
+        opts.deliveredTreeDigest !== undefined &&
+        opts.deliveredTreeDigest !== null &&
+        opts.deliveredTreeDigest !== scopeDigest
+      ) {
+        throw new InvalidTransitionError(
+          `Supplied deliveredTreeDigest '${opts.deliveredTreeDigest}' does not match code-computed digest '${scopeDigest}'`
+        );
+      }
+      if (
         clonedPacket.delivered_tree_digest !== undefined &&
         clonedPacket.delivered_tree_digest !== scopeDigest
       ) {
@@ -1757,7 +1766,7 @@ export class LedgerKernel {
     return verificationRecord;
   }
 
-  reopenLastCandidateReview(milestoneId = null) {
+  reopenLastCandidateReview(milestoneId = null, opts = {}) {
     if (this.current_milestone !== null) {
       throw new InvalidTransitionError(
         `Cannot reopen review: milestone '${this.current_milestone}' is already active`
@@ -1784,7 +1793,42 @@ export class LedgerKernel {
       );
     }
     const candidate = selected.candidate;
+    if (candidate.is_stale === true) {
+      throw new StaleVerdictError(
+        `Persisted candidate '${candidate.result_ref}' for milestone '${selected.id}' is marked STALE and cannot reopen Zen review`
+      );
+    }
     verifyCandidateIntegrity(candidate, candidate.result_ref);
+
+    const milestone = this.milestones.find((m) => m.id === selected.id);
+    const expectedTreeDigest =
+      opts.expectedTreeDigest ??
+      (opts.cwd ? computeDeliveredTreeDigest(milestone?.bounded_scope ?? [], { cwd: opts.cwd }) : null);
+    if (expectedTreeDigest && (candidate.delivered_tree_digest ?? null) !== expectedTreeDigest) {
+      const staleCandidate = deepFreeze({
+        ...candidate,
+        is_stale: true,
+        stale_reason: "delivered_tree_digest_mismatch",
+      });
+      const candList = this.evidence[selected.id]?.candidates;
+      if (Array.isArray(candList) && candList.length > 0) {
+        const idx = candList.lastIndexOf(candidate);
+        if (idx !== -1) candList[idx] = staleCandidate;
+      }
+      if (candidate.result_ref && this.evidence[candidate.result_ref]) {
+        this.evidence[candidate.result_ref] = staleCandidate;
+      }
+      if (this.evidence[selected.id] && "active_candidate" in this.evidence[selected.id]) {
+        delete this.evidence[selected.id].active_candidate;
+      }
+      delete this._active_candidates[selected.id];
+      this.invalidateStaleHaloReviews(selected.id, { reviewed_diff_digest: expectedTreeDigest });
+      this.next_action = `Persisted candidate '${candidate.result_ref}' for milestone '${selected.id}' marked STALE (bounded working tree changed)`;
+      throw new StaleVerdictError(
+        `Persisted candidate '${candidate.result_ref}' delivered_tree_digest '${candidate.delivered_tree_digest ?? null}' does not match current bounded working-tree digest '${expectedTreeDigest}' (STALE)`
+      );
+    }
+
     this._active_candidates[selected.id] = candidate;
     this.current_milestone = selected.id;
     this.next_action = `Zen review retry opened for milestone '${selected.id}' (result_ref: ${candidate.result_ref})`;

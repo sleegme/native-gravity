@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
-import { breakStaleLedgerLock, main, nativeZen, parseZenEnvelope, resolveInvocationTimeoutMs, ROLE_TIMEOUT_S, DEFAULT_RUNNER_TIMEOUT_S } from '../scripts/ntg-vnext.mjs';
-import { AuthoritativeLedger, computeDeliveredTreeDigest, computeUsageRollup } from '../scripts/ledger.mjs';
+import { breakStaleLedgerLock, main, nativeZen, parseZenEnvelope, resolveInvocationTimeoutMs, runCli, ROLE_TIMEOUT_S, DEFAULT_RUNNER_TIMEOUT_S } from '../scripts/ntg-vnext.mjs';
+import { AuthoritativeLedger, computeDeliveredTreeDigest, computeUsageRollup, StaleVerdictError } from '../scripts/ledger.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { symlinkSync } from 'node:fs';
 
@@ -23,6 +23,12 @@ const plan = (version = 'v1', ids = ['one', 'two']) => ({
     acceptance_criteria: ['content matches'], non_goals: [], dependencies: index ? [ids[index - 1]] : [],
   })),
 });
+const coordinatorTrackSPlan = () => {
+  const p = plan('v1', ['one']);
+  p.track = 'S';
+  p.milestones[0].objective = 'Cross-cutting delivery of one';
+  return p;
+};
 const envelope = value => parseResponseEnvelope(JSON.stringify({ status: 'SUCCESS', response: JSON.stringify(value) }));
 
 function harness(t, { zen = () => 'GO' } = {}) {
@@ -131,7 +137,7 @@ for (const status of ['BLOCKED', 'NEEDS_DEEP']) {
       invokeSpecialist: () => assert.fail('must not dispatch a disabled repair worker'),
       invokeZen: () => assert.fail('blocked or escalated work must not reach Zen'),
     };
-    const result = await main(['run', '--ledger', h.ledger], deps);
+    const result = await main(['run', '--ledger', h.ledger, '--track', 'M'], deps);
     assert.equal(result.code, 2);
     assert.deepEqual(calls, ['bulldozer']);
     const state = AuthoritativeLedger.load(h.ledger).getState();
@@ -165,7 +171,7 @@ test('Zen NO-GO stops the run with exit 2 once the repair budget is spent; a rer
   const second = await h.cli('run');
   assert.equal(second.code, 0);
   assert.deepEqual(second.out.state.completed_milestones, ['one']);
-  assert.deepEqual(h.calls, ['bulldozer', 'zen:one', 'bulldozer', 'zen:one', 'bulldozer', 'zen:one']);
+  assert.deepEqual(h.calls, ['bobcat', 'zen:one', 'bulldozer', 'zen:one', 'bulldozer', 'zen:one']);
 });
 
 test('fresh-context resume continues from the ledger at the next eligible milestone', async t => {
@@ -853,7 +859,7 @@ test('usage telemetry: records per-role entries in ledger and surfaces rollup in
     },
   };
 
-  const runRes = await main(['run', '--ledger', h.ledger], customDeps);
+  const runRes = await main(['run', '--ledger', h.ledger, '--track', 'M'], customDeps);
   assert.equal(runRes.code, 0);
 
   const disk = JSON.parse(readFileSync(h.ledger, 'utf8'));
@@ -900,7 +906,7 @@ test('usage telemetry: records per-role entries in ledger and surfaces rollup in
 
 test('usage telemetry: native specialist delegations are recorded through the real runner invocation', async t => {
   const h = harness(t);
-  await h.cli('init', '--plan', h.write('plan.json', plan('v1', ['one'])));
+  await h.cli('init', '--plan', h.write('plan.json', coordinatorTrackSPlan()));
   const dir = mkdtempSync(join(tmpdir(), 'ntg-native-agy-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const agy = join(dir, 'agy.mjs');
@@ -990,7 +996,7 @@ console.log(JSON.stringify({
 
 test('usage telemetry: fabricated delegation duration and usage never become measured accounting', async t => {
   const h = harness(t);
-  await h.cli('init', '--plan', h.write('plan.json', plan('v1', ['one'])));
+  await h.cli('init', '--plan', h.write('plan.json', coordinatorTrackSPlan()));
   const dir = mkdtempSync(join(tmpdir(), 'ntg-native-agy-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const agy = join(dir, 'agy.mjs');
@@ -1071,7 +1077,7 @@ console.log(JSON.stringify({
 
 test('usage telemetry: response-body usage never replaces absent transport usage', async t => {
   const h = harness(t);
-  await h.cli('init', '--plan', h.write('plan.json', plan('v1', ['one'])));
+  await h.cli('init', '--plan', h.write('plan.json', coordinatorTrackSPlan()));
 
   const deps = {
     handleSignals: false,
@@ -1147,7 +1153,7 @@ test('usage telemetry: initial plan cannot manufacture measured usage (G3-1)', a
 
 test('usage telemetry: malformed persisted usage cannot make status throw (G3-2)', async t => {
   const h = harness(t);
-  await h.cli('init', '--plan', h.write('plan.json', plan('v1', ['one'])));
+  await h.cli('init', '--plan', h.write('plan.json', coordinatorTrackSPlan()));
 
   const deps = {
     handleSignals: false,
@@ -1256,7 +1262,7 @@ test('run applies per-role timeout defaults without --timeout; explicit override
     const dir = mkdtempSync(join(tmpdir(), 'ntg-vnext-role-timeout-'));
     t.after(() => rmSync(dir, { recursive: true, force: true }));
     const ledger = join(dir, 'ledger.json');
-    writeFileSync(join(dir, 'plan.json'), JSON.stringify(plan('v1', ['one'])));
+    writeFileSync(join(dir, 'plan.json'), JSON.stringify(coordinatorTrackSPlan()));
     await main(['init', '--ledger', ledger, '--plan', join(dir, 'plan.json')], deps);
     return ledger;
   };
@@ -1498,7 +1504,7 @@ test('run --track S sets Track S policy, omits strix-halo by default, and requir
   assert.equal(out.track, 'S');
   assert.equal(out.assurance_badge, 'ZEN_DURABLE');
   assert.equal(out.halo_status, 'OMITTED');
-  assert.deepEqual(h.calls, ['bulldozer', 'zen:one']);
+  assert.deepEqual(h.calls, ['bobcat', 'zen:one']);
   assert.deepEqual(out.state.completed_milestones, ['one']);
 });
 
@@ -1551,4 +1557,80 @@ test('run --track M enforces mandatory strix-halo before Zen and rejects on Halo
     /REVISE|halo|defect/i,
   );
   assert.equal(zenCalls, 0);
+});
+
+test('PR #231 Finding 2 CLI: review refuses to promote after bounded file mutates while Zen pending', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-vnext-stale-review-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const ledger = join(dir, 'ledger.json');
+  const scopedFile = join(dir, 'one.txt');
+  writeFileSync(scopedFile, 'v1\n');
+  const planPath = join(dir, 'plan.json');
+  writeFileSync(planPath, JSON.stringify(plan('v1', ['one'])));
+
+  const deps = {
+    handleSignals: false,
+    runnerOptions: { coverageCwd: dir },
+    invokeRole: async (_role, packet) => {
+      const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+      writeFileSync(scopedFile, 'delivered v1\n');
+      return envelope({
+        milestone_id: contract.milestone_id,
+        plan_version: contract.plan_version,
+        status: 'DONE',
+        changes_made: contract.bounded_scope,
+        verification_evidence: observed,
+        unresolved_unknowns: [],
+        scope_deviations: [],
+        candidate_artifact_ref: computeDeliveredTreeDigest(['one.txt'], { cwd: dir }),
+      });
+    },
+  };
+
+  await main(['init', '--ledger', ledger, '--plan', planPath], deps);
+  await assert.rejects(
+    main(['run', '--ledger', ledger], {
+      ...deps,
+      invokeZen: async () => {
+        throw Object.assign(
+          new Error('zen invocation exited 3: Individual quota reached'),
+          { code: 'ZEN_REVIEW_PENDING' }
+        );
+      },
+    }),
+    /Individual quota reached/
+  );
+
+  // Mutate bounded file after candidate persistence while Zen review is pending.
+  writeFileSync(scopedFile, 'tampered after candidate persisted\n');
+
+  let zenCalledOnReview = 0;
+  const reviewCli = await runCli(['review', '--ledger', ledger], {
+    env: { NTG_NO_REPORT_PROMPT: '1' },
+    stdout: { write: () => {} },
+    stderr: { write: () => {} },
+    deps: {
+      ...deps,
+      invokeZen: async (req) => {
+        zenCalledOnReview += 1;
+        return {
+          milestone_id: req.milestone_id,
+          plan_version: req.plan_version,
+          result_ref: req.result_ref,
+          verdict: 'GO',
+          verification_evidence: observed,
+        };
+      },
+    },
+  });
+
+  assert.equal(reviewCli.code, 1);
+  assert.ok(reviewCli.error instanceof StaleVerdictError);
+  assert.match(reviewCli.error.message, /STALE/);
+  assert.equal(zenCalledOnReview, 0);
+
+  const after = AuthoritativeLedger.load(ledger).getState();
+  assert.deepEqual(after.completed_milestones, []);
+  assert.equal(after.current_milestone, null);
+  assert.equal(after.evidence.one.candidates[0].is_stale, true);
 });

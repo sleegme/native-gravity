@@ -19,8 +19,9 @@ const CLI = new URL('../scripts/ntg-vnext.mjs', import.meta.url).pathname;
 const observed = [{ classification: 'OBSERVED', criterion: 'content matches', result: 'inspected' }];
 const plan = (version = 'v1', ids = ['one', 'two']) => ({
   goal: 'Deliver bounded artifacts', constraints: [], decision_invariants: [], plan_version: version,
+  ...(ids.length === 1 ? { track: 'S' } : {}),
   milestones: ids.map((id, index) => ({
-    id, title: id, objective: `Deliver ${id}`, bounded_scope: [`${id}.txt`],
+    id, title: id, objective: ids.length === 1 ? `Cross-cutting delivery of ${id}` : `Deliver ${id}`, bounded_scope: [`${id}.txt`],
     acceptance_criteria: ['content matches'], non_goals: [], dependencies: index ? [ids[index - 1]] : [],
   })),
 });

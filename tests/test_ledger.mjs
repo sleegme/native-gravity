@@ -3112,6 +3112,69 @@ runTest("NTG 2.0: Track L LightweightLog separates HALO_LIGHTWEIGHT from LedgerK
   }
 });
 
+runTest("PR #231 Finding 2: reopenLastCandidateReview rejects mutated bounded tree, marks candidate stale, and blocks subsequent reopen", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ntg-reopen-drift-"));
+  try {
+    writeFileSync(join(dir, "runner.mjs"), "console.log('v1');\n");
+    const plan = {
+      goal: "Detect tree drift on reopen",
+      plan_version: "v1",
+      constraints: [],
+      decision_invariants: [],
+      milestones: [
+        {
+          id: "M1",
+          title: "M1",
+          objective: "Deliver runner",
+          bounded_scope: ["runner.mjs"],
+          acceptance_criteria: ["AC1"],
+          non_goals: [],
+          dependencies: [],
+        },
+      ],
+    };
+    const kernel = new LedgerKernel(plan);
+    kernel.delegate("M1");
+    const expectedDigest = computeDeliveredTreeDigest(["runner.mjs"], { cwd: dir });
+    const cand = kernel.receiveCandidate(
+      sampleCandidate({
+        milestone_id: "M1",
+        verification_evidence: [{ classification: "OBSERVED", criterion: "AC1", result: "verified" }],
+      }),
+      { cwd: dir, deliveredTreeDigest: expectedDigest }
+    );
+    assert.strictEqual(cand.candidate_record.delivered_tree_digest, expectedDigest);
+    assert.strictEqual(cand.candidate_record.payload.delivered_tree_digest, expectedDigest);
+
+    kernel.recordBlockedOrFailure({
+      milestoneId: "M1",
+      status: "INVOCATION_FAILURE",
+      evidence: { classification: "OBSERVED", error: "ZEN_REVIEW_PENDING" },
+    });
+
+    // Mutate bounded file before gate-only reopen
+    writeFileSync(join(dir, "runner.mjs"), "console.log('mutated');\n");
+
+    assert.throws(
+      () => kernel.reopenLastCandidateReview("M1", { cwd: dir }),
+      (err) => err instanceof StaleVerdictError && /delivered_tree_digest/.test(err.message) && /STALE/.test(err.message)
+    );
+    assert.strictEqual(kernel.current_milestone, null);
+    assert.strictEqual(kernel.evidence.M1.candidates[0].is_stale, true);
+    assert.strictEqual(kernel.evidence.M1.active_candidate, undefined);
+    assert.deepStrictEqual(kernel.completed_milestones, []);
+
+    // Subsequent reopen refuses even after reverting content
+    writeFileSync(join(dir, "runner.mjs"), "console.log('v1');\n");
+    assert.throws(
+      () => kernel.reopenLastCandidateReview("M1", { cwd: dir }),
+      (err) => err instanceof StaleVerdictError && /marked STALE/.test(err.message)
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 console.log("=========================================================");
 console.log(`Summary: ${passed} passed, ${failed} failed (Total: ${passed + failed})`);
 

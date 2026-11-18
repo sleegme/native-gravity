@@ -9,7 +9,7 @@ const PATH_TOKEN_RE =
 
 const CODE_EXT_RE = /\.(?:m?js|cjs|jsx?|tsx?|py|sh|bash|go|rs|java|kt|c|cc|cpp|h|hpp|rb|php|sql)$/i;
 const DOC_OR_CONFIG_FILE_RE =
-  /(?:^|\/)(?:README(?:\.[^/]*)?|CHANGELOG(?:\.[^/]*)?|LICENSE(?:\.[^/]*)?)$|\.(?:md|mdx|txt|rst|adoc|json|ya?ml|toml|ini|cfg|conf|env\.example)$/i;
+  /(?:^|\/)(?:README(?:\.[^/]*)?|CHANGELOG(?:\.[^/]*)?|LICENSE(?:\.[^/]*)?)$|\.(?:md|mdx|rst|adoc|json|ya?ml|toml|ini|cfg|conf|env\.example)$/i;
 
 const READ_ONLY_INTENT_RE =
   /\b(?:find|locate|search|grep|inspect|list|where\s+is|identify|discover|survey|read[- ]only|check\s+which|count|summarize|audit)\b/i;
@@ -92,7 +92,7 @@ export function analyzeWorkSemantics({
     requiresSubstantiveCode ||
       requiresShell ||
       highRiskFlag ||
-      (!explicitMechanical && !allFilesDocOrConfig && substantivePhrase) ||
+      (!explicitMechanical && !lexicalMechanical && substantivePhrase) ||
       (!explicitMechanical &&
         allFilesDocOrConfig &&
         coordinatorPhrase) ||

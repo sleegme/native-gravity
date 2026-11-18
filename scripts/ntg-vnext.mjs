@@ -885,7 +885,7 @@ export async function main(argv, deps = {}) {
     invokeSpecialist: wrappedInvokeSpecialist,
     invokeZen: wrappedInvokeZen,
     runnerOptions: spineRunnerOptions,
-    cwd: spineRunnerOptions.coverageCwd ?? process.cwd(),
+    ...(spineRunnerOptions.coverageCwd ? { cwd: spineRunnerOptions.coverageCwd } : {}),
   });
 
   const isTrackLRun =

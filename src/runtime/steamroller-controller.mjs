@@ -1,14 +1,17 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import process from "node:process";
 
 import {
   AuthoritativeLedger,
   InvalidTransitionError,
+  StaleVerdictError,
+  computeDeliveredTreeDigest,
   deepClone,
   deepFreeze,
+  isEvidenceEmpty,
   normalizeCandidateArtifactRef,
   validateZenVerdictPacket,
 } from "../core/ledger-kernel.mjs";
@@ -17,6 +20,7 @@ import { LightweightLog } from "../core/lightweight-log.mjs";
 import {
   AuthorityExpansionError,
   ModelRouter,
+  UnresolvedModelSlugError,
   getRoleAuthority,
   normalizeRoleName,
   realAgyRefusalUnderNodeTest,
@@ -262,6 +266,7 @@ export class SteamrollerController {
   #invokeHalo;
   #invokeZen;
   #runnerOptions;
+  #explicitCwd = false;
   #busy = false;
   #releaseLock = undefined;
   #closed = false;
@@ -307,6 +312,7 @@ export class SteamrollerController {
     this.#invokeHalo = invokeHalo;
     this.#invokeZen = invokeZen;
     this.#runnerOptions = runnerOptions ?? {};
+    this.#explicitCwd = Boolean(cwd ?? this.#runnerOptions.coverageCwd);
     this.cwd = cwd ?? this.#runnerOptions.coverageCwd ?? process.cwd();
     this.spine = spine ?? this;
 
@@ -453,6 +459,31 @@ export class SteamrollerController {
     }
   }
 
+  #resolveScopeCwd(boundedScope) {
+    if (this.#explicitCwd) {
+      return this.cwd;
+    }
+    const scope = Array.isArray(boundedScope) ? boundedScope : [];
+    const hasScopedFiles = (candidateCwd) =>
+      Object.keys(snapshotScope(scope, { cwd: candidateCwd }).files).length > 0;
+    if (scope.length > 0 && hasScopedFiles(this.cwd)) {
+      return this.cwd;
+    }
+    if (this.ledgerPath) {
+      const ledgerDir = dirname(resolve(this.ledgerPath));
+      if (scope.length > 0 && hasScopedFiles(ledgerDir)) {
+        return ledgerDir;
+      }
+      if (basename(ledgerDir) === ".ntg") {
+        const parentDir = dirname(ledgerDir);
+        if (scope.length > 0 && hasScopedFiles(parentDir)) {
+          return parentDir;
+        }
+      }
+    }
+    return this.cwd;
+  }
+
   /**
    * Autonomously classifies incoming work into Track L, S, or M by semantic
    * capability, effect scope, and risk rather than isolated lexical triggers (#235).
@@ -569,11 +600,27 @@ export class SteamrollerController {
     resolveModel = true,
   } = {}) {
     const pick = (role, extra = {}) => {
-      const slug = resolveModel
-        ? this.resolveRoleModel(role, {
+      let slug = null;
+      if (resolveModel) {
+        try {
+          slug = this.resolveRoleModel(role, {
             modelOverride: modelOverrides?.[role],
-          }).slug
-        : null;
+          }).slug;
+        } catch (error) {
+          if (
+            resolveModel === "best_effort" &&
+            !(error instanceof AuthorityExpansionError) &&
+            (error instanceof UnresolvedModelSlugError ||
+              /Unresolved model slug|Failed to list installed models|refusing to spawn/i.test(
+                String(error?.message ?? error)
+              ))
+          ) {
+            slug = null;
+          } else {
+            throw error;
+          }
+        }
+      }
       return {
         role,
         slug,
@@ -1030,19 +1077,25 @@ export class SteamrollerController {
       })
     );
 
-    const failedStep = {
-      tool: "invoke_subagent",
-      args: { role: targetRole, caller: callerRole, slice_keys: Object.keys(packet).sort() },
-    };
+    const directMilestone = Boolean(options?.directMilestoneExecution);
+    const failedStep = directMilestone
+      ? { tool: "runner.invoke", args: { role: targetRole } }
+      : {
+          tool: "invoke_subagent",
+          args: { role: targetRole, caller: callerRole, slice_keys: Object.keys(packet).sort() },
+        };
 
     return this.#step(failedStep, async () => {
       let result;
       if (this.#invokeSpecialist) {
         result = await this.#invokeSpecialist(targetRole, packet, options);
-      } else if (this.#invokeRole) {
-        result = await this.#invokeRole(targetRole, packet, this.#runnerOptions);
+      } else if (this.#invokeRole && this.#invokeRole !== invoke) {
+        result = await this.#invokeRole(targetRole, packet, {
+          ...this.#runnerOptions,
+          ...options,
+        });
       } else {
-        throw new Error(`No invocation adapter available for specialist "${targetRole}"`);
+        result = this.#nativeSpecialistGate(targetRole, packet, options);
       }
 
       if (typeof result === "string") {
@@ -1050,7 +1103,16 @@ export class SteamrollerController {
       }
       if (result && typeof result === "object") {
         if (result.ok === false) {
-          throw new Error(`${targetRole} invocation failed: ${JSON.stringify(result)}`);
+          const error = new Error(`${targetRole} invocation failed: ${JSON.stringify(result)}`);
+          if (directMilestone) {
+            error.failedStep = {
+              tool: "runner.invoke",
+              args: { role: targetRole, slug: result?.slug ?? null, error: result?.error ?? null },
+              command: this.#transportCommand(targetRole, result?.slug),
+            };
+            error.invocationOutput = result;
+          }
+          throw error;
         }
         let parsedPacket;
         if (typeof result.response === "string") {
@@ -1162,6 +1224,82 @@ export class SteamrollerController {
       throw new Error(`strix-halo response is not a JSON packet: ${parsed.error}`);
     }
     return parsed.packet;
+  }
+
+  #nativeSpecialistGate(targetRole, slice, options = {}) {
+    const startTime = Date.now();
+    const agyPath = this.#runnerOptions.agyPath || options.agyPath || process.env.AGY_PATH || "agy";
+    const refusal = realAgyRefusalUnderNodeTest(this.#runnerOptions.agyPath || options.agyPath);
+    if (refusal) {
+      throw new Error(refusal.message);
+    }
+    const slug =
+      options.slug ??
+      resolveSlug(targetRole, {
+        agyPath,
+        installedModels: this.#runnerOptions.installedModels ?? options.installedModels,
+      });
+    const instruction =
+      targetRole === "strix-halo"
+        ? "Review the candidate deliverable against the acceptance criteria and return only a bare JSON " +
+          "Halo review packet with caller, candidate_id_or_run_id, reviewed_diff_digest, " +
+          "acceptance_criteria_digest, plan_version, evidence_basis, verdict (ACCEPT, REVISE, or ESCALATE), and findings. Request:\n" +
+          JSON.stringify(slice)
+        : ["jaguar", "puma"].includes(targetRole)
+          ? `Execute only the bounded ${targetRole} assignment and return only a bare JSON ` +
+            `result packet (status: READY|BLOCKED|REROUTE_REQUIRED, ${targetRole === "jaguar" ? "facts" : "changes_made"}). Assignment:\n` +
+            JSON.stringify(slice)
+          : `Execute only the bounded ${targetRole} assignment and return only a bare JSON ` +
+            "result packet (including status, changes_made or facts, and verification_evidence). Assignment:\n" +
+            JSON.stringify(slice);
+    const prompt = `${loadNativeRoleBody(targetRole)}\n\n${instruction}`;
+    const args = [
+      "--model",
+      slug,
+      "--output-format",
+      "json",
+      "--dangerously-skip-permissions",
+      "-p",
+      prompt,
+    ];
+    const env = { ...process.env, NTG_ACTIVE_ROLE: targetRole };
+    if (process.env.NTG_LIVE_TESTS !== "1") env.SKIP_LIVE_TESTS = "1";
+    const r = spawnSync(agyPath, args, {
+      cwd: this.cwd,
+      env,
+      encoding: "utf8",
+      timeout: options.timeout ?? this.#runnerOptions.timeout ?? 600000,
+      killSignal: "SIGKILL",
+      maxBuffer: 20 * 1024 * 1024,
+    });
+    const duration_ms = Math.max(0, Date.now() - startTime);
+    if (r.error) throw r.error;
+    if (r.status !== 0) {
+      throw new Error(`${targetRole} invocation exited ${r.status}: ${(r.stderr || "").slice(-500)}`);
+    }
+    const envelope = parseResponseEnvelope(r.stdout, { role: targetRole, slug });
+    if (!envelope.ok) {
+      const error = new Error(
+        `${targetRole} envelope rejected: ${envelope.error}${envelope.finished_reason ? ` (${envelope.finished_reason})` : ""}`
+      );
+      error.invocationOutput = {
+        ok: false,
+        error: envelope.error,
+        slug,
+        finished_reason: envelope.finished_reason,
+      };
+      throw error;
+    }
+    const parsed = parseResponsePacket(envelope);
+    if (!parsed.ok) {
+      throw new InvalidResponseFormatError(targetRole, parsed.error);
+    }
+    const packet = { ...parsed.packet };
+    delete packet.usage;
+    if (envelope.usage !== undefined) packet.usage = envelope.usage;
+    packet.duration_ms = duration_ms;
+    packet.slug = slug;
+    return packet;
   }
 
   async invokeJaguar(slice, options = {}) {
@@ -1333,8 +1471,9 @@ export class SteamrollerController {
    */
   async runMilestone(milestoneId, options = {}) {
     this.#idle();
-    const coverageCwd = this.cwd;
     let contract = this.#ledger.delegate(milestoneId);
+    const milestoneDef = this.#ledger.milestones.find((m) => m.id === milestoneId) ?? null;
+    let coverageCwd = this.#resolveScopeCwd(contract.bounded_scope);
     const classification = this.classifyTrack({
       task: contract.objective || this.#ledger.goal,
       targetFiles: contract.bounded_scope,
@@ -1345,7 +1484,53 @@ export class SteamrollerController {
     const requireHalo =
       options.requireHalo !== undefined ? Boolean(options.requireHalo) : effectiveTrack === "M";
     const coverageProbes = Array.isArray(contract.coverage) ? contract.coverage : [];
-    const enrichPacket = (packet) => {
+    const resolveExecutionRoute = (activeContract, attemptNum) => {
+      const hasRelevantFailure = Array.isArray(activeContract.relevant_evidence)
+        ? activeContract.relevant_evidence.some(
+            (ev) =>
+              (Array.isArray(ev?.failure_evidence) && ev.failure_evidence.length > 0) ||
+              Boolean(ev?.repair_needs)
+          )
+        : false;
+      const ledgerNoGo =
+        this.#ledger.verification?.[milestoneId]?.verdict === "NO-GO" &&
+        !this.#ledger.verification?.[milestoneId]?.is_stale;
+      const hasPriorFailure =
+        attemptNum > 0 ||
+        Boolean(options.recoveryMode) ||
+        Boolean(activeContract.repair) ||
+        ledgerNoGo ||
+        hasRelevantFailure;
+      const hasExplicitModels = Boolean(this.modelRouter?.defaultOpts?.installedModels);
+      const blockedByTestRefusal =
+        !hasExplicitModels &&
+        Boolean(realAgyRefusalUnderNodeTest(this.modelRouter?.defaultOpts?.agyPath));
+      return this.selectWorkerRoute({
+        track: effectiveTrack,
+        task: activeContract.objective || milestoneDef?.title || this.#ledger.goal || "",
+        targetFiles: activeContract.bounded_scope ?? [],
+        preferredRole: options.workerRole ?? milestoneDef?.worker_role ?? null,
+        requiresMutation: options.requiresMutation,
+        requiresShell: Boolean(options.requiresShell ?? milestoneDef?.requires_shell),
+        requiresSubstantiveCode: Boolean(
+          options.requiresSubstantiveCode ?? milestoneDef?.requires_substantive_code
+        ),
+        isMechanicalEdit: options.isMechanicalEdit ?? milestoneDef?.is_mechanical_edit,
+        crossFileDependency: Boolean(
+          options.crossFileDependency ?? milestoneDef?.cross_file_dependency
+        ),
+        requiresCoordinator: Boolean(
+          options.requiresCoordinator ||
+            milestoneDef?.requires_coordinator ||
+            coverageProbes.length > 0
+        ),
+        highRisk: Boolean(options.highRisk),
+        riskClass: options.riskClass ?? null,
+        recoveryMode: hasPriorFailure,
+        resolveModel: blockedByTestRefusal ? false : "best_effort",
+      });
+    };
+    const enrichPacket = (packet, role = "bulldozer") => {
       packet.scope_map = buildScopeMap(packet.bounded_scope, { cwd: coverageCwd });
       packet.coverage_sites = runCoverageProbes(coverageProbes, { cwd: coverageCwd });
       packet.context_digest = buildContextDigest({
@@ -1354,13 +1539,14 @@ export class SteamrollerController {
         acceptanceCriteria: packet.acceptance_criteria,
       });
       packet.harness = composeModelAwareHarness({
-        role: "bulldozer",
+        role,
         track: effectiveTrack,
         contextDigest: packet.context_digest,
       });
       return packet;
     };
-    enrichPacket(contract);
+    const initialRoute = resolveExecutionRoute(contract, 0);
+    enrichPacket(contract, initialRoute.role);
     let scopeBefore = snapshotScope(contract.bounded_scope, { cwd: coverageCwd });
     let testBaseline = snapshotTestIntegrity(contract.bounded_scope, { cwd: coverageCwd });
     this.#saveLedger();
@@ -1402,6 +1588,17 @@ export class SteamrollerController {
             "site in coverage_sites, computed against the final tree. "
           : "") +
         "Do not invoke Zen, write the ledger or claim global completion.";
+      const correctionInstruction =
+        "Correct only the invalid result packet for this milestone using the existing " +
+        "delivered artifacts and evidence. Do not re-execute completed work or invent " +
+        "an artifact binding. Return the complete corrected JSON packet; if unable " +
+        "to bind the delivered artifact, return BLOCKED. " +
+        (coverageProbes.length
+          ? "The corrected packet must carry a complete coverage_table: exactly one row per " +
+            "site in coverage_sites (coverage_id and site as file:line must match, disposition " +
+            "COVERED or NOT_APPLICABLE), computed against the final tree. "
+          : "") +
+        "Do not invoke Zen, write the ledger or claim global completion.";
       let salvageUsed = false;
 
       const invokeCoordinator = async (instructionText, contractArg) => {
@@ -1410,9 +1607,10 @@ export class SteamrollerController {
         } catch (error) {
           const output = error?.invocationOutput;
           if (salvageUsed || !output || !SALVAGEABLE_ERRORS.includes(output.error)) throw error;
+          const salvageCwd = this.#resolveScopeCwd(contract.bounded_scope);
           const changes = scopeChanges(
             scopeBefore,
-            snapshotScope(contract.bounded_scope, { cwd: coverageCwd })
+            snapshotScope(contract.bounded_scope, { cwd: salvageCwd })
           );
           if (!changes.changed.length && !changes.added.length) throw error;
           salvageUsed = true;
@@ -1421,7 +1619,7 @@ export class SteamrollerController {
             original_error: String(error?.message ?? error).slice(0, 2000),
             changed_files: changes.changed,
             added_files: changes.added,
-            verify_results: this.#runVerifyCommands(contract.verify, coverageCwd),
+            verify_results: this.#runVerifyCommands(contract.verify, salvageCwd),
           };
           try {
             return await this.#exact(
@@ -1453,9 +1651,229 @@ export class SteamrollerController {
         }
       };
 
+      const normalizeDirectWorkerCandidate = (workerResult, executedRole, activeContract) => {
+        if (!workerResult || typeof workerResult !== "object" || Array.isArray(workerResult)) {
+          return workerResult;
+        }
+        if ("verdict" in workerResult || "zen_verdict" in workerResult || "result_ref" in workerResult) {
+          return workerResult;
+        }
+        if (workerResult.status === "BLOCKED" || workerResult.status === "NEEDS_DEEP") {
+          return {
+            milestone_id: activeContract.milestone_id,
+            plan_version: activeContract.plan_version,
+            ...workerResult,
+            worker_role: executedRole,
+          };
+        }
+        if (
+          workerResult.status !== "READY" &&
+          !(executedRole === "jaguar" && workerResult.status === "SUCCESS")
+        ) {
+          return workerResult;
+        }
+        const hasExplicitCandRef = workerResult.candidate_artifact_ref !== undefined;
+        const hasExplicitArtRef = workerResult.artifact_ref !== undefined;
+        let fallbackArtifactRef;
+        if (!hasExplicitCandRef && !hasExplicitArtRef) {
+          if (typeof workerResult.artifact === "string" && existsSync(workerResult.artifact)) {
+            fallbackArtifactRef = `sha256:${createHash("sha256")
+              .update(readFileSync(workerResult.artifact))
+              .digest("hex")}`;
+          } else {
+            fallbackArtifactRef = computeDeliveredTreeDigest(activeContract.bounded_scope, {
+              cwd: coverageCwd,
+            });
+          }
+        }
+        const changesMade =
+          workerResult.changes_made !== undefined
+            ? workerResult.changes_made
+            : executedRole === "jaguar"
+              ? []
+              : Array.isArray(activeContract.bounded_scope) && activeContract.bounded_scope.length > 0
+                ? [...activeContract.bounded_scope]
+                : typeof workerResult.artifact === "string"
+                  ? [basename(workerResult.artifact)]
+                  : [];
+        let verificationEvidence;
+        if (!isEvidenceEmpty(workerResult.verification_evidence)) {
+          verificationEvidence = workerResult.verification_evidence;
+        } else {
+          const detailItems = [];
+          if (Array.isArray(workerResult.facts) && workerResult.facts.length > 0) {
+            detailItems.push(
+              ...workerResult.facts.map((fact) =>
+                typeof fact === "string"
+                  ? { classification: "OBSERVED", worker_role: executedRole, fact }
+                  : fact
+              )
+            );
+          }
+          if (Array.isArray(workerResult.edits) && workerResult.edits.length > 0) {
+            detailItems.push(
+              ...workerResult.edits.map((edit) =>
+                typeof edit === "string"
+                  ? { classification: "OBSERVED", worker_role: executedRole, edit }
+                  : edit
+              )
+            );
+          }
+          const criteriaItems =
+            Array.isArray(activeContract.acceptance_criteria) &&
+            activeContract.acceptance_criteria.length > 0
+              ? activeContract.acceptance_criteria.map((criterion) => ({
+                  classification: "OBSERVED",
+                  criterion,
+                  worker_role: executedRole,
+                  result:
+                    detailItems.length > 0
+                      ? `${executedRole} completed bounded milestone '${activeContract.milestone_id}'`
+                      : `${executedRole} delivered bounded scope for '${activeContract.milestone_id}'`,
+                }))
+              : [];
+          verificationEvidence =
+            criteriaItems.length > 0 || detailItems.length > 0
+              ? [...criteriaItems, ...detailItems]
+              : [
+                  {
+                    classification: "OBSERVED",
+                    worker_role: executedRole,
+                    result: `${executedRole} completed bounded milestone '${activeContract.milestone_id}'`,
+                  },
+                ];
+        }
+        return {
+          milestone_id: activeContract.milestone_id,
+          plan_version: activeContract.plan_version,
+          status: "DONE",
+          worker_role: executedRole,
+          changes_made: changesMade,
+          verification_evidence: verificationEvidence,
+          unresolved_unknowns: workerResult.unresolved_unknowns ?? [],
+          scope_deviations: workerResult.scope_deviations ?? [],
+          ...(hasExplicitCandRef
+            ? { candidate_artifact_ref: workerResult.candidate_artifact_ref }
+            : {}),
+          ...(hasExplicitArtRef ? { artifact_ref: workerResult.artifact_ref } : {}),
+          ...(fallbackArtifactRef !== undefined
+            ? { candidate_artifact_ref: fallbackArtifactRef }
+            : {}),
+          ...(workerResult.coverage_table !== undefined
+            ? { coverage_table: workerResult.coverage_table }
+            : {}),
+          ...(workerResult.halo_review !== undefined
+            ? { halo_review: workerResult.halo_review }
+            : {}),
+        };
+      };
+
+      const buildDirectWorkerPrefix = (role, activeInvalidHandoff) => {
+        if (activeInvalidHandoff) {
+          return correctionInstruction;
+        }
+        if (role === "jaguar") {
+          return (
+            "Execute only this bounded read-only factual discovery task inside bounded_scope. " +
+            "Never mutate files or run write commands. Return a bare JSON result packet " +
+            "(status: READY|BLOCKED|REROUTE_REQUIRED, facts, unresolved_unknowns)."
+          );
+        }
+        if (role === "puma") {
+          return (
+            "Execute only this bounded low-risk mechanical, formatting, doc, or config edit task " +
+            "inside bounded_scope. Return a bare JSON result packet " +
+            "(status: READY|BLOCKED|REROUTE_REQUIRED, changes_made, verification_evidence)."
+          );
+        }
+        return (
+          "Execute only this bounded implementation task inside bounded_scope. Verify changes locally. " +
+          (advisorGateEnabled(process.env, { track: effectiveTrack })
+            ? "When required (ADVISOR_GATE: REQUIRED or Track M), obtain a fresh bound Strix Halo ACCEPT review before reporting READY. "
+            : "The Strix Halo advisor gate is disabled for this run: do not require or wait for an advisor verdict; check implementation work through your own verification and the coverage table instead. ") +
+          (effectiveTrack === "M"
+            ? "Track M policy is active: a fresh bound Strix Halo ACCEPT review is mandatory before Zen summative verification. "
+            : "") +
+          "Return a bare JSON result packet (READY|BLOCKED|DONE) with changes_made, verification_evidence, and candidate_artifact_ref."
+        );
+      };
+
+      const invokeDirectWorker = async (currentRoute, activeContract, activeInvalidHandoff) => {
+        let targetRole = currentRoute.role;
+        let targetSlug = currentRoute.slug ?? null;
+        let workerContract = activeInvalidHandoff
+          ? { ...activeContract, invalid_handoff: activeInvalidHandoff }
+          : activeContract;
+
+        const callWorker = async (role, slug, pktContract) => {
+          const prefix = buildDirectWorkerPrefix(role, activeInvalidHandoff);
+          const workerSlice = {
+            ...pktContract,
+            task: `${prefix}\n${JSON.stringify(pktContract)}`,
+            worker_role: role,
+            track: effectiveTrack,
+            harness: composeModelAwareHarness({
+              role,
+              modelSlug: slug,
+              track: effectiveTrack,
+              contextDigest: activeContract.context_digest,
+            }),
+          };
+          return await this.invokeSpecialist(role, workerSlice, {
+            caller: "steamroller",
+            directMilestoneExecution: true,
+            ...(slug ? { slug } : {}),
+          });
+        };
+
+        let workerResult = await callWorker(targetRole, targetSlug, workerContract);
+        if (workerResult?.status === "REROUTE_REQUIRED") {
+          const nextRole = String(workerResult.reroute_to || "bobcat").trim().toLowerCase();
+          if (!["bobcat", "bulldozer"].includes(nextRole)) {
+            throw new InvalidHandoffPacketError(
+              `Invalid REROUTE_REQUIRED target '${nextRole}' from '${targetRole}'`
+            );
+          }
+          if (nextRole === "bulldozer") {
+            const coordContract = {
+              ...workerContract,
+              rerouted_from: targetRole,
+              reroute_reason: workerResult.reason ?? "REROUTE_REQUIRED",
+            };
+            const packet = await invokeCoordinator(
+              activeInvalidHandoff ? correctionInstruction : instruction,
+              coordContract
+            );
+            return { executedRole: "bulldozer", packet };
+          }
+          const reroutedContract = {
+            ...workerContract,
+            rerouted_from: targetRole,
+            reroute_reason: workerResult.reason ?? "REROUTE_REQUIRED",
+          };
+          targetRole = "bobcat";
+          const rerouteInfo = this.selectWorkerRoute({
+            track: effectiveTrack,
+            task: activeContract.objective || milestoneDef?.title || "",
+            targetFiles: activeContract.bounded_scope ?? [],
+            preferredRole: "bobcat",
+            resolveModel: currentRoute.slug ? "best_effort" : false,
+          });
+          targetSlug = rerouteInfo.slug ?? null;
+          workerResult = await callWorker(targetRole, targetSlug, reroutedContract);
+        }
+
+        return {
+          executedRole: targetRole,
+          packet: normalizeDirectWorkerCandidate(workerResult, targetRole, activeContract),
+        };
+      };
+
       const inRunNoGos = [];
       for (let attempt = 0; ; attempt += 1) {
         this.#pendingHaloReviews.delete(milestoneId);
+        const attemptRoute = attempt === 0 ? initialRoute : resolveExecutionRoute(contract, attempt);
+        let executedRole = attemptRoute.role;
         const executeInstruction = attempt === 0 ? instruction : repairInstruction;
         let verifyResults = null;
         let treeDigest = null;
@@ -1463,25 +1881,22 @@ export class SteamrollerController {
         let invalidHandoff;
         for (let correction = 0; correction <= MAX_HANDOFF_CORRECTIONS; correction += 1) {
           try {
-            candidate = await invokeCoordinator(
-              invalidHandoff
-                ? "Correct only the invalid result packet for this milestone using the existing " +
-                    "delivered artifacts and evidence. Do not re-execute completed work or invent " +
-                    "an artifact binding. Return the complete corrected JSON packet; if unable " +
-                    "to bind the delivered artifact, return BLOCKED. " +
-                    (coverageProbes.length
-                      ? "The corrected packet must carry a complete coverage_table: exactly one row per " +
-                        "site in coverage_sites (coverage_id and site as file:line must match, disposition " +
-                        "COVERED or NOT_APPLICABLE), computed against the final tree. "
-                      : "") +
-                    "Do not invoke Zen, write the ledger or claim global completion."
-                : executeInstruction,
-              invalidHandoff ? { ...contract, invalid_handoff: invalidHandoff } : contract
-            );
+            if (attemptRoute.role === "bulldozer") {
+              executedRole = "bulldozer";
+              candidate = await invokeCoordinator(
+                invalidHandoff ? correctionInstruction : executeInstruction,
+                invalidHandoff ? { ...contract, invalid_handoff: invalidHandoff } : contract
+              );
+            } else {
+              const directOut = await invokeDirectWorker(attemptRoute, contract, invalidHandoff);
+              executedRole = directOut.executedRole;
+              candidate = directOut.packet;
+            }
           } catch (error) {
             if (Array.isArray(error?.coordinatorBlocked)) {
               return {
                 status: "BLOCKED",
+                worker_role: executedRole,
                 candidate: null,
                 blockers: error.coordinatorBlocked,
                 verified: false,
@@ -1502,6 +1917,7 @@ export class SteamrollerController {
                 "DONE must bind immutable delivered artifact versions in candidate_artifact_ref"
               );
             }
+            coverageCwd = this.#resolveScopeCwd(contract.bounded_scope);
             const check = this.#runCheck(candidate, {
               contract,
               coverageProbes,
@@ -1538,6 +1954,7 @@ export class SteamrollerController {
               this.#saveLedger();
               return {
                 status: "BLOCKED",
+                worker_role: executedRole,
                 candidate: deepClone(candidate),
                 blockers,
                 verified: false,
@@ -1583,7 +2000,12 @@ export class SteamrollerController {
             evidence: candidate,
           });
           this.#saveLedger();
-          return { status: candidate.status, candidate: deepClone(candidate), verified: false };
+          return {
+            status: candidate.status,
+            worker_role: executedRole,
+            candidate: deepClone(candidate),
+            verified: false,
+          };
         }
         if (candidate.status !== "DONE") {
           throw new Error("Only explicit Bulldozer DONE may enter Zen review");
@@ -1591,7 +2013,10 @@ export class SteamrollerController {
         if ("verdict" in candidate || "zen_verdict" in candidate || "result_ref" in candidate) {
           throw new Error("Bulldozer cannot issue result references or Zen authority");
         }
-        const { result_ref, candidate_record } = this.#ledger.receiveCandidate(candidate);
+        const { result_ref, candidate_record } = this.#ledger.receiveCandidate(candidate, {
+          cwd: coverageCwd,
+          deliveredTreeDigest: treeDigest,
+        });
         this.#saveLedger();
         const request = deepFreeze(
           deepClone({
@@ -1644,14 +2069,19 @@ export class SteamrollerController {
           },
         });
         const verdict = deepClone(trackVerification.zen_verdict);
+        const postZenTreeDigest = computeDeliveredTreeDigest(contract.bounded_scope ?? [], {
+          cwd: coverageCwd,
+        });
         this.#applyZenVerdict(contract, result_ref, verdict, {
           candidateTreeDigest: candidate_record.delivered_tree_digest ?? treeDigest ?? null,
+          expectedTreeDigest: postZenTreeDigest,
         });
         this.#saveLedger();
         if (verdict.verdict === "GO") {
           return {
             status: "DONE",
             track: effectiveTrack,
+            worker_role: executedRole,
             halo_status: trackVerification.halo_status,
             halo_review: trackVerification.halo_review,
             result_ref,
@@ -1665,6 +2095,7 @@ export class SteamrollerController {
           return {
             status: "DONE",
             track: effectiveTrack,
+            worker_role: executedRole,
             halo_status: trackVerification.halo_status,
             halo_review: trackVerification.halo_review,
             result_ref,
@@ -1676,7 +2107,7 @@ export class SteamrollerController {
             }),
           };
         }
-        contract = enrichPacket(this.#ledger.delegate(milestoneId));
+        contract = enrichPacket(this.#ledger.delegate(milestoneId), "bulldozer");
         contract.repair = {
           attempt: attempt + 1,
           repair_needs: verdict.repair_needs,
@@ -1811,11 +2242,14 @@ export class SteamrollerController {
       expectedResultRef: resultRef,
       expectedCriteria: contract.acceptance_criteria ?? [],
       candidateTreeDigest: opts.candidateTreeDigest ?? null,
+      expectedTreeDigest: opts.expectedTreeDigest ?? null,
       errorClass: Error,
       noGoErrorClass: InvalidHandoffPacketError,
     });
     if (verdict.verdict === "GO") {
-      this.#ledger.recordZenGo(verdict, { expectedTreeDigest: opts.candidateTreeDigest });
+      this.#ledger.recordZenGo(verdict, {
+        expectedTreeDigest: opts.expectedTreeDigest ?? opts.candidateTreeDigest,
+      });
     } else {
       this.#ledger.recordZenNoGo(verdict);
     }
@@ -1823,7 +2257,43 @@ export class SteamrollerController {
 
   async reviewCandidate(milestoneId = null) {
     this.#idle();
-    const opened = this.#ledger.reopenLastCandidateReview(milestoneId);
+    let targetId = milestoneId;
+    if (targetId === null) {
+      const state = this.state;
+      let selected = null;
+      for (const m of state.milestones) {
+        if (state.completed_milestones.includes(m.id)) continue;
+        const candidates = state.evidence?.[m.id]?.candidates;
+        if (!Array.isArray(candidates) || candidates.length === 0) continue;
+        const last = candidates[candidates.length - 1];
+        if (!last || typeof last !== "object" || last.plan_version !== state.plan_version) continue;
+        if (!selected || String(last.timestamp ?? "") > String(selected.timestamp ?? "")) {
+          selected = { id: m.id, timestamp: last.timestamp };
+        }
+      }
+      targetId = selected?.id ?? null;
+    }
+    const targetMilestone =
+      targetId !== null ? this.#ledger.milestones.find((m) => m.id === targetId) ?? null : null;
+    const coverageCwd = targetMilestone
+      ? this.#resolveScopeCwd(targetMilestone.bounded_scope ?? [])
+      : this.cwd;
+    const liveTreeDigest = targetMilestone
+      ? computeDeliveredTreeDigest(targetMilestone.bounded_scope ?? [], { cwd: coverageCwd })
+      : null;
+
+    let opened;
+    try {
+      opened = this.#ledger.reopenLastCandidateReview(milestoneId, {
+        cwd: coverageCwd,
+        expectedTreeDigest: liveTreeDigest,
+      });
+    } catch (error) {
+      if (error instanceof StaleVerdictError) {
+        this.#saveLedger();
+      }
+      throw error;
+    }
     this.#saveLedger();
     this.#busy = true;
     try {
@@ -1838,6 +2308,11 @@ export class SteamrollerController {
           result_ref: opened.result_ref,
           contract: opened.contract,
           candidate: opened.candidate_record,
+          ...(opened.candidate_record?.delivered_tree_digest
+            ? { delivered_tree_digest: opened.candidate_record.delivered_tree_digest }
+            : liveTreeDigest
+              ? { delivered_tree_digest: liveTreeDigest }
+              : {}),
         })
       );
       const verdict = deepClone(
@@ -1854,8 +2329,13 @@ export class SteamrollerController {
           () => zenFn(request)
         )
       );
+      const postZenTreeDigest = computeDeliveredTreeDigest(
+        opened.contract.bounded_scope ?? [],
+        { cwd: coverageCwd }
+      );
       this.#applyZenVerdict(opened.contract, opened.result_ref, verdict, {
         candidateTreeDigest: opened.candidate_record?.delivered_tree_digest ?? null,
+        expectedTreeDigest: postZenTreeDigest,
       });
       this.#saveLedger();
       return {
