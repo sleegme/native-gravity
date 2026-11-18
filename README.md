@@ -1,5 +1,7 @@
 # Native Gravity (NTG)
 
+[![XERJ Corpus Hub contributor](https://hub.xerj.org/contributors/sleegme/badge.svg)](https://hub.xerj.org/contributors/sleegme)
+
 [한국어](docs/ko/README.md)
 
 ## What is NTG?
