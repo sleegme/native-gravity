@@ -7,13 +7,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { breakStaleLedgerLock, main, nativeZen, parseZenEnvelope, resolveInvocationTimeoutMs, ROLE_TIMEOUT_S, DEFAULT_RUNNER_TIMEOUT_S } from '../scripts/ntg-vnext.mjs';
-import { AuthoritativeLedger, computeUsageRollup } from '../scripts/ledger.mjs';
+import { AuthoritativeLedger, computeDeliveredTreeDigest, computeUsageRollup } from '../scripts/ledger.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { symlinkSync } from 'node:fs';
 
 const CLI = new URL('../scripts/ntg-vnext.mjs', import.meta.url).pathname;
 import { parseResponseEnvelope, parseResponsePacket } from '../scripts/runner.mjs';
-import { LightweightLog } from '../src/core/lightweight-log.mjs';
+import { LightweightLog, computeAcceptanceDigest } from '../src/core/lightweight-log.mjs';
 
 const observed = [{ classification: 'OBSERVED', criterion: 'content matches', result: 'inspected' }];
 const plan = (version = 'v1', ids = ['one', 'two']) => ({
@@ -40,9 +40,34 @@ function harness(t, { zen = () => 'GO' } = {}) {
       timeouts.push(runnerOptions.timeout);
       escalations.push(runnerOptions.escalate === true);
       if (role === 'piledriver') return envelope({ recommendation: 'advisory only' });
-      if (role === 'strix-halo') return envelope({ verdict: 'ACCEPT', findings: [] });
+      if (role === 'strix-halo') {
+        const req = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+        return envelope({
+          caller: req.caller,
+          candidate_id_or_run_id: req.candidate_id_or_run_id,
+          reviewed_diff_digest: req.reviewed_diff_digest,
+          acceptance_criteria_digest: req.acceptance_criteria_digest,
+          plan_version: req.plan_version,
+          evidence_basis: req.evidence_basis,
+          verdict: 'ACCEPT',
+          findings: [],
+        });
+      }
       const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
       contracts.push(contract);
+      if (role === 'puma') {
+        return envelope({
+          status: 'READY',
+          changes_made: contract.bounded_scope?.length ? contract.bounded_scope : ['updated'],
+          verification_evidence: observed,
+        });
+      }
+      if (role === 'jaguar') {
+        return envelope({
+          status: 'READY',
+          facts: ['observed target'],
+        });
+      }
       if (role === 'instinct') {
         return envelope({
           current_framing: 'stalled framing',
@@ -751,7 +776,18 @@ test('usage telemetry: records per-role entries in ledger and surfaces rollup in
       if (role === 'bulldozer') {
         if (runnerOptions.invokeSpecialist) {
           await runnerOptions.invokeSpecialist('bobcat', { task: 'implement' });
-          await runnerOptions.invokeSpecialist('strix-halo', { task: 'review' }, { caller: 'bobcat' });
+          await runnerOptions.invokeSpecialist(
+            'strix-halo',
+            {
+              task: 'review',
+              candidate_id_or_run_id: 'sha256:one',
+              reviewed_diff_digest: computeDeliveredTreeDigest(['one.txt'], { cwd: process.cwd() }),
+              acceptance_criteria_digest: computeAcceptanceDigest(['content matches']),
+              plan_version: 'v1',
+              evidence_basis: observed,
+            },
+            { caller: 'bobcat' }
+          );
         }
         return {
           ok: true,
@@ -790,7 +826,15 @@ test('usage telemetry: records per-role entries in ledger and surfaces rollup in
           slug: 'gemini-3.8-flash-high',
           duration_ms: 80,
           usage: { input_tokens: 30, output_tokens: 5, total_tokens: 35 },
-          response: JSON.stringify({ verdict: 'ACCEPT' }),
+          response: JSON.stringify({
+            caller: options?.caller ?? 'bobcat',
+            candidate_id_or_run_id: slice?.candidate_id_or_run_id,
+            reviewed_diff_digest: slice?.reviewed_diff_digest,
+            acceptance_criteria_digest: slice?.acceptance_criteria_digest,
+            plan_version: slice?.plan_version,
+            evidence_basis: slice?.evidence_basis,
+            verdict: 'ACCEPT',
+          }),
         };
       }
       return { ok: true, response: '{}' };
@@ -1389,12 +1433,14 @@ test('tactical-replan bumps plan_version and marks prior Zen GO verdicts STALE',
   assert.equal(disk._verification_history.some(v => v.is_stale === true && v.plan_version === 'v1'), true);
 });
 
-test('run --track L executes via SteamrollerController and records HALO_LIGHTWEIGHT without durable ledger', async t => {
+test('run --track L executes via SteamrollerController and auto-selects Puma/Jaguar without preferredRole (#235)', async t => {
   const h = harness(t);
   const { code, out } = await h.cli('run', '--track', 'L', '--task', 'Fix README typo');
   assert.equal(code, 0);
   assert.equal(out.track, 'L');
   assert.equal(out.assurance_badge, 'HALO_LIGHTWEIGHT');
+  assert.equal(out.results[0].worker_role, 'puma');
+  assert.ok(h.calls.includes('puma'));
   assert.ok(h.calls.includes('strix-halo'));
   assert.equal(h.calls.some(c => c.startsWith('zen:')), false);
   assert.equal(existsSync(h.ledger), false);
@@ -1402,6 +1448,25 @@ test('run --track L executes via SteamrollerController and records HALO_LIGHTWEI
   const entries = log.readAll();
   assert.equal(entries.length, 1);
   assert.equal(entries[0].assurance_badge, 'HALO_LIGHTWEIGHT');
+  assert.equal(entries[0].worker_role, 'puma');
+
+  // Read-only locate/inspect task routes automatically to Jaguar
+  const jagRes = await h.cli('run', '--track', 'L', '--task', 'Locate all references in docs/architecture.md');
+  assert.equal(jagRes.code, 0);
+  assert.equal(jagRes.out.results[0].worker_role, 'jaguar');
+  assert.ok(h.calls.includes('jaguar'));
+});
+
+test('ntg-vnext runs directly on SteamrollerController without depending on MinimalSpine (#234)', () => {
+  const vnextSource = readFileSync(CLI, 'utf8');
+  assert.doesNotMatch(vnextSource, /from ['"]\.\/spine\.mjs['"]/);
+  assert.doesNotMatch(vnextSource, /\bnew MinimalSpine\b/);
+  assert.match(vnextSource, /from ['"]\.\.\/src\/runtime\/steamroller-controller\.mjs['"]/);
+  assert.match(vnextSource, /\bnew SteamrollerController\b/);
+
+  const spineSource = readFileSync(new URL('../scripts/spine.mjs', import.meta.url).pathname, 'utf8');
+  assert.ok(spineSource.split('\n').length < 60, 'scripts/spine.mjs should be a thin compatibility shim');
+  assert.match(spineSource, /steamroller-controller\.mjs/);
 });
 
 test('run --track L --escalate verifies with Zen and persists ZEN_DURABLE to lightweight log and ledger', async t => {
@@ -1455,7 +1520,19 @@ test('run --track M enforces mandatory strix-halo before Zen and rejects on Halo
   const reviseDeps = {
     handleSignals: false,
     invokeRole: async (role, packet) => {
-      if (role === 'strix-halo') return envelope({ verdict: 'REVISE', findings: ['defect'] });
+      if (role === 'strix-halo') {
+        const req = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+        return envelope({
+          caller: req.caller,
+          candidate_id_or_run_id: req.candidate_id_or_run_id,
+          reviewed_diff_digest: req.reviewed_diff_digest,
+          acceptance_criteria_digest: req.acceptance_criteria_digest,
+          plan_version: req.plan_version,
+          evidence_basis: req.evidence_basis,
+          verdict: 'REVISE',
+          findings: ['defect'],
+        });
+      }
       const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
       return envelope({
         milestone_id: contract.milestone_id, plan_version: contract.plan_version, status: 'DONE',

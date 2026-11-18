@@ -135,7 +135,7 @@ export class LightweightLog {
 
     if (status === 'COMPLETED') {
       const expected = {
-        candidate_id_or_run_id: entry.halo_review?.candidate_id_or_run_id ?? runId,
+        candidate_id_or_run_id: runId,
         reviewed_diff_digest: entry.reviewed_diff_digest,
         acceptance_criteria_digest: entry.acceptance_criteria_digest,
         plan_version: planVersion,

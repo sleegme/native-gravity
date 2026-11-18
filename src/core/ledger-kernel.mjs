@@ -345,6 +345,159 @@ export function validateZenGoSemantics(verRecord, opts = {}) {
   return true;
 }
 
+/**
+ * Single authoritative runtime Zen verdict validator shared by LedgerKernel,
+ * TrackRunner, and SteamrollerController (#233).
+ */
+export function validateZenVerdictPacket(verdict, opts = {}) {
+  const ErrorClass = opts.errorClass || InvalidTransitionError;
+  const StaleErrorClass = opts.staleErrorClass || ErrorClass;
+  const MismatchErrorClass = opts.mismatchErrorClass || ErrorClass;
+  const NoGoErrorClass = opts.noGoErrorClass || ErrorClass;
+  const requireObservedItems = opts.requireObservedItems !== false;
+  const requireRepairNeedsForNoGo = opts.requireRepairNeedsForNoGo !== false;
+
+  if (!verdict || typeof verdict !== "object" || Array.isArray(verdict)) {
+    throw new ErrorClass("Verdict packet must be an object");
+  }
+
+  const milestoneId = verdict.milestone_id ?? verdict.milestoneId;
+  if (typeof milestoneId !== "string" || !milestoneId.trim()) {
+    throw new ErrorClass(
+      opts.expectedMilestone !== undefined && opts.expectedMilestone !== null
+        ? "Zen verdict does not match the current candidate binding"
+        : "Zen verdict milestone_id must be a non-empty string"
+    );
+  }
+  if (
+    opts.expectedMilestone !== undefined &&
+    opts.expectedMilestone !== null &&
+    milestoneId !== opts.expectedMilestone
+  ) {
+    throw new ErrorClass(
+      `Zen verdict does not match the current candidate binding: milestone_id '${milestoneId}' != '${opts.expectedMilestone}'`
+    );
+  }
+
+  const planVersion = verdict.plan_version ?? verdict.planVersion;
+  if (planVersion === undefined || planVersion === null || planVersion === "") {
+    throw new ErrorClass(
+      opts.expectedPlanVersion !== undefined && opts.expectedPlanVersion !== null
+        ? "Zen verdict does not match the current candidate binding"
+        : "Zen verdict plan_version must be present"
+    );
+  }
+  if (
+    opts.expectedPlanVersion !== undefined &&
+    opts.expectedPlanVersion !== null &&
+    planVersion !== opts.expectedPlanVersion
+  ) {
+    throw new StaleErrorClass(
+      `Zen verdict does not match the current candidate binding: plan_version '${planVersion}' != '${opts.expectedPlanVersion}'`
+    );
+  }
+
+  if (typeof opts.beforeResultRefCheck === "function") {
+    opts.beforeResultRefCheck();
+  }
+
+  const resultRef = verdict.result_ref ?? verdict.resultRef;
+  if (typeof resultRef !== "string" || !resultRef.trim()) {
+    throw new ErrorClass(
+      opts.expectedResultRef !== undefined && opts.expectedResultRef !== null
+        ? "Zen verdict does not match the current candidate binding"
+        : "Zen verdict result_ref must be a non-empty string"
+    );
+  }
+  if (
+    opts.expectedResultRef !== undefined &&
+    opts.expectedResultRef !== null &&
+    resultRef !== opts.expectedResultRef
+  ) {
+    throw new MismatchErrorClass(
+      `Zen verdict does not match the current candidate binding: result_ref '${resultRef}' != '${opts.expectedResultRef}'`
+    );
+  }
+
+  if (verdict.verdict !== "GO" && verdict.verdict !== "NO-GO") {
+    throw new ErrorClass("Zen must return an observed GO or NO-GO");
+  }
+  if (opts.expectedVerdict && verdict.verdict !== opts.expectedVerdict) {
+    throw new ErrorClass(
+      `Expected Zen verdict '${opts.expectedVerdict}', got '${verdict.verdict}'`
+    );
+  }
+
+  const verdictTreeDigest = verdict.delivered_tree_digest ?? null;
+  if (
+    opts.candidateTreeDigest &&
+    opts.expectedTreeDigest &&
+    opts.candidateTreeDigest !== opts.expectedTreeDigest
+  ) {
+    throw new ErrorClass(
+      `Zen GO delivered_tree_digest '${opts.expectedTreeDigest}' does not match candidate digest '${opts.candidateTreeDigest}'`
+    );
+  }
+  if (
+    opts.candidateTreeDigest &&
+    verdictTreeDigest !== null &&
+    opts.candidateTreeDigest !== verdictTreeDigest
+  ) {
+    throw new ErrorClass(
+      `Zen GO delivered_tree_digest '${verdictTreeDigest}' does not match candidate digest '${opts.candidateTreeDigest}'`
+    );
+  }
+  if (
+    opts.expectedTreeDigest &&
+    verdictTreeDigest !== null &&
+    opts.expectedTreeDigest !== verdictTreeDigest
+  ) {
+    throw new ErrorClass(
+      `Zen GO delivered_tree_digest '${verdictTreeDigest}' does not match candidate digest '${opts.expectedTreeDigest}'`
+    );
+  }
+
+  if (
+    !Array.isArray(verdict.verification_evidence) ||
+    verdict.verification_evidence.length === 0 ||
+    isEvidenceEmpty(verdict.verification_evidence)
+  ) {
+    throw new ErrorClass("Zen must supply directly observed verification evidence");
+  }
+
+  if (requireObservedItems) {
+    const unobserved = verdict.verification_evidence.filter((item) => item?.classification !== "OBSERVED");
+    if (unobserved.length > 0) {
+      const named = unobserved.map(
+        (item) => `${item?.classification ?? "UNCLASSIFIED"}: ${item?.criterion ?? "unnamed criterion"}`
+      );
+      throw new ErrorClass(
+        `Zen must supply directly observed verification evidence; not observed: ${named.join("; ")}`
+      );
+    }
+  }
+
+  if (verdict.verdict === "GO") {
+    const uncovered = uncoveredAcceptanceCriteria(opts.expectedCriteria ?? [], verdict.verification_evidence);
+    if (uncovered.length > 0) {
+      throw new UncoveredCriteriaError(
+        `Zen GO must cover every acceptance criterion with OBSERVED evidence naming the criterion and a non-empty result; uncovered: ${JSON.stringify(uncovered)}`,
+        { uncovered }
+      );
+    }
+  }
+
+  if (
+    requireRepairNeedsForNoGo &&
+    verdict.verdict === "NO-GO" &&
+    (typeof verdict.repair_needs !== "string" || !verdict.repair_needs.trim())
+  ) {
+    throw new NoGoErrorClass("Zen NO-GO must supply non-empty repair_needs");
+  }
+
+  return true;
+}
+
 export function verifyCandidateIntegrity(candidate, expectedRef = null, opts = {}) {
   if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
     throw new InvariantViolationError("Candidate record must be an object");
@@ -1351,7 +1504,16 @@ export class LedgerKernel {
     if (!key || typeof key !== "string" || !key.trim()) {
       throw new InvalidTransitionError("Halo review requires milestone_id or candidate_id_or_run_id");
     }
-    const planVersion = reviewPacket.plan_version ?? this.plan_version;
+    if (
+      reviewPacket.plan_version === undefined ||
+      reviewPacket.plan_version === null ||
+      String(reviewPacket.plan_version).trim() === ""
+    ) {
+      throw new InvalidTransitionError(
+        "Invalid Halo review binding: Halo review missing required binding field 'plan_version'"
+      );
+    }
+    const planVersion = reviewPacket.plan_version;
     if (planVersion !== this.plan_version) {
       throw new StaleVerdictError(
         `Halo review plan_version '${planVersion}' does not match current ledger plan_version '${this.plan_version}'`
@@ -1361,15 +1523,14 @@ export class LedgerKernel {
     const milestone = this.milestones.find((m) => m.id === key);
     const expectedCriteriaDigest = milestone
       ? computeAcceptanceDigest(milestone.acceptance_criteria)
-      : reviewPacket.acceptance_criteria_digest;
+      : undefined;
 
-    const bindingCheck = validateHaloReviewBinding(
-      { ...reviewPacket, plan_version: planVersion },
-      {
-        plan_version: this.plan_version,
-        acceptance_criteria_digest: expectedCriteriaDigest,
-      }
-    );
+    const bindingCheck = validateHaloReviewBinding(reviewPacket, {
+      plan_version: this.plan_version,
+      ...(expectedCriteriaDigest !== undefined
+        ? { acceptance_criteria_digest: expectedCriteriaDigest }
+        : {}),
+    });
     if (!bindingCheck.valid) {
       throw new InvalidTransitionError(`Invalid Halo review binding: ${bindingCheck.reason}`);
     }
@@ -1533,78 +1694,31 @@ export class LedgerKernel {
       throw new InvalidTransitionError("No active milestone for Zen verdict");
     }
 
-    const milestoneId = verdictPacket.milestone_id ?? verdictPacket.milestoneId;
-    if (typeof milestoneId !== "string" || !milestoneId.trim()) {
-      throw new InvalidTransitionError("Zen verdict milestone_id must be a non-empty string");
-    }
-    if (milestoneId !== this.current_milestone) {
-      throw new InvalidTransitionError(
-        `Zen verdict milestone_id '${milestoneId}' does not match active milestone '${this.current_milestone}'`
-      );
-    }
-
-    const planVersion = verdictPacket.plan_version ?? verdictPacket.planVersion;
-    if (planVersion === undefined || planVersion === null || planVersion === "") {
-      throw new InvalidTransitionError("Zen verdict plan_version must be present");
-    }
-    if (planVersion !== this.plan_version) {
-      throw new StaleVerdictError(
-        `Zen verdict plan_version '${planVersion}' does not match current ledger plan_version '${this.plan_version}'`
-      );
-    }
-
     const activeCandidate = this._active_candidates[this.current_milestone];
-    if (!activeCandidate) {
-      throw new InvalidTransitionError(
-        `No active candidate received for milestone '${this.current_milestone}'`
-      );
-    }
+    const milestone = this.milestones.find((m) => m.id === this.current_milestone);
 
-    const resultRef = verdictPacket.result_ref ?? verdictPacket.resultRef;
-    if (typeof resultRef !== "string" || !resultRef.trim()) {
-      throw new InvalidTransitionError("Zen verdict result_ref must be a non-empty string");
-    }
-    if (resultRef !== activeCandidate.result_ref) {
-      throw new MismatchedResultRefError(
-        `Zen verdict result_ref '${resultRef}' does not match active candidate result_ref '${activeCandidate.result_ref}'`
-      );
-    }
+    validateZenVerdictPacket(verdictPacket, {
+      expectedMilestone: this.current_milestone,
+      expectedPlanVersion: this.plan_version,
+      beforeResultRefCheck: () => {
+        if (!activeCandidate) {
+          throw new InvalidTransitionError(
+            `No active candidate received for milestone '${this.current_milestone}'`
+          );
+        }
+      },
+      expectedResultRef: activeCandidate?.result_ref,
+      expectedVerdict: "GO",
+      expectedCriteria: milestone?.acceptance_criteria ?? [],
+      candidateTreeDigest: activeCandidate?.delivered_tree_digest,
+      expectedTreeDigest: opts.expectedTreeDigest,
+      errorClass: InvalidTransitionError,
+      staleErrorClass: StaleVerdictError,
+      mismatchErrorClass: MismatchedResultRefError,
+    });
 
-    if (verdictPacket.verdict !== "GO") {
-      throw new InvalidTransitionError(
-        `recordZenGo requires explicit verdict 'GO', got '${verdictPacket.verdict}'`
-      );
-    }
-
-    if (isEvidenceEmpty(verdictPacket.verification_evidence)) {
-      throw new InvalidTransitionError(
-        "Zen verdict verification_evidence must be provided and cannot be empty"
-      );
-    }
-
-    // #201 A3: verify delivered_tree_digest if bound on active candidate
-    const expectedTreeDigest = opts.expectedTreeDigest ?? verdictPacket.delivered_tree_digest;
-    if (
-      activeCandidate.delivered_tree_digest &&
-      expectedTreeDigest &&
-      activeCandidate.delivered_tree_digest !== expectedTreeDigest
-    ) {
-      throw new InvalidTransitionError(
-        `Zen GO delivered_tree_digest '${expectedTreeDigest}' does not match candidate digest '${activeCandidate.delivered_tree_digest}'`
-      );
-    }
-
-    const milestone = this.milestones.find((m) => m.id === milestoneId);
-    const uncovered = uncoveredAcceptanceCriteria(
-      milestone?.acceptance_criteria,
-      verdictPacket.verification_evidence
-    );
-    if (uncovered.length) {
-      throw new UncoveredCriteriaError(
-        `Zen GO must cover every acceptance criterion with OBSERVED evidence naming the criterion and a non-empty result; uncovered: ${JSON.stringify(uncovered)}`,
-        { uncovered }
-      );
-    }
+    const milestoneId = this.current_milestone;
+    const resultRef = activeCandidate.result_ref;
 
     const verificationRecord = Object.freeze({
       milestone_id: milestoneId,

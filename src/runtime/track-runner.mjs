@@ -1,9 +1,10 @@
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
+  InvalidTransitionError,
   LedgerKernel,
   isEvidenceEmpty,
-  uncoveredAcceptanceCriteria,
+  validateZenVerdictPacket,
 } from "../core/ledger-kernel.mjs";
 import {
   LightweightLog,
@@ -12,13 +13,14 @@ import {
   validateHaloReviewBinding,
 } from "../core/lightweight-log.mjs";
 import {
+  analyzeWorkSemantics,
   buildContextDigest,
   buildHaloReviewRequest,
   composeModelAwareHarness,
   evaluateLightweightSuitability,
   validateLightweightResult,
 } from "../harness/index.mjs";
-import { parseResponsePacket } from "../../scripts/runner.mjs";
+import { InvalidHandoffPacketError, parseResponsePacket } from "../../scripts/runner.mjs";
 
 function unwrapPacket(res) {
   if (res && typeof res === "object" && typeof res.response === "string") {
@@ -28,24 +30,6 @@ function unwrapPacket(res) {
     }
   }
   return res;
-}
-
-function hydrateHaloResponse(rawHalo, reviewRequest) {
-  const unwrapped = unwrapPacket(rawHalo);
-  if (!unwrapped || typeof unwrapped !== "object" || Array.isArray(unwrapped)) {
-    return unwrapped;
-  }
-  return {
-    ...unwrapped,
-    caller: unwrapped.caller ?? reviewRequest.caller,
-    candidate_id_or_run_id:
-      unwrapped.candidate_id_or_run_id ?? reviewRequest.candidate_id_or_run_id,
-    reviewed_diff_digest: unwrapped.reviewed_diff_digest ?? reviewRequest.reviewed_diff_digest,
-    acceptance_criteria_digest:
-      unwrapped.acceptance_criteria_digest ?? reviewRequest.acceptance_criteria_digest,
-    plan_version: unwrapped.plan_version ?? reviewRequest.plan_version,
-    evidence_basis: unwrapped.evidence_basis ?? reviewRequest.evidence_basis,
-  };
 }
 
 /**
@@ -87,7 +71,7 @@ export class TrackRunner {
     runId,
     task = "",
     goal = "",
-    workerRole = "bobcat",
+    workerRole = null,
     modelSlug = null,
     workerResult = null,
     haloReview = null,
@@ -97,14 +81,31 @@ export class TrackRunner {
     highRiskEscalation = false,
     evidenceBasis = undefined,
     caller = "steamroller",
+    requiresMutation = undefined,
     requiresShell = false,
     requiresSubstantiveCode = false,
+    isMechanicalEdit = undefined,
+    crossFileDependency = false,
+    requiresCoordinator = false,
   } = {}) {
     if (!runId || typeof runId !== "string" || !runId.trim()) {
       throw new Error("Track L execution requires a non-empty runId");
     }
 
-    let effectiveRole = String(workerRole || "bobcat").trim().toLowerCase();
+    const semantics = analyzeWorkSemantics({
+      task: task || goal,
+      targetFiles: boundedScope,
+      requiresMutation,
+      requiresShell,
+      requiresSubstantiveCode,
+      isMechanicalEdit,
+      crossFileDependency,
+      requiresCoordinator,
+      highRisk: highRiskEscalation,
+    });
+    let effectiveRole = workerRole
+      ? String(workerRole).trim().toLowerCase()
+      : semantics.recommendedRole;
     let reroutedFrom = null;
     let rerouteReason = null;
 
@@ -112,8 +113,13 @@ export class TrackRunner {
       role: effectiveRole,
       task,
       targetFiles: boundedScope,
+      requiresMutation,
       requiresShell,
       requiresSubstantiveCode,
+      isMechanicalEdit,
+      crossFileDependency,
+      requiresCoordinator,
+      highRisk: highRiskEscalation,
     });
     if (!suitability.suitable && suitability.rerouteTo) {
       reroutedFrom = effectiveRole;
@@ -229,7 +235,10 @@ export class TrackRunner {
       if (typeof this.#invokeHalo !== "function") {
         throw new Error("Track L requires invokeHalo for mandatory Strix Halo review");
       }
-      rawHalo = hydrateHaloResponse(await this.#invokeHalo(reviewRequest), reviewRequest);
+      rawHalo = unwrapPacket(await this.#invokeHalo(reviewRequest));
+      if (rawHalo?.ok === false) {
+        throw new Error(`Strix Halo invocation failed: ${rawHalo.error || "FAILED"}`);
+      }
     }
 
     const bindingCheck = validateHaloReviewBinding(rawHalo, {
@@ -347,8 +356,6 @@ export class TrackRunner {
           ...rawHalo,
           milestone_id: runId,
           caller: rawHalo.caller ?? caller,
-          candidate_id_or_run_id: rawHalo.candidate_id_or_run_id ?? runId,
-          plan_version: durableLedger.plan_version,
         });
         durableLedger.save(targetLedgerPath);
 
@@ -366,6 +373,9 @@ export class TrackRunner {
               acceptance_criteria: acceptanceCriteria,
               candidate: escalatedCandidate,
               halo_review: rawHalo,
+              ...(escalatedCandidate.delivered_tree_digest
+                ? { delivered_tree_digest: escalatedCandidate.delivered_tree_digest }
+                : {}),
             })
           );
         } catch (zenError) {
@@ -384,71 +394,41 @@ export class TrackRunner {
           throw zenError;
         }
 
-        if (zenVerdict?.verdict !== "GO") {
-          if (zenVerdict?.verdict === "NO-GO") {
-            durableLedger.recordZenNoGo({
-              ...zenVerdict,
-              milestone_id: zenVerdict.milestone_id ?? runId,
-              plan_version: zenVerdict.plan_version ?? durableLedger.plan_version,
-              result_ref: zenVerdict.result_ref ?? escalatedResultRef,
-              verdict: "NO-GO",
-              verification_evidence: !isEvidenceEmpty(zenVerdict.verification_evidence)
-                ? zenVerdict.verification_evidence
-                : [
-                    {
-                      classification: "OBSERVED",
-                      criterion:
-                        (Array.isArray(acceptanceCriteria) && acceptanceCriteria[0]) ||
-                        task ||
-                        runId,
-                      result:
-                        zenVerdict.repair_needs || "High-risk Track L Zen escalation returned NO-GO",
-                    },
-                  ],
-              repair_needs:
-                zenVerdict.repair_needs ||
-                zenVerdict.reason ||
-                "High-risk Track L Zen escalation returned NO-GO",
-            });
-          } else {
+        try {
+          validateZenVerdictPacket(zenVerdict, {
+            expectedMilestone: runId,
+            expectedPlanVersion: durableLedger.plan_version,
+            expectedResultRef: escalatedResultRef,
+            expectedCriteria: acceptanceCriteria,
+            candidateTreeDigest: escalatedCandidate.delivered_tree_digest ?? null,
+            expectedTreeDigest: escalatedCandidate.delivered_tree_digest ?? null,
+            errorClass: InvalidTransitionError,
+          });
+        } catch (validationError) {
+          if (durableLedger.current_milestone === runId) {
             durableLedger.recordBlockedOrFailure({
               milestoneId: runId,
               status: "INVOCATION_FAILURE",
               evidence: {
                 classification: "OBSERVED",
-                verdict: zenVerdict?.verdict ?? "UNKNOWN",
+                error: String(validationError?.message ?? validationError),
                 result_ref: escalatedResultRef,
               },
             });
+            durableLedger.save(targetLedgerPath);
           }
-          durableLedger.save(targetLedgerPath);
-          throw new Error(
-            `High-risk Track L Zen escalation failed with verdict '${zenVerdict?.verdict ?? "UNKNOWN"}'`
-          );
+          throw validationError;
         }
 
-        if (isEvidenceEmpty(zenVerdict.verification_evidence)) {
-          durableLedger.recordBlockedOrFailure({
-            milestoneId: runId,
-            status: "INVOCATION_FAILURE",
-            evidence: {
-              classification: "OBSERVED",
-              error: "Zen GO missing verification_evidence",
-              result_ref: escalatedResultRef,
-            },
-          });
+        if (zenVerdict.verdict === "NO-GO") {
+          durableLedger.recordZenNoGo(zenVerdict);
           durableLedger.save(targetLedgerPath);
-          throw new Error("High-risk Track L Zen GO requires non-empty OBSERVED verification_evidence");
+          throw new Error("High-risk Track L Zen escalation failed with verdict 'NO-GO'");
         }
-        const zenGoPacket = {
-          ...zenVerdict,
-          milestone_id: zenVerdict.milestone_id ?? runId,
-          plan_version: zenVerdict.plan_version ?? durableLedger.plan_version,
-          result_ref: zenVerdict.result_ref ?? escalatedResultRef,
-          verdict: "GO",
-          verification_evidence: zenVerdict.verification_evidence,
-        };
-        durableLedger.recordZenGo(zenGoPacket);
+
+        durableLedger.recordZenGo(zenVerdict, {
+          expectedTreeDigest: escalatedCandidate.delivered_tree_digest,
+        });
         durableLedger.save(targetLedgerPath);
         escalatedLedgerMeta = {
           escalated: true,
@@ -524,7 +504,12 @@ export class TrackRunner {
     const expectedDiffDigest =
       currentDiffDigest ?? computeDiffDigest(contract.bounded_scope ?? [], { cwd: this.cwd });
     const expectedCriteriaDigest = computeAcceptanceDigest(contract.acceptance_criteria ?? []);
-    const candidateRef = candidate?.candidate_artifact_ref ?? candidate?.artifact_ref ?? milestoneId;
+    const candidateRef =
+      candidate?.candidate_artifact_ref ?? candidate?.artifact_ref ?? candidate?.result_ref ?? milestoneId;
+    const expectedResultRef =
+      candidate?.result_ref ?? candidate?.candidate_artifact_ref ?? candidate?.artifact_ref ?? milestoneId;
+    const expectedEvidenceBasis = candidate?.verification_evidence ?? [];
+    const expectedTreeDigest = currentDiffDigest ?? candidate?.delivered_tree_digest ?? null;
 
     let activeHalo = null;
     const haloFn = invokeHalo ?? this.#invokeHalo;
@@ -537,11 +522,11 @@ export class TrackRunner {
           reviewed_diff_digest: expectedDiffDigest,
           acceptance_criteria_digest: expectedCriteriaDigest,
           plan_version: planVersion,
-          evidence_basis: candidate?.verification_evidence ?? [],
+          evidence_basis: expectedEvidenceBasis,
           track: normalizedTrack,
           acceptance_criteria: contract.acceptance_criteria ?? [],
         });
-        rawHalo = hydrateHaloResponse(await haloFn(req), req);
+        rawHalo = unwrapPacket(await haloFn(req));
         if (rawHalo?.ok === false) {
           throw new Error(`Strix Halo invocation failed: ${rawHalo.error || "FAILED"}`);
         }
@@ -550,40 +535,41 @@ export class TrackRunner {
         throw new Error(`Track ${normalizedTrack} requires a fresh bound Strix Halo ACCEPT review`);
       }
       if (rawHalo) {
+        if (typeof rawHalo !== "object" || Array.isArray(rawHalo)) {
+          throw new Error(`Halo review for '${milestoneId}' rejected: response must be an object`);
+        }
         const normalizedPacket = {
-          milestone_id: milestoneId,
+          milestone_id: rawHalo.milestone_id ?? milestoneId,
           caller: rawHalo.caller ?? caller,
-          candidate_id_or_run_id: rawHalo.candidate_id_or_run_id ?? candidateRef,
+          candidate_id_or_run_id: rawHalo.candidate_id_or_run_id,
           reviewed_diff_digest: rawHalo.reviewed_diff_digest,
           acceptance_criteria_digest: rawHalo.acceptance_criteria_digest,
-          plan_version: rawHalo.plan_version ?? planVersion,
+          plan_version: rawHalo.plan_version,
           evidence_basis: rawHalo.evidence_basis,
           verdict: rawHalo.verdict,
           findings: rawHalo.findings ?? [],
           is_stale: rawHalo.is_stale === true,
         };
+        const expectedBinding = {
+          candidate_id_or_run_id: candidateRef,
+          reviewed_diff_digest: expectedDiffDigest,
+          acceptance_criteria_digest: expectedCriteriaDigest,
+          plan_version: planVersion,
+          evidence_basis: expectedEvidenceBasis,
+        };
         if (this.ledger) {
           this.ledger.recordHaloReview(normalizedPacket);
-          const fresh = this.ledger.isHaloReviewFresh(milestoneId, {
-            candidate_id_or_run_id: normalizedPacket.candidate_id_or_run_id,
-            reviewed_diff_digest: expectedDiffDigest,
-            acceptance_criteria_digest: expectedCriteriaDigest,
-            plan_version: planVersion,
-            evidence_basis: rawHalo.evidence_basis,
-          });
+          const fresh = this.ledger.isHaloReviewFresh(milestoneId, expectedBinding);
           if (!fresh.fresh) {
             throw new Error(`Halo review for '${milestoneId}' rejected: ${fresh.reason}`);
           }
           activeHalo = fresh.review;
         } else {
-          const check = validateHaloReviewBinding(normalizedPacket, {
-            candidate_id_or_run_id: normalizedPacket.candidate_id_or_run_id,
-            reviewed_diff_digest: expectedDiffDigest,
-            acceptance_criteria_digest: expectedCriteriaDigest,
-            plan_version: planVersion,
-          });
+          const check = validateHaloReviewBinding(normalizedPacket, expectedBinding);
           if (!check.valid || normalizedPacket.verdict !== "ACCEPT") {
-            throw new Error(`Halo review for '${milestoneId}' rejected: ${check.reason ?? normalizedPacket.verdict}`);
+            throw new Error(
+              `Halo review for '${milestoneId}' rejected: ${check.reason ?? normalizedPacket.verdict}`
+            );
           }
           activeHalo = normalizedPacket;
         }
@@ -597,13 +583,27 @@ export class TrackRunner {
       );
     }
 
-    const zenVerdict = await zenFn({
-      milestone_id: milestoneId,
-      plan_version: planVersion,
-      track: normalizedTrack,
-      candidate,
-      contract,
-      halo_review: activeHalo,
+    const zenVerdict = unwrapPacket(
+      await zenFn({
+        milestone_id: milestoneId,
+        plan_version: planVersion,
+        result_ref: expectedResultRef,
+        track: normalizedTrack,
+        candidate,
+        contract,
+        halo_review: activeHalo,
+        ...(expectedTreeDigest ? { delivered_tree_digest: expectedTreeDigest } : {}),
+      })
+    );
+
+    validateZenVerdictPacket(zenVerdict, {
+      expectedMilestone: milestoneId,
+      expectedPlanVersion: planVersion,
+      expectedResultRef,
+      expectedCriteria: contract.acceptance_criteria ?? [],
+      candidateTreeDigest: candidate?.delivered_tree_digest ?? null,
+      expectedTreeDigest,
+      noGoErrorClass: InvalidHandoffPacketError,
     });
 
     return {
@@ -613,7 +613,7 @@ export class TrackRunner {
       halo_status: activeHalo ? "ACCEPTED" : "OMITTED",
       halo_review: activeHalo,
       zen_verdict: zenVerdict,
-      verified: zenVerdict?.verdict === "GO",
+      verified: zenVerdict.verdict === "GO",
     };
   }
 }

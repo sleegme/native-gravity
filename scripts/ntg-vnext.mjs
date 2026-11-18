@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 /**
- * ntg-vnext — default vNext entry (44G, #134). A thin CLI over MinimalSpine:
- * the spine is Steamroller's ledger authority, the runner invokes Piledriver and
- * Bulldozer with exact models, and Zen is invoked natively and independently.
+ * ntg-vnext — Season 2 control-plane CLI driven directly by SteamrollerController
+ * (`src/runtime/steamroller-controller.mjs`), LedgerKernel, and TrackRunner (#234).
  *
  * Usage:
  *   ntg-vnext init    --ledger L --plan plan.json
@@ -36,7 +35,8 @@ import { existsSync, readFileSync, readdirSync, realpathSync, unlinkSync } from 
 import { basename, dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { MinimalSpine, recommendNeedsAlt, SteamrollerController, TrackRunner } from './spine.mjs';
+import { SteamrollerController, recommendNeedsAlt } from '../src/runtime/steamroller-controller.mjs';
+import { TrackRunner } from '../src/runtime/track-runner.mjs';
 import { createEventLog, makeEvent } from './events.mjs';
 import { AuthoritativeLedger, computeUsageRollup } from './ledger.mjs';
 import { countProbeHits, MAX_PROBE_HITS } from './coverage.mjs';
@@ -333,9 +333,13 @@ export function nativeSpecialist(role, slice, { agyPath: explicitAgyPath, cwd = 
       + 'Halo review packet with caller, candidate_id_or_run_id, reviewed_diff_digest, '
       + 'acceptance_criteria_digest, plan_version, evidence_basis, verdict (ACCEPT, REVISE, or ESCALATE), and findings. Request:\n'
       + JSON.stringify(slice)
-    : `Execute only the bounded ${normalizedRole} assignment and return only a bare JSON `
-      + 'result packet (including status, changes_made or facts, and verification_evidence). Assignment:\n'
-      + JSON.stringify(slice);
+    : ['jaguar', 'puma'].includes(normalizedRole)
+      ? `Execute only the bounded ${normalizedRole} assignment and return only a bare JSON `
+        + `result packet (status: READY|BLOCKED|REROUTE_REQUIRED, ${normalizedRole === 'jaguar' ? 'facts' : 'changes_made'}). Assignment:\n`
+        + JSON.stringify(slice)
+      : `Execute only the bounded ${normalizedRole} assignment and return only a bare JSON `
+        + 'result packet (including status, changes_made or facts, and verification_evidence). Assignment:\n'
+        + JSON.stringify(slice);
   const prompt = `${loadNativeRoleBody(normalizedRole)}\n\n${instruction}`;
   const args = [
     '--model', slug,
@@ -522,7 +526,8 @@ export async function main(argv, deps = {}) {
   const spineRunnerOptions = { ...(opts.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : {}), ...deps.runnerOptions };
   const roleTimeoutMs = role => resolveInvocationTimeoutMs(role, opts);
 
-  let spine;
+  let ledgerOpen = false;
+  let controller;
 
   // Display-only GUI event stream (#175): one events.jsonl line beside the
   // ledger per runner-dispatched role invocation start/end. Best-effort: an
@@ -549,8 +554,8 @@ export async function main(argv, deps = {}) {
         }
       } catch {}
     }
-    if (!milestoneId) {
-      milestoneId = spine?.state?.current_milestone ?? null;
+    if (!milestoneId && ledgerOpen) {
+      milestoneId = controller?.state?.current_milestone ?? null;
     }
 
     let slug = null;
@@ -570,7 +575,7 @@ export async function main(argv, deps = {}) {
     } catch (error) {
       // Incident WQ-5: verify the durable ledger survived the invocation
       // before recording anything, so a violation is never saved over.
-      if (spine) {
+      if (ledgerOpen) {
         verifyLedgerIntegrity(opts.ledger, {
           role, milestoneId, invocationError: String(error?.message ?? error),
         });
@@ -604,7 +609,7 @@ export async function main(argv, deps = {}) {
 
     // Incident WQ-5: the durable ledger must have survived the invocation
     // before its result is accounted and saved.
-    if (spine) {
+    if (ledgerOpen) {
       verifyLedgerIntegrity(opts.ledger, { role, milestoneId });
     }
 
@@ -667,7 +672,7 @@ export async function main(argv, deps = {}) {
 
   const wrappedInvokeZen = async (request) => {
     const startTime = Date.now();
-    const milestoneId = request?.milestone_id ?? request?.run_id ?? spine?.state?.current_milestone ?? null;
+    const milestoneId = request?.milestone_id ?? request?.run_id ?? (ledgerOpen ? controller?.state?.current_milestone : null) ?? null;
     let slug = null;
     try {
       slug = resolveZenModel();
@@ -682,7 +687,7 @@ export async function main(argv, deps = {}) {
     } catch (error) {
       // Incident WQ-5: verify the durable ledger survived the invocation
       // before recording anything, so a violation is never saved over.
-      if (spine) {
+      if (ledgerOpen) {
         verifyLedgerIntegrity(opts.ledger, {
           role: 'zen', milestoneId, invocationError: String(error?.message ?? error),
         });
@@ -715,7 +720,7 @@ export async function main(argv, deps = {}) {
 
     // Incident WQ-5: the durable ledger must have survived the invocation
     // before its verdict is accounted and saved.
-    if (spine) {
+    if (ledgerOpen) {
       verifyLedgerIntegrity(opts.ledger, { role: 'zen', milestoneId });
     }
 
@@ -751,7 +756,7 @@ export async function main(argv, deps = {}) {
 
   const wrappedInvokeSpecialist = async (role, slice, options = {}) => {
     const startTime = Date.now();
-    const milestoneId = slice?.milestone_id ?? slice?.milestoneId ?? spine?.state?.current_milestone ?? null;
+    const milestoneId = slice?.milestone_id ?? slice?.milestoneId ?? (ledgerOpen ? controller?.state?.current_milestone : null) ?? null;
     const specialistOptions = options && typeof options === 'object' && !Array.isArray(options) ? options : {};
     let slug = specialistOptions.slug ?? slice?.slug ?? null;
     try {
@@ -788,7 +793,7 @@ export async function main(argv, deps = {}) {
     } catch (error) {
       // Incident WQ-5: verify the durable ledger survived the invocation
       // before recording anything, so a violation is never saved over.
-      if (spine) {
+      if (ledgerOpen) {
         verifyLedgerIntegrity(opts.ledger, {
           role, milestoneId, invocationError: String(error?.message ?? error),
         });
@@ -822,7 +827,7 @@ export async function main(argv, deps = {}) {
 
     // Incident WQ-5: the durable ledger must have survived the invocation
     // before its result is accounted and saved.
-    if (spine) {
+    if (ledgerOpen) {
       verifyLedgerIntegrity(opts.ledger, { role, milestoneId });
     }
 
@@ -872,13 +877,14 @@ export async function main(argv, deps = {}) {
     return result;
   };
 
-  const controller = new SteamrollerController({
+  controller = new SteamrollerController({
     ledgerPath: opts.ledger,
     lightweightLogPath: deps.lightweightLogPath ?? join(dirname(resolve(opts.ledger)), 'lightweight-runs.jsonl'),
     modelRouter: new ModelRouter(deps.runnerOptions ?? {}),
     invokeRole: wrappedInvokeRole,
     invokeSpecialist: wrappedInvokeSpecialist,
     invokeZen: wrappedInvokeZen,
+    runnerOptions: spineRunnerOptions,
     cwd: spineRunnerOptions.coverageCwd ?? process.cwd(),
   });
 
@@ -898,7 +904,7 @@ export async function main(argv, deps = {}) {
       runId: opts.milestone ?? `track-l-${Date.now()}`,
       task: opts.task || planMilestone?.objective || planDoc?.goal || 'Lightweight Track L task',
       goal: planDoc?.goal || opts.task || '',
-      workerRole: deps.workerRole ?? 'bobcat',
+      workerRole: deps.workerRole ?? null,
       boundedScope: planMilestone?.bounded_scope ?? [],
       acceptanceCriteria: planMilestone?.acceptance_criteria ?? [],
       planVersion: planDoc?.plan_version ?? 1,
@@ -916,26 +922,22 @@ export async function main(argv, deps = {}) {
   }
 
   try {
-    spine = new MinimalSpine({
+    controller.openLedger({
       ledgerPath: opts.ledger,
       plan: initialPlan,
       track: opts.track,
-      controller,
-      invokeRole: wrappedInvokeRole,
-      invokeZen: wrappedInvokeZen,
-      invokeSpecialist: wrappedInvokeSpecialist,
-      runnerOptions: spineRunnerOptions,
       handleSignals: deps.handleSignals ?? true,
     });
+    ledgerOpen = true;
     switch (opts.command) {
       case 'init':
       case 'status': {
         const out = {
-          state: spine.state,
-          next_milestone: nextEligible(spine.state),
-          needs_alt: recommendNeedsAlt(spine.state.evidence, spine.state._verification_history),
+          state: controller.state,
+          next_milestone: nextEligible(controller.state),
+          needs_alt: recommendNeedsAlt(controller.state.evidence, controller.state._verification_history),
         };
-        const rollup = computeUsageRollup(spine.state);
+        const rollup = computeUsageRollup(controller.state);
         if (rollup !== null) {
           out.usage = rollup;
         }
@@ -946,61 +948,61 @@ export async function main(argv, deps = {}) {
       }
       case 'navi': {
         if (!opts.task) throw new Error('--task is required');
-        const desktop = await spine.requestDesktop(opts.task);
+        const desktop = await controller.requestDesktop(opts.task);
         return {
           code: desktop.status === 'NEEDS_CONFIRMATION' || desktop.status === 'BLOCKED' ? 2 : 0,
-          out: { desktop, state: spine.state },
+          out: { desktop, state: controller.state },
         };
       }
       case 'plan':
         if (!opts.task) throw new Error('--task is required');
-        return { code: 0, out: { advisory_plan: await spine.requestPlan(opts.task), adopted: false } };
+        return { code: 0, out: { advisory_plan: await controller.requestPlan(opts.task), adopted: false } };
       case 'alt':
         if (!opts.task) throw new Error('--task is required');
         return {
           code: 0,
           out: {
-            advisory_alt: await spine.requestAltFraming(opts.task, {
+            advisory_alt: await controller.requestAltFraming(opts.task, {
               milestone: opts.milestone, escalate: opts.escalate,
             }),
             adopted: false,
           },
         };
       case 'tactical-replan':
-        return { code: 0, out: { state: spine.adoptTacticalReplan(readJson(opts.plan)) } };
+        return { code: 0, out: { state: controller.adoptTacticalReplan(readJson(opts.plan)) } };
       case 'replan':
-        return { code: 0, out: { state: spine.adoptReplan(readJson(opts.plan)) } };
+        return { code: 0, out: { state: controller.adoptReplan(readJson(opts.plan)) } };
       case 'recover': {
         if (!opts.evidence) throw new Error('--evidence is required');
         // #175: the interrupted invocation's end is observed here, not by its
         // dead supervisor. The ledger records no active role and no duration,
         // so the end line carries null for both; the status mirrors the
         // ledger's INVOCATION_FAILURE record for the same milestone.
-        const interruptedMilestone = spine.state.current_milestone;
-        spine.endInterruptedInvocation({ classification: 'OBSERVED', detail: opts.evidence, stale_lock: staleLock });
+        const interruptedMilestone = controller.state.current_milestone;
+        controller.endInterruptedInvocation({ classification: 'OBSERVED', detail: opts.evidence, stale_lock: staleLock });
         await emitEvent({ role: null, milestone: interruptedMilestone, event: 'end', status: 'INVOCATION_FAILURE' });
-        return { code: 0, out: { stale_lock_removed: staleLock, state: spine.state } };
+        return { code: 0, out: { stale_lock_removed: staleLock, state: controller.state } };
       }
       case 'review': {
         // Gate-only retry (§4): re-run Zen on the last persisted candidate
         // without re-executing any milestone work.
-        const review = await spine.reviewCandidate(opts.milestone ?? null);
-        return { code: review.verified ? 0 : 2, out: { review, state: spine.state } };
+        const review = await controller.reviewCandidate(opts.milestone ?? null);
+        return { code: review.verified ? 0 : 2, out: { review, state: controller.state } };
       }
       case 'run': {
         const classification = controller.classifyTrack({
-          task: opts.task || spine.state.goal,
-          targetFiles: spine.state.milestones.flatMap(m => m.bounded_scope ?? []),
-          milestoneCount: spine.state.milestones.length,
+          task: opts.task || controller.state.goal,
+          targetFiles: controller.state.milestones.flatMap(m => m.bounded_scope ?? []),
+          milestoneCount: controller.state.milestones.length,
           highRisk: Boolean(opts.escalate),
-          trackOverride: opts.track ?? spine.state.track ?? null,
+          trackOverride: opts.track ?? controller.state.track ?? null,
         });
         const effectiveTrack = classification.track === 'L' ? 'S' : classification.track;
         if (opts.track) {
-          spine.setTrack(effectiveTrack);
+          controller.setTrack(effectiveTrack);
         }
         const results = [];
-        let id = opts.milestone ?? nextEligible(spine.state);
+        let id = opts.milestone ?? nextEligible(controller.state);
         while (id) {
           const result = await controller.runMilestone(id, { track: effectiveTrack });
           results.push({ milestone_id: id, ...result });
@@ -1012,16 +1014,16 @@ export async function main(argv, deps = {}) {
                 assurance_badge: 'ZEN_DURABLE',
                 halo_status: result.halo_status ?? null,
                 results,
-                state: spine.state,
+                state: controller.state,
               },
             };
           }
           if (!opts.all || opts.milestone) break;
-          id = nextEligible(spine.state);
+          id = nextEligible(controller.state);
         }
-        const remaining = nextEligible(spine.state);
-        const completion = remaining === null && spine.state.completed_milestones.length === spine.state.milestones.length
-          ? spine.declareGlobalCompletion() : null;
+        const remaining = nextEligible(controller.state);
+        const completion = remaining === null && controller.state.completed_milestones.length === controller.state.milestones.length
+          ? controller.declareGlobalCompletion() : null;
         return {
           code: 0,
           out: {
@@ -1031,7 +1033,7 @@ export async function main(argv, deps = {}) {
             results,
             global_completion: completion,
             next_milestone: remaining,
-            state: spine.state,
+            state: controller.state,
           },
         };
       }
@@ -1039,7 +1041,8 @@ export async function main(argv, deps = {}) {
         throw new Error(USAGE);
     }
   } finally {
-    spine?.close();
+    ledgerOpen = false;
+    controller.close();
   }
 }
 

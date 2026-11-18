@@ -66,6 +66,18 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./hooks/telemetry-guard.py --post-tool-use",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

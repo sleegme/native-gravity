@@ -24,5 +24,6 @@ export {
   validateCandidateSemantics,
   validatePlan,
   validateZenGoSemantics,
+  validateZenVerdictPacket,
   verifyCandidateIntegrity,
 } from "../src/core/ledger-kernel.mjs";

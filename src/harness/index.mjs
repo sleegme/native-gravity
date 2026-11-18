@@ -17,7 +17,9 @@ export { buildContextDigest } from "./context-digest.mjs";
 export {
   LIGHTWEIGHT_MAX_FILES,
   LIGHTWEIGHT_MAX_READ_LINES,
+  analyzeWorkSemantics,
   evaluateLightweightSuitability,
+  isDocOrConfigFile,
   readBoundedRange,
   validateLightweightResult,
 } from "./lightweight-worker-harness.mjs";

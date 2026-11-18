@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { advisorGateEnabled, decideRepairAction, MAX_REPAIR_ATTEMPTS, MinimalSpine, recommendNeedsAlt, repairStopQuestion, SteamrollerController, SteamrollerSpine, TrackRunner, zenNoGoSignature } from '../scripts/spine.mjs';
-import { AuthoritativeLedger, UncoveredCriteriaError } from '../scripts/ledger.mjs';
+import { AuthoritativeLedger, computeDeliveredTreeDigest, UncoveredCriteriaError } from '../scripts/ledger.mjs';
 import { AuthorityExpansionError, ModelRouter } from '../src/core/model-router.mjs';
 import { LightweightLog, computeAcceptanceDigest, computeDiffDigest } from '../src/core/lightweight-log.mjs';
 import { InvalidHandoffPacketError, InvalidResponseFormatError, composeBoundedPrompt, invoke, parseResponseEnvelope } from '../scripts/runner.mjs';
@@ -75,7 +75,16 @@ function fixture(t, { output, review, initialPlan = plan(), invokeSpecialist, ru
       return { status: 'READY', artifact };
     }
     if (role === 'strix-halo') {
-      return { verdict: 'ACCEPT', notes: 'contract verified locally' };
+      return {
+        caller: packet.caller ?? options?.caller ?? 'bulldozer',
+        candidate_id_or_run_id: packet.candidate_id_or_run_id,
+        reviewed_diff_digest: packet.reviewed_diff_digest,
+        acceptance_criteria_digest: packet.acceptance_criteria_digest,
+        plan_version: packet.plan_version,
+        evidence_basis: packet.evidence_basis,
+        verdict: 'ACCEPT',
+        notes: 'contract verified locally',
+      };
     }
     throw new Error(`Unexpected specialist role: ${role}`);
   };
@@ -901,7 +910,25 @@ test('specialists can be invoked under an active milestone without touching ledg
       const bobcatResult = await spine.invokeBobcat({ task: 'implement feature', advisor_gate: 'REQUIRED' });
       assert.equal(bobcatResult.status, 'READY');
 
-      const strixResult = await spine.invokeStrixHalo({ task: 'check implementation' }, { caller: 'bobcat' });
+      const artifact = bobcatResult.artifact;
+      const hash = createHash('sha256').update(readFileSync(artifact)).digest('hex');
+      const finalEvidence = [
+        ...observed,
+        { classification: 'OBSERVED', specialist: 'jaguar', findings: jaguarResult.findings },
+        { classification: 'OBSERVED', specialist: 'puma', edits: pumaResult.edits },
+        { classification: 'OBSERVED', specialist: 'strix-halo', verdict: 'ACCEPT' },
+      ];
+      const strixResult = await spine.invokeStrixHalo(
+        {
+          task: 'check implementation',
+          candidate_id_or_run_id: `sha256:${hash}`,
+          reviewed_diff_digest: computeDeliveredTreeDigest(contract.bounded_scope, { cwd: process.cwd() }),
+          acceptance_criteria_digest: computeAcceptanceDigest(contract.acceptance_criteria),
+          plan_version: contract.plan_version,
+          evidence_basis: finalEvidence,
+        },
+        { caller: 'bobcat' }
+      );
       assert.equal(strixResult.verdict, 'ACCEPT');
 
       // Ledger on disk is STILL untouched
@@ -909,16 +936,9 @@ test('specialists can be invoked under an active milestone without touching ledg
       assert.deepEqual(spine.state.completed_milestones, []);
 
       // Bulldozer produces candidate with observed evidence
-      const artifact = bobcatResult.artifact;
-      const hash = createHash('sha256').update(readFileSync(artifact)).digest('hex');
       return candidate(contract, {
         candidate_artifact_ref: `sha256:${hash}`,
-        verification_evidence: [
-          ...observed,
-          { classification: 'OBSERVED', specialist: 'jaguar', findings: jaguarResult.findings },
-          { classification: 'OBSERVED', specialist: 'puma', edits: pumaResult.edits },
-          { classification: 'OBSERVED', specialist: 'strix-halo', verdict: strixResult.verdict },
-        ],
+        verification_evidence: finalEvidence,
       });
     },
   });
@@ -936,7 +956,17 @@ for (const role of ['jaguar', 'puma', 'bobcat', 'strix-halo']) {
     let wrapped;
     const f = fixture(t, {
       invokeSpecialist: async (_role, packet) =>
-        packet?.candidate_id_or_run_id ? { verdict: 'ACCEPT' } : (wrapped ? { ok: true, response } : response),
+        packet?.candidate_id_or_run_id
+          ? {
+              caller: packet.caller ?? 'steamroller',
+              candidate_id_or_run_id: packet.candidate_id_or_run_id,
+              reviewed_diff_digest: packet.reviewed_diff_digest,
+              acceptance_criteria_digest: packet.acceptance_criteria_digest,
+              plan_version: packet.plan_version,
+              evidence_basis: packet.evidence_basis,
+              verdict: 'ACCEPT',
+            }
+          : (wrapped ? { ok: true, response } : response),
       output: async (contract, { spine, dir }) => {
         const options = { caller: role === 'strix-halo' ? 'bobcat' : 'bulldozer' };
         for (wrapped of [true, false]) {
@@ -986,7 +1016,15 @@ test('specialists receive milestone packet slice and never ledger or global auth
   const f = fixture(t, {
     invokeSpecialist: async (role, packet) => {
       if (role === 'strix-halo' && packet?.candidate_id_or_run_id) {
-        return { verdict: 'ACCEPT' };
+        return {
+          caller: packet.caller ?? 'steamroller',
+          candidate_id_or_run_id: packet.candidate_id_or_run_id,
+          reviewed_diff_digest: packet.reviewed_diff_digest,
+          acceptance_criteria_digest: packet.acceptance_criteria_digest,
+          plan_version: packet.plan_version,
+          evidence_basis: packet.evidence_basis,
+          verdict: 'ACCEPT',
+        };
       }
       capturedPacket = packet;
       return { status: 'SUCCESS', received: true };
@@ -1039,9 +1077,19 @@ test('specialist invocation is prohibited without an active milestone', async t 
 test('specialist routing strictly enforces NTG 2.0 caller-role boundaries', async t => {
   const f = fixture(t, {
     output: async (contract, { spine }) => {
+      writeFileSync(join(f.dir, `${contract.milestone_id}.txt`), contract.milestone_id);
+      const hash = createHash('sha256').update(contract.milestone_id).digest('hex');
+      const boundSlice = {
+        task: 'review',
+        candidate_id_or_run_id: `sha256:${hash}`,
+        reviewed_diff_digest: computeDeliveredTreeDigest(contract.bounded_scope, { cwd: process.cwd() }),
+        acceptance_criteria_digest: computeAcceptanceDigest(contract.acceptance_criteria),
+        plan_version: contract.plan_version,
+        evidence_basis: observed,
+      };
       // 1. Steamroller, Bulldozer, and Bobcat are all permitted to invoke Strix Halo
       for (const caller of ['steamroller', 'bulldozer', 'bobcat']) {
-        const res = await spine.invokeSpecialist('strix-halo', { task: 'review' }, { caller });
+        const res = await spine.invokeSpecialist('strix-halo', boundSlice, { caller });
         assert.equal(res.verdict, 'ACCEPT');
       }
 
@@ -1085,8 +1133,6 @@ test('specialist routing strictly enforces NTG 2.0 caller-role boundaries', asyn
         );
       }
       assert.ok(!f.calls.includes('excavator'));
-      writeFileSync(join(f.dir, `${contract.milestone_id}.txt`), contract.milestone_id);
-      const hash = createHash('sha256').update(contract.milestone_id).digest('hex');
       return candidate(contract, { candidate_artifact_ref: `sha256:${hash}` });
     },
   });
@@ -1103,7 +1149,16 @@ test('Strix Halo REVISE leads to repair and re-check before Bobcat READY', async
         if (strixAttempts === 1) {
           return { verdict: 'REVISE', defect: 'Missing boundary check on empty input' };
         }
-        return { verdict: 'ACCEPT', notes: 'Defect corrected and verified' };
+        return {
+          caller: packet.caller ?? 'bobcat',
+          candidate_id_or_run_id: packet.candidate_id_or_run_id,
+          reviewed_diff_digest: packet.reviewed_diff_digest,
+          acceptance_criteria_digest: packet.acceptance_criteria_digest,
+          plan_version: packet.plan_version,
+          evidence_basis: packet.evidence_basis,
+          verdict: 'ACCEPT',
+          notes: 'Defect corrected and verified',
+        };
       }
       return { status: 'READY' };
     },
@@ -1113,13 +1168,23 @@ test('Strix Halo REVISE leads to repair and re-check before Bobcat READY', async
       assert.equal(check1.verdict, 'REVISE');
       assert.equal(check1.defect, 'Missing boundary check on empty input');
 
-      // Bobcat repairs and re-checks
-      const check2 = await spine.invokeStrixHalo({ task: 'check v2 after repair' }, { caller: 'bobcat' });
-      assert.equal(check2.verdict, 'ACCEPT');
-
+      // Bobcat repairs and re-checks with bound artifact & evidence
       const artifact = join(dir, `${contract.milestone_id}.txt`);
       writeFileSync(artifact, contract.milestone_id);
       const hash = createHash('sha256').update(readFileSync(artifact)).digest('hex');
+      const check2 = await spine.invokeStrixHalo(
+        {
+          task: 'check v2 after repair',
+          candidate_id_or_run_id: `sha256:${hash}`,
+          reviewed_diff_digest: computeDeliveredTreeDigest(contract.bounded_scope, { cwd: process.cwd() }),
+          acceptance_criteria_digest: computeAcceptanceDigest(contract.acceptance_criteria),
+          plan_version: contract.plan_version,
+          evidence_basis: observed,
+        },
+        { caller: 'bobcat' }
+      );
+      assert.equal(check2.verdict, 'ACCEPT');
+
       return candidate(contract, { candidate_artifact_ref: `sha256:${hash}` });
     },
   });
@@ -2145,6 +2210,9 @@ test('TrackRunner: Track L Halo binding, staleness rejection, high-risk Zen esca
       zenEscalated += 1;
       assert.equal(req.escalated_for_high_risk, true);
       return {
+        milestone_id: req.milestone_id,
+        plan_version: req.plan_version,
+        result_ref: req.result_ref,
         verdict: 'GO',
         verification_evidence: [
           { classification: 'OBSERVED', criterion: 'readme present', result: 'verified readme.txt' },
@@ -2191,14 +2259,34 @@ test('TrackRunner: Track L Halo binding, staleness rejection, high-risk Zen esca
     /requires Zen summative verification/
   );
 
-  // Track S allows Halo omitted when requireHalo=false, still requires Zen
+  // Track S rejects bare { verdict: 'GO' } and requires full bound OBSERVED evidence (#233)
+  await assert.rejects(
+    runner.verifyTrackSMCandidate({
+      track: 'S',
+      milestoneId: 'm-sm',
+      contract,
+      requireHalo: false,
+      candidate: { candidate_artifact_ref: 'sha256:cand-1', verification_evidence: ['checked'] },
+      invokeZen: async () => ({ verdict: 'GO' }),
+    }),
+    /Zen verdict does not match/
+  );
+
   const sRes = await runner.verifyTrackSMCandidate({
     track: 'S',
     milestoneId: 'm-sm',
     contract,
     requireHalo: false,
     candidate: { candidate_artifact_ref: 'sha256:cand-1', verification_evidence: ['checked'] },
-    invokeZen: async () => ({ verdict: 'GO' }),
+    invokeZen: async (req) => ({
+      milestone_id: req.milestone_id,
+      plan_version: req.plan_version,
+      result_ref: req.result_ref,
+      verdict: 'GO',
+      verification_evidence: [
+        { classification: 'OBSERVED', criterion: 'readme present', result: 'verified' },
+      ],
+    }),
   });
   assert.equal(sRes.track, 'S');
   assert.equal(sRes.halo_status, 'OMITTED');
@@ -2291,10 +2379,19 @@ test('SteamrollerController.recoverMilestone: Bulldozer (Hydrogen XHigh) + on-de
 
 test('Track M runMilestone rejects candidate before Zen when Strix Halo returns REVISE', async t => {
   const f = fixture(t, {
-    invokeSpecialist: async (role) => {
+    invokeSpecialist: async (role, packet) => {
       f.calls.push(role);
       if (role === 'strix-halo') {
-        return { verdict: 'REVISE', findings: ['Missing edge-case validation'] };
+        return {
+          caller: packet.caller ?? 'steamroller',
+          candidate_id_or_run_id: packet.candidate_id_or_run_id,
+          reviewed_diff_digest: packet.reviewed_diff_digest,
+          acceptance_criteria_digest: packet.acceptance_criteria_digest,
+          plan_version: packet.plan_version,
+          evidence_basis: packet.evidence_basis,
+          verdict: 'REVISE',
+          findings: ['Missing edge-case validation'],
+        };
       }
       return { status: 'READY' };
     },
@@ -2309,4 +2406,494 @@ test('Track M runMilestone rejects candidate before Zen when Strix Halo returns 
   const disk = AuthoritativeLedger.load(f.ledgerPath).getState();
   assert.deepEqual(disk.completed_milestones, []);
   assert.equal(disk.current_milestone, null);
+});
+
+test('Issue #232: Strix Halo binding fails closed without host hydration across Track L, Track S/M, and pending Halo receipts', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-halo-232-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'doc.txt'), 'v1 content\n');
+
+  const diffDigest = computeDiffDigest(['doc.txt'], { cwd: dir });
+  const criteria = ['doc matches'];
+  const criteriaDigest = computeAcceptanceDigest(criteria);
+
+  const makeRunner = ({ ledger = null, haloImpl } = {}) =>
+    new TrackRunner({
+      ledger,
+      lightweightLog: new LightweightLog(join(dir, 'lightweight-runs.jsonl')),
+      cwd: dir,
+      invokeWorker: async () => ({ status: 'READY', changes_made: ['doc.txt'], verification_evidence: ['checked'] }),
+      invokeHalo: haloImpl,
+      invokeZen: async (req) => ({
+        milestone_id: req.milestone_id,
+        plan_version: req.plan_version,
+        result_ref: req.result_ref,
+        verdict: 'GO',
+        verification_evidence: [{ classification: 'OBSERVED', criterion: 'doc matches', result: 'verified' }],
+      }),
+    });
+
+  // 1. Track L rejects if Halo omits candidate_id_or_run_id (no host hydration)
+  const omittedCandRunner = makeRunner({
+    haloImpl: async (req) => ({
+      caller: req.caller,
+      reviewed_diff_digest: req.reviewed_diff_digest,
+      acceptance_criteria_digest: req.acceptance_criteria_digest,
+      plan_version: req.plan_version,
+      evidence_basis: req.evidence_basis,
+      verdict: 'ACCEPT',
+    }),
+  });
+  await assert.rejects(
+    omittedCandRunner.runTrackL({
+      runId: 'run-missing-id',
+      task: 'Update doc.txt',
+      boundedScope: ['doc.txt'],
+      acceptanceCriteria: criteria,
+      planVersion: 'v1',
+    }),
+    /missing required binding field 'candidate_id_or_run_id'/
+  );
+
+  // 2. Track M rejects if Halo returns different candidate_id_or_run_id
+  const makeSmLedger = () => {
+    const ledger = new AuthoritativeLedger({
+      goal: 'Halo strict test',
+      constraints: [],
+      decision_invariants: [],
+      plan_version: 'v1',
+      milestones: [
+        {
+          id: 'm1',
+          title: 'm1',
+          objective: 'check',
+          bounded_scope: ['doc.txt'],
+          acceptance_criteria: criteria,
+          non_goals: [],
+          dependencies: [],
+        },
+      ],
+    });
+    const contract = ledger.delegate('m1');
+    const cand = ledger.receiveCandidate({
+      milestone_id: 'm1',
+      plan_version: 'v1',
+      status: 'DONE',
+      changes_made: ['doc.txt'],
+      verification_evidence: ['obs-1'],
+      unresolved_unknowns: [],
+      scope_deviations: [],
+      candidate_artifact_ref: 'sha256:cand-actual',
+    });
+    return { ledger, contract, cand: cand.candidate_record };
+  };
+
+  {
+    const { ledger, contract, cand } = makeSmLedger();
+    const smRunner = makeRunner({
+      ledger,
+      haloImpl: async (req) => ({
+        caller: req.caller,
+        candidate_id_or_run_id: 'sha256:cand-WRONG',
+        reviewed_diff_digest: req.reviewed_diff_digest,
+        acceptance_criteria_digest: req.acceptance_criteria_digest,
+        plan_version: req.plan_version,
+        evidence_basis: req.evidence_basis,
+        verdict: 'ACCEPT',
+      }),
+    });
+    await assert.rejects(
+      smRunner.verifyTrackSMCandidate({ track: 'M', milestoneId: 'm1', contract, candidate: cand }),
+      /candidate_id_or_run_id.*does not match current/
+    );
+    assert.equal(ledger.halo_reviews.m1.is_stale, true);
+  }
+
+  // 3. Track M rejects + marks STALE if Halo returns different evidence_basis
+  {
+    const { ledger, contract, cand } = makeSmLedger();
+    const smRunner = makeRunner({
+      ledger,
+      haloImpl: async (req) => ({
+        caller: req.caller,
+        candidate_id_or_run_id: req.candidate_id_or_run_id,
+        reviewed_diff_digest: req.reviewed_diff_digest,
+        acceptance_criteria_digest: req.acceptance_criteria_digest,
+        plan_version: req.plan_version,
+        evidence_basis: ['stale-evidence-only'],
+        verdict: 'ACCEPT',
+      }),
+    });
+    await assert.rejects(
+      smRunner.verifyTrackSMCandidate({ track: 'M', milestoneId: 'm1', contract, candidate: cand }),
+      /evidence_basis changed.*STALE/
+    );
+    assert.equal(ledger.halo_reviews.m1.is_stale, true);
+  }
+
+  // 4. Track L/M reject if diff, criteria, or plan_version mismatches (including missing plan_version)
+  for (const [label, patch] of [
+    ['wrong diff', { reviewed_diff_digest: 'sha256:wrong-diff' }],
+    ['wrong criteria', { acceptance_criteria_digest: 'sha256:wrong-crit' }],
+    ['wrong plan_version', { plan_version: 'v99' }],
+    ['missing plan_version', { plan_version: undefined }],
+  ]) {
+    await assert.rejects(
+      makeRunner({
+        haloImpl: async (req) => ({
+          caller: req.caller,
+          candidate_id_or_run_id: req.candidate_id_or_run_id,
+          reviewed_diff_digest: req.reviewed_diff_digest,
+          acceptance_criteria_digest: req.acceptance_criteria_digest,
+          plan_version: req.plan_version,
+          evidence_basis: req.evidence_basis,
+          verdict: 'ACCEPT',
+          ...patch,
+        }),
+      }).runTrackL({
+        runId: `run-${label}`,
+        task: 'Update doc.txt',
+        boundedScope: ['doc.txt'],
+        acceptanceCriteria: criteria,
+        planVersion: 'v1',
+      }),
+      /STALE|missing required binding field|does not match/
+    );
+  }
+
+  // 5. Pending Halo receipt inside SteamrollerController.runMilestone omits binding fields -> host rejects without hydrating
+  {
+    const fPending = fixture(t, {
+      invokeSpecialist: async (role) => {
+        fPending.calls.push(role);
+        if (role === 'strix-halo') {
+          // Deliberately omit binding fields on pending Halo receipt
+          return { verdict: 'ACCEPT', notes: 'incomplete pending review' };
+        }
+        return { status: 'READY' };
+      },
+      output: async (contract, { spine }) => {
+        await spine.invokeStrixHalo({ task: 'partial review' }, { caller: 'bobcat' });
+        return candidate(contract, { candidate_artifact_ref: 'sha256:pending-test' });
+      },
+    });
+    await assert.rejects(
+      fPending.spine.runMilestone('one', { track: 'M' }),
+      /missing required binding field/
+    );
+    assert.ok(!fPending.calls.includes('zen'), 'incomplete pending Halo must block before Zen');
+  }
+
+  // 6. Exact 5-field match passes Track L close AND Track M pre-Zen gate
+  {
+    const exactTrackL = await makeRunner({
+      haloImpl: async (req) => ({
+        caller: req.caller,
+        candidate_id_or_run_id: req.candidate_id_or_run_id,
+        reviewed_diff_digest: diffDigest,
+        acceptance_criteria_digest: criteriaDigest,
+        plan_version: 'v1',
+        evidence_basis: req.evidence_basis,
+        verdict: 'ACCEPT',
+      }),
+    }).runTrackL({
+      runId: 'run-exact-ok',
+      task: 'Update doc.txt',
+      boundedScope: ['doc.txt'],
+      acceptanceCriteria: criteria,
+      planVersion: 'v1',
+    });
+    assert.equal(exactTrackL.assurance_badge, 'HALO_LIGHTWEIGHT');
+
+    const { ledger, contract, cand } = makeSmLedger();
+    const smExact = await makeRunner({
+      ledger,
+      haloImpl: async (req) => ({
+        caller: req.caller,
+        candidate_id_or_run_id: 'sha256:cand-actual',
+        reviewed_diff_digest: req.reviewed_diff_digest,
+        acceptance_criteria_digest: criteriaDigest,
+        plan_version: 'v1',
+        evidence_basis: ['obs-1'],
+        verdict: 'ACCEPT',
+      }),
+    }).verifyTrackSMCandidate({ track: 'M', milestoneId: 'm1', contract, candidate: cand });
+    assert.equal(smExact.halo_status, 'ACCEPTED');
+    assert.equal(smExact.verified, true);
+  }
+});
+
+test('Issue #233: TrackRunner Zen verification enforces LedgerKernel strict binding and OBSERVED evidence on Track S/M and Track L escalation', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-zen-233-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'item.txt'), 'content\n');
+
+  const criteria = ['criterion A', 'criterion B'];
+  const basePlan = {
+    goal: 'Strict Zen test',
+    constraints: [],
+    decision_invariants: [],
+    plan_version: 'v1',
+    milestones: [
+      {
+        id: 'm1',
+        title: 'm1',
+        objective: 'check strict zen',
+        bounded_scope: ['item.txt'],
+        acceptance_criteria: criteria,
+        non_goals: [],
+        dependencies: [],
+      },
+    ],
+  };
+
+  const fullEvidence = [
+    { classification: 'OBSERVED', criterion: 'criterion A', result: 'ok A' },
+    { classification: 'OBSERVED', criterion: 'criterion B', result: 'ok B' },
+  ];
+
+  const runVerifySM = async (zenResponse) => {
+    const ledger = new AuthoritativeLedger(basePlan);
+    const contract = ledger.delegate('m1');
+    const cand = ledger.receiveCandidate({
+      milestone_id: 'm1',
+      plan_version: 'v1',
+      status: 'DONE',
+      changes_made: ['item.txt'],
+      verification_evidence: ['checked'],
+      unresolved_unknowns: [],
+      scope_deviations: [],
+      candidate_artifact_ref: 'sha256:item-1',
+    });
+    const runner = new TrackRunner({
+      ledger,
+      lightweightLog: new LightweightLog(join(dir, 'lw.jsonl')),
+      cwd: dir,
+    });
+    return runner.verifyTrackSMCandidate({
+      track: 'S',
+      milestoneId: 'm1',
+      contract,
+      requireHalo: false,
+      candidate: cand.candidate_record,
+      invokeZen: async (req) =>
+        typeof zenResponse === 'function' ? zenResponse(req) : zenResponse,
+    });
+  };
+
+  // 1. Bare { verdict: 'GO' } -> reject
+  await assert.rejects(runVerifySM({ verdict: 'GO' }), /does not match the current candidate binding/);
+
+  // 2. Wrong milestone_id -> reject
+  await assert.rejects(
+    runVerifySM((req) => ({
+      milestone_id: 'wrong-m',
+      plan_version: req.plan_version,
+      result_ref: req.result_ref,
+      verdict: 'GO',
+      verification_evidence: fullEvidence,
+    })),
+    /milestone_id/
+  );
+
+  // 3. Wrong plan_version -> reject
+  await assert.rejects(
+    runVerifySM((req) => ({
+      milestone_id: req.milestone_id,
+      plan_version: 'v999',
+      result_ref: req.result_ref,
+      verdict: 'GO',
+      verification_evidence: fullEvidence,
+    })),
+    /plan_version/
+  );
+
+  // 4. Wrong result_ref -> reject
+  await assert.rejects(
+    runVerifySM((req) => ({
+      milestone_id: req.milestone_id,
+      plan_version: req.plan_version,
+      result_ref: 'ref-sha256-wrong',
+      verdict: 'GO',
+      verification_evidence: fullEvidence,
+    })),
+    /result_ref/
+  );
+
+  // 5. Empty evidence -> reject
+  await assert.rejects(
+    runVerifySM((req) => ({
+      milestone_id: req.milestone_id,
+      plan_version: req.plan_version,
+      result_ref: req.result_ref,
+      verdict: 'GO',
+      verification_evidence: [],
+    })),
+    /directly observed verification evidence/
+  );
+
+  // 6. INFERRED / UNKNOWN evidence included -> reject
+  for (const classification of ['INFERRED', 'UNKNOWN']) {
+    await assert.rejects(
+      runVerifySM((req) => ({
+        milestone_id: req.milestone_id,
+        plan_version: req.plan_version,
+        result_ref: req.result_ref,
+        verdict: 'GO',
+        verification_evidence: [fullEvidence[0], { classification, criterion: 'criterion B', result: 'guessed' }],
+      })),
+      new RegExp(`not observed: ${classification}: criterion B`)
+    );
+  }
+
+  // 7. Partial criterion coverage -> reject (UncoveredCriteriaError)
+  await assert.rejects(
+    runVerifySM((req) => ({
+      milestone_id: req.milestone_id,
+      plan_version: req.plan_version,
+      result_ref: req.result_ref,
+      verdict: 'GO',
+      verification_evidence: [fullEvidence[0]],
+    })),
+    UncoveredCriteriaError
+  );
+
+  // 8. Exact OBSERVED evidence + exact binding -> verified: true
+  const validRes = await runVerifySM((req) => ({
+    milestone_id: req.milestone_id,
+    plan_version: req.plan_version,
+    result_ref: req.result_ref,
+    verdict: 'GO',
+    verification_evidence: fullEvidence,
+  }));
+  assert.equal(validRes.verified, true);
+
+  // 9. High-risk Track L escalation enforces the exact same fail-closed Zen binding & coverage rules
+  const runHighRiskTrackL = async (zenBuilder) => {
+    const subDir = mkdtempSync(join(dir, 'hr-'));
+    writeFileSync(join(subDir, 'item.txt'), 'content\n');
+    const escRunner = new TrackRunner({
+      ledgerPath: join(subDir, '.ntg', 'ledger.json'),
+      lightweightLog: new LightweightLog(join(subDir, '.ntg', 'lightweight-runs.jsonl')),
+      cwd: subDir,
+      invokeWorker: async () => ({ status: 'READY', changes_made: ['item.txt'], verification_evidence: ['checked'] }),
+      invokeHalo: async (req) => ({
+        caller: req.caller,
+        candidate_id_or_run_id: req.candidate_id_or_run_id,
+        reviewed_diff_digest: req.reviewed_diff_digest,
+        acceptance_criteria_digest: req.acceptance_criteria_digest,
+        plan_version: req.plan_version,
+        evidence_basis: req.evidence_basis,
+        verdict: 'ACCEPT',
+      }),
+      invokeZen: async (req) => zenBuilder(req),
+    });
+    return escRunner.runTrackL({
+      runId: 'run-hr',
+      task: 'High-risk config change',
+      boundedScope: ['item.txt'],
+      acceptanceCriteria: criteria,
+      highRiskEscalation: true,
+    });
+  };
+
+  await assert.rejects(runHighRiskTrackL(() => ({ verdict: 'GO' })), /candidate binding/);
+  await assert.rejects(
+    runHighRiskTrackL((req) => ({
+      milestone_id: req.milestone_id,
+      plan_version: req.plan_version,
+      result_ref: req.result_ref,
+      verdict: 'GO',
+      verification_evidence: [fullEvidence[0]],
+    })),
+    UncoveredCriteriaError
+  );
+  const escOk = await runHighRiskTrackL((req) => ({
+    milestone_id: req.milestone_id,
+    plan_version: req.plan_version,
+    result_ref: req.result_ref,
+    verdict: 'GO',
+    verification_evidence: fullEvidence,
+  }));
+  assert.equal(escOk.assurance_badge, 'ZEN_DURABLE');
+  assert.equal(escOk.zen_verdict.verdict, 'GO');
+});
+
+test('Issue #235: SteamrollerController semantic routing selects Puma/Jaguar/Bobcat/Bulldozer without lexical false promotions', () => {
+  const installedModels = [
+    { slug: 'gemini-4-argon-medium', description: 'Gemini 4 Argon (Medium)' },
+    { slug: 'gemini-4-hydrogen-medium', description: 'Gemini 4 Hydrogen (Medium)' },
+    { slug: 'gemini-4-hydrogen-xhigh', description: 'Gemini 4 Hydrogen (XHigh)' },
+    { slug: 'gemini-3.8-flash-low', description: 'Gemini 3.8 Flash (Low)' },
+  ];
+  const controller = new SteamrollerController({
+    modelRouter: new ModelRouter({ installedModels }),
+  });
+
+  // 1-file docs typo/config edit -> Puma automatically (no preferredRole)
+  const docRoute = controller.selectWorkerRoute({
+    track: 'L',
+    task: 'Fix typo in README.md',
+    targetFiles: ['README.md'],
+  });
+  assert.equal(docRoute.role, 'puma');
+  assert.equal(docRoute.slug, 'gemini-3.8-flash-low');
+
+  // architecture.md doc edit -> Track L + Puma, never Track M / Bulldozer
+  const archDocTrack = controller.classifyTrack({
+    task: 'Fix wording in docs/architecture.md',
+    targetFiles: ['docs/architecture.md'],
+  });
+  assert.equal(archDocTrack.track, 'L');
+  const archDocRoute = controller.selectWorkerRoute({
+    track: archDocTrack.track,
+    task: 'Fix wording in docs/architecture.md',
+    targetFiles: ['docs/architecture.md'],
+  });
+  assert.equal(archDocRoute.role, 'puma');
+
+  // Read-only locate/inspect -> Jaguar even when targetFiles is non-empty
+  const locateRoute = controller.selectWorkerRoute({
+    track: 'L',
+    task: 'Locate saveLedger callers',
+    targetFiles: ['src/core/ledger-kernel.mjs', 'scripts/ntg-vnext.mjs'],
+  });
+  assert.equal(locateRoute.role, 'jaguar');
+
+  // 5-file trivial mechanical rename -> Puma, not Bulldozer by keyword alone
+  const renameRoute = controller.selectWorkerRoute({
+    track: 'L',
+    task: 'Rename security_header key across 5 files',
+    targetFiles: ['a.mjs', 'b.mjs', 'c.mjs', 'd.mjs', 'e.mjs'],
+    isMechanicalEdit: true,
+  });
+  assert.equal(renameRoute.role, 'puma');
+
+  // 1-file substantive state/API change -> Bobcat + Track S
+  const substantiveTrack = controller.classifyTrack({
+    task: 'Implement stateful API validation handler',
+    targetFiles: ['src/handler.mjs'],
+  });
+  assert.equal(substantiveTrack.track, 'S');
+  const substantiveRoute = controller.selectWorkerRoute({
+    track: substantiveTrack.track,
+    task: 'Implement stateful API validation handler',
+    targetFiles: ['src/handler.mjs'],
+  });
+  assert.equal(substantiveRoute.role, 'bobcat');
+
+  // Genuine cross-cutting migration -> Track M + Bulldozer
+  const migrationTrack = controller.classifyTrack({
+    task: 'Cross-cutting database migration across runtime and ledger',
+    targetFiles: ['src/db.mjs', 'src/runtime.mjs', 'src/ledger.mjs'],
+    crossFileDependency: true,
+  });
+  assert.equal(migrationTrack.track, 'M');
+  const migrationRoute = controller.selectWorkerRoute({
+    track: migrationTrack.track,
+    task: 'Cross-cutting database migration across runtime and ledger',
+    targetFiles: ['src/db.mjs', 'src/runtime.mjs', 'src/ledger.mjs'],
+    crossFileDependency: true,
+  });
+  assert.equal(migrationRoute.role, 'bulldozer');
 });

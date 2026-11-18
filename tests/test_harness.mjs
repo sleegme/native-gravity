@@ -7,6 +7,7 @@ import {
   HALO_CALLERS,
   LIGHTWEIGHT_MAX_FILES,
   LIGHTWEIGHT_MAX_READ_LINES,
+  analyzeWorkSemantics,
   buildContextDigest,
   buildHaloReviewRequest,
   buildLayer1Calibration,
@@ -192,4 +193,57 @@ test("Lightweight Worker Harness suitability routing, bounded reads, and output 
     validateLightweightResult("puma", { status: "REROUTE_REQUIRED", reroute_to: "excavator" }).valid,
     false
   );
+});
+
+test("analyzeWorkSemantics routes by capability and effect without lexical filename false-promotions (#235)", () => {
+  // 1-file docs typo / config edit -> puma, Track L
+  const docsEdit = analyzeWorkSemantics({ task: "Fix typo in README.md", targetFiles: ["README.md"] });
+  assert.equal(docsEdit.recommendedRole, "puma");
+  assert.equal(docsEdit.recommendedTrack, "L");
+
+  const configEdit = analyzeWorkSemantics({ task: "Update timeout in config.json", targetFiles: ["config.json"] });
+  assert.equal(configEdit.recommendedRole, "puma");
+  assert.equal(configEdit.recommendedTrack, "L");
+
+  // 1-file substantive state/API change -> bobcat, Track S
+  const apiChange = analyzeWorkSemantics({
+    task: "Add session state transition handler",
+    targetFiles: ["src/session.mjs"],
+  });
+  assert.equal(apiChange.recommendedRole, "bobcat");
+  assert.equal(apiChange.recommendedTrack, "S");
+
+  // Read-only locate/inspect -> jaguar, Track L even with non-empty targetFiles
+  const inspect = analyzeWorkSemantics({
+    task: "Locate all callers of saveLedger",
+    targetFiles: ["src/core/ledger-kernel.mjs", "scripts/ntg-vnext.mjs"],
+  });
+  assert.equal(inspect.recommendedRole, "jaguar");
+  assert.equal(inspect.recommendedTrack, "L");
+
+  // 5-file trivial mechanical rename -> puma, never promoted to Bulldozer by keyword alone
+  const rename5 = analyzeWorkSemantics({
+    task: "Rename security_flag constant across 5 files mechanically",
+    targetFiles: ["a.mjs", "b.mjs", "c.mjs", "d.mjs", "e.mjs"],
+    isMechanicalEdit: true,
+  });
+  assert.equal(rename5.recommendedRole, "puma");
+  assert.equal(rename5.recommendedTrack, "L");
+
+  // architecture.md doc edit -> stays lightweight (puma / Track L)
+  const archDocEdit = analyzeWorkSemantics({
+    task: "Fix formatting and wording in docs/architecture.md",
+    targetFiles: ["docs/architecture.md"],
+  });
+  assert.equal(archDocEdit.recommendedRole, "puma");
+  assert.equal(archDocEdit.recommendedTrack, "L");
+
+  // Genuine cross-cutting migration -> bulldozer / Track M
+  const migration = analyzeWorkSemantics({
+    task: "Cross-cutting database migration across runtime and ledger storage",
+    targetFiles: ["src/db.mjs", "src/runtime.mjs", "src/storage.mjs"],
+    crossFileDependency: true,
+  });
+  assert.equal(migration.recommendedRole, "bulldozer");
+  assert.equal(migration.recommendedTrack, "M");
 });
