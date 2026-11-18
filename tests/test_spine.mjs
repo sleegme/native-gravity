@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { advisorGateEnabled, decideRepairAction, MAX_REPAIR_ATTEMPTS, MinimalSpine, recommendNeedsAlt, repairStopQuestion, SteamrollerController, SteamrollerSpine, TrackRunner, zenNoGoSignature } from '../scripts/spine.mjs';
-import { AuthoritativeLedger, computeDeliveredTreeDigest, StaleVerdictError, UncoveredCriteriaError } from '../scripts/ledger.mjs';
+import { AuthoritativeLedger, computeDeliveredTreeDigest, StaleVerdictError, UncoveredCriteriaError, uncoveredAcceptanceCriteria } from '../scripts/ledger.mjs';
 import { AuthorityExpansionError, ModelRouter } from '../src/core/model-router.mjs';
 import { LightweightLog, computeAcceptanceDigest, computeDiffDigest } from '../src/core/lightweight-log.mjs';
 import { InvalidHandoffPacketError, InvalidResponseFormatError, composeBoundedPrompt, invoke, parseResponseEnvelope } from '../scripts/runner.mjs';
@@ -3008,7 +3008,8 @@ test('Issue #235 / PR #231 Finding 1: Durable runMilestone routes Track S direct
   assert.deepEqual(bobcatRun.calls, ['bobcat', 'zen']);
   assert.ok(!bobcatRun.calls.includes('bulldozer'));
 
-  // 2. Bounded Track S mechanical/doc edit -> Puma directly (no Bulldozer hop)
+  // 2. Bounded Track S mechanical/doc edit -> Puma directly (no Bulldozer hop),
+  // without synthesizing criterion-level OBSERVED evidence from a bare READY claim.
   const pumaRun = await runDirectCase({
     objective: 'Fix typo in README.md',
     boundedScope: ['README.md'],
@@ -3022,6 +3023,39 @@ test('Issue #235 / PR #231 Finding 1: Durable runMilestone routes Track S direct
   assert.equal(pumaRun.result.worker_role, 'puma');
   assert.deepEqual(pumaRun.calls, ['puma', 'zen']);
   assert.ok(!pumaRun.calls.includes('bulldozer'));
+  const pumaCand = pumaRun.state.evidence.m1.candidates[0];
+  assert.deepEqual(
+    uncoveredAcceptanceCriteria(['README typo fixed'], pumaCand.verification_evidence),
+    ['README typo fixed']
+  );
+  assert.equal(
+    pumaCand.verification_evidence.some(
+      (item) =>
+        item &&
+        typeof item === 'object' &&
+        ((item.classification === 'OBSERVED' && item.criterion !== undefined) ||
+          /completed bounded milestone|delivered bounded scope/.test(String(item.result ?? '')))
+    ),
+    false
+  );
+  const pumaTreeFact = pumaCand.verification_evidence.find(
+    (item) => item && typeof item === 'object' && item.source === 'host_tree_digest'
+  );
+  assert.equal(pumaTreeFact?.classification, 'OBSERVED');
+  assert.deepEqual(pumaTreeFact?.changed_files, ['README.md']);
+  assert.deepEqual(pumaTreeFact?.added_files, []);
+  assert.match(String(pumaTreeFact?.delivered_tree_digest ?? ''), /^sha256:/);
+  assert.equal(
+    pumaCand.verification_evidence.some(
+      (item) =>
+        item &&
+        typeof item === 'object' &&
+        item.classification === 'UNKNOWN' &&
+        item.criterion === 'README typo fixed'
+    ),
+    true
+  );
+  assert.ok(pumaCand.unresolved_unknowns.includes('README typo fixed'));
 
   // 3. Bounded Track S read-only discovery -> Jaguar directly (no Bulldozer hop)
   const jaguarRun = await runDirectCase({
@@ -3034,6 +3068,12 @@ test('Issue #235 / PR #231 Finding 1: Durable runMilestone routes Track S direct
   assert.equal(jaguarRun.result.worker_role, 'jaguar');
   assert.deepEqual(jaguarRun.calls, ['jaguar', 'zen']);
   assert.ok(!jaguarRun.calls.includes('bulldozer'));
+  const jaguarCand = jaguarRun.state.evidence.m1.candidates[0];
+  assert.deepEqual(
+    uncoveredAcceptanceCriteria(['callers catalogued'], jaguarCand.verification_evidence),
+    ['callers catalogued']
+  );
+  assert.ok(jaguarCand.verification_evidence.includes('src/ledger.mjs:10 saveLedger'));
 
   // 4. Lightweight worker REROUTE_REQUIRED escalates cleanly to Bobcat without Bulldozer
   const rerouteToBobcat = await runDirectCase({
@@ -3057,12 +3097,46 @@ test('Issue #235 / PR #231 Finding 1: Durable runMilestone routes Track S direct
     objective: 'Implement stateful API validation handler',
     boundedScope: ['src/handler.mjs'],
     criterion: 'handler validates state transitions',
-    workerReply: () => ({ status: 'READY', changes_made: ['src/handler.mjs'] }),
+    workerReply: (_role, _packet, dir) => {
+      writeFileSync(join(dir, 'src/handler.mjs'), 'export function validate() { return false; }\n');
+      return { status: 'READY', changes_made: ['src/handler.mjs'] };
+    },
     zenVerdicts: ['NO-GO', 'GO'],
   });
   assert.equal(recoveryRun.result.verified, true);
   assert.equal(recoveryRun.result.worker_role, 'bulldozer');
   assert.deepEqual(recoveryRun.calls, ['bobcat', 'zen', 'bulldozer', 'zen']);
+
+  // 6. Direct worker READY without verification_evidence AND without any host-observed
+  // artifact, bounded-tree diff, or verify command result is rejected as BLOCKED before Zen.
+  const emptyClaimRun = await runDirectCase({
+    objective: 'Fix typo in README.md',
+    boundedScope: ['README.md'],
+    criterion: 'README typo fixed',
+    workerReply: () => ({ status: 'READY', changes_made: ['README.md'] }),
+  });
+  assert.equal(emptyClaimRun.result.status, 'BLOCKED');
+  assert.equal(emptyClaimRun.result.verified, false);
+  assert.equal(emptyClaimRun.result.worker_role, 'puma');
+  assert.ok(!emptyClaimRun.calls.includes('zen'));
+  assert.deepEqual(emptyClaimRun.calls, ['puma', 'puma', 'puma']);
+
+  // 7. Explicit worker verification_evidence is preserved as-is without host synthesis.
+  const explicitWorkerEvidence = [
+    { classification: 'OBSERVED', criterion: 'README typo fixed', result: 'checked README typo manually' },
+  ];
+  const explicitRun = await runDirectCase({
+    objective: 'Fix typo in README.md',
+    boundedScope: ['README.md'],
+    criterion: 'README typo fixed',
+    workerReply: () => ({
+      status: 'READY',
+      changes_made: ['README.md'],
+      verification_evidence: explicitWorkerEvidence,
+    }),
+  });
+  assert.equal(explicitRun.result.verified, true);
+  assert.deepEqual(explicitRun.state.evidence.m1.candidates[0].verification_evidence, explicitWorkerEvidence);
 });
 
 test('PR #231 Finding 2: delivered_tree_digest is durably bound before Zen and reviewCandidate refuses to promote when bounded files change', async t => {

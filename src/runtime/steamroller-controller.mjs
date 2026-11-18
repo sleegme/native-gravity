@@ -1674,17 +1674,25 @@ export class SteamrollerController {
         }
         const hasExplicitCandRef = workerResult.candidate_artifact_ref !== undefined;
         const hasExplicitArtRef = workerResult.artifact_ref !== undefined;
+        let inspectedArtifactDigest = null;
+        let inspectedArtifactBytes = null;
+        if (typeof workerResult.artifact === "string" && existsSync(workerResult.artifact)) {
+          const artifactBytes = readFileSync(workerResult.artifact);
+          inspectedArtifactBytes = artifactBytes.length;
+          inspectedArtifactDigest = `sha256:${createHash("sha256")
+            .update(artifactBytes)
+            .digest("hex")}`;
+        }
+        const liveCwd = this.#resolveScopeCwd(activeContract.bounded_scope);
+        const scopeAfter = snapshotScope(activeContract.bounded_scope, { cwd: liveCwd });
+        const changes = scopeChanges(scopeBefore, scopeAfter);
+        const currentTreeDigest = computeDeliveredTreeDigest(activeContract.bounded_scope, {
+          cwd: liveCwd,
+        });
         let fallbackArtifactRef;
         if (!hasExplicitCandRef && !hasExplicitArtRef) {
-          if (typeof workerResult.artifact === "string" && existsSync(workerResult.artifact)) {
-            fallbackArtifactRef = `sha256:${createHash("sha256")
-              .update(readFileSync(workerResult.artifact))
-              .digest("hex")}`;
-          } else {
-            fallbackArtifactRef = computeDeliveredTreeDigest(activeContract.bounded_scope, {
-              cwd: coverageCwd,
-            });
-          }
+          fallbackArtifactRef =
+            inspectedArtifactDigest !== null ? inspectedArtifactDigest : currentTreeDigest;
         }
         const changesMade =
           workerResult.changes_made !== undefined
@@ -1696,52 +1704,68 @@ export class SteamrollerController {
                 : typeof workerResult.artifact === "string"
                   ? [basename(workerResult.artifact)]
                   : [];
+        const unresolvedUnknowns = Array.isArray(workerResult.unresolved_unknowns)
+          ? [...workerResult.unresolved_unknowns]
+          : typeof workerResult.unresolved_unknowns === "string" &&
+              workerResult.unresolved_unknowns.trim()
+            ? [workerResult.unresolved_unknowns]
+            : [];
         let verificationEvidence;
         if (!isEvidenceEmpty(workerResult.verification_evidence)) {
           verificationEvidence = workerResult.verification_evidence;
         } else {
-          const detailItems = [];
-          if (Array.isArray(workerResult.facts) && workerResult.facts.length > 0) {
-            detailItems.push(
-              ...workerResult.facts.map((fact) =>
-                typeof fact === "string"
-                  ? { classification: "OBSERVED", worker_role: executedRole, fact }
-                  : fact
-              )
-            );
+          const workerProvidedFacts = [
+            ...(Array.isArray(workerResult.facts) ? workerResult.facts : []),
+            ...(Array.isArray(workerResult.findings) ? workerResult.findings : []),
+          ];
+          const detailItems = [
+            ...workerProvidedFacts,
+            ...(Array.isArray(workerResult.edits) ? workerResult.edits : []),
+          ];
+          const hostFacts = [];
+          if (inspectedArtifactDigest !== null) {
+            hostFacts.push({
+              classification: "OBSERVED",
+              source: "host_artifact_inspection",
+              artifact: workerResult.artifact,
+              artifact_sha256: inspectedArtifactDigest,
+              bytes: inspectedArtifactBytes,
+            });
           }
-          if (Array.isArray(workerResult.edits) && workerResult.edits.length > 0) {
-            detailItems.push(
-              ...workerResult.edits.map((edit) =>
-                typeof edit === "string"
-                  ? { classification: "OBSERVED", worker_role: executedRole, edit }
-                  : edit
-              )
-            );
+          if (changes.changed.length > 0 || changes.added.length > 0) {
+            hostFacts.push({
+              classification: "OBSERVED",
+              source: "host_tree_digest",
+              delivered_tree_digest: currentTreeDigest,
+              changed_files: changes.changed,
+              added_files: changes.added,
+            });
+          } else if (
+            executedRole === "jaguar" &&
+            workerProvidedFacts.length > 0 &&
+            Object.keys(scopeAfter.files).length > 0
+          ) {
+            hostFacts.push({
+              classification: "OBSERVED",
+              source: "host_tree_digest",
+              delivered_tree_digest: currentTreeDigest,
+              inspected_files: Object.keys(scopeAfter.files),
+            });
           }
-          const criteriaItems =
-            Array.isArray(activeContract.acceptance_criteria) &&
-            activeContract.acceptance_criteria.length > 0
-              ? activeContract.acceptance_criteria.map((criterion) => ({
-                  classification: "OBSERVED",
-                  criterion,
-                  worker_role: executedRole,
-                  result:
-                    detailItems.length > 0
-                      ? `${executedRole} completed bounded milestone '${activeContract.milestone_id}'`
-                      : `${executedRole} delivered bounded scope for '${activeContract.milestone_id}'`,
-                }))
-              : [];
-          verificationEvidence =
-            criteriaItems.length > 0 || detailItems.length > 0
-              ? [...criteriaItems, ...detailItems]
-              : [
-                  {
-                    classification: "OBSERVED",
-                    worker_role: executedRole,
-                    result: `${executedRole} completed bounded milestone '${activeContract.milestone_id}'`,
-                  },
-                ];
+          const unknownCriteriaItems = [];
+          for (const criterion of Array.isArray(activeContract.acceptance_criteria)
+            ? activeContract.acceptance_criteria
+            : []) {
+            unknownCriteriaItems.push({
+              classification: "UNKNOWN",
+              criterion,
+              reason: "No worker verification_evidence provided for acceptance criterion",
+            });
+            if (!unresolvedUnknowns.includes(criterion)) {
+              unresolvedUnknowns.push(criterion);
+            }
+          }
+          verificationEvidence = [...hostFacts, ...detailItems, ...unknownCriteriaItems];
         }
         return {
           milestone_id: activeContract.milestone_id,
@@ -1750,7 +1774,7 @@ export class SteamrollerController {
           worker_role: executedRole,
           changes_made: changesMade,
           verification_evidence: verificationEvidence,
-          unresolved_unknowns: workerResult.unresolved_unknowns ?? [],
+          unresolved_unknowns: unresolvedUnknowns,
           scope_deviations: workerResult.scope_deviations ?? [],
           ...(hasExplicitCandRef
             ? { candidate_artifact_ref: workerResult.candidate_artifact_ref }
@@ -2200,6 +2224,38 @@ export class SteamrollerController {
                 `${result.command} (exit ${result.exit_code}) ${(result.tail ?? "").slice(-120)}`
             )
             .join("; ")}`
+        );
+      } else if (
+        candidate.worker_role &&
+        candidate.worker_role !== "bulldozer" &&
+        Array.isArray(candidate.verification_evidence)
+      ) {
+        for (const res of verifyResults) {
+          candidate.verification_evidence.push({
+            classification: "OBSERVED",
+            source: "host_verify_command",
+            command: res.command,
+            exit_code: res.exit_code,
+            tail: res.tail,
+          });
+        }
+      }
+    }
+    if (candidate.worker_role && candidate.worker_role !== "bulldozer") {
+      const evidenceItems = Array.isArray(candidate.verification_evidence)
+        ? candidate.verification_evidence
+        : [candidate.verification_evidence];
+      const hasNonUnknownEvidence =
+        !isEvidenceEmpty(candidate.verification_evidence) &&
+        evidenceItems.some(
+          (item) =>
+            item !== null &&
+            item !== undefined &&
+            (typeof item === "string" ? Boolean(item.trim()) : item.classification !== "UNKNOWN")
+        );
+      if (!hasNonUnknownEvidence) {
+        failures.push(
+          "Direct worker READY handoff is missing verification_evidence and no host-observed artifact, bounded-tree diff, or verify command result was produced"
         );
       }
     }
