@@ -49,10 +49,11 @@ Excavator pin, and cost guidance.
 
 ## Current profiles
 
-- `gemini-3.1-flash.md` — stub (legacy fast lane)
+- `gemini-3.1-flash.md` — historical stub (legacy fast lane)
 - `gemini-3.1-pro.md` — historical stub (retired; no installed slug)
-- `gemini-3.8-flash.md` — draft (current de-facto executor tier on AGY ≥1.3)
-- `gemini-4-argon.md` — current routing and cost guidance (#74)
+- `gemini-3.8-flash.md` — draft (NTG 2.0 Lightweight Worker Harness tier: `gemini-3.8-flash-low` for Jaguar & Puma)
+- `gemini-4-hydrogen.md` — draft (NTG 2.0 primary execution & review family: Bulldozer `xhigh`, Strix Halo `high`, Bobcat `medium`)
+- `gemini-4-argon.md` — NTG 2.0 routing and cost guidance (Steamroller Carbon->Argon `medium`, Piledriver `high`, Navi `medium`, Zen fallback `high`)
 
 ## Pipeline hook
 

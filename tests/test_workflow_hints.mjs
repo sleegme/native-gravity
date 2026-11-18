@@ -11,7 +11,7 @@ function agent(name) {
 }
 
 // Explicit task acceptance requires checking the hint's presence in shipped prompts.
-for (const role of ["bobcat", "excavator"]) {
+for (const role of ["bobcat", "bulldozer"]) {
   test(`${role} ships the one-script hint and installed helper instructions`, () => {
     const { tools, body } = agent(role);
     assert.ok(tools.includes("run_command"));

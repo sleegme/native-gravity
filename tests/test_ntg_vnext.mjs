@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
-import { main, nativeZen, parseZenEnvelope, resolveInvocationTimeoutMs, ROLE_TIMEOUT_S, DEFAULT_RUNNER_TIMEOUT_S } from '../scripts/ntg-vnext.mjs';
+import { breakStaleLedgerLock, main, nativeZen, parseZenEnvelope, resolveInvocationTimeoutMs, ROLE_TIMEOUT_S, DEFAULT_RUNNER_TIMEOUT_S } from '../scripts/ntg-vnext.mjs';
 import { AuthoritativeLedger, computeUsageRollup } from '../scripts/ledger.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { symlinkSync } from 'node:fs';
@@ -330,8 +330,7 @@ if (argv[0] === 'models') {
 } else {
   writeFileSync(${JSON.stringify(join(dir, 'zen-args.json'))}, JSON.stringify(argv));
   writeFileSync(${JSON.stringify(join(dir, 'zen-boundary-env.json'))}, JSON.stringify({
-    marker: process.env.NTG_BULLDOZER_NO_SHELL,
-    binding: process.env.NTG_BULLDOZER_CONVERSATION_FILE,
+    activeRole: process.env.NTG_ACTIVE_ROLE,
   }));
   process.stdout.write(readFileSync(${JSON.stringify(join(dir, 'out.json'))}, 'utf8'));
 }
@@ -402,21 +401,20 @@ test('the configured timeout also bounds the default native Zen review', async t
   }
 });
 
-test('independent native Zen strips ambient Bulldozer shell context', t => {
-  const keys = ['NTG_BULLDOZER_NO_SHELL', 'NTG_BULLDOZER_CONVERSATION_FILE'];
+test('independent native Zen injects NTG_ACTIVE_ROLE=zen', t => {
+  const keys = ['NTG_ACTIVE_ROLE'];
   const saved = keys.map(key => process.env[key]);
   t.after(() => keys.forEach((key, index) => {
     if (saved[index] === undefined) delete process.env[key];
     else process.env[key] = saved[index];
   }));
-  process.env.NTG_BULLDOZER_NO_SHELL = '1';
-  process.env.NTG_BULLDOZER_CONVERSATION_FILE = 'parent-binding';
+  delete process.env.NTG_ACTIVE_ROLE;
   const agy = fakeZen(t, { status: 'SUCCESS', response: zenGo });
 
   const result = nativeZen({}, { agyPath: agy });
 
   assert.equal(result.verdict, 'GO');
-  assert.deepEqual(JSON.parse(readFileSync(join(dirname(agy), 'zen-boundary-env.json'), 'utf8')), {});
+  assert.deepEqual(JSON.parse(readFileSync(join(dirname(agy), 'zen-boundary-env.json'), 'utf8')), { activeRole: 'zen' });
 });
 
 test('Zen extracts one verdict from narration and fences (#180)', () => {
@@ -679,8 +677,8 @@ test('native Zen is model-pinned by policy and never by --agent', t => {
   // the runner roles pass through but native invocation must not.
   const prompt = args[args.indexOf('-p') + 1];
   assert.equal(prompt.startsWith('---'), false);
-  assert.match(prompt, /You are the independent, non-mutating verification gate\./);
-  assert.match(prompt, /Independently verify the candidate against its milestone contract\./);
+  assert.match(prompt, /You are the independent, non-mutating summative verification gate/);
+  assert.match(prompt, /NTG_ACTIVE_ROLE=zen/);
   assert.match(prompt, /criterion by its exact text/);
   assert.match(prompt, /"milestone_id":"one"/);
 });
@@ -885,7 +883,10 @@ console.log(JSON.stringify({
     handleSignals: false,
     runnerOptions: {
       agyPath: agy,
-      installedModels: [{ slug: 'gemini-3.8-flash-high', description: 'Gemini 3.8 Flash (High)' }],
+      installedModels: [
+        { slug: 'gemini-4-hydrogen-xhigh', description: 'Gemini 4 Hydrogen (XHigh)' },
+        { slug: 'gemini-3.8-flash-high', description: 'Gemini 3.8 Flash (High)' },
+      ],
     },
     invokeSpecialist: async () => {
       specialistCallbacks += 1;
@@ -977,7 +978,10 @@ console.log(JSON.stringify({
     handleSignals: false,
     runnerOptions: {
       agyPath: agy,
-      installedModels: [{ slug: 'gemini-3.8-flash-high', description: 'Gemini 3.8 Flash (High)' }],
+      installedModels: [
+        { slug: 'gemini-4-hydrogen-xhigh', description: 'Gemini 4 Hydrogen (XHigh)' },
+        { slug: 'gemini-3.8-flash-high', description: 'Gemini 3.8 Flash (High)' },
+      ],
     },
     invokeSpecialist: async () => {
       assert.fail('a model declaration must not trigger a specialist callback');
@@ -1348,4 +1352,37 @@ test('init accepts a scoped probe and stores coverage on the milestone', async t
   const stored = result.out.state.milestones[0];
   assert.equal(stored.coverage[0].id, 'SAVE_SITES');
   assert.deepEqual(stored.verify, ['node --check scripts/ledger.mjs']);
+});
+
+
+test('breakStaleLedgerLock parses two-line pid+token lock format from lock-manager (#201 A2)', t => {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-vnext-token-lock-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const ledger = join(dir, 'ledger.json');
+  const child = spawnSync(process.execPath, ['-e', 'process.exit(0)'], { encoding: 'utf8' });
+  const exitedChild = spawnSync(process.execPath, ['-e', 'console.log(process.pid)'], { encoding: 'utf8' });
+  const deadPid = Number(exitedChild.stdout.trim());
+  assert.ok(Number.isInteger(deadPid) && deadPid > 0 && child.status === 0);
+  writeFileSync(`${ledger}.lock`, `${deadPid}\ntoken:11111111-2222-3333-4444-555555555555\n`);
+  const recovery = breakStaleLedgerLock(ledger);
+  assert.equal(recovery.dead_owner_pid, deadPid);
+  assert.equal(existsSync(`${ledger}.lock`), false);
+});
+
+test('tactical-replan bumps plan_version and marks prior Zen GO verdicts STALE', async t => {
+  const h = harness(t);
+  await h.cli('init', '--plan', h.write('plan.json', plan('v1', ['one'])));
+  const run1 = await h.cli('run');
+  assert.equal(run1.code, 0);
+  assert.equal(run1.out.state.verification.one.verdict, 'GO');
+  assert.deepEqual(run1.out.state.completed_milestones, ['one']);
+
+  const replanRes = await h.cli('tactical-replan', '--plan', h.write('tactical-plan.json', plan('v2', ['one', 'two'])));
+  assert.equal(replanRes.code, 0);
+  assert.equal(replanRes.out.state.plan_version, 'v2');
+  assert.deepEqual(replanRes.out.state.completed_milestones, []);
+  const disk = AuthoritativeLedger.load(h.ledger).getState();
+  assert.equal(disk.verification.one.is_stale, true);
+  assert.equal(disk.verification.one.plan_version, 'v1');
+  assert.equal(disk._verification_history.some(v => v.is_stale === true && v.plan_version === 'v1'), true);
 });

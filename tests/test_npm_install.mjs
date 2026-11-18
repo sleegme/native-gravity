@@ -471,9 +471,16 @@ test('npm pack --dry-run exits 0 and tarball file list includes scripts/npm-inst
 
   const requiredFiles = [
     'scripts/npm-install.mjs',
+    'scripts/coverage.mjs',
     'plugin.json',
     'hooks.json',
+    'hooks/shell-safety-guard.py',
+    'hooks/telemetry-guard.py',
     'agents/bobcat.md',
+    'src/core/ledger-kernel.mjs',
+    'src/core/model-router.mjs',
+    'src/runtime/steamroller-controller.mjs',
+    'src/runtime/track-runner.mjs',
     'rules/harness.md',
     'rules/orchestration.md',
     'skills/ntg/SKILL.md',
@@ -488,6 +495,9 @@ test('npm pack --dry-run exits 0 and tarball file list includes scripts/npm-inst
       `tarball files list must include '${req}' (found: ${filePaths.filter((p) => p.includes(req)).join(', ') || 'none'})`
     );
   }
+  assert.equal(filePaths.includes('scripts/excavator-agy.mjs'), false);
+  assert.equal(filePaths.includes('agents/excavator.md'), false);
+  assert.equal(filePaths.includes('hooks/budget-guard.py'), false);
 });
 
 test('integration: npm pack to tarball, npm install into temporary prefix, run installed native-gravity bin', () => {

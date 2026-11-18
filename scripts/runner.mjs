@@ -1,120 +1,59 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { TextDecoder } from "node:util";
 import { withNaviHome } from "./navi.mjs";
+import {
+  AuthorityExpansionError,
+  EXCLUDED_DEFAULT_MODELS,
+  ModelRouter,
+  ROLE_AUTHORITY_TABLE,
+  ROLE_POLICY_TABLE,
+  UnresolvedModelSlugError,
+  clearModelCatalogCache,
+  getRoleAuthority,
+  listInstalledModels,
+  matchesPolicy,
+  normalizeRoleName,
+  parseInstalledModels,
+  realAgyRefusalUnderNodeTest,
+  resolveSlug as resolveRouterSlug,
+  validateDynamicOverride,
+} from "../src/core/model-router.mjs";
 
 // Explicitly bounded to the runner roles; native specialists stay native.
 const ROLE_BODY_ROLES = Object.freeze(["steamroller", "piledriver", "bulldozer", "instinct", "navi"]);
 // Zen is not runner-supervised: ntg-vnext invokes it natively, outside the
-// supervisor's role packets. Excavator is TEMPORARILY not a native subagent
-// (#173): scripts/excavator-agy.mjs loads its body for a headless agy call on
-// the policy-resolved Argon slug. Both are listed because their exact slugs
-// resolve from the same frozen policy table and their bodies load through the
-// same loader. invoke() and composeBoundedPrompt() still reject every role
-// outside ROLE_BODY_ROLES, so this grants no runner or delegation authority.
-const NATIVE_ROLE_BODY_ROLES = Object.freeze(["zen", "excavator"]);
-const MODEL_RESOLUTION_ROLES = Object.freeze([...ROLE_BODY_ROLES, ...NATIVE_ROLE_BODY_ROLES]);
+// supervisor's role packets.
+const NATIVE_ROLE_BODY_ROLES = Object.freeze(["zen"]);
 const RUNNER_DIR = dirname(fileURLToPath(import.meta.url));
 
 /** Leading AGY frontmatter block of a role file (its metadata, not prompt text). */
 const FRONTMATTER_BLOCK = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n)?/;
 
-/**
- * Role policy table mapping agent roles to target model families and reasoning effort requirements.
- * Used for runtime resolution against the installed AGY surface (`agy models`).
- */
-export const ROLE_POLICY_TABLE = Object.freeze({
-  navi: Object.freeze({
-    role: "navi",
-    family: "Gemini 4 Argon",
-    effort: "Medium",
-  }),
-  piledriver: Object.freeze({
-    role: "piledriver",
-    family: "Gemini 4 Argon",
-    effort: "High",
-  }),
-  zen: Object.freeze({
-    role: "zen",
-    family: "Claude Opus 5.5",
-    effort: "High",
-    // Used only after the primary model reports exhausted quota; never by default.
-    quotaFallback: Object.freeze({
-      family: "Gemini 4 Argon",
-      effort: "High",
-    }),
-  }),
-  bulldozer: Object.freeze({
-    role: "bulldozer",
-    family: "Gemini 3.8 Flash",
-    effort: "High",
-  }),
-  // TEMPORARY headless path (#173 follow-up): not a runner role. The entry
-  // exists so scripts/excavator-agy.mjs resolves the exact Argon slug through
-  // the same fail-closed policy resolution as the runner roles; invoke() and
-  // composeBoundedPrompt() still reject "excavator" (it is not in
-  // ROLE_BODY_ROLES). Effort High matches Piledriver's difficult-decision
-  // tier: hard broken-behavior diagnosis/repair.
-  excavator: Object.freeze({
-    role: "excavator",
-    family: "Gemini 4 Argon",
-    effort: "High",
-  }),
-  steamroller: Object.freeze({
-    role: "steamroller",
-    family: "Gemini 4 Argon",
-    effort: "Medium",
-  }),
-  instinct: Object.freeze({
-    role: "instinct",
-    family: "Claude Sonnet 5.5",
-    effort: "High",
-    // Opus is used only when the caller explicitly escalates; never by default.
-    escalated: Object.freeze({
-      family: "Claude Opus 5.5",
-      effort: "High",
-    }),
-  }),
-});
+export {
+  AuthorityExpansionError,
+  EXCLUDED_DEFAULT_MODELS,
+  ModelRouter,
+  ROLE_AUTHORITY_TABLE,
+  ROLE_POLICY_TABLE,
+  UnresolvedModelSlugError,
+  clearModelCatalogCache,
+  getRoleAuthority,
+  listInstalledModels,
+  matchesPolicy,
+  parseInstalledModels,
+  realAgyRefusalUnderNodeTest,
+  validateDynamicOverride,
+};
 
 /**
  * @deprecated Hard-coded slug lookup table is removed as the primary lookup.
  * Model slugs are resolved at runtime against installed AGY surface via ROLE_POLICY_TABLE.
  */
 export const ROLE_MODEL_TABLE = Object.freeze({});
-
-// =============================================================================
-// Stage 0 test hygiene (NTG subagent redesign 2026-11-08, §3/§5)
-// =============================================================================
-
-/**
- * Refuses to launch the ambient `agy` binary while running under Node's test
- * runner. `node --test` sets NODE_TEST_CONTEXT on child processes, so an
- * accidental live model call from inside a test suite fails closed here
- * instead of spending real quota (the WQ-31 B1 contamination: 13.94M tokens
- * launched from a worker's test run). Live tests are opt-in: set
- * NTG_LIVE_TESTS=1, or name an executable explicitly (opts.agyPath, or
- * AGY_PATH — tests point both at their mocks), which marks the spawn as a
- * deliberate choice rather than the ambient default.
- *
- * @param {string} [explicitAgyPath] - Caller-provided agy path, if any
- * @returns {{ error: string, message: string } | null} Refusal, or null when allowed
- */
-export function realAgyRefusalUnderNodeTest(explicitAgyPath) {
-  if (!process.env.NODE_TEST_CONTEXT) return null;
-  if (process.env.NTG_LIVE_TESTS === "1") return null;
-  if (explicitAgyPath || process.env.AGY_PATH) return null;
-  return {
-    error: "AGY_REFUSED_UNDER_NODE_TEST",
-    message:
-      "refusing to spawn the ambient agy binary under `node --test` (NODE_TEST_CONTEXT is set): " +
-      "live model tests are opt-in — set NTG_LIVE_TESTS=1 or point AGY_PATH at a mock",
-  };
-}
 
 // =============================================================================
 // Stage 0 Argon quota circuit breaker (NTG subagent redesign 2026-11-08, §4)
@@ -202,47 +141,6 @@ export function argonBreakerBlocksSlug(slug) {
   return argonBreaker.tripped && isArgonSlug(slug);
 }
 
-// =============================================================================
-// Stage 1 budget hook env (NTG subagent redesign 2026-11-08, §2.3/§2.6.2)
-// =============================================================================
-
-/**
- * Per-conversation budget caps the runner hands a Bulldozer invocation; the
- * PreToolUse budget hook (hooks/budget-guard.py) enforces them. Uniform caps
- * are the loosest worker budget (Bobcat §2.3); the ROOT_* caps bind only the
- * runner-started root conversation through its SessionStart binding — the
- * observed runaway was always the root (A2a: 368 calls, 269 reads, 8 spawns).
- * The spine's salvage session overrides NTG_BUDGET_ROOT_MAX_CALLS via opts.env.
- */
-export const BULLDOZER_BUDGET_DEFAULTS = Object.freeze({
-  NTG_BUDGET_MAX_CALLS: "140",
-  NTG_BUDGET_MAX_SPAWN_CALLS: "2",
-  NTG_BUDGET_ROOT_MAX_CALLS: "90",
-  NTG_BUDGET_ROOT_MAX_READ_CALLS: "12",
-  NTG_BUDGET_ROOT_MAX_SPAWN_CALLS: "4",
-});
-
-/** Fresh per-invocation budget context dir markers (state dir + root binding). */
-export function bulldozerBudgetContext(dir) {
-  return {
-    NTG_BUDGET_STATE_DIR: join(dir, "budget"),
-    NTG_BUDGET_ROOT_FILE: join(dir, "budget-root"),
-  };
-}
-
-export class UnresolvedModelSlugError extends Error {
-  constructor(role, message, details = {}) {
-    super(message || `Unresolved model slug for role: ${role}`);
-    this.name = "UnresolvedModelSlugError";
-    this.ok = false;
-    this.error = "UNRESOLVED_MODEL_SLUG";
-    this.role = role;
-    if (details && typeof details === "object") {
-      Object.assign(this, details);
-    }
-  }
-}
-
 export class InvalidHandoffPacketError extends Error {
   constructor(message, details = {}) {
     super(message || "Invalid handoff packet");
@@ -305,7 +203,7 @@ function readRoleBody(role, opts = {}) {
 }
 
 function normalizedRole(role) {
-  return typeof role === "string" ? role.trim().toLowerCase() : "";
+  return normalizeRoleName(role);
 }
 
 function loadRoleBody(role, opts) {
@@ -322,7 +220,7 @@ function loadRoleBody(role, opts) {
  * native invocation, not a runner packet, and frontmatter keys are not prompt
  * text. Directory precedence and fail-closed validation match loadRoleBody.
  *
- * @param {string} role - Native role name ("zen" for ntg-vnext, "excavator" for its headless script)
+ * @param {string} role - Native role name
  * @param {object} [opts] - roleBodyDir / env options (see readRoleBody)
  * @returns {string} Role body without frontmatter
  */
@@ -335,184 +233,26 @@ export function loadNativeRoleBody(role, opts = {}) {
 }
 
 /**
- * Parses raw stdout from `agy models` into an array of model entries.
- *
- * @param {string} stdout
- * @returns {Array<{ slug: string, description: string }>}
- */
-export function parseInstalledModels(stdout) {
-  if (typeof stdout !== "string") {
-    return [];
-  }
-  const lines = stdout.split(/\r?\n/);
-  const models = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    if (/^fetching\b/i.test(trimmed)) continue;
-    // Slugs contain no whitespace. First non-whitespace sequence is the slug; the remainder is the description.
-    const match = trimmed.match(/^(\S+)(?:\s+(.*))?$/);
-    if (match) {
-      models.push({
-        slug: match[1],
-        description: (match[2] || "").trim(),
-      });
-    }
-  }
-  return models;
-}
-
-/**
- * Discovers installed models by querying `agy models` at runtime.
- *
- * @param {object} [opts]
- * @param {string} [opts.agyPath] - Path to agy executable (defaults to AGY_PATH env or "agy")
- * @param {number} [opts.timeout=15000] - Discovery timeout in ms
- * @param {object} [opts.env] - Additional environment variables
- * @param {string} [opts.cwd] - Working directory
- * @returns {Array<{ slug: string, description: string }>}
- */
-export function listInstalledModels(opts = {}) {
-  const agyPath = opts.agyPath || process.env.AGY_PATH || "agy";
-  const timeout = typeof opts.timeout === "number" ? opts.timeout : 15000;
-
-  const refusal = realAgyRefusalUnderNodeTest(opts.agyPath);
-  if (refusal) {
-    throw new Error(`Failed to list installed models: ${refusal.message}`);
-  }
-
-  const result = (opts.naviSpawn || spawnSync)(agyPath, ["models"], {
-    timeout,
-    env: { ...process.env, ...(opts.env || {}) },
-    cwd: opts.cwd || process.cwd(),
-    encoding: "utf-8",
-    maxBuffer: 5 * 1024 * 1024,
-  });
-
-  if (result.error) {
-    throw new Error(`Failed to list installed models: ${result.error.message}`);
-  }
-  if (result.status !== 0) {
-    if (opts.naviSpawn) throw new Error("NAVI_MODEL_DISCOVERY_FAILED");
-    throw new Error(
-      `Failed to list installed models (exit code ${result.status}): ${result.stderr || ""}`
-    );
-  }
-
-  return parseInstalledModels(result.stdout || "");
-}
-
-/**
- * Evaluates whether a candidate model entry satisfies a role policy specification.
- *
- * @param {object} policy - Role policy from ROLE_POLICY_TABLE
- * @param {string|{ slug: string, description?: string }} model
- * @returns {boolean}
- */
-export function matchesPolicy(policy, model) {
-  if (!policy || !model) return false;
-
-  const slug = (typeof model === "string" ? model : model.slug || "").trim().toLowerCase();
-  const desc = (typeof model === "object" && model && model.description ? model.description : "").trim().toLowerCase();
-
-  const familySlug = policy.family.toLowerCase().replace(/[^a-z0-9.]+/g, "-");
-  // Slugs may render version dots as dashes ("Claude Sonnet 5.5" -> claude-sonnet-5-5).
-  const familySlugDashed = familySlug.replace(/\./g, "-");
-  const familyText = policy.family.toLowerCase();
-  const effort = policy.effort.toLowerCase();
-
-  // Match whole family tokens only, so "5.5"/"5-5" never matches a different
-  // version such as "5.50"/"5-50" (fail closed when the requested family is absent).
-  const hasToken = (hay, needle) => {
-    const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return new RegExp(`(?:^|[^a-z0-9.])${escaped}(?=$|[^a-z0-9.])`).test(hay);
-  };
-  const familyMatch = hasToken(slug, familySlug) || hasToken(slug, familySlugDashed)
-    || (desc.length > 0 && hasToken(desc, familyText));
-  if (!familyMatch) return false;
-
-  const effortMatch =
-    slug.endsWith(`-${effort}`) ||
-    slug.includes(`-${effort}-`) ||
-    (desc.length > 0 &&
-      (desc.includes(`(${effort})`) || desc.includes(` ${effort} `) || desc.endsWith(` ${effort}`)));
-
-  return effortMatch;
-}
-
-/**
- * Resolves a role name to its exact AGY model slug against the installed AGY surface.
- * Case-insensitive. Throws structured UnresolvedModelSlugError if 0 matches, ambiguous matches,
- * or unknown role. No silent fallback.
- *
- * @param {string} role - Role name (e.g. 'piledriver', 'bulldozer', 'steamroller')
- * @param {object} [opts] - Resolution options
- * @param {Array<string|object>} [opts.installedModels] - Optional pre-fetched/cached model surface for deterministic testing
- * @param {string} [opts.agyPath] - Path to agy executable
- * @returns {string} Exact model slug
+ * Resolves a role name to its exact AGY model slug via NTG 2.0 ModelRouter,
+ * preserving Windows Navi private-home model discovery.
  */
 export function resolveSlug(role, opts = {}) {
   const normalized = normalizedRole(role);
-  const basePolicy = ROLE_POLICY_TABLE[normalized];
-  if (!MODEL_RESOLUTION_ROLES.includes(normalized)) {
-    throw new UnresolvedModelSlugError(
-      role,
-      `Unknown role: "${role}". No role policy defined.`
-    );
+  if (normalized === "navi" && process.platform === "win32" && !opts.installedModels && !opts.discoverModels) {
+    return resolveRouterSlug(role, {
+      ...opts,
+      discoverModels: (innerOpts) =>
+        withNaviHome(innerOpts, (env, prefix, windows) =>
+          listInstalledModels({
+            ...innerOpts,
+            env,
+            agyPath: windows.agyPath,
+            naviSpawn: windows.spawn,
+          })
+        ),
+    });
   }
-  // Escalation is explicit and role-scoped: only a policy defining an escalated
-  // family (instinct) changes target models, and only on an explicit request.
-  const override = (opts?.escalate && basePolicy?.escalated)
-    || (opts?.quotaFallback && basePolicy?.quotaFallback);
-  const policy = override
-    ? Object.freeze({
-      ...basePolicy,
-      family: override.family,
-      effort: override.effort,
-    })
-    : basePolicy;
-
-  let installed = opts.installedModels;
-  if (!installed) {
-    try {
-      installed = normalized === "navi" && process.platform === "win32"
-        ? withNaviHome(opts, (env, prefix, windows) => listInstalledModels({
-          ...opts, env, agyPath: windows.agyPath, naviSpawn: windows.spawn,
-        }))
-        : listInstalledModels(opts);
-    } catch (err) {
-      throw new UnresolvedModelSlugError(
-        role,
-        `Failed to discover installed models for role "${role}": ${err.message}`,
-        { cause: err }
-      );
-    }
-  }
-
-  if (!Array.isArray(installed)) {
-    installed = [installed];
-  }
-
-  const matches = installed.filter((m) => matchesPolicy(policy, m));
-  if (matches.length === 0) {
-    throw new UnresolvedModelSlugError(
-      role,
-      `No installed model found matching policy for role "${role}" (family: "${policy.family}", effort: "${policy.effort}").`,
-      { reason: "NOT_FOUND" }
-    );
-  }
-
-  if (matches.length > 1) {
-    const candidateSlugs = matches.map((m) => (typeof m === "string" ? m : m.slug));
-    throw new UnresolvedModelSlugError(
-      role,
-      `Ambiguous model slug resolution for role "${role}": multiple matching models found: ${candidateSlugs.join(", ")}`,
-      { reason: "AMBIGUOUS", matches: candidateSlugs }
-    );
-  }
-
-  const resolved = matches[0];
-  return typeof resolved === "string" ? resolved : resolved.slug;
+  return resolveRouterSlug(role, opts);
 }
 
 /**
@@ -1095,26 +835,13 @@ function invokeAgyTransport(opts, prefix = []) {
   const nextChain = role ? (chainRaw ? `${chainRaw}:${role}` : role) : chainRaw;
   const childEnv = {
     ...process.env,
-    // Stage 1 budget caps: defaults first so a caller's opts.env (the spine
-    // salvage session tightens the root call cap) still overrides them.
-    ...(normalizedRole === "bulldozer" ? BULLDOZER_BUDGET_DEFAULTS : {}),
     ...(opts.env || {}),
     // Stage 0: every role-run test suite skips live model tests; a worker
-    // running `node --test` inside its role must not spend real agy quota
-    // (B1: 13.94M tokens). NTG_LIVE_TESTS=1 (release validation) opts out.
+    // running `node --test` inside its role must not spend real agy quota.
     ...(process.env.NTG_LIVE_TESTS === "1" ? {} : { SKIP_LIVE_TESTS: "1" }),
     ...(nextChain ? { NTG_RUNNER_CHAIN: nextChain } : {}),
-    ...(normalizedRole === "bulldozer" ? { NTG_BULLDOZER_NO_SHELL: "1" } : {}),
+    ...(normalizedRole ? { NTG_ACTIVE_ROLE: normalizedRole } : {}),
   };
-  if (normalizedRole !== "bulldozer") {
-    delete childEnv.NTG_BULLDOZER_NO_SHELL;
-    // Budget markers belong to Bulldozer runner invocations only.
-    for (const key of Object.keys(childEnv)) {
-      if (key.startsWith("NTG_BUDGET_") || key === "NTG_SALVAGE") delete childEnv[key];
-    }
-  }
-  // Never reuse a parent invocation's root-conversation binding.
-  delete childEnv.NTG_BULLDOZER_CONVERSATION_FILE;
 
   // Exact-model roles use their composed body. Navi's MCP registration lives
   // only in its per-process HOME; no native --agent selection is needed.
@@ -1125,10 +852,8 @@ function invokeAgyTransport(opts, prefix = []) {
     outputFormat,
   ];
 
-  // Bulldozer's native workers need permission to run verification commands.
-  // The conversation-scoped hook still denies the root's shell calls except
-  // the sanctioned Excavator transport. Navi has its own scoped contract.
-  // Must precede --print: agy consumes the token after --print as the prompt.
+  // Bulldozer holds general run_command access under hooks/shell-safety-guard.py.
+  // Navi has its own scoped contract. Must precede --print.
   if (normalizedRole === "navi") {
     args.push("--dangerously-skip-permissions");
   }
@@ -1157,17 +882,7 @@ function invokeAgyTransport(opts, prefix = []) {
   }
 
   let result;
-  let bulldozerContext;
   try {
-    if (normalizedRole === "bulldozer") {
-      bulldozerContext = mkdtempSync(join(tmpdir(), "ntg-bulldozer-"));
-      childEnv.NTG_BULLDOZER_CONVERSATION_FILE = join(bulldozerContext, "conversation");
-      // Stage 1: a fresh budget state dir per invocation; the hook creates
-      // the directory itself and counts per conversation inside it.
-      const budgetContext = bulldozerBudgetContext(bulldozerContext);
-      childEnv.NTG_BUDGET_STATE_DIR ??= budgetContext.NTG_BUDGET_STATE_DIR;
-      childEnv.NTG_BUDGET_ROOT_FILE ??= budgetContext.NTG_BUDGET_ROOT_FILE;
-    }
     result = (opts.naviSpawn || spawnSync)(prefix.length ? "bwrap" : agyPath, prefix.length ? [...prefix, agyPath, ...args] : args, {
       timeout,
       killSignal: "SIGKILL",
@@ -1185,8 +900,6 @@ function invokeAgyTransport(opts, prefix = []) {
       slug,
       message: err.message,
     };
-  } finally {
-    if (bulldozerContext) rmSync(bulldozerContext, { recursive: true, force: true });
   }
 
   if (result.error) {

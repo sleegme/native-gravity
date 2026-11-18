@@ -1,0 +1,5 @@
+^AH^R!reply with the single word HALOOK^Z#
+!reply with the single word HALOOK
+I've been focusing on how I can be more precise about tool selection. It's clear I need to explicitly list available tools first, before impulsively reaching for a terminal command. My goal is to ensure I'm using the most specialized tool for each task and avoiding generic commands whenever possible.
+^A{"Message":"HALOOK","Recipient":"0608dbcb-3ed4-41c7-9087-7f49153eee3b","toolAction":"Sending message","toolSummary":"Send message"}:
+^A{"Message":"HALOOK","Recipient":"0608dbcb-3ed4-41c7-9087-7f49153eee3b","toolAction":"Sending message","toolSummary":"Send message"}:

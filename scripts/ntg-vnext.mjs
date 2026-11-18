@@ -36,11 +36,11 @@ import { existsSync, readFileSync, readdirSync, realpathSync, unlinkSync } from 
 import { basename, dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { MinimalSpine, HEADLESS_EXCAVATOR_TRANSPORT, recommendNeedsAlt } from './spine.mjs';
+import { MinimalSpine, recommendNeedsAlt } from './spine.mjs';
 import { createEventLog, makeEvent } from './events.mjs';
 import { AuthoritativeLedger, computeUsageRollup } from './ledger.mjs';
 import { countProbeHits, MAX_PROBE_HITS } from './coverage.mjs';
-import { verifyLedgerIntegrity } from './ledger-lock.mjs';
+import { parseLockFileContent, verifyLedgerIntegrity } from './ledger-lock.mjs';
 import { invoke, loadNativeRoleBody, parseResponseEnvelope, parseResponsePacket, resolveSlug,
   QUOTA_EXHAUSTED_RE, argonBreakerBlocksSlug, argonQuotaBreakerState, tripArgonQuotaBreaker,
   isArgonSlug, formatDurationKo } from './runner.mjs';
@@ -98,21 +98,26 @@ export function resolveInvocationTimeoutMs(role, opts = {}) {
   return seconds * 1000;
 }
 
-const USAGE = 'usage: ntg-vnext <init|plan|run|replan|recover|alt|status|review|navi> --ledger PATH [options]';
+const USAGE = 'usage: ntg-vnext <init|plan|run|replan|tactical-replan|recover|alt|status|review|navi> --ledger PATH [options]';
 
 function parseArgs(argv) {
   const [command, ...rest] = argv;
-  const opts = { command, all: false, escalate: false };
+  const opts = { command, all: false, escalate: false, track: null };
   for (let i = 0; i < rest.length; i += 1) {
     const arg = rest[i];
     if (arg === '--all') { opts.all = true; continue; }
     if (arg === '--escalate') { opts.escalate = true; continue; }
-    const key = { '--ledger': 'ledger', '--plan': 'plan', '--task': 'task', '--milestone': 'milestone', '--evidence': 'evidence', '--timeout': 'timeout' }[arg];
+    const key = { '--ledger': 'ledger', '--plan': 'plan', '--task': 'task', '--milestone': 'milestone', '--evidence': 'evidence', '--timeout': 'timeout', '--track': 'track' }[arg];
     if (!key || rest[i + 1] === undefined) throw new Error(`Unknown or incomplete option: ${arg}\n${USAGE}`);
     opts[key] = rest[i + 1];
     i += 1;
   }
-  if (!['init', 'plan', 'run', 'replan', 'recover', 'alt', 'status', 'review', 'navi'].includes(command)) throw new Error(USAGE);
+  if (!['init', 'plan', 'run', 'replan', 'tactical-replan', 'recover', 'alt', 'status', 'review', 'navi'].includes(command)) throw new Error(USAGE);
+  if (opts.track !== null) {
+    const t = String(opts.track).trim().toUpperCase();
+    if (!['L', 'S', 'M'].includes(t)) throw new Error(`--track must be L, S, or M\n${USAGE}`);
+    opts.track = t;
+  }
   if (!opts.ledger) throw new Error(`--ledger is required\n${USAGE}`);
   // Explicit timeouts keep today's flat semantics for every role; without one,
   // main() applies ROLE_TIMEOUT_S per invocation (Stage 0).
@@ -267,10 +272,9 @@ export function nativeZen(request, { agyPath = process.env.AGY_PATH || 'agy', cw
     '--model', slug,
     '--output-format', 'json', '--dangerously-skip-permissions', '-p', prompt,
   ];
-  // Zen is independent of the execution tree, including ambient runner state.
-  const env = { ...process.env };
-  delete env.NTG_BULLDOZER_NO_SHELL;
-  delete env.NTG_BULLDOZER_CONVERSATION_FILE;
+  // Zen is independent of the execution tree; inject NTG_ACTIVE_ROLE=zen (#201 A4)
+  // so shell-safety-guard and zen-shell-guard enforce non-mutation across all tools.
+  const env = { ...process.env, NTG_ACTIVE_ROLE: 'zen' };
   // Stage 0: Zen's verification test runs never launch live models either.
   if (process.env.NTG_LIVE_TESTS !== '1') env.SKIP_LIVE_TESTS = '1';
   const spawnZen = () => spawnSync(agyPath, args, { cwd, env, encoding: 'utf8', timeout, killSignal: 'SIGKILL', maxBuffer: 20 * 1024 * 1024 });
@@ -327,17 +331,11 @@ function nativeDelegations(candidate, role) {
       || Array.isArray(candidate) || !Array.isArray(candidate.delegations)) {
     return [];
   }
-  const allowed = new Set(['jaguar', 'puma', 'bobcat']);
-  // TEMPORARY (#174): the headless Excavator call is declared with the
-  // sanctioned transport marker; a bare excavator role still claims native
-  // spawning and stays out of the declared-delegation projection.
+  const allowed = new Set(['jaguar', 'puma', 'bobcat', 'strix-halo']);
   return candidate.delegations.filter(delegation => delegation
     && typeof delegation === 'object' && !Array.isArray(delegation)
     && typeof delegation.role === 'string'
-    && (allowed.has(delegation.role.trim().toLowerCase())
-      || (delegation.role.trim().toLowerCase() === 'excavator'
-        && typeof delegation.transport === 'string'
-        && delegation.transport.trim() === HEADLESS_EXCAVATOR_TRANSPORT)));
+    && allowed.has(delegation.role.trim().toLowerCase()));
 }
 
 /**
@@ -350,7 +348,8 @@ export function breakStaleLedgerLock(ledgerPath) {
   if (!existsSync(dirname(path))) return null;
   const lockPath = join(realpathSync(dirname(path)), `${basename(path)}.lock`);
   if (!existsSync(lockPath)) return null;
-  const pid = Number(readFileSync(lockPath, 'utf8').trim());
+  const parsedLock = parseLockFileContent(readFileSync(lockPath, 'utf8'));
+  const pid = parsedLock.pid;
   if (!Number.isInteger(pid) || pid <= 0) throw new Error(`${lockPath} has no owner PID; refusing stale-lock recovery`);
   try {
     process.kill(pid, 0);
@@ -830,6 +829,8 @@ export async function main(argv, deps = {}) {
             adopted: false,
           },
         };
+      case 'tactical-replan':
+        return { code: 0, out: { state: spine.adoptTacticalReplan(readJson(opts.plan)) } };
       case 'replan':
         return { code: 0, out: { state: spine.adoptReplan(readJson(opts.plan)) } };
       case 'recover': {

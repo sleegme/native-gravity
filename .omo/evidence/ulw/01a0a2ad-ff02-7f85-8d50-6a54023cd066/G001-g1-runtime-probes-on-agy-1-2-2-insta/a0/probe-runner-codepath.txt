@@ -1,0 +1,175 @@
+=== invoke() ===
+export function invoke(role, packet, opts = {}) {
+  const options = opts || {};
+  if (options.outputFormat && options.outputFormat !== "json") {
+    return {
+      ok: false,
+      error: "INVALID_OUTPUT_FORMAT",
+      role,
+      message:
+        "invoke() requires JSON output format; envelope validation cannot be bypassed. Use invokeTransport() if text format is needed.",
+    };
+  }
+
+  // Recursion protection early check
+  const normalizedRole = typeof role === "string" ? role.trim().toLowerCase() : String(role);
+  const chainRaw = process.env.NTG_RUNNER_CHAIN;
+  if (chainRaw) {
+    const parts = chainRaw.split(":").map((s) => s.trim().toLowerCase()).filter(Boolean);
+    if (parts.includes(normalizedRole)) {
+      return {
+        ok: false,
+        error: "RECURSION_DETECTED",
+        role,
+        chain: chainRaw,
+      };
+    }
+  }
+
+  // Slug resolution
+  let slug;
+  try {
+    slug = resolveSlug(role, options);
+  } catch (err) {
+    return {
+      ok: false,
+      error: err.error || "UNRESOLVED_MODEL_SLUG",
+      role,
+      message: err.message,
+      ...(err.matches ? { matches: err.matches } : {}),
+    };
+  }
+
+  // Packet validation & bounded prompt composition
+  let prompt;
+  try {
+    prompt = composeBoundedPrompt(role, packet, options);
+  } catch (err) {
+    return {
+      ok: false,
+      error: err.error || "INVALID_HANDOFF_PACKET",
+      role,
+      message: err.message,
+    };
+  }
+
+  return invokeTransport({
+    ...options,
+    slug,
+    prompt,
+    role,
+    outputFormat: "json",
+
+=== composeBoundedPrompt() ===
+export function composeBoundedPrompt(role, packet, opts = {}) {
+  if (!packet || typeof packet !== "object" || Array.isArray(packet)) {
+    throw new InvalidHandoffPacketError("Handoff packet must be a non-null object");
+  }
+
+  const FORBIDDEN_KEYS = ["messages", "conversation", "history", "transcript"];
+  for (const forbidden of FORBIDDEN_KEYS) {
+    if (forbidden in packet && packet[forbidden] !== undefined) {
+      throw new InvalidHandoffPacketError(
+        `Forbidden conversational state field in handoff packet: "${forbidden}". Raw conversational state is prohibited.`
+      );
+    }
+  }
+
+  const roleName = typeof role === "string" ? role.trim() : String(role || "");
+  const task =
+    typeof packet.task === "string"
+      ? packet.task.trim()
+      : typeof packet.objective === "string"
+      ? packet.objective.trim()
+      : "";
+  if (!task) {
+    throw new InvalidHandoffPacketError(
+      "Handoff packet requires a non-empty 'task' or 'objective' string"
+    );
+  }
+
+  const sections = [];
+
+  if (roleName) {
+    sections.push(`## Role\n${roleName}`);
+  }
+
+  sections.push(`## Role Body\n${loadRoleBody(role, opts)}`);
+  sections.push(`## Task\n${task}`);
+
+  const contextFiles = packet.contextFiles ?? packet.context_files;
+  if (contextFiles) {
+    if (Array.isArray(contextFiles) && contextFiles.length > 0) {
+      sections.push(`## Context Files\n${contextFiles.map((f) => `- ${f}`).join("\n")}`);
+    } else if (typeof contextFiles === "string" && contextFiles.trim()) {
+      sections.push(`## Context Files\n${contextFiles.trim()}`);
+    }
+  }
+
+  const evidence = packet.evidence;
+  if (evidence) {
+    if (Array.isArray(evidence) && evidence.length > 0) {
+      sections.push(`## Evidence\n${evidence.map((e) => `- ${e}`).join("\n")}`);
+    } else if (typeof evidence === "string" && evidence.trim()) {
+
+=== invokeTransport() ===
+export function invokeTransport(slugOrOpts, maybePrompt, maybeOpts) {
+  let slug;
+  let prompt;
+  let opts;
+
+  if (typeof slugOrOpts === "object" && slugOrOpts !== null) {
+    opts = slugOrOpts;
+    slug = opts.slug;
+    prompt = opts.prompt;
+  } else {
+    slug = slugOrOpts;
+    prompt = maybePrompt;
+    opts = maybeOpts || {};
+  }
+
+  const role = opts.role;
+  const timeout = typeof opts.timeout === "number" ? opts.timeout : 90000;
+  const outputFormat = opts.outputFormat || "json";
+  const agyPath = opts.agyPath || process.env.AGY_PATH || "agy";
+
+  // Recursion protection
+  const chainRaw = process.env.NTG_RUNNER_CHAIN;
+  if (role && chainRaw) {
+    const normalizedRole = typeof role === "string" ? role.trim().toLowerCase() : String(role);
+    const parts = chainRaw.split(":").map((s) => s.trim().toLowerCase()).filter(Boolean);
+    if (parts.includes(normalizedRole)) {
+      return {
+        ok: false,
+        error: "RECURSION_DETECTED",
+        role,
+        chain: chainRaw,
+      };
+    }
+  }
+
+  const nextChain = role ? (chainRaw ? `${chainRaw}:${role}` : role) : chainRaw;
+  const childEnv = {
+    ...process.env,
+    ...(opts.env || {}),
+    ...(nextChain ? { NTG_RUNNER_CHAIN: nextChain } : {}),
+  };
+
+  const args = [
+    "--model",
+    slug,
+    "--output-format",
+    outputFormat,
+    "--print",
+    prompt,
+  ];
+
+  let result;
+  try {
+    result = spawnSync(agyPath, args, {
+      timeout,
+      env: childEnv,
+      cwd: opts.cwd || process.cwd(),
+      encoding: "utf-8",
+      maxBuffer: 20 * 1024 * 1024,
+    });

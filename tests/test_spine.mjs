@@ -6,8 +6,10 @@ import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFile
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { advisorGateEnabled, decideRepairAction, MAX_REPAIR_ATTEMPTS, MinimalSpine, recommendNeedsAlt, repairStopQuestion, zenNoGoSignature } from '../scripts/spine.mjs';
+import { advisorGateEnabled, decideRepairAction, MAX_REPAIR_ATTEMPTS, MinimalSpine, recommendNeedsAlt, repairStopQuestion, SteamrollerController, SteamrollerSpine, TrackRunner, zenNoGoSignature } from '../scripts/spine.mjs';
 import { AuthoritativeLedger, UncoveredCriteriaError } from '../scripts/ledger.mjs';
+import { AuthorityExpansionError, ModelRouter } from '../src/core/model-router.mjs';
+import { LightweightLog, computeAcceptanceDigest, computeDiffDigest } from '../src/core/lightweight-log.mjs';
 import { InvalidHandoffPacketError, InvalidResponseFormatError, composeBoundedPrompt, invoke, parseResponseEnvelope } from '../scripts/runner.mjs';
 import { runCoverageProbes, snapshotScope } from '../scripts/coverage.mjs';
 
@@ -141,7 +143,7 @@ for (const status of ['READY', undefined, null, '', 'ACCEPT', 'GO', 'done']) {
   });
 }
 
-for (const role of ['zen', 'piledriver', 'steamroller', 'strix-halo', 'excavator', 'unknown']) {
+for (const role of ['zen', 'piledriver', 'steamroller', 'excavator', 'unknown']) {
   for (const status of ['DONE', 'BLOCKED', 'NEEDS_DEEP']) {
     test(`native packet delegation to ${role} rejects ${status} before review`, async t => {
       const f = fixture(t, {
@@ -180,7 +182,7 @@ for (const delegations of [null, {}, 'bobcat', [{}], [null], [[]], ['bobcat'],
 
 for (const delegations of [[], [{ role: 'bobcat' }, { role: 'jaguar' }],
   [{ role: 'puma' }],
-  [{ role: ' Excavator ', transport: 'scripts/excavator-agy.mjs', status: 'READY' }],
+  [{ role: 'strix-halo', verdict: 'ACCEPT' }],
   [{ role: ' Bobcat ', task: 'bounded implementation' }],
   [{ role: 'bobcat' }, { role: 'strix-halo', verdict: 'ACCEPT' }]]) {
   test(`allowed native delegations enter independent review: ${JSON.stringify(delegations)}`, async t => {
@@ -194,53 +196,15 @@ for (const delegations of [[], [{ role: 'bobcat' }, { role: 'jaguar' }],
   });
 }
 
-// TEMPORARY headless Excavator transport (#174, gate B1): Bulldozer relays the
-// headless worker outcome in its packet. The declared delegation is accepted
-// only with the sanctioned transport marker; a bare excavator role would claim
-// native spawning, which stays rejected below.
-for (const status of ['DONE', 'BLOCKED', 'NEEDS_DEEP']) {
-  test(`declared headless excavator delegation preserves the ${status} outcome`, async t => {
-    const delegation = { role: 'excavator', transport: 'scripts/excavator-agy.mjs', status: 'BLOCKED' };
-    if (status === 'DONE') {
-      const f = fixture(t, {
-        output: contract => candidate(contract, { delegations: [delegation] }),
-        review: request => verdict(request),
-      });
-      assert.equal((await f.spine.runMilestone('one')).verified, true);
-      assert.deepEqual(f.calls, ['bulldozer', 'zen']);
-      assert.deepEqual(AuthoritativeLedger.load(f.ledgerPath).getState().completed_milestones, ['one']);
-    } else {
-      const f = fixture(t, {
-        output: contract => candidate(contract, {
-          status,
-          delegations: [delegation],
-          ...(status === 'BLOCKED'
-            ? { blockers: ['headless excavator returned RATE_LIMITED for the hard repair'] }
-            : { escalation_needs: ['repair question the headless worker could not settle'] }),
-        }),
-      });
-      const result = await f.spine.runMilestone('one');
-      assert.equal(result.status, status);
-      assert.equal(result.verified, false);
-      assert.ok(!f.calls.includes('zen'));
-      const disk = AuthoritativeLedger.load(f.ledgerPath).getState();
-      assert.deepEqual(disk.completed_milestones, []);
-      assert.equal(disk.current_milestone, null);
-      assert.equal(disk.evidence.one.failure_evidence[0].status, status);
-      if (status === 'BLOCKED') {
-        assert.match(disk.blockers[0].description, /RATE_LIMITED/);
-      }
-    }
-  });
-}
-
 for (const delegation of [
   { role: 'excavator' },
+  { role: ' Excavator ', transport: 'scripts/excavator-agy.mjs', status: 'READY' },
+  { role: 'excavator', transport: 'scripts/excavator-agy.mjs' },
   { role: 'excavator', transport: 'invoke_subagent' },
   { role: 'excavator', transport: 'scripts/other.mjs' },
   { role: 'excavator', transport: 42 },
 ]) {
-  test(`excavator delegation without the sanctioned headless transport stays rejected: ${JSON.stringify(delegation)}`, async t => {
+  test(`retired excavator delegation is always rejected in NTG 2.0: ${JSON.stringify(delegation)}`, async t => {
     const f = fixture(t, {
       output: contract => candidate(contract, { delegations: [delegation] }),
     });
@@ -262,7 +226,7 @@ test('construction cannot omit the independent Zen adapter', t => {
 test('spine ownership refuses duplicate startup before reading or replacing state', async t => {
   const f = fixture(t);
   const before = readFileSync(f.ledgerPath, 'utf8');
-  assert.equal(readFileSync(`${f.ledgerPath}.lock`, 'utf8'), `${process.pid}\n`);
+  assert.match(readFileSync(`${f.ledgerPath}.lock`, 'utf8'), new RegExp(`^${process.pid}\\ntoken:[0-9a-f-]+\\n$`));
   for (const options of [f.options, { ...f.options, plan: plan() }]) {
     assert.throws(() => new MinimalSpine(options), { code: 'LEDGER_LOCKED' });
     assert.equal(readFileSync(f.ledgerPath, 'utf8'), before);
@@ -305,7 +269,7 @@ for (const termination of ['normal', 'SIGINT', 'SIGTERM']) {
       await exited;
     });
     assert.deepEqual(await ready, ['ready', undefined]);
-    assert.equal(readFileSync(`${f.ledgerPath}.lock`, 'utf8'), `${child.pid}\n`);
+    assert.match(readFileSync(`${f.ledgerPath}.lock`, 'utf8'), new RegExp(`^${child.pid}\\ntoken:[0-9a-f-]+\\n$`));
     assert.throws(() => new MinimalSpine(f.options), { code: 'LEDGER_LOCKED' });
     if (termination === 'normal') child.send('finish');
     else child.kill(termination);
@@ -377,7 +341,7 @@ console.log(JSON.stringify({ status: 'SUCCESS', response: '' }));
     invokeRole: invoke,
     runnerOptions: {
       agyPath: script,
-      installedModels: [{ slug: 'gemini-3.8-flash-high', description: 'Gemini 3.8 Flash (High)' }],
+      installedModels: [{ slug: 'gemini-4-hydrogen-xhigh', description: 'Gemini 4 Hydrogen (XHigh)' }],
       env: { MUTATIONS_FILE: mutations },
     },
   });
@@ -784,7 +748,7 @@ test('SIGKILL between durable delegation and candidate requires observed crash r
   assert.equal(readFileSync(f.ledgerPath, 'utf8'), bytes);
   // SIGKILL cannot release ownership. Recover the stale lock only after the
   // exact owner is observed dead; never manufacture a clean ledger resume.
-  assert.equal(readFileSync(`${f.ledgerPath}.lock`, 'utf8'), `${child.pid}\n`);
+  assert.match(readFileSync(`${f.ledgerPath}.lock`, 'utf8'), new RegExp(`^${child.pid}\\ntoken:[0-9a-f-]+\\n$`));
   assert.throws(() => f.resume(), { code: 'LEDGER_LOCKED' });
   unlinkSync(`${f.ledgerPath}.lock`);
   const resumed = f.resume();
@@ -1068,14 +1032,14 @@ test('specialist invocation is prohibited without an active milestone', async t 
   await assert.rejects(f.spine.invokeStrixHalo({ task: 'gate' }), /Specialist invocation requires an active milestone/);
 });
 
-test('specialist routing strictly enforces caller-role boundaries', async t => {
+test('specialist routing strictly enforces NTG 2.0 caller-role boundaries', async t => {
   const f = fixture(t, {
     output: async (contract, { spine }) => {
-      // 1. Bulldozer cannot invoke Strix Halo directly (Strix Halo is Bobcat-local gate)
-      await assert.rejects(
-        spine.invokeSpecialist('strix-halo', { task: 'review' }, { caller: 'bulldozer' }),
-        /Strix Halo is a Bobcat-local advisor gate; Bulldozer cannot invoke Strix Halo directly/
-      );
+      // 1. Steamroller, Bulldozer, and Bobcat are all permitted to invoke Strix Halo
+      for (const caller of ['steamroller', 'bulldozer', 'bobcat']) {
+        const res = await spine.invokeSpecialist('strix-halo', { task: 'review' }, { caller });
+        assert.equal(res.verdict, 'ACCEPT');
+      }
 
       // 2. Bobcat cannot invoke Jaguar, Puma, or Bobcat
       for (const forbidden of ['jaguar', 'puma', 'bobcat']) {
@@ -1093,8 +1057,8 @@ test('specialist routing strictly enforces caller-role boundaries', async t => {
         );
       }
 
-      // 4. Unauthorized callers (e.g. steamroller or unknown) cannot invoke specialists
-      for (const caller of ['steamroller', 'piledriver', 'zen', 'external']) {
+      // 4. Unauthorized callers (non-execution roles) cannot invoke specialists
+      for (const caller of ['piledriver', 'zen', 'instinct', 'navi', 'external']) {
         await assert.rejects(
           spine.invokeSpecialist('jaguar', { task: 'work' }, { caller }),
           new RegExp(`Caller "${caller}" is not authorized to invoke specialists under a milestone`)
@@ -1109,7 +1073,7 @@ test('specialist routing strictly enforces caller-role boundaries', async t => {
         );
       }
 
-      // 6. Disabled Excavator cannot reach any invocation adapter.
+      // 6. Retired Excavator cannot reach any invocation adapter.
       for (const role of ['excavator', ' Excavator ']) {
         await assert.rejects(
           spine.invokeSpecialist(role, { task: 'diagnose and repair' }, { caller: 'bulldozer' }),
@@ -1617,7 +1581,8 @@ test('coordinator transport death with in-scope changes triggers one packet-only
       return { ok: false, error: 'TURN_ENDED_EARLY', slug: 'gemini-3.8-flash-high',
         finished_reason: 'error', message: 'turn ended early' };
     }
-    assert.equal(runnerOptions.env?.NTG_SALVAGE, '1');
+    assert.equal(runnerOptions.env?.NTG_SALVAGE, undefined);
+    assert.equal(runnerOptions.env?.NTG_BUDGET_ROOT_MAX_CALLS, undefined);
     assert.equal(runnerOptions.timeout, 600000);
     assert.ok(packet.task.includes('salvage mode'));
     assert.ok(contract.salvage);
@@ -1973,4 +1938,303 @@ test('repairStopQuestion names the milestone and offers plain choices', () => {
   const exhausted = repairStopQuestion('two', { repairsUsed: 2, repeatedSignature: false });
   assert.ok(exhausted.includes('two'));
   assert.ok(exhausted.includes('2'));
+});
+
+
+test('SteamrollerController: Track L/S/M classification, authority-decoupled routing, and 3.8 Flash Low rerouting', () => {
+  assert.equal(SteamrollerSpine, MinimalSpine);
+  const installedModels = [
+    { slug: 'gemini-4-argon-medium', description: 'Gemini 4 Argon (Medium)' },
+    { slug: 'gemini-4-argon-high', description: 'Gemini 4 Argon (High)' },
+    { slug: 'gemini-4-hydrogen-medium', description: 'Gemini 4 Hydrogen (Medium)' },
+    { slug: 'gemini-4-hydrogen-high', description: 'Gemini 4 Hydrogen (High)' },
+    { slug: 'gemini-4-hydrogen-xhigh', description: 'Gemini 4 Hydrogen (XHigh)' },
+    { slug: 'gemini-3.8-flash-low', description: 'Gemini 3.8 Flash (Low)' },
+    { slug: 'claude-sonnet-5-5-high', description: 'Claude Sonnet 5.5 (High)' },
+    { slug: 'claude-opus-5-5-high', description: 'Claude Opus 5.5 (High)' },
+  ];
+  const controller = new SteamrollerController({
+    modelRouter: new ModelRouter({ installedModels }),
+  });
+
+  assert.equal(controller.classifyTrack({ task: 'Fix README typo', targetFiles: ['README.md'] }).track, 'L');
+  assert.equal(controller.classifyTrack({ task: 'Refactor auth schema persistence', targetFiles: ['src/auth.mjs'] }).track, 'S');
+  assert.equal(controller.classifyTrack({ task: 'Multi-milestone migration', milestoneCount: 3 }).track, 'M');
+  assert.equal(controller.classifyTrack({ trackOverride: 'l' }).track, 'L');
+  assert.throws(() => controller.classifyTrack({ trackOverride: 'X' }), /Invalid track/);
+
+  const reroutedPuma = controller.selectWorkerRoute({
+    track: 'S',
+    task: 'Implement stateful API validation logic',
+    preferredRole: 'puma',
+    requiresSubstantiveCode: true,
+    targetFiles: ['src/api.mjs'],
+  });
+  assert.equal(reroutedPuma.reroutedFrom, 'puma');
+  assert.equal(reroutedPuma.signal, 'REROUTE_REQUIRED');
+  assert.equal(reroutedPuma.role, 'bobcat');
+  assert.equal(reroutedPuma.slug, 'gemini-4-hydrogen-medium');
+
+  const mRoute = controller.selectWorkerRoute({
+    track: 'M',
+    task: 'Coordinate multi-file milestone',
+    targetFiles: ['a.mjs', 'b.mjs', 'c.mjs'],
+  });
+  assert.equal(mRoute.role, 'bulldozer');
+  assert.equal(mRoute.slug, 'gemini-4-hydrogen-xhigh');
+
+  const overriddenPuma = controller.resolveRoleModel('puma', { modelOverride: 'gemini-4-hydrogen-medium' });
+  assert.equal(overriddenPuma.overridden, true);
+  assert.equal(overriddenPuma.authority.canRunCommand, false);
+  assert.equal(overriddenPuma.authority.canWriteLedger, false);
+  assert.throws(
+    () => controller.resolveRoleModel('puma', { canRunCommand: true }),
+    AuthorityExpansionError
+  );
+});
+
+test('TrackRunner: Track L Halo binding, staleness rejection, high-risk Zen escalation, and Track S/M strict separation', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-track-runner-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'readme.txt'), 'hello ntg 2.0\n');
+  const logPath = join(dir, 'lightweight-runs.jsonl');
+
+  const ledger = new AuthoritativeLedger({
+    goal: 'Track S/M validation',
+    constraints: [],
+    decision_invariants: ['INV-1'],
+    plan_version: 'v1',
+    milestones: [
+      {
+        id: 'm-sm',
+        title: 'sm',
+        objective: 'deliver sm',
+        bounded_scope: ['readme.txt'],
+        acceptance_criteria: ['readme present'],
+        non_goals: [],
+        dependencies: [],
+      },
+    ],
+  });
+
+  const runner = new TrackRunner({
+    ledger,
+    lightweightLog: new LightweightLog(logPath),
+    cwd: dir,
+    invokeWorker: async (role, packet) => ({
+      status: 'READY',
+      worker_role: role,
+      changes_made: packet.bounded_scope,
+      verification_evidence: ['observed readme present'],
+    }),
+    invokeHalo: async (req) => ({
+      caller: req.caller,
+      candidate_id_or_run_id: req.candidate_id_or_run_id,
+      reviewed_diff_digest: req.reviewed_diff_digest,
+      acceptance_criteria_digest: req.acceptance_criteria_digest,
+      plan_version: req.plan_version,
+      evidence_basis: req.evidence_basis,
+      verdict: 'ACCEPT',
+    }),
+  });
+
+  const lResult = await runner.runTrackL({
+    runId: 'run-l-1',
+    task: 'Implement stateful API validation handler',
+    workerRole: 'puma',
+    requiresSubstantiveCode: true,
+    boundedScope: ['readme.txt'],
+    acceptanceCriteria: ['readme present'],
+    planVersion: 'v1',
+  });
+  assert.equal(lResult.track, 'L');
+  assert.equal(lResult.assurance_badge, 'HALO_LIGHTWEIGHT');
+  assert.equal(lResult.zen_status, 'OMITTED');
+  assert.equal(lResult.rerouted_from, 'puma');
+  assert.equal(lResult.worker_role, 'bobcat');
+  assert.equal(new LightweightLog(logPath).getByRunId('run-l-1')?.assurance_badge, 'HALO_LIGHTWEIGHT');
+
+  const lDeep = await runner.runTrackL({
+    runId: 'run-l-arch',
+    task: 'Architectural concurrency refactor across readme module',
+    workerRole: 'puma',
+    boundedScope: ['readme.txt'],
+    acceptanceCriteria: ['readme present'],
+    planVersion: 'v1',
+  });
+  assert.equal(lDeep.rerouted_from, 'puma');
+  assert.equal(lDeep.worker_role, 'bulldozer');
+
+  // Stale Halo diff digest must be rejected
+  await assert.rejects(
+    runner.runTrackL({
+      runId: 'run-l-stale',
+      task: 'Update readme',
+      boundedScope: ['readme.txt'],
+      acceptanceCriteria: ['readme present'],
+      planVersion: 'v1',
+      evidenceBasis: ['observed readme present'],
+      haloReview: {
+        caller: 'steamroller',
+        candidate_id_or_run_id: 'run-l-stale',
+        reviewed_diff_digest: 'sha256:stale-digest',
+        acceptance_criteria_digest: computeAcceptanceDigest(['readme present']),
+        plan_version: 'v1',
+        evidence_basis: ['observed readme present'],
+        verdict: 'ACCEPT',
+      },
+    }),
+    /STALE/
+  );
+
+  // High-risk Track L escalation reaches Zen
+  let zenEscalated = 0;
+  const escalatedRunner = new TrackRunner({
+    lightweightLog: new LightweightLog(logPath),
+    cwd: dir,
+    invokeWorker: async () => ({ status: 'READY', changes_made: ['readme.txt'], verification_evidence: ['checked'] }),
+    invokeHalo: async (req) => ({
+      caller: req.caller,
+      candidate_id_or_run_id: req.candidate_id_or_run_id,
+      reviewed_diff_digest: req.reviewed_diff_digest,
+      acceptance_criteria_digest: req.acceptance_criteria_digest,
+      plan_version: req.plan_version,
+      evidence_basis: req.evidence_basis,
+      verdict: 'ACCEPT',
+    }),
+    invokeZen: async (req) => {
+      zenEscalated += 1;
+      assert.equal(req.escalated_for_high_risk, true);
+      return { verdict: 'GO' };
+    },
+  });
+  const escRes = await escalatedRunner.runTrackL({
+    runId: 'run-l-high-risk',
+    task: 'Sensitive security change',
+    boundedScope: ['readme.txt'],
+    acceptanceCriteria: ['readme present'],
+    highRiskEscalation: true,
+  });
+  assert.equal(escRes.zen_status, 'ESCALATED');
+  assert.equal(zenEscalated, 1);
+
+  // Track M requires Halo ACCEPT + Zen GO, never Halo alone
+  const contract = ledger.delegate('m-sm');
+  const diffDigest = computeDiffDigest(['readme.txt'], { cwd: dir });
+  const criteriaDigest = computeAcceptanceDigest(contract.acceptance_criteria);
+  await assert.rejects(
+    runner.verifyTrackSMCandidate({
+      track: 'M',
+      milestoneId: 'm-sm',
+      contract,
+      candidate: { candidate_artifact_ref: 'sha256:cand-1', verification_evidence: ['checked'] },
+      haloReview: {
+        caller: 'bulldozer',
+        candidate_id_or_run_id: 'sha256:cand-1',
+        reviewed_diff_digest: diffDigest,
+        acceptance_criteria_digest: criteriaDigest,
+        plan_version: 'v1',
+        evidence_basis: ['checked'],
+        verdict: 'ACCEPT',
+      },
+    }),
+    /requires Zen summative verification/
+  );
+
+  // Track S allows Halo omitted when requireHalo=false, still requires Zen
+  const sRes = await runner.verifyTrackSMCandidate({
+    track: 'S',
+    milestoneId: 'm-sm',
+    contract,
+    requireHalo: false,
+    candidate: { candidate_artifact_ref: 'sha256:cand-1', verification_evidence: ['checked'] },
+    invokeZen: async () => ({ verdict: 'GO' }),
+  });
+  assert.equal(sRes.track, 'S');
+  assert.equal(sRes.halo_status, 'OMITTED');
+  assert.equal(sRes.verified, true);
+});
+
+test('SteamrollerController.recoverMilestone: Bulldozer (Hydrogen XHigh) + on-demand Instinct bounded by max_recovery_retries = 3', async () => {
+  const installedModels = [
+    { slug: 'gemini-4-hydrogen-xhigh', description: 'Gemini 4 Hydrogen (XHigh)' },
+    { slug: 'claude-sonnet-5-5-high', description: 'Claude Sonnet 5.5 (High)' },
+    { slug: 'claude-opus-5-5-high', description: 'Claude Opus 5.5 (High)' },
+  ];
+  const ledger = new AuthoritativeLedger({
+    goal: 'Recover milestone',
+    constraints: [],
+    decision_invariants: [],
+    plan_version: 'v1',
+    milestones: [
+      {
+        id: 'm-rec',
+        title: 'rec',
+        objective: 'fix bug',
+        bounded_scope: ['src/x.mjs'],
+        acceptance_criteria: ['fixed'],
+        non_goals: [],
+        dependencies: [],
+      },
+    ],
+  });
+  const controller = new SteamrollerController({
+    ledger,
+    modelRouter: new ModelRouter({ installedModels }),
+  });
+
+  const calls = [];
+  const rec1 = await controller.recoverMilestone({
+    milestoneId: 'm-rec',
+    failureReason: 'Initial failure',
+    invokeBulldozer: async (pkt, opts) => {
+      calls.push(['bulldozer', opts.slug, pkt.attempt]);
+      return { status: 'READY' };
+    },
+    invokeInstinct: async () => {
+      calls.push(['instinct']);
+      return { diagnosis: 'alt' };
+    },
+  });
+  assert.equal(rec1.recovery_lead, 'bulldozer');
+  assert.equal(rec1.bulldozer_slug, 'gemini-4-hydrogen-xhigh');
+  assert.equal(rec1.attempt, 1);
+  assert.equal(rec1.instinct_invoked, false);
+
+  const rec2 = await controller.recoverMilestone({
+    milestoneId: 'm-rec',
+    failureReason: 'Same-class repeated failure',
+    invokeBulldozer: async (pkt, opts) => {
+      calls.push(['bulldozer', opts.slug, pkt.attempt, Boolean(pkt.instinct_advice)]);
+      return { status: 'READY' };
+    },
+    invokeInstinct: async (_pkt, opts) => {
+      calls.push(['instinct', opts.slug]);
+      return { hypotheses: ['h1'], recommendation: 'test alternate framing' };
+    },
+  });
+  assert.equal(rec2.attempt, 2);
+  assert.equal(rec2.instinct_invoked, true);
+  assert.equal(rec2.instinct_slug, 'claude-sonnet-5-5-high');
+  assert.equal(ledger.getState().evidence.alt_framing.length, 1);
+  assert.equal(ledger.getState().evidence.alt_framing[0].adopted, false);
+
+  const rec3 = await controller.recoverMilestone({
+    milestoneId: 'm-rec',
+    failureReason: 'Third try',
+    escalateInstinct: true,
+    invokeBulldozer: async () => ({ status: 'READY' }),
+    invokeInstinct: async (_pkt, opts) => ({ slug: opts.slug }),
+  });
+  assert.equal(rec3.attempt, 3);
+  assert.equal(rec3.instinct_slug, 'claude-opus-5-5-high');
+
+  await assert.rejects(
+    controller.recoverMilestone({
+      milestoneId: 'm-rec',
+      failureReason: 'Fourth try exceeds cap',
+      invokeBulldozer: async () => ({ status: 'READY' }),
+    }),
+    /Recovery safety cap \(3\) exceeded/
+  );
 });

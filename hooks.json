@@ -1,4 +1,28 @@
 {
+  "universal-mutation-safety-boundary": {
+    "PreToolUse": [
+      {
+        "matcher": "^run_command$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./hooks/shell-safety-guard.py",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "^(write_to_file|replace_file_content|multi_replace_file_content|write_file|edit_file)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./hooks/shell-safety-guard.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
   "zen-verification-boundary": {
     "PreToolUse": [
       {
@@ -10,49 +34,24 @@
             "timeout": 10
           }
         ]
-      }
-    ]
-  },
-  "excavator-migration-boundary": {
-    "PreToolUse": [
+      },
       {
-        "matcher": "^run_command$",
+        "matcher": "^(write_to_file|replace_file_content|multi_replace_file_content|write_file|edit_file)$",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ./hooks/excavator-shell-guard.py",
+            "command": "python3 ./hooks/zen-shell-guard.py",
             "timeout": 10
           }
         ]
       }
     ]
   },
-  "bulldozer-no-shell-boundary": {
+  "observation-telemetry-boundary": {
     "SessionStart": [
       {
         "type": "command",
-        "command": "python3 ./hooks/bulldozer-shell-guard.py --session-start",
-        "timeout": 10
-      }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "^run_command$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ./hooks/bulldozer-shell-guard.py",
-            "timeout": 10
-          }
-        ]
-      }
-    ]
-  },
-  "role-budget-boundary": {
-    "SessionStart": [
-      {
-        "type": "command",
-        "command": "python3 ./hooks/budget-guard.py --session-start",
+        "command": "python3 ./hooks/telemetry-guard.py --session-start",
         "timeout": 10
       }
     ],
@@ -62,7 +61,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ./hooks/budget-guard.py",
+            "command": "python3 ./hooks/telemetry-guard.py",
             "timeout": 10
           }
         ]

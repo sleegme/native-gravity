@@ -1,0 +1,84 @@
+{"type":"transition_applied","payload":{"type":"transition_applied","status":"running","residency_state":"resident"}}
+{"type":"assistant_message","payload":{"text":"I read this as an independent evidence audit - I'll check each verdict claim against the recorded probes and write the review. I'll stop when every claim is confirmed or flagged and the verdict file is written.\n"}}
+{"type":"tool_execution","payload":{"tool":"bash","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"bash","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"write","is_error":false}}
+{"type":"assistant_message","payload":{"text":"VERDICT: NO-GO\n\n- A3 proves Zen launch, but lacks patched frontmatter proving inheritCustomizations was absent.\n- B contains only a relayed report of Strix/HALOOK, not child execution evidence.\n- tools:[] restriction is model-reported; init.tools still lists invoke_subagent.\n- Hook deny reasons and marked-command allowance are confirmed; file integrity and marker selectivity are unproven.\n- All-subagent coverage, all-nine runtime registration, runner bypass, and role isolation remain insufficiently evidenced.\n\nFull claim-by-claim audit written to `/home/sleeg/work/native-gravity-evidence/44g/g1-probes/g1-gate-review.md`."}}
+{"type":"transition_applied","payload":{"type":"transition_applied","status":"completed","residency_state":"resident"}}
+{"type":"revived","payload":{"run_epoch":1}}
+{"type":"assistant_message","payload":{"text":"I read this as a delta evidence audit - I'll check the revised claims against the new artifacts and overwrite the review. I'll stop when each revised claim is confirmed or flagged and the verdict is written.\n"}}
+{"type":"tool_execution","payload":{"tool":"bash","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"bash","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"write","is_error":false}}
+{"type":"assistant_message","payload":{"text":"VERDICT: NO-GO\n\nA5 closes the no-inheritCustomizations invocation gap; child extracts corroborate Zen/Strix exchanges.\n\nRemaining blockers:\n- Runner success does not prove complete frontmatter bypass.\n- A4 still contains model testimony, not captured declarations.\n- Unmarked allowance is demonstrated only for Zen, not Excavator.\n- Role/customization isolation remains untested.\n\nNo EXISTS/GONE checks were found in the artifacts.\n\nOverwrote `/home/sleeg/work/native-gravity-evidence/44g/g1-probes/g1-gate-review.md`."}}
+{"type":"transition_applied","payload":{"type":"transition_applied","status":"completed","residency_state":"resident"}}
+{"type":"revived","payload":{"run_epoch":2}}
+{"type":"assistant_message","payload":{"text":"I read this as a delta evidence audit - I'll check the added artifacts and revised claims, then overwrite the review. I'll stop when the remaining claims are confirmed or flagged and the verdict is written.\n"}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"write","is_error":false}}
+{"type":"assistant_message","payload":{"text":"VERDICT: NO-GO\n\nRemaining blockers:\n- Selected child strings cannot prove absence of inherited context/customizations.\n- Excavator’s unmarked rm is not comparable to its marked su denial, so marker selectivity remains unproven.\n- Runner grep excerpts do not establish the complete invocation/configuration path.\n- The verdict still labels declaration removal as observed rather than inferred.\n\nBobcat execution/file creation and the post-denial EXISTS observation are now corroborated.\n\nOverwrote `g1-gate-review.md`."}}
+{"type":"transition_applied","payload":{"type":"transition_applied","status":"completed","residency_state":"resident"}}
+{"type":"revived","payload":{"run_epoch":3}}
+{"type":"assistant_message","payload":{"text":"I read this as a delta evidence audit - I'll check the new artifacts against the remaining claims and overwrite the review. I'll stop when those claims are confirmed or flagged and the verdict is written.\n"}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"write","is_error":false}}
+{"type":"assistant_message","payload":{"text":"VERDICT: NO-GO\n\nTwo substantive blockers remain:\n- Unmarked su was model-refused, never evaluated by the hook; Excavator marker selectivity remains unproven.\n- A complete conversation strings dump does not establish complete effective-context/customization isolation.\n\nRunner argument evidence now supports bypassing native role selection. Conclusion 5 appropriately labels tool-surface removal as inferred.\n\nOverwrote `g1-gate-review.md`."}}
+{"type":"transition_applied","payload":{"type":"transition_applied","status":"completed","residency_state":"resident"}}
+{"type":"revived","payload":{"run_epoch":4}}
+{"type":"assistant_message","payload":{"text":"I read this as a delta evidence audit - I'll check the fourth-wave artifacts and revised claims, then overwrite the review. I'll stop when both remaining claims are confirmed or flagged and the verdict is written.\n"}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"bash","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"write","is_error":false}}
+{"type":"assistant_message","payload":{"text":"VERDICT: NO-GO\n\n- Marked/unmarked rm both succeeding cannot distinguish marker-scoped enforcement from an always-on guard allowing rm. Unmarked su never reached the hook.\n- Separate conversation databases and the supplied context-window quote do not establish absence of inherited customizations.\n\nEarlier delegation and runner-path confirmations stand. Overwrote `g1-gate-review.md`."}}
+{"type":"transition_applied","payload":{"type":"transition_applied","status":"completed","residency_state":"resident"}}
+{"type":"revived","payload":{"run_epoch":5}}
+{"type":"assistant_message","payload":{"text":"I read this as a final delta evidence audit - I'll check the new isolation probe and revised claims, then overwrite the review. I'll stop when the final verdict and remaining blockers are recorded.\n"}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"bash","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"write","is_error":false}}
+{"type":"assistant_message","payload":{"text":"VERDICT: NO-GO\n\n- Unmarked su never reached the hook. Its model refusal cannot establish marker-scoped hook enforcement.\n- The isolation probe lacks proof that the parent actually loaded the marker. CONTEXT_CLEAN could result from neither agent receiving it.\n\nEarlier delegation and runner-path confirmations stand. Final review written to `g1-gate-review.md`."}}
+{"type":"transition_applied","payload":{"type":"transition_applied","status":"completed","residency_state":"resident"}}
+{"type":"revived","payload":{"run_epoch":6}}
+{"type":"assistant_message","payload":{"text":"I read this as a final delta evidence audit - I'll check the new hook and isolation transcripts, then overwrite the review. I'll stop when the verdict and any remaining blockers are recorded.\n"}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"read","is_error":false}}
+{"type":"tool_execution","payload":{"tool":"write","is_error":false}}
+{"type":"assistant_message","payload":{"text":"VERDICT: NO-GO\n\n- Excavator’s unmarked deny-set commands never reached PreToolUse. Model refusal cannot distinguish marker-scoped enforcement from an always-on guard.\n- The new isolation probe closes parent exposure for the file-read scenario, supporting that narrower isolation finding—not blanket customization isolation.\n\nFinal review written to `g1-gate-review.md`."}}
+{"type":"transition_applied","payload":{"type":"transition_applied","status":"completed","residency_state":"resident"}}
+{"type":"transition_applied","payload":{"type":"transition_applied","status":"completed","residency_state":"evicted"}}
+{"type":"evicted","payload":{"cause":"evict"}}

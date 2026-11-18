@@ -7,17 +7,18 @@
 and `gemini-4-argon-high`. The retired `gemini-3.1-pro-*` IDs are absent.
 Availability does not prove that a native tier selects any of these models.
 
-| Role | Selection | Effort rationale |
+| Role | Selection (NTG 2.0) | Effort rationale |
 |---|---|---|
-| Excavator | TEMPORARY headless path: `gemini-4-argon-high` via `scripts/excavator-agy.mjs` | High for difficult broken-behavior diagnosis/repair; native subagent stays disabled (`subagent: false`) |
-| Piledriver | `gemini-4-argon-high` | High for bounded architecture and difficult decisions |
-| Steamroller | `gemini-4-argon-medium` | Medium for constrained supervision and ledger decisions |
-| Navi | `gemini-4-argon-medium` | Medium for bounded desktop tasks; agent-scoped MCP only |
-| Strix Halo | native `model: flash` | Preserve the deliberate Flash assignment from #148 |
-| Bulldozer | `gemini-3.8-flash-high` | Retain Flash for bounded milestone delegation |
-| Jaguar / Puma / Bobcat | native `model: flash` | Retain Flash for discovery, mechanical work and ordinary implementation |
-| Instinct | `claude-sonnet-5-5-high` | Preserve a different model family for alternate framing |
-| Instinct, explicit escalation | `claude-opus-5-5-high` | Only when explicitly requested |
+| Steamroller | `Carbon (Medium)` -> `gemini-4-argon-medium` (excludes `gemini-pro-orchestrator-g1-pro`) | Medium for interactive supervision and kernel orchestration |
+| Piledriver | `gemini-4-argon-high` | High for bounded architecture, milestone graphs, and difficult decisions |
+| Bulldozer | `gemini-4-hydrogen-xhigh` | XHigh for selective milestone coordination and primary failure recovery |
+| Strix Halo | `gemini-4-hydrogen-high` | High for cross-caller quality/acceptance review (`steamroller`, `bulldozer`, `bobcat`) |
+| Bobcat | `gemini-4-hydrogen-medium` | Medium for substantive implementation and local verification |
+| Jaguar / Puma | `gemini-3.8-flash-low` | Low under Lightweight Worker Harness (kept separate) |
+| Zen | `claude-opus-5-5-high` (quota fallback: `gemini-4-argon-high`) | High for independent summative verification |
+| Instinct | `claude-sonnet-5-5-high` (escalated: `claude-opus-5-5-high`) | High for heterogeneous alternate framing |
+| Navi | `gemini-4-argon-medium` | Medium for bounded desktop tasks; private HOME `cu` MCP leaf |
+| Excavator | **RETIRED** | Replaced by Bulldozer (`gemini-4-hydrogen-xhigh`) + Instinct |
 
 `ROLE_POLICY_TABLE` owns runner and Zen exact model selection, resolving
 against the installed catalog and failing closed on missing or ambiguous

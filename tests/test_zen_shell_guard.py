@@ -12,10 +12,15 @@ ROOT = Path(__file__).resolve().parents[1]
 GUARD = ROOT / "hooks" / "zen-shell-guard.py"
 
 
-def run_payload(payload):
+def run_payload(payload, env=None):
+    import os
     raw = payload if isinstance(payload, str) else json.dumps(payload)
+    merged_env = dict(os.environ)
+    merged_env.pop("NTG_ACTIVE_ROLE", None)
+    if env:
+        merged_env.update(env)
     result = subprocess.run([sys.executable, str(GUARD)], input=raw, text=True,
-                            capture_output=True, timeout=5, check=True)
+                            capture_output=True, timeout=5, check=True, env=merged_env)
     if result.stderr:
         raise AssertionError(result.stderr)
     return json.loads(result.stdout)
@@ -180,13 +185,39 @@ class ZenShellGuardTests(unittest.TestCase):
         self.assertEqual(len(zen), 1)
         self.assertEqual(zen[0]["type"], "command")
         self.assertGreater(zen[0]["timeout"], 0)
-        self.assertTrue(any("excavator-shell-guard.py" in handler["command"] for handler in handlers))
+        self.assertTrue(any("shell-safety-guard.py" in handler["command"] for handler in handlers))
+        self.assertFalse(any("excavator-shell-guard.py" in handler["command"] for handler in handlers))
         # Invoke the registration's actual command so miswiring can fail the test.
         for command, expected in [("git status --short", "allow"), ("rm artifact", "deny")]:
             result = subprocess.run(zen[0]["command"], shell=True, cwd=ROOT,
                                     input=json.dumps(command_payload("NTG_ZEN_VERIFY=1 " + command)),
                                     text=True, capture_output=True, check=True, timeout=5)
             self.assertEqual(json.loads(result.stdout)["decision"], expected)
+
+    def test_runner_injected_ntg_active_role_zen_enforces_across_shell_and_file_tools(self):
+        # Without NTG_ZEN_VERIFY=1, NTG_ACTIVE_ROLE=zen still enforces non-mutation (#201 A4)
+        self.assertEqual(
+            run_payload(command_payload("git status --short"), env={"NTG_ACTIVE_ROLE": "zen"})["decision"],
+            "allow",
+        )
+        self.assertEqual(
+            run_payload(command_payload("python3 -m unittest tests/test_zen_shell_guard.py -v"), env={"NTG_ACTIVE_ROLE": "zen"})["decision"],
+            "allow",
+        )
+        self.assertEqual(
+            run_payload(command_payload("rm -rf artifact"), env={"NTG_ACTIVE_ROLE": "zen"})["decision"],
+            "deny",
+        )
+        self.assertEqual(
+            run_payload(command_payload("node -e 'process.exit(0)'"), env={"NTG_ACTIVE_ROLE": "zen"})["decision"],
+            "deny",
+        )
+        for tool_name in ("write_to_file", "replace_file_content", "multi_replace_file_content", "write_file", "edit_file"):
+            res = run_payload(
+                {"toolCall": {"name": tool_name, "args": {"Path": "src/a.mjs"}}, "conversationId": "c1"},
+                env={"NTG_ACTIVE_ROLE": "zen"},
+            )
+            self.assertEqual(res["decision"], "deny", f"NTG_ACTIVE_ROLE=zen must block {tool_name}")
 
     def test_agent_identity_and_non_mutating_capabilities(self):
         # Assert parsed runtime metadata, not natural-language prompt wording.

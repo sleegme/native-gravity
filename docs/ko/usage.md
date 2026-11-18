@@ -2,38 +2,27 @@
 
 [English](../usage.md) · [제품과 설치](README.md#설치-방법) · [현재 상태](status.md)
 
-NTG는 수정하려는 프로젝트 디렉터리에서 실행합니다. 여러분은 목표, 플랜, 결과를
-확인할 기준만 준비하면 되고 내부 에이전트는 NTG가 고릅니다. 앞으로 자주 나올
-용어가 두 개 있습니다. **마일스톤**은 플랜 안에서 범위가 정해진 작업 단계 하나이고,
-**ledger**는 대화 기록이 아니라 진행 상황을 저장한 파일입니다.
+NTG 2.0은 기존 `AGENTS.md`나 git 이력이 없는 깨끗한 프로젝트 디렉터리에서도 바로 실행할 수 있습니다. 작업 목표(또는 `plan.json`)만 전달하면 Steamroller가 자동으로 **Track L**, **Track S**, **Track M**을 구분해 적절한 워커와 검수 절차를 실행합니다.
 
 ## /ntg로 실행하기
 
-`agy` 세션에서 다음과 같이 입력하여 NTG를 바로 실행할 수 있습니다.
+`agy` 세션에서 다음과 같이 입력합니다:
 
 ```text
 /ntg <할 일>
 ```
 
-- **새 작업 (ledger가 없을 때):** 할 일을 바탕으로 마일스톤 계획을 작성하여 대화창에 보여주고, 사용자의 확인과 승인을 받은 후에 초기화(`.ntg/ledger.json`) 및 실행(`run --all`)을 진행합니다.
-- **기존 작업 (ledger가 이미 있을 때):** 기존 ledger가 존재할 경우 진행 상태를 확인하여 보여주고, 기존 진행 상황을 덮어쓰지 않고 `run --all`로 안전하게 재개합니다.
-- **진행 그래프 (`/ntg graph`):** `/ntg graph`를 실행하면 플랜을 새로 작성하지 않고 패키징된 도우미의 `graph` 명령을 통해 마일스톤 의존성 그래프와 상태를 시각화합니다.
-- **패키징된 도우미 자동 해결:** 플러그인 설치 위치에서 패키징된 도우미(`scripts/ntg-command.mjs`)를 자동 해결하므로 별도의 `NTG` 환경변수 지정이나 체크아웃 경로 유지가 불필요합니다.
-- **실제 러너 및 독립 검수 준수:** 모든 실행과 검수는 실제 러너(`ntg-vnext.mjs`)와 독립 Zen 검수를 온전히 거치며, 모델 정책이나 러너 권한을 우회하지 않고 다른 임의의 모델을 약속하지 않습니다.
+- **새 작업 (Track L vs Track S/M):**
+  - 작고 위험도가 낮은 변경(`Track L`)은 경량 워커와 바인딩된 **Strix Halo** 리뷰(`HALO_LIGHTWEIGHT`)를 거쳐 `.ntg/lightweight-runs.jsonl`에 기록합니다. 고위험으로 판단되면 자동으로 독립 Zen 검수로 에스컬레이션합니다.
+  - 실질적인 단일 마일스톤(`Track S`)이나 복합 마일스톤(`Track M`) 작업은 읽기 쉬운 평어 요약을 한 번 보여주고 **최초 1회 승인**을 받은 뒤 `.ntg/ledger.json` 초기화 및 실행(`run --all`)을 진행합니다.
+- **기존 작업 재개:** `.ntg/ledger.json`이 이미 존재하면 기존 완료 기록을 보존한 채 상태를 요약하고 `run --all`로 안전하게 이어갑니다.
+- **진행 그래프 (`/ntg graph`):** 진행 파일을 수정하지 않고 `ntg-dag`로 마일스톤 의존성과 상태를 시각화합니다.
+- **별도 경로 환경변수 불필요:** `skills/ntg/SKILL.md`가 설치된 플러그인 내부의 `scripts/ntg-command.mjs`를 자동 해석합니다.
+- **품질 리뷰와 최종 검수 분리:** Strix Halo 품질 리뷰(`ACCEPT | REVISE | ESCALATE`)와 독립 Zen 검수(`GO | NO-GO`)는 서로 대체되지 않으며, 코드나 기준이 바뀌면 기존 리뷰는 자동으로 무효(`STALE`) 처리됩니다.
 
-## 프로젝트 준비
+## CLI 사용법 (`ntg-vnext` & `ntg-command`)
 
-[README의 설치 절차](README.md#설치-방법)대로 설치하세요.
-그다음 평소처럼 작업할 프로젝트 디렉터리로 이동합니다. 아래에 나오는 `.ntg/`와
-플랜 경로는 모두 그 프로젝트를 기준으로 합니다. 명령(`ntg-vnext`, `ntg-dag`)은
-환경에서 바로 실행하거나 `/ntg`의 패키징된 도우미를 통해 사용할 수 있습니다.
-
-## 첫 작업
-
-프로젝트에 이미 `src/server.js` 서비스와 `tests/server.test.js` 테스트가 있다고
-해 봅시다. 아래 내용을 그 프로젝트에 `plan.json`으로 저장하세요. 이 파일들은
-NTG에 들어 있는 것이 아니라 설명을 위한 예시이므로, 경로와 완료 기준은 여러분의
-서비스와 테스트 프레임워크에 맞게 고치면 됩니다.
+직접 CLI 또는 `node scripts/ntg-command.mjs`로도 모든 기능을 사용할 수 있습니다:
 
 ```json
 {
@@ -63,172 +52,67 @@ NTG에 들어 있는 것이 아니라 설명을 위한 예시이므로, 경로�
 }
 ```
 
-꼭 필요한 값은 비어 있지 않은 `goal`, 비어 있지 않은 `milestones` 배열, 그리고
-마일스톤마다 겹치지 않고 비어 있지 않은 `id`입니다. 의존성은 실제로 있는 ID를
-가리켜야 하고, 서로 돌고 도는 순환이 생기면 안 됩니다. `objective`,
-`acceptance_criteria`, `non_goals`, `bounded_scope`는 빠져도 초기화는 되지만
-그래도 채워 주세요. 실행과 검수가 무엇을 기준으로 할지 여기서 정해집니다.
-`title`, `constraints`, `plan_version`이 있으면 플랜을 읽고 고치기도 쉬워집니다.
-
-진행 파일을 만들고 다음 단계를 확인합니다.
+초기화 및 상태 확인:
 
 ```bash
 ntg-vnext init --ledger .ntg/ledger.json --plan plan.json
 ntg-vnext status --ledger .ntg/ledger.json
 ```
 
-위 플랜이라면 출력에 다음 필드가 들어 있습니다. 전체 응답이 아니라 일부만
-옮긴 것입니다.
-
-```json
-{
-  "state": {
-    "goal": "Add a health-check endpoint to the example service",
-    "plan_version": "v1",
-    "next_action": "Ready to delegate initial milestone: m1",
-    "completed_milestones": []
-  },
-  "next_milestone": "m1",
-  "needs_alt": []
-}
-```
-
-이제 플랜을 실행합니다.
+의존성 순서대로 실행(`--track L|S|M` 옵션 지정 가능):
 
 ```bash
 ntg-vnext run --ledger .ntg/ledger.json --all
 ```
 
-> **모델 사용량:** `run`, `plan`, `alt`는 실제 AGY 모델을 호출하므로 모델
-> 사용량이 듭니다. 여기 나온 health-check 작업은 설명용 예시이지 실제로 돌려 본
-> 결과가 아닙니다. 실제 실행과 검수 흐름은 [라이브 증거](status.md#라이브-검증)에
-> 있습니다.
-
-NTG는 `m1`을 실행하고 완료 기준에 맞는지 독립 검수를 받습니다. `m1`이 검증된
-뒤에야 `m2`로 넘어갑니다. 검수 결과는 `GO`(통과) 아니면 `NO-GO`(수정 필요)입니다.
-현재 플랜 전체가 검증되고 막힌 것이 하나도 없을 때만 최종 응답에
-`global_completion`이 들어갑니다. 모델이 다 했다고 말하는 것만으로는 플랜이
-끝나지 않습니다.
-
-## 한 단계 실행과 나중에 재개
-
-지금 실행할 수 있는 마일스톤 하나만 진행하려면:
+다음 준비된 마일스톤 1개 또는 특정 마일스톤만 실행:
 
 ```bash
 ntg-vnext run --ledger .ntg/ledger.json
-```
-
-의존성이 이미 끝난 마일스톤을 골라서 실행하려면:
-
-```bash
 ntg-vnext run --ledger .ntg/ledger.json --milestone m1
 ```
 
-`--all`은 의존성 순서대로 계속 진행합니다. `--milestone`을 주면 `--all`이 함께
-있어도 그 마일스톤 하나만 실행합니다.
+계획 수정:
 
-정상적으로 끝났다면 언제든 다시 이어갈 수 있습니다. 같은 프로젝트에서 새 터미널을
-열고 `status`로 상태를 보고 `run`이나 `run --all`을 다시 실행하세요. 매번 저장된
-진행 상황을 읽기 때문에 이전 대화는 필요 없습니다. 이미 있는 ledger에 `init`을
-다시 실행하지는 마세요.
+- **Tactical Replan** (목표·완료 기준·불변식은 유지하면서 남은 전략/마일스톤만 수정; `plan_version` 증가 및 기존 `GO`·Halo 판정 `STALE` 처리):
 
-## 계획 변경
+```bash
+ntg-vnext tactical-replan --ledger .ntg/ledger.json --plan plan-v2.json
+```
 
-고친 플랜을 예제와 같은 형식으로 `plan-v2.json`에 저장하고 `plan_version`을
-`"v2"`로 바꿉니다. 그런 다음 실행합니다.
+- **Material Replan** (목표·완료 기준·불변식·파괴적 범위 변경 시 명시적 사용자 재승인 필요):
 
 ```bash
 ntg-vnext replan --ledger .ntg/ledger.json --plan plan-v2.json
 ```
 
-새 플랜을 채택하면서 지금까지의 완료 상태를 비우고, 이전 검수는 stale로
-표시합니다. 그대로 둔 단계도 의존성 순서대로 다시 검수를 받아야 하지만, 바뀌지
-않은 코드를 새로 짤 필요는 없습니다. 이전 증거는 이력으로 남습니다. 아직 진행
-중인 호출이 있다면 끝나기를 기다리거나 복구한 다음 계획을 바꾸세요.
-
-## 자문 받기
-
-설계 방향을 정하지 못했을 때:
+계획 자문(`plan`) 및 대안 시각(`alt`) 요청:
 
 ```bash
-ntg-vnext plan --ledger .ntg/ledger.json --task "How should we test the health endpoint?"
+ntg-vnext plan --ledger .ntg/ledger.json --task "How should we structure verification for the health endpoint?"
+ntg-vnext alt --ledger .ntg/ledger.json --milestone m1 --task "Challenge our current diagnosis of the failing endpoint"
 ```
 
-같은 실패가 되풀이되어 다른 시각이 필요할 때:
+## 크래시 복구 및 상태 스냅샷
 
-```bash
-ntg-vnext alt --ledger .ntg/ledger.json --milestone m1 --task "Challenge our current diagnosis of the failing health endpoint"
-```
-
-출력에는 `adopted: false`가 찍힙니다. 자문은 기록만 될 뿐 플랜을 고치거나 작업을
-완료하지 않습니다. 쓸 만한 내용을 골라 플랜 파일에 반영하고 `replan`을 실행하면
-됩니다.
-
-같은 종류의 실패가 새 증거 없이 세 번 이상 이어지면 `status`가 `needs_alt`를
-알려 줍니다. 알려 주기만 할 뿐 모델을 알아서 호출하지는 않습니다. `alt`는 기본으로
-Sonnet을 씁니다. `--escalate`를 붙이면 일부러 Opus를 고르는 것이라 비용이 더 들 수
-있습니다. 어느 쪽이든 결과는 자문일 뿐입니다.
-
-## 작업이 멈췄을 때
-
-JSON 출력에서 특히 `results`, `state.blockers`, `state.next_action`을 확인하세요.
-
-| 결과 | 할 일 |
-|---|---|
-| 종료 코드 0 | 명령이 성공했습니다. 프로젝트 전체가 끝났는지는 `global_completion`을 보고 판단하세요 |
-| 종료 코드 2: `NO-GO` | 검수가 요구한 수정 사항을 읽고 `run`을 다시 실행해 새 후보와 새 검수를 받으세요 |
-| 종료 코드 2: `BLOCKED` / `NEEDS_DEEP` | 알려 준 블로커를 해결하거나 계획 자문을 받고, 필요하면 플랜을 고치세요 |
-| 종료 코드 1: 잘못된 모델 응답 | 오류를 읽고 필요하면 그 마일스톤을 다시 실행하세요. 형식이 잘못된 응답은 완료로 올라가지 않습니다 |
-| Ledger 잠금 | 이전 세션을 정상적으로 종료하세요. 아직 살아 있는 세션의 lock은 지우면 안 됩니다 |
-| 작업 중 프로세스 크래시 | 아래 복구 절차를 거친 뒤 다시 시작하세요 |
-
-크래시 복구에는 `/proc`이 있는 Linux, `os.pidfd_open`을 지원하는 Python 3,
-그리고 남겨진 실행기를 종료하기 위한 pidfd 지원 커널이 필요합니다. 안전하게
-종료된다는 확신이 없으면 복구를 거부합니다. 이전 프로세스가 중간에 끊긴 것을
-확인했다면, 무슨 일이 있었는지 적어서 실행합니다.
+Linux에서 프로세스가 비정상 종료되어 PID+토큰이 기록된 `.ntg/ledger.json.lock`이 남았을 때는 소유자 종료 확인 후 복구할 수 있습니다:
 
 ```bash
 ntg-vnext recover --ledger .ntg/ledger.json --evidence "Observed the previous supervisor exit during milestone execution"
 ```
 
-증거 문장은 여러분이 실제로 본 내용으로 바꾸세요. 소유 프로세스가 강제 종료된
-경우의 복구는 `tests/test_ntg_vnext.mjs`가 검증합니다. 복구는 끊긴 호출을 정리할
-뿐 작업을 완료로 만들지 않으니, 복구한 뒤에는 `status`를 확인하고 다시 실행하세요.
-잠금을 푸는 범용 명령도 아닙니다. 중단된 마일스톤이 없으면 복구했다고 하지 않고
-오류를 반환합니다.
-
-`init`, `status`, `replan`, `recover`는 모델을 호출하지 않고, `run`, `plan`,
-`alt`는 호출합니다. 모델 호출은 기본적으로 600초가 지나면 시간 초과됩니다.
-바꾸려면 `--timeout`이나 `NTG_RUNNER_TIMEOUT_S` 환경 변수에 양수 초 값을 주세요.
-
-## 그래프로 진행 상황 보기
+읽기 전용 진행 보기(`ntg-dag`, `ntg-state-snap`):
 
 ```bash
 ntg-dag --ledger .ntg/ledger.json --width 80 --no-color
-```
-
-마일스톤과 의존성, 각 상태를 그려 주는 읽기 전용 명령입니다. 진행 상황은 바꾸지
-않습니다.
-
-패키징된 도우미를 통해 그래프 뷰를 실행할 수도 있습니다.
-
-```bash
+ntg-state-snap --ledger .ntg/ledger.json
 node scripts/ntg-command.mjs graph
 ```
 
-(또는 `node "<helper-path>" graph`, 필요 시 `--ledger <path>`와 `--watch` 옵션 지정 가능). `agy` 세션에서는 `/ntg graph`로 이 명령을 자동 실행합니다.
-
-- `--ledger PATH`: ledger 경로를 지정합니다. `NTG_LEDGER` 환경 변수를 써도 됩니다.
-- `--width N`: 폭을 고정합니다. 주지 않으면 터미널 폭에 맞춥니다.
-- `--no-color`: ANSI 색을 끕니다.
-- `--watch`: ledger가 바뀔 때마다 다시 그립니다. 옆 터미널 창에 띄워 두면
-  편합니다.
-
-내 프로젝트 대신 NTG에 들어 있는 표시용 fixture로 먼저 보고 싶다면:
+내장 fixture 미리보기:
 
 ```bash
 ntg-dag --ledger tests/fixtures/dag-view/all-states.ledger.json --width 80 --no-color
 ```
 
-내부 역할 선택, 모델 재정의, 유지보수자용 릴리스 점검은
-[내부 동작](../internals.md)에서 다룹니다.
+내부 아키텍처와 안전 가드는 [내부 동작](../internals.md)을 참고하세요.

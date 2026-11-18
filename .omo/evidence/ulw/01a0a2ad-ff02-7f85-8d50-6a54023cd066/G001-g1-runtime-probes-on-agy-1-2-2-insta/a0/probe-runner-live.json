@@ -1,0 +1,5 @@
+{
+  "code": 0,
+  "out": "===RUNNER_RESULT===\n{\n  \"ok\": true,\n  \"role\": \"bulldozer\",\n  \"slug\": \"gemini-3.8-flash-high\",\n  \"response\": \"RUNNEROK\\n\",\n  \"duration\": 2.906528785,\n  \"usage\": {\n    \"input_tokens\": 14273,\n    \"output_tokens\": 125,\n    \"thinking_tokens\": 122,\n    \"cache_read_tokens\": 0,\n    \"total_tokens\": 14398\n  },\n  \"raw\": {\n    \"conversation_id\": \"261b961b-c752-484e-9326-b602fd0d939a\",\n    \"status\": \"SUCCESS\",\n    \"response\": \"RUNNEROK\\n\",\n    \"duration_seconds\": 2.906528785,\n    \"num_turns\": 1,\n    \"usage\": {\n      \"input_tokens\": 14273,\n      \"output_tokens\": 125,\n      \"thinking_tokens\": 122,\n      \"cache_read_tokens\": 0,\n      \"total_tokens\": 14398\n    }\n  }\n}\n",
+  "err": ""
+}

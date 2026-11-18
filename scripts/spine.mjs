@@ -8,15 +8,12 @@ import { buildScopeMap, checkCoverageTable, checkTestIntegrity, isPathInScope, r
 import { acquireLedgerLock, LedgerIntegrityError } from './ledger-lock.mjs';
 import { InvalidHandoffPacketError, InvalidResponseFormatError, invoke, parseResponsePacket } from './runner.mjs';
 import { projectFailureRecord, projectFailureTelemetry, redactTelemetryValue } from './telemetry.mjs';
+import { SteamrollerController } from '../src/runtime/steamroller-controller.mjs';
+import { TrackRunner } from '../src/runtime/track-runner.mjs';
+
+export { SteamrollerController, TrackRunner };
 
 const NEEDS_ALT_MIN_ATTEMPTS = 3;
-/**
- * TEMPORARY (#174): the sanctioned headless Excavator transport marker. A
- * Bulldozer delegation entry carrying exactly this transport declares the
- * scripts/excavator-agy.mjs call; a bare "excavator" role still claims native
- * spawning and is rejected. Remove together with the headless path.
- */
-export const HEADLESS_EXCAVATOR_TRANSPORT = 'scripts/excavator-agy.mjs';
 const MAX_HANDOFF_CORRECTIONS = 2;
 
 /**
@@ -416,18 +413,15 @@ export class MinimalSpine {
     // invokeSpecialist callback. These routing, authority and slicing checks are
     // advisory for native runs; runMilestone checks declared delegations post-hoc,
     // not as interception or proof that undeclared native calls did not occur.
-    if (callerRole === 'bulldozer') {
-      if (targetRole === 'strix-halo') {
-        throw new Error('Strix Halo is a Bobcat-local advisor gate; Bulldozer cannot invoke Strix Halo directly');
-      }
-      if (!['jaguar', 'puma', 'bobcat'].includes(targetRole)) {
-        throw new Error(`Bulldozer cannot invoke "${targetRole}"`);
+    if (callerRole === 'steamroller' || callerRole === 'bulldozer') {
+      if (!['jaguar', 'puma', 'bobcat', 'strix-halo'].includes(targetRole)) {
+        throw new Error(`${callerRole === 'steamroller' ? 'Steamroller' : 'Bulldozer'} cannot invoke "${targetRole}"`);
       }
     } else if (callerRole === 'bobcat') {
       if (targetRole !== 'strix-halo') {
         throw new Error(`Bobcat may invoke only Strix Halo; cannot invoke "${targetRole}"`);
       }
-    } else if (['jaguar', 'puma', 'excavator', 'strix-halo'].includes(callerRole)) {
+    } else if (['jaguar', 'puma', 'strix-halo', 'excavator'].includes(callerRole)) {
       throw new Error(`Specialist "${callerRole}" has no delegation authority and cannot invoke subagents`);
     } else {
       throw new Error(`Caller "${caller}" is not authorized to invoke specialists under a milestone`);
@@ -679,21 +673,16 @@ export class MinimalSpine {
     try {
       const instruction = 'Execute only this milestone. Delegate bounded work to specialists by kind: '
         + 'Jaguar for read-only factual retrieval, Puma for low-risk writing and '
-        + 'mechanical text/config edits and Bobcat for bounded implementation and repair. '
-        + 'Excavator is TEMPORARILY headless-only (not a native subagent): for a hard repair '
-        + 'beyond Bobcat, invoke scripts/excavator-agy.mjs via run_command exactly as '
-        + 'agents/bulldozer.md directs; if that script fails, return BLOCKED under the '
-        + 'harness gate with observed failure, script error code, attempted remediation '
-        + 'and repair need. '
+        + 'mechanical text/config edits, Bobcat for bounded implementation and repair, '
+        + 'and Strix Halo when formative implementation review is needed. '
         + 'Return architectural questions as NEEDS_DEEP through Steamroller. '
         + (advisorGateEnabled()
           ? 'For Bobcat, set ADVISOR_GATE REQUIRED for substantive work or NONE only '
-            + 'for low-risk mechanical work; Bobcat may invoke only Strix Halo when required. '
+            + 'for low-risk mechanical work; Bobcat, Bulldozer, or Steamroller may invoke Strix Halo when required. '
           : 'The Strix Halo advisor gate is disabled for this run: do not require or wait for '
             + 'an advisor verdict; check implementation work through your own verification and '
             + 'the coverage table instead. ')
         + 'Puma and Jaguar have no subagents and Puma has no advisor ceremony. '
-        + 'Excavator has no nested delegation and must not invoke Zen. '
         + 'If a required specialist is unavailable, return BLOCKED, not a gate waiver. '
         + 'Inspect specialist results and actual evidence yourself. Worker READY and '
         + 'Strix ACCEPT are not DONE. Return your own JSON result packet with '
@@ -715,12 +704,11 @@ export class MinimalSpine {
         + 'Do not invoke Zen, write the ledger or claim global completion.';
       let salvageUsed = false;
       /**
-       * Stage 1 salvage branch (§2.6.5): a coordinator transport death while
-       * the delegation snapshot shows in-scope changes triggers ONE fresh
-       * packet-only Bulldozer session (NTG_SALVAGE=1; the budget hook denies
-       * worker dispatch and edits) instead of a full re-run. Without in-scope
-       * changes, or after the one salvage attempt, the original failure
-       * propagates to the existing INVOCATION_FAILURE path.
+       * Salvage branch: a coordinator transport death while the delegation
+       * snapshot shows in-scope changes triggers ONE fresh packet-only Bulldozer
+       * salvage session instead of a full re-run. Without in-scope changes, or
+       * after the one salvage attempt, the original failure propagates to
+       * INVOCATION_FAILURE.
        */
       const invokeCoordinator = async (instructionText, contractArg) => {
         try {
@@ -742,10 +730,7 @@ export class MinimalSpine {
           try {
             return await this.#exact('bulldozer', SALVAGE_INSTRUCTION,
               { ...contractArg, salvage },
-              {
-                env: { NTG_SALVAGE: '1', NTG_BUDGET_ROOT_MAX_CALLS: String(SALVAGE_MAX_CALLS) },
-                timeout: SALVAGE_TIMEOUT_MS,
-              });
+              { timeout: SALVAGE_TIMEOUT_MS });
           } catch (salvageError) {
             // Salvage failed: BLOCKED with the worktree intact (§2.6.5). The
             // produced changes stay on disk for a later rerun or replan; no
@@ -838,11 +823,8 @@ export class MinimalSpine {
             || candidate.plan_version !== contract.plan_version) {
           throw new Error('Candidate does not match the active milestone and plan');
         }
-        // The runner loads the bounded vNext Bulldozer contract, not a released
-        // primary agent: Jaguar, Puma and Bobcat are the enabled milestone children.
-        // Excavator is TEMPORARILY headless-only (#174): a declared delegation is
-        // accepted only with the sanctioned transport marker, distinguishing the
-        // headless script call from a native spawn claim, which stays rejected.
+        // Enabled worker & review children under Bulldozer: Jaguar, Puma,
+        // Bobcat, and Strix Halo. Retired Excavator delegations are rejected.
         if ('delegations' in candidate) {
           if (!Array.isArray(candidate.delegations)) {
             throw new InvalidHandoffPacketError('Bulldozer delegations must be an array');
@@ -853,14 +835,7 @@ export class MinimalSpine {
               throw new InvalidHandoffPacketError('Each Bulldozer delegation must have a non-empty role');
             }
             const role = delegation.role.trim().toLowerCase();
-            const headlessExcavator = role === 'excavator'
-              && typeof delegation.transport === 'string'
-              && delegation.transport.trim() === HEADLESS_EXCAVATOR_TRANSPORT;
-            // Strix Halo is Bobcat's child, so Bulldozer may only relay it as a
-            // nested record beside the Bobcat delegation that owns the call.
-            const relayedStrix = role === 'strix-halo' && candidate.delegations.some(other =>
-              typeof other?.role === 'string' && other.role.trim().toLowerCase() === 'bobcat');
-            if (!['jaguar', 'puma', 'bobcat'].includes(role) && !headlessExcavator && !relayedStrix) {
+            if (!['jaguar', 'puma', 'bobcat', 'strix-halo'].includes(role)) {
               throw new InvalidHandoffPacketError(`Bulldozer cannot delegate to "${role}" within a milestone`);
             }
           }
@@ -1169,6 +1144,13 @@ export class MinimalSpine {
     this.#ledger.save(this.#path);
   }
 
+  adoptTacticalReplan(plan) {
+    this.#idle();
+    this.#ledger.tacticalReplan(plan);
+    this.#ledger.save(this.#path);
+    return this.state;
+  }
+
   adoptReplan(plan) {
     this.#idle();
     this.#ledger.materialReplan(plan);
@@ -1189,3 +1171,5 @@ export class MinimalSpine {
     return this.#ledger.declareGlobalCompletion();
   }
 }
+
+export const SteamrollerSpine = MinimalSpine;

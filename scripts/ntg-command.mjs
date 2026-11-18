@@ -44,6 +44,7 @@ Commands:
 Options:
   --ledger <path>   Ledger path (default: .ntg/ledger.json)
   --plan <path>     Plan file path (required for init)
+  --track <L|S|M>   Explicit NTG 2.0 track hint (L, S, or M)
   --watch           Watch mode for graph (redraws on ledger change)
   --once            Print graph once without opening a side pane or terminal
   --pane            Open the side pane even when stdout is not a terminal

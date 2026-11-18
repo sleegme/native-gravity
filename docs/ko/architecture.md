@@ -1,78 +1,42 @@
-# 아키텍처
+# 아키텍처 (NTG 2.0)
 
 [English](../architecture.md) · [사용법](usage.md) · [내부 동작](../internals.md)
 
 ## 설계 의도
 
-Native Gravity는 플랜, 저장된 진행 기록, 다른 누군가가 확인한 결과, 이 세 가지로
-여러 단계짜리 작업을 따라가기 쉽게 만듭니다. 사용자는 목표와 범위를 정하고,
-내부 에이전트를 고르고 조율하는 일은 제품이 맡습니다. 내부 역할이 늘어난다고
-사용자가 알아야 할 역할까지 늘어나서는 안 됩니다.
+Native Gravity 2.0(Season 2)은 정적인 headless 단일 러너 중심에서 **Antigravity 네이티브 인터랙티브 Steamroller 컨트롤 플레인** + 얇은 결정론적 **`LedgerKernel`** (`src/core/ledger-kernel.mjs`) + **`LightweightLog`** (`src/core/lightweight-log.mjs`) 구조로 진화했습니다. 사용자는 `/ntg <할 일>`로 자연어 목표나 플랜을 전달하고, 트랙 선택·내부 역할 조합·재라우팅은 Steamroller가 처리합니다.
 
-구현 기록에서는 지금의 설계를 vNext라고 부릅니다. 이미 배포되어 쓰이고 있는
-런타임이며, 따로 골라야 하는 모드나 나중에 켜는 옵션이 아닙니다.
-[기술 계약](../specs/vnext-architecture-contract.md)이 기준이 되는 명세이고,
-이 문서는 계약의 필드를 되풀이하는 대신 구조가 왜 이렇게 생겼는지를 설명합니다.
+Season 2 공식 명세는 [specs/ntg-2.0-architecture-contract.md](../specs/ntg-2.0-architecture-contract.md)이며 `feat/ntg-2.0.0`에서 기존 [specs/vnext-architecture-contract.md](../specs/vnext-architecture-contract.md)를 대체합니다.
 
-## Antigravity의 네이티브 기능 유지
-
-에이전트 실행, 세션, 워크스페이스, 모델, 도구 권한은 Antigravity가 맡습니다.
-NTG가 더하는 것은 역할 계약, 작업 라우팅, 마일스톤 순서, 그리고 진행 기록의
-소유권입니다. 범위를 좁게 잡은 조율기가 핵심 역할을 명시적인 모델 정책으로
-호출하고, 전문 역할은 Antigravity의 네이티브 subagent로 그대로 둡니다. 그래서
-호스트의 기능은 모두 살리면서도 NTG가 범용 워크플로 플랫폼으로 커지지 않습니다.
-
-## 실행과 완료 판정을 분리
+## 하이브리드 컨트롤 플레인과 트랙 라우팅
 
 ```text
-사용자의 플랜
-  -> 진행 기록 소유자가 실행 가능한 단계 하나를 선택
-  -> 범위 안에서 실행하여 후보 결과 생성
-  -> 독립 검수가 결과와 완료 기준을 대조
-  -> 진행 기록 소유자가 검증 또는 수정 요구를 기록
-  -> 다음 단계 또는 프로젝트 완료
+사용자 목표 (/ntg)
+  -> Steamroller (Carbon Medium -> Gemini 4 Argon Medium)
+       ├─ Track L (HALO_LIGHTWEIGHT)  : 직접/경량 워커 -> Fresh Bound Strix Halo (ACCEPT) [고위험 시 Zen 에스컬레이션] -> .ntg/lightweight-runs.jsonl
+       ├─ Track S (ZEN_DURABLE)       : 최초 1회 승인 -> 직접/Bobcat (+ 조건부 Halo) -> 독립 Zen GO -> .ntg/ledger.json
+       └─ Track M (ZEN_DURABLE)       : 최초 1회 승인 -> Bulldozer (Hydrogen XHigh) [Jaguar/Puma/Bobcat + 필수 Halo] -> 독립 Zen GO -> .ntg/ledger.json
 ```
 
-실행자가 아무리 자신 있어도 그것만으로 완료가 되지는 않습니다. 작업하면서 하는
-로컬 점검은 구현을 돕는 용도이고, 마일스톤 독립 검수는 그와 별개의 권한입니다.
-둘을 나눠 두어야 위임받은 쪽의 "끝났다"는 말이 슬그머니 프로젝트 전체의 성공으로
-바뀌는 일을 막을 수 있습니다.
+- **Track L**은 저위험·소규모 변경에 불필요한 절차를 덜어내면서도 `reviewed_diff_digest`, `acceptance_criteria_digest`, `plan_version`, `evidence_basis`에 묶인 Strix Halo 검증을 강제하며, 고위험 시 Steamroller 판단으로 Zen 검수로 에스컬레이션합니다.
+- **Track S / M**은 내구성 있는 `ZEN_DURABLE` 보증을 제공합니다. 정상 경로에서는 **최초 1회 평어 승인**만으로 연속 실행되며, 목표·완료 기준·불변식을 바꾸는 **Material Replan** 및 확인 게이트에서만 재승인을 요청합니다. 전략만 조정하는 **Tactical Replan**은 `plan_version`을 올리고 기존 판정을 전부 `STALE` 처리한 뒤 자율적으로 이어갑니다.
 
-단계마다 목표, 손댈 수 있는 범위, 하지 않을 일, 완료 기준이 들어 있습니다. 작업이
-얼마나 커 보이는지만이 아니라 어떤 종류의 일인지에 따라 라우팅합니다. 탐색,
-단순 편집, 일반 구현, 까다로운 고장 진단은 실행 방식이 저마다 다르기 때문입니다.
-그 역할들의 이름과 권한은 구현 세부 사항이라 [내부 동작](../internals.md#role-ownership-and-routing)에
-모아 두었습니다.
+## 모델 역량(Capability)과 권한(Authority)의 분리
 
-## 대화 밖에 진행 상황 저장
+`ModelRouter` (`src/core/model-router.mjs`)는 동적으로 모델 슬러그를 최적화할 수 있지만 `ROLE_AUTHORITY_TABLE`의 불변 권한 경계는 절대 변경할 수 없습니다.
 
-Ledger에는 채택된 플랜, 의존성, 증거, 검수, 블로커, 다음 할 일이 기록됩니다.
-새 프로세스는 대화 기억이 아니라 이 상태에서 다시 시작합니다. 실행이든 검수든
-한 번에 마일스톤 하나만 다루고, 기준이 되는 진행 기록은 한 소유자만 씁니다.
+- **Steamroller** (`Gemini 4 Argon Medium`; `gemini-pro-orchestrator-g1-pro`는 기본 라우팅 제외): 인터랙티브 오케스트레이터 및 `LedgerKernel` 소유자.
+- **Piledriver** (`Gemini 4 Argon High`, `READ_ONLY`): 마일스톤 분해·설계 자문 및 `NEEDS_DEEP` / Tactical·Material replan 제안.
+- **Bulldozer** (`Gemini 4 Hydrogen XHigh`): 선택적 복합 마일스톤 조율기 겸 1차 복구 리더(은퇴한 Excavator를 Instinct와 함께 대체). `hooks/shell-safety-guard.py` 보호 아래 일반 `run_command` 권한 보유.
+- **Strix Halo** (`Gemini 4 Hydrogen High`, `READ_ONLY`): Steamroller·Bulldozer·Bobcat 모두가 `ReviewRequest`로 직접 호출할 수 있는 품질 리뷰어(`ACCEPT | REVISE | ESCALATE`). 단, Track S/M에서 Zen `GO`를 대체하지 않습니다.
+- **Bobcat** (`Gemini 4 Hydrogen Medium`): 핵심 코드·API·상태 로직·테스트 구현 및 로컬 검증.
+- **Jaguar** (`Gemini 3.8 Flash Low`, `READ_ONLY`) 및 **Puma** (`Gemini 3.8 Flash Low`, 독립된 기계적 편집 워커): Lightweight Worker Harness 적용 대상이며, 역량을 초과할 경우 `REROUTE_REQUIRED`로 `Bobcat` 또는 `Bulldozer`로 재라우팅됩니다.
+- **Instinct** (`Claude Sonnet 5.5 High` / 에스컬레이션 시 `Claude Opus 5.5 High`, `READ_ONLY`): 온디맨드 대안 프레이밍(`NEEDS_ALT`) 및 2차 복구 자문.
+- **Zen** (`Claude Opus 5.5 High`, 쿼터 소진 시 `Gemini 4 Argon High` 폴백): `NTG_ACTIVE_ROLE=zen`으로 셸과 파일 수정 도구를 모두 차단하는 비수정 독립 최종 검수자.
+- **Navi** (`Gemini 4 Argon Medium`): 전용 `HOME`과 `cu` MCP만 사용하는 격리된 Linux 데스크톱 leaf(`NEEDS_CONFIRMATION` 준수).
 
-검수는 특정 후보와 특정 플랜 버전에 묶입니다. 후보가 달라지면 검수도 새로 받아야
-합니다. 계획을 실질적으로 바꾸면 이전의 완료 권한은 사라지고, 그대로 둔
-마일스톤도 의존성 순서대로 다시 검증합니다. 이전 증거는 이력으로 남습니다.
-다시 검증하는 비용이 들더라도, 예전 승인이 새 계약에 잘못 적용되는 일은 없게
-됩니다.
+## 모델 인식 하네스, 통합 안전 가드, 관측 텔레메트리
 
-계획 자문과 대안 자문은 어디까지나 조언입니다. 사용자가 플랜을 고치는 데 도움을
-줄 수는 있어도, 조언만으로 플랜이 채택되거나 단계가 완료되지는 않습니다.
+`src/harness/`는 모델 고유의 강점을 보존하는 Layer 1 보정, 역할 지침(Layer 2), 자동 `ContextDigest` 주입(Layer 3)으로 구성됩니다. `hooks/shell-safety-guard.py`는 우회 마커나 셸 예외 없이 셸·파일 도구 양쪽을 보호하고, `hooks/telemetry-guard.py`는 횟수 기반 강제 차단 대신 관측 기록을 `.ntg/telemetry.jsonl`에 남깁니다.
 
-## 구현된 설계와 남은 질문
-
-마일스톤 실행, 독립 검수, 계획 변경, 새 컨텍스트에서의 재개, Linux 크래시 복구,
-대안 자문은 모두 구현되어 있습니다. 어디까지 검증했고 어떤 한계가 있는지는
-[상태](status.md)에 기록되어 있으며, 신뢰성이나 성능을 폭넓게 보장한다는 뜻은
-아닙니다.
-
-자연어 목표를 받아 바로 플랜으로 채택하는 인터페이스는 아직 없어서, 지금은
-사용자가 플랜 파일을 직접 씁니다. Zen의 exact-model 선택은 아직 비교 검증 중인
-질문이며, 발표된 기능도 사용자가 해야 할 설정도 아닙니다. 모델 프로필 역시 잠정적인
-연구 자료일 뿐 배포된 라우팅을 바꾸지 않았습니다.
-
-역할 그래프, 모델 해석, 응답 검증, 복구 방식은 [내부 동작](../internals.md)을
-보세요. 이미 끝난 활성화와 전환 기록은
-[전환 안내](../internals.md#activation-and-transition-record)와
-[상태 이력](status.md#릴리스와-전환-이력)에 있습니다.
-명세에 남아 있는 과거 구현 단계는 앞으로 할 일 목록이 아닙니다.
+구현 세부 사항은 [내부 동작](../internals.md), 검증 기록은 [상태](status.md)를 참고하세요.

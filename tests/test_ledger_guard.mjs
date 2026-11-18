@@ -154,6 +154,7 @@ test('a normal run is unchanged: the guard stays silent and accounting and compl
 // Bulldozer invocation deletes .ntg/ and still returns a valid DONE packet.
 const MODELS = [
   'gemini-4-argon-high\tGemini 4 Argon (High)',
+  'gemini-4-hydrogen-xhigh\tGemini 4 Hydrogen (XHigh)',
   'gemini-3.8-flash-high\tGemini 3.8 Flash (High)',
   'claude-opus-5-5-high\tClaude Opus 5.5 (High)',
 ].join('\n');
@@ -196,4 +197,39 @@ if (argv[0] === 'models') {
   assert.match(run.stderr, /ntg-vnext: ledger integrity violated: .+ledger\.json\.lock was removed during execution/);
   assert.match(run.stderr, /after bulldozer invocation for milestone one/);
   assert.equal(existsSync(ntg), false, 'the CLI must not recreate the deleted ledger directory');
+});
+
+test('owner-token lock verification detects spoofed same-PID overwrites and gates stale recovery (#201 A2)', async t => {
+  const { acquireLedgerLock, recoverStaleLock, verifyLedgerIntegrity, LedgerLockedError } = await import('../scripts/ledger-lock.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-lock-token-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const ledger = join(dir, 'ledger.json');
+  writeFileSync(ledger, '{}');
+  const release = acquireLedgerLock(ledger, { handleSignals: false });
+  const token = release.ownerToken;
+  assert.ok(token);
+
+  // Overwriting the lock file with same PID but forged/missing token triggers LedgerIntegrityError
+  writeFileSync(`${ledger}.lock`, `${process.pid}\ntoken:forged-token\n`);
+  assert.throws(() => verifyLedgerIntegrity(ledger, { role: 'bulldozer', milestoneId: 'one' }), /owner token mismatch/);
+  release();
+
+  // Stale lock recovery requires matching owner token AND non-living PID
+  const staleRelease = acquireLedgerLock(ledger, { handleSignals: false, ownerToken: 'dead-owner-tok' });
+  const staleToken = staleRelease.ownerToken;
+  // Simulate dead process holding the lock by keeping the lock file and clearing in-process handler via manual write
+  staleRelease();
+  writeFileSync(`${ledger}.lock`, `999999999\ntoken:${staleToken}\n`);
+
+  assert.throws(
+    () => recoverStaleLock(ledger, { expectedToken: 'wrong-token', isProcessAlive: () => false }),
+    LedgerLockedError
+  );
+  assert.throws(
+    () => recoverStaleLock(ledger, { expectedToken: staleToken, isProcessAlive: () => true }),
+    LedgerLockedError
+  );
+  const recovered = recoverStaleLock(ledger, { expectedToken: staleToken, isProcessAlive: () => false });
+  assert.equal(recovered.recovered, true);
+  assert.equal(existsSync(`${ledger}.lock`), false);
 });

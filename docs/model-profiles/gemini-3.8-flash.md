@@ -11,17 +11,16 @@
 - Shallow-diagnosis risk on multi-loop repair tasks (same failure mode family as 3.1-flash stubs; evidence pending).
 - On `-low` tier, watch for truncated reasoning chains in gate output; escalate to `-medium/-high` when verdicts lack cited evidence.
 
-## Recommended role mapping
-> Fit ratings are unmeasured hypotheses, not deployed routing; current
-> assignments are in [Internals](../internals.md#invocation-policy).
+## Recommended role mapping (NTG 2.0)
+
+In NTG 2.0, `gemini-3.8-flash-low` powers the **Lightweight Worker Harness** for **Jaguar** (read-only scout) and **Puma** (separate mechanical/formatting/config worker). Substantive implementation and complex coordination moved to the **Gemini 4 Hydrogen** family (`Bobcat` Medium, `Strix Halo` High, `Bulldozer` XHigh). Tasks exceeding `3.8 Flash Low` capability reroute cleanly to `Bobcat` or `Bulldozer`.
 
 | Role tier | Fit | Reason |
 |---|---|---|
-| planner | medium | outlines quickly; use -high for acceptance design |
-| executor (bobcat/puma) | strong | default tier |
-| gate / reviewer | weak→medium | usable at -high for lightweight reviews; Zen defaults to Pro tier |
-| specialist (jaguar discovery) | strong | read-only, bounded |
-| excavator | medium | works (verified on 1.3.1); prefer Pro for long repair loops |
+| specialist (jaguar discovery) | strong | read-only, bounded under Lightweight Worker Harness (`gemini-3.8-flash-low`) |
+| mechanical worker (puma) | strong | separate low-cost text/formatting/config edits (`gemini-3.8-flash-low`) |
+| substantive implementation | weak->reroute | route to Bobcat (`gemini-4-hydrogen-medium`) |
+| coordination / recovery | reroute | route to Bulldozer (`gemini-4-hydrogen-xhigh`) + Instinct |
 
 ## Gate-checklist variants
 - Require cited command output in VERIFICATION_EVIDENCE, not assertions.
