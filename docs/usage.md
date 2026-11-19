@@ -119,13 +119,37 @@ Internal architecture and hook guards are covered in [Internals](internals.md).
 
 ## Install details
 
-You need **Node.js 18+**, **Antigravity CLI (`agy`) >= 1.3.0** on your `PATH`, and working model access. Install or upgrade Native Gravity with a single command:
+You need **Node.js 18+**, **Antigravity CLI (`agy`) >= 1.3.0** on your `PATH`, and working model access. Global installation automatically registers the `agy` plugin via `postinstall`:
 
-```bash
-npx --yes native-gravity
-```
+- **npm (<= 11):**
 
-You can also use `bunx native-gravity`, the curl installer (`curl -fsSL https://raw.githubusercontent.com/sleegme/native-gravity/v2.0.0/scripts/install.sh | sh`), or PowerShell (`irm https://raw.githubusercontent.com/sleegme/native-gravity/v2.0.0/scripts/install.ps1 | iex`).
+  ```bash
+  npm i -g native-gravity
+  # or: npm i -g @sleeg/ntg
+  ```
+
+- **npm 12+** (blocks dependency `postinstall` scripts by default via `allowScripts`):
+
+  ```bash
+  # Allow postinstall once during install
+  npm i -g --allow-scripts=native-gravity native-gravity
+  # or with @sleeg/ntg
+  npm i -g --allow-scripts=native-gravity,@sleeg/ntg @sleeg/ntg
+
+  # Optional: persist global allow-scripts for future updates
+  npm config set allow-scripts=native-gravity --location=user
+  ```
+
+- **Bun** (blocks dependency `postinstall` scripts unless `--trust` is passed):
+
+  ```bash
+  bun add -g --trust native-gravity
+  # or: bun add -g --trust @sleeg/ntg
+  ```
+
+If you installed without `--allow-scripts` (npm 12+) or `--trust` (Bun) and `postinstall` was skipped, run `ntg` once (or `native-gravity` / `ntg-vnext`) to register the `agy` plugin automatically (and add `native-gravity` and `@sleeg/ntg` to Bun's global `trustedDependencies` for future updates).
+
+You can also run `npx --yes native-gravity`, `bunx native-gravity`, the curl installer (`curl -fsSL https://raw.githubusercontent.com/sleegme/native-gravity/v2.0.0/scripts/install.sh | sh`), or PowerShell (`irm https://raw.githubusercontent.com/sleegme/native-gravity/v2.0.0/scripts/install.ps1 | iex`).
 
 Running the installer handles clean upgrades automatically (uninstalling the previous version before installing the new package).
 

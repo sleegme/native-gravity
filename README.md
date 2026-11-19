@@ -22,7 +22,39 @@ Simply describe a task with `/ntg <task>`. Steamroller automatically classifies 
 
 Requires Node.js 18+ and Antigravity CLI (`agy`) >= 1.3.0.
 
-The `curl` and `irm` scripts download directly from GitHub and do not require `npm` or `npx` on PATH (only Node.js or Bun).
+### Global install (auto-registers the `agy` plugin via `postinstall`)
+
+- **npm (<= 11):**
+
+  ```bash
+  npm i -g native-gravity
+  # or: npm i -g @sleeg/ntg
+  ```
+
+- **npm 12+** (blocks dependency `postinstall` scripts by default via `allowScripts`):
+
+  ```bash
+  # Allow postinstall once during install
+  npm i -g --allow-scripts=native-gravity native-gravity
+  # or with @sleeg/ntg
+  npm i -g --allow-scripts=native-gravity,@sleeg/ntg @sleeg/ntg
+
+  # Optional: persist global allow-scripts for future updates
+  npm config set allow-scripts=native-gravity --location=user
+  ```
+
+- **Bun** (blocks dependency `postinstall` scripts unless `--trust` is passed):
+
+  ```bash
+  bun add -g --trust native-gravity
+  # or: bun add -g --trust @sleeg/ntg
+  ```
+
+> **If install scripts were skipped** (for example, `npm i -g` on npm 12+ without `--allow-scripts`, or `bun add -g` without `--trust`), run `ntg` once (or `native-gravity` / `ntg-vnext`) to register the `agy` plugin automatically and add `native-gravity` and `@sleeg/ntg` to Bun's global `trustedDependencies` for future updates.
+
+### One-shot or direct GitHub script install
+
+You can also run the installer directly (`npx` / `bunx`) or use the `curl` and `irm` scripts, which download directly from GitHub and do not require `npm` or `npx` on PATH (only Node.js or Bun).
 
 ```bash
 npx --yes native-gravity

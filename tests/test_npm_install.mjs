@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import {
   chmodSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -90,6 +91,8 @@ process.exit(1);
 
 function createHarness() {
   const tempDir = mkdtempSync(join(tmpdir(), 'ntg-npm-install-test-'));
+  const repoStampPath = join(REPO_ROOT, '.ntg-postinstall-applied');
+  const hadRepoStamp = existsSync(repoStampPath);
   const tempHome = join(tempDir, 'home');
   mkdirSync(tempHome, { recursive: true });
 
@@ -165,6 +168,13 @@ function createHarness() {
       rmSync(tempDir, { recursive: true, force: true });
     } catch {
       // ignore cleanup errors in tests
+    }
+    if (!hadRepoStamp && existsSync(repoStampPath)) {
+      try {
+        rmSync(repoStampPath, { force: true });
+      } catch {
+        // ignore cleanup errors in tests
+      }
     }
   }
 
@@ -599,6 +609,314 @@ test('integration: npm pack to tarball, npm install into temporary prefix, run i
       assert.notEqual(call.env_home, LIVE_HOME, 'call must never use live HOME');
       assert.notEqual(call.env_home, LIVE_GEMINI, 'call must never use live .gemini');
     }
+  } finally {
+    rmSync(integrationDir, { recursive: true, force: true });
+  }
+});
+
+function createTempPackageCopy(parentDir) {
+  const pkgRoot = join(parentDir, 'pkg');
+  mkdirSync(join(pkgRoot, 'scripts'), { recursive: true });
+  cpSync(join(REPO_ROOT, 'package.json'), join(pkgRoot, 'package.json'));
+  cpSync(join(REPO_ROOT, 'plugin.json'), join(pkgRoot, 'plugin.json'));
+  cpSync(INSTALLER_SCRIPT, join(pkgRoot, 'scripts', 'npm-install.mjs'));
+  return pkgRoot;
+}
+
+test('postinstall in repo checkout outside node_modules exits 0 without invoking agy', () => {
+  const h = createHarness();
+  try {
+    const res = h.runInstaller(['--postinstall'], {
+      NTG_FORCE_POSTINSTALL: undefined,
+      NTG_SKIP_POSTINSTALL: undefined,
+    });
+    assert.equal(res.status, 0, `failed with stderr: ${res.stderr}`);
+    assert.equal(h.readInvocations().length, 0);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('postinstall in installed context applies plugin, writes stamp, is idempotent, and trusts bun global manifest', () => {
+  const h = createHarness();
+  try {
+    const tempPkg = createTempPackageCopy(h.tempDir);
+    const bunGlobalDir = join(h.tempHome, '.bun', 'install', 'global');
+    mkdirSync(bunGlobalDir, { recursive: true });
+    const bunGlobalPkgPath = join(bunGlobalDir, 'package.json');
+    writeFileSync(
+      bunGlobalPkgPath,
+      JSON.stringify({ dependencies: { 'native-gravity': '^2.0.0' } }, null, 2) + '\n',
+      'utf8'
+    );
+
+    const env = {
+      ...process.env,
+      PATH: `${h.binDir}:${process.env.PATH}`,
+      HOME: h.tempHome,
+      STUB_AGY_LOG_FILE: h.logFile,
+      NTG_FORCE_POSTINSTALL: '1',
+    };
+    delete env.NTG_RUNNER_CHAIN;
+    delete env.NTG_SUPERVISOR_LEDGER;
+    delete env.NTG_SUPERVISOR_PID;
+    delete env.NTG_SKIP_POSTINSTALL;
+
+    const first = spawnSync(process.execPath, [join(tempPkg, 'scripts', 'npm-install.mjs'), '--postinstall'], {
+      cwd: tempPkg,
+      env,
+      encoding: 'utf8',
+    });
+    assert.equal(first.status, 0, `first postinstall failed: ${first.stderr}`);
+
+    const callsAfterFirst = h.readInvocations();
+    assert.equal(callsAfterFirst.length, 4);
+    assert.deepEqual(callsAfterFirst[0].argv, ['--version']);
+    assert.deepEqual(callsAfterFirst[1].argv, ['plugin', 'uninstall', 'native-gravity']);
+    assert.deepEqual(callsAfterFirst[2].argv, ['plugin', 'install', tempPkg]);
+    assert.deepEqual(callsAfterFirst[3].argv, ['plugin', 'list', '--json']);
+
+    const stampPath = join(tempPkg, '.ntg-postinstall-applied');
+    assert.ok(existsSync(stampPath), 'stamp file must be written after postinstall');
+    const pkg = JSON.parse(readFileSync(join(tempPkg, 'package.json'), 'utf8'));
+    assert.equal(readFileSync(stampPath, 'utf8').trim(), pkg.version);
+
+    const updatedBunPkg = JSON.parse(readFileSync(bunGlobalPkgPath, 'utf8'));
+    assert.ok(Array.isArray(updatedBunPkg.trustedDependencies), 'trustedDependencies array must be added');
+    assert.ok(updatedBunPkg.trustedDependencies.includes('native-gravity'));
+    assert.ok(updatedBunPkg.trustedDependencies.includes('@sleeg/ntg'));
+
+    const second = spawnSync(process.execPath, [join(tempPkg, 'scripts', 'npm-install.mjs'), '--postinstall'], {
+      cwd: tempPkg,
+      env,
+      encoding: 'utf8',
+    });
+    assert.equal(second.status, 0, `second postinstall failed: ${second.stderr}`);
+    assert.equal(h.readInvocations().length, 4, 'second postinstall must be idempotent when stamp matches');
+
+    h.assertNoLiveGeminiTouched();
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('postinstall when agy is missing on PATH exits 0 with a warning on stderr', () => {
+  const h = createHarness();
+  try {
+    const tempPkg = createTempPackageCopy(h.tempDir);
+    const env = {
+      ...process.env,
+      PATH: h.emptyBinDir,
+      HOME: h.tempHome,
+      STUB_AGY_LOG_FILE: h.logFile,
+      NTG_FORCE_POSTINSTALL: '1',
+    };
+    delete env.NTG_RUNNER_CHAIN;
+    delete env.NTG_SUPERVISOR_LEDGER;
+    delete env.NTG_SUPERVISOR_PID;
+    delete env.NTG_SKIP_POSTINSTALL;
+
+    const res = spawnSync(process.execPath, [join(tempPkg, 'scripts', 'npm-install.mjs'), '--postinstall'], {
+      cwd: tempPkg,
+      env,
+      encoding: 'utf8',
+    });
+    assert.equal(res.status, 0, `expected exit 0 when agy missing in postinstall, got ${res.status}`);
+    assert.match(res.stderr, /Antigravity CLI \(`agy` >= 1\.3\.0\) not available on PATH during postinstall/);
+    assert.equal(existsSync(join(tempPkg, '.ntg-postinstall-applied')), false);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('integration: npm install without --ignore-scripts automatically runs postinstall and applies agy plugin', () => {
+  const integrationDir = mkdtempSync(join(tmpdir(), 'ntg-npm-postinstall-int-'));
+  try {
+    const packDir = join(integrationDir, 'pack');
+    mkdirSync(packDir, { recursive: true });
+
+    const packRes = spawnSync('npm', ['pack', '--pack-destination', packDir], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+    });
+    assert.equal(packRes.status, 0, `npm pack failed: ${packRes.stderr}`);
+
+    const tarballs = readdirSync(packDir).filter((f) => f.endsWith('.tgz'));
+    assert.ok(tarballs.length > 0, 'tarball should exist in pack destination');
+    const tarballPath = join(packDir, tarballs[0]);
+
+    const prefixDir = join(integrationDir, 'prefix');
+    mkdirSync(prefixDir, { recursive: true });
+    writeFileSync(
+      join(prefixDir, 'package.json'),
+      JSON.stringify({
+        name: 'consumer-postinstall-test',
+        version: '1.0.0',
+        allowScripts: {
+          [`file:${tarballPath}`]: true,
+          'native-gravity': true,
+        },
+      }),
+      'utf8'
+    );
+
+    const stubBinDir = join(integrationDir, 'stub-bin');
+    mkdirSync(stubBinDir, { recursive: true });
+    const stubAgyPath = join(stubBinDir, 'agy');
+    writeFileSync(stubAgyPath, createStubAgyScript(), 'utf8');
+    chmodSync(stubAgyPath, 0o755);
+
+    const integrationLog = join(integrationDir, 'postinstall-agy-calls.jsonl');
+    const tempHome = join(integrationDir, 'temp-home');
+    mkdirSync(tempHome, { recursive: true });
+
+    const env = {
+      ...process.env,
+      PATH: `${stubBinDir}:${process.env.PATH}`,
+      HOME: tempHome,
+      STUB_AGY_LOG_FILE: integrationLog,
+    };
+    delete env.NTG_RUNNER_CHAIN;
+    delete env.NTG_SUPERVISOR_LEDGER;
+    delete env.NTG_SUPERVISOR_PID;
+    delete env.NTG_SKIP_POSTINSTALL;
+
+    const installRes = spawnSync(
+      'npm',
+      ['install', '--no-audit', '--no-fund', tarballPath],
+      {
+        cwd: prefixDir,
+        env,
+        encoding: 'utf8',
+      }
+    );
+    assert.equal(
+      installRes.status,
+      0,
+      `npm install without --ignore-scripts failed: status=${installRes.status}\nstderr: ${installRes.stderr}\nstdout: ${installRes.stdout}`
+    );
+
+    const ntgBinPath = join(prefixDir, 'node_modules', '.bin', 'ntg');
+    const nativeGravityBinPath = join(prefixDir, 'node_modules', '.bin', 'native-gravity');
+    assert.ok(existsSync(ntgBinPath), `ntg bin symlink must exist at ${ntgBinPath}`);
+    assert.ok(existsSync(nativeGravityBinPath), `native-gravity bin symlink must exist at ${nativeGravityBinPath}`);
+
+    assert.ok(existsSync(integrationLog), 'postinstall must invoke stub agy automatically');
+    const calls = readFileSync(integrationLog, 'utf8')
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+
+    assert.equal(calls.length, 4, `expected 4 stub agy calls from postinstall, got ${calls.length}`);
+    assert.deepEqual(calls[0].argv, ['--version']);
+    assert.deepEqual(calls[1].argv, ['plugin', 'uninstall', 'native-gravity']);
+    assert.equal(calls[2].argv[0], 'plugin');
+    assert.equal(calls[2].argv[1], 'install');
+    const installedPkgRoot = calls[2].argv[2];
+    assert.ok(installedPkgRoot.includes('node_modules'), `expected node_modules path, got ${installedPkgRoot}`);
+    assert.ok(existsSync(join(installedPkgRoot, 'plugin.json')));
+    assert.ok(existsSync(join(installedPkgRoot, '.ntg-postinstall-applied')));
+    assert.deepEqual(calls[3].argv, ['plugin', 'list', '--json']);
+
+    for (const call of calls) {
+      assert.equal(call.env_home, tempHome, 'call must use temp HOME');
+      assert.notEqual(call.env_home, LIVE_HOME, 'call must never use live HOME');
+      assert.notEqual(call.env_home, LIVE_GEMINI, 'call must never use live .gemini');
+    }
+  } finally {
+    rmSync(integrationDir, { recursive: true, force: true });
+  }
+});
+
+test('integration: bun add -g --trust automatically runs postinstall and applies agy plugin', (t) => {
+  const bunCheck = spawnSync('bun', ['--version'], { encoding: 'utf8' });
+  if (bunCheck.error || bunCheck.status !== 0) {
+    t.skip('bun is not installed on PATH');
+    return;
+  }
+
+  const integrationDir = mkdtempSync(join(tmpdir(), 'ntg-bun-postinstall-int-'));
+  try {
+    const packDir = join(integrationDir, 'pack');
+    mkdirSync(packDir, { recursive: true });
+
+    const packRes = spawnSync('npm', ['pack', '--pack-destination', packDir], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+    });
+    assert.equal(packRes.status, 0, `npm pack failed: ${packRes.stderr}`);
+
+    const tarballs = readdirSync(packDir).filter((f) => f.endsWith('.tgz'));
+    assert.ok(tarballs.length > 0, 'tarball should exist in pack destination');
+    const tarballPath = join(packDir, tarballs[0]);
+
+    const bunInstallDir = join(integrationDir, 'bun-install');
+    const tempHome = join(integrationDir, 'temp-home');
+    const stubBinDir = join(integrationDir, 'stub-bin');
+    mkdirSync(bunInstallDir, { recursive: true });
+    mkdirSync(tempHome, { recursive: true });
+    mkdirSync(stubBinDir, { recursive: true });
+
+    const stubAgyPath = join(stubBinDir, 'agy');
+    writeFileSync(stubAgyPath, createStubAgyScript(), 'utf8');
+    chmodSync(stubAgyPath, 0o755);
+
+    const integrationLog = join(integrationDir, 'bun-postinstall-agy-calls.jsonl');
+    const env = {
+      ...process.env,
+      BUN_INSTALL: bunInstallDir,
+      HOME: tempHome,
+      PATH: `${stubBinDir}:${process.env.PATH}`,
+      STUB_AGY_LOG_FILE: integrationLog,
+    };
+    delete env.NTG_RUNNER_CHAIN;
+    delete env.NTG_SUPERVISOR_LEDGER;
+    delete env.NTG_SUPERVISOR_PID;
+    delete env.NTG_SKIP_POSTINSTALL;
+
+    const addRes = spawnSync('bun', ['add', '-g', '--trust', tarballPath], {
+      cwd: integrationDir,
+      env,
+      encoding: 'utf8',
+    });
+    assert.equal(
+      addRes.status,
+      0,
+      `bun add -g --trust failed: status=${addRes.status}\nstderr: ${addRes.stderr}\nstdout: ${addRes.stdout}`
+    );
+
+    assert.ok(existsSync(join(bunInstallDir, 'bin', 'ntg')), 'ntg bin must exist in BUN_INSTALL/bin');
+    assert.ok(existsSync(join(bunInstallDir, 'bin', 'native-gravity')), 'native-gravity bin must exist in BUN_INSTALL/bin');
+
+    assert.ok(existsSync(integrationLog), 'bun postinstall must invoke stub agy automatically');
+    const calls = readFileSync(integrationLog, 'utf8')
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+
+    assert.equal(calls.length, 4, `expected 4 stub agy calls from bun postinstall, got ${calls.length}`);
+    assert.deepEqual(calls[0].argv, ['--version']);
+    assert.deepEqual(calls[1].argv, ['plugin', 'uninstall', 'native-gravity']);
+    assert.equal(calls[2].argv[0], 'plugin');
+    assert.equal(calls[2].argv[1], 'install');
+    const installedPkgRoot = calls[2].argv[2];
+    assert.ok(existsSync(join(installedPkgRoot, 'plugin.json')));
+    assert.ok(existsSync(join(installedPkgRoot, '.ntg-postinstall-applied')));
+    assert.deepEqual(calls[3].argv, ['plugin', 'list', '--json']);
+
+    for (const call of calls) {
+      assert.equal(call.env_home, tempHome, 'call must use temp HOME');
+      assert.notEqual(call.env_home, LIVE_HOME, 'call must never use live HOME');
+      assert.notEqual(call.env_home, LIVE_GEMINI, 'call must never use live .gemini');
+    }
+
+    const bunGlobalPkgPath = join(bunInstallDir, 'install', 'global', 'package.json');
+    assert.ok(existsSync(bunGlobalPkgPath), 'bun global package.json must exist');
+    const bunGlobalPkg = JSON.parse(readFileSync(bunGlobalPkgPath, 'utf8'));
+    assert.ok(Array.isArray(bunGlobalPkg.trustedDependencies));
+    assert.ok(bunGlobalPkg.trustedDependencies.includes('native-gravity'));
   } finally {
     rmSync(integrationDir, { recursive: true, force: true });
   }
