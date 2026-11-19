@@ -45,6 +45,7 @@ import { invoke, loadNativeRoleBody, ModelRouter, parseResponseEnvelope, parseRe
   realAgyRefusalUnderNodeTest, resolveSlug, QUOTA_EXHAUSTED_RE, argonBreakerBlocksSlug,
   argonQuotaBreakerState, tripArgonQuotaBreaker, isArgonSlug, formatDurationKo } from './runner.mjs';
 import { createInterface } from 'node:readline';
+import { ensureInstalledPluginApplied } from './npm-install.mjs';
 import { reportIssueCli } from './report-issue.mjs';
 
 
@@ -1155,6 +1156,7 @@ export async function runCli(argv, io = {}) {
 }
 
 if (invokedDirectly()) {
+  ensureInstalledPluginApplied();
   const argv = process.argv.slice(2);
   runCli(argv).then(({ code }) => {
     process.exitCode = code;

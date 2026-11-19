@@ -22,7 +22,39 @@ Native Gravity 2.0(NTG 2.0)은 Google Antigravity(`agy`) 위에서 동작하는 
 
 Node.js 18+와 Antigravity CLI(`agy`) >= 1.3.0이 필요합니다.
 
-`curl` 및 `irm` 설치 스크립트는 GitHub에서 직접 다운로드하므로 PATH에 `npm`이나 `npx`가 없어도(Node.js 또는 Bun만 설치되어 있으면) 바로 실행할 수 있습니다.
+### 전역 설치 (`postinstall`로 `agy` 플러그인 자동 적용)
+
+- **npm (11 이하):**
+
+  ```bash
+  npm i -g native-gravity
+  # 또는: npm i -g @sleeg/ntg
+  ```
+
+- **npm 12+** (보안 정책 `allowScripts`로 인해 기본적으로 `postinstall`이 차단됨):
+
+  ```bash
+  # 설치 시 postinstall 1회 허용
+  npm i -g --allow-scripts=native-gravity native-gravity
+  # 또는 @sleeg/ntg 설치 시
+  npm i -g --allow-scripts=native-gravity,@sleeg/ntg @sleeg/ntg
+
+  # 선택: 이후 전역 업데이트에서도 계속 허용해 두려면
+  npm config set allow-scripts=native-gravity --location=user
+  ```
+
+- **Bun** (`--trust` 없이는 `postinstall`이 차단됨):
+
+  ```bash
+  bun add -g --trust native-gravity
+  # 또는: bun add -g --trust @sleeg/ntg
+  ```
+
+> **옵션 없이 설치해서 `postinstall`이 건너뛰어진 경우**(`--allow-scripts` 없는 npm 12+ 또는 `--trust` 없는 `bun add -g`): 설치 후 `ntg`(또는 `native-gravity` / `ntg-vnext`)를 1회 실행하면 `agy` 플러그인이 자동으로 등록되고, Bun의 전역 `trustedDependencies`에도 `native-gravity`와 `@sleeg/ntg`가 함께 기록됩니다.
+
+### 일회성 실행 또는 GitHub 직접 설치
+
+전역 설치 없이 `npx` / `bunx`로 실행하거나, `curl` 및 `irm` 설치 스크립트를 사용할 수도 있습니다(GitHub에서 직접 다운로드하므로 PATH에 `npm`이나 `npx`가 없어도 Node.js 또는 Bun만 있으면 바로 실행됩니다).
 
 ```bash
 npx --yes native-gravity

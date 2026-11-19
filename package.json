@@ -6,12 +6,19 @@
     "type": "module",
     "bin": {
         "native-gravity": "scripts/npm-install.mjs",
+        "ntg": "scripts/npm-install.mjs",
         "ntg-dag": "scripts/dag-view.mjs",
         "ntg-report-issue": "scripts/report-issue.mjs",
         "ntg-vnext": "scripts/ntg-vnext.mjs",
         "ntg-state-snap": "scripts/state-snap.mjs",
         "hook-snap": "scripts/hook-snap.mjs"
     },
+    "scripts": {
+        "postinstall": "node scripts/npm-install.mjs --postinstall"
+    },
+    "trustedDependencies": [
+        "native-gravity"
+    ],
     "files": [
         "agents/",
         "skills/",

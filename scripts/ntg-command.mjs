@@ -15,6 +15,7 @@ import { dirname, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { launchGraphPane } from './graph-pane.mjs';
+import { ensureInstalledPluginApplied } from './npm-install.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_VNEXT_SCRIPT = resolve(__dirname, 'ntg-vnext.mjs');
@@ -297,6 +298,7 @@ function isMainModule() {
 }
 
 if (isMainModule()) {
+  ensureInstalledPluginApplied();
   const code = runNtgCommand(process.argv.slice(2));
   process.exit(code);
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import process from 'node:process';
@@ -11,6 +11,7 @@ const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_PACKAGE_NAME = '@sleeg/ntg';
 const INSTALL_SH_URL = 'https://raw.githubusercontent.com/sleegme/native-gravity/main/scripts/install.sh';
 const INSTALL_PS1_URL = 'https://raw.githubusercontent.com/sleegme/native-gravity/main/scripts/install.ps1';
+const POSTINSTALL_STAMP_FILE = '.ntg-postinstall-applied';
 
 function readPackageJson(root = packageRoot) {
   try {
@@ -30,11 +31,30 @@ function getPackageName(root = packageRoot) {
   return typeof pkg?.name === 'string' && pkg.name.trim() ? pkg.name.trim() : DEFAULT_PACKAGE_NAME;
 }
 
+function hasPostinstallStamp(root = packageRoot) {
+  const stampPath = join(root, POSTINSTALL_STAMP_FILE);
+  if (!existsSync(stampPath)) return false;
+  try {
+    return readFileSync(stampPath, 'utf8').trim() === getVersion(root);
+  } catch {
+    return false;
+  }
+}
+
+function writePostinstallStamp(root = packageRoot) {
+  try {
+    writeFileSync(join(root, POSTINSTALL_STAMP_FILE), `${getVersion(root)}\n`, 'utf8');
+  } catch {
+    // ignore stamp write errors (e.g., read-only install locations)
+  }
+}
+
 function printUsage(stream = process.stdout) {
   const usage = `Native Gravity installer
 
 Usage:
   native-gravity [command]
+  ntg [command]
 
 Commands:
   install                 Install Native Gravity plugin via Antigravity CLI (default)
@@ -50,41 +70,57 @@ Commands:
 
 const MIN_AGY = [1, 3, 0];
 
-function checkAgyCli() {
-  const check = spawnSync('agy', ['--version'], { encoding: 'utf8' });
+function checkAgyCli({ allowMissing = false, env = process.env } = {}) {
+  const warnOrExit = (lines, exitCode = 1) => {
+    if (allowMissing) {
+      console.error(
+        `Native Gravity: Antigravity CLI (\`agy\` >= ${MIN_AGY.join('.')}) not available on PATH during postinstall; run \`ntg\` or \`native-gravity\` after installing AGY.`
+      );
+      return false;
+    }
+    for (const line of lines) console.error(line);
+    process.exit(exitCode);
+  };
+
+  const check = spawnSync('agy', ['--version'], { encoding: 'utf8', env });
   if (check.error) {
     if (check.error.code === 'ENOENT') {
-      console.error('Native Gravity requires Antigravity CLI (`agy`) on PATH.');
-      console.error('Install AGY first: https://antigravity.google/docs/cli/install/');
-      process.exit(1);
+      return warnOrExit([
+        'Native Gravity requires Antigravity CLI (`agy`) on PATH.',
+        'Install AGY first: https://antigravity.google/docs/cli/install/',
+      ], 1);
     }
-    console.error('Could not execute `agy --version`. Check your Antigravity CLI installation.');
-    process.exit(check.status ?? 1);
+    return warnOrExit(['Could not execute `agy --version`. Check your Antigravity CLI installation.'], check.status ?? 1);
   }
   if (check.status !== 0) {
-    console.error('Could not execute `agy --version`. Check your Antigravity CLI installation.');
-    process.exit(check.status ?? 1);
+    return warnOrExit(['Could not execute `agy --version`. Check your Antigravity CLI installation.'], check.status ?? 1);
   }
   const out = (check.stdout ?? '').trim();
   const match = out.match(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-((0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(\.(0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(\+([0-9a-zA-Z-]+(\.[0-9a-zA-Z-]+)*))?$/);
   if (!match) {
-    console.error(`Could not determine AGY version from \`agy --version\` output: ${JSON.stringify(out)}`);
-    console.error(`Native Gravity requires AGY >= ${MIN_AGY.join('.')}. Upgrade: https://antigravity.google/download`);
-    process.exit(1);
+    return warnOrExit([
+      `Could not determine AGY version from \`agy --version\` output: ${JSON.stringify(out)}`,
+      `Native Gravity requires AGY >= ${MIN_AGY.join('.')}. Upgrade: https://antigravity.google/download`,
+    ], 1);
   }
   const found = [Number(match[1]), Number(match[2]), Number(match[3])];
   const below = found[0] < MIN_AGY[0]
     || (found[0] === MIN_AGY[0] && (found[1] < MIN_AGY[1] || (found[1] === MIN_AGY[1] && found[2] < MIN_AGY[2])))
     || (match[4] !== undefined && found[0] === MIN_AGY[0] && found[1] === MIN_AGY[1] && found[2] === MIN_AGY[2]);
   if (below) {
-    console.error(`Native Gravity requires AGY >= ${MIN_AGY.join('.')} (found ${out}). Upgrade: https://antigravity.google/download`);
-    process.exit(1);
+    return warnOrExit([
+      `Native Gravity requires AGY >= ${MIN_AGY.join('.')} (found ${out}). Upgrade: https://antigravity.google/download`,
+    ], 1);
   }
+  return true;
 }
 
-function runCommand(cmd, cmdArgs) {
+function runCommand(cmd, cmdArgs, { env = process.env, stdio = 'inherit' } = {}) {
   try {
-    const result = spawnSync(cmd, cmdArgs, { stdio: 'inherit' });
+    const result = spawnSync(cmd, cmdArgs, { stdio, env });
+    if (stdio !== 'inherit' && result.stdout && result.stdout.length > 0) {
+      process.stderr.write(result.stdout);
+    }
     if (result.error) {
       console.error(`Failed to execute '${cmd}': ${result.error.message}`);
       process.exit(1);
@@ -98,8 +134,8 @@ function runCommand(cmd, cmdArgs) {
   }
 }
 
-function verifyPluginInstalled() {
-  const check = spawnSync('agy', ['plugin', 'list', '--json'], { encoding: 'utf8' });
+function verifyPluginInstalled({ env = process.env } = {}) {
+  const check = spawnSync('agy', ['plugin', 'list', '--json'], { encoding: 'utf8', env });
   if (check.error) {
     console.error(`Failed to execute 'agy plugin list --json': ${check.error.message}`);
     process.exit(1);
@@ -169,6 +205,56 @@ function findScriptInstall(scriptPath, env = process.env, home = homedir(), plat
     if (match) return { root, dataHome, shell: match.shell };
   }
   return null;
+}
+
+function isInstalledPackageContext(
+  scriptPath = fileURLToPath(import.meta.url),
+  env = process.env,
+  home = homedir(),
+  platform = process.platform
+) {
+  if (env.NTG_FORCE_POSTINSTALL === '1') return true;
+  if (findNodeModulesRoots(scriptPath).length > 0) return true;
+  const candidates = scriptPathCandidates(scriptPath);
+  const bunGlobalRoots = [resolve(join(home, '.bun'), 'install', 'global')];
+  if (env.BUN_INSTALL) bunGlobalRoots.push(resolve(env.BUN_INSTALL, 'install', 'global'));
+  if (candidates.some((candidate) => bunGlobalRoots.some((root) => isPathInside(candidate, root)))) {
+    return true;
+  }
+  if (findScriptInstall(scriptPath, env, home, platform)) return true;
+  return false;
+}
+
+function ensureBunGlobalTrusted({ env = process.env, home = homedir() } = {}) {
+  const candidates = [resolve(join(home, '.bun'), 'install', 'global', 'package.json')];
+  if (env.BUN_INSTALL) {
+    candidates.push(resolve(env.BUN_INSTALL, 'install', 'global', 'package.json'));
+  }
+  const requiredTrusted = ['native-gravity', '@sleeg/ntg'];
+  let updatedAny = false;
+  for (const pkgPath of [...new Set(candidates)]) {
+    if (!existsSync(pkgPath)) continue;
+    try {
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+      if (!pkg || typeof pkg !== 'object' || Array.isArray(pkg)) continue;
+      const existing = Array.isArray(pkg.trustedDependencies) ? [...pkg.trustedDependencies] : [];
+      let changed = !Array.isArray(pkg.trustedDependencies);
+      for (const name of requiredTrusted) {
+        if (!existing.includes(name)) {
+          existing.push(name);
+          changed = true;
+        }
+      }
+      if (changed) {
+        pkg.trustedDependencies = existing;
+        writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
+        updatedAny = true;
+      }
+    } catch {
+      // best-effort: never block installation if Bun's global manifest cannot be updated
+    }
+  }
+  return updatedAny;
 }
 
 function detectInstallMethod(scriptPath = fileURLToPath(import.meta.url), env = process.env, home = homedir(), platform = process.platform) {
@@ -336,7 +422,8 @@ function runSelfUpdate(options = {}) {
 
   stdout.write(`Upgrading ${packageName} with ${upgradeVia}\n`);
 
-  const result = spawn(command.cmd, command.args, { stdio: 'inherit', env, shell: command.shell === true });
+  const spawnEnv = { ...env, NTG_SKIP_POSTINSTALL: '1' };
+  const result = spawn(command.cmd, command.args, { stdio: 'inherit', env: spawnEnv, shell: command.shell === true });
   if (result.error) {
     stderr.write(`Self-update failed: could not run '${command.cmd}': ${result.error.message}\n`);
     return { ok: false, status: 1 };
@@ -380,6 +467,43 @@ function runUpdate() {
   return runReinstallChild(result.scriptPath);
 }
 
+function runPostinstall(options = {}) {
+  const scriptPath = options.scriptPath ?? fileURLToPath(import.meta.url);
+  const root = options.packageRoot ?? packageRoot;
+  const env = options.env ?? process.env;
+  const home = options.home ?? homedir();
+  const platform = options.platform ?? process.platform;
+  const stdio = options.stdio ?? 'inherit';
+
+  if (env.NTG_SKIP_POSTINSTALL === '1') return 0;
+  ensureBunGlobalTrusted({ env, home });
+  if (!isInstalledPackageContext(scriptPath, env, home, platform)) return 0;
+  if (hasPostinstallStamp(root)) return 0;
+  if (!checkAgyCli({ allowMissing: true, env })) return 0;
+
+  runCommand('agy', ['plugin', 'uninstall', 'native-gravity'], { env, stdio });
+  runCommand('agy', ['plugin', 'install', root], { env, stdio });
+  verifyPluginInstalled({ env });
+  writePostinstallStamp(root);
+  return 0;
+}
+
+function ensureInstalledPluginApplied(options = {}) {
+  const scriptPath = options.scriptPath ?? fileURLToPath(import.meta.url);
+  const root = options.packageRoot ?? packageRoot;
+  const env = options.env ?? process.env;
+  const home = options.home ?? homedir();
+  const platform = options.platform ?? process.platform;
+
+  if (env.NODE_TEST_CONTEXT || env.SKIP_LIVE_TESTS === '1' || env.NTG_SKIP_POSTINSTALL === '1') {
+    return false;
+  }
+  if (!isInstalledPackageContext(scriptPath, env, home, platform)) return false;
+  if (hasPostinstallStamp(root)) return false;
+  runPostinstall({ scriptPath, packageRoot: root, env, home, platform, stdio: ['ignore', 'pipe', 'inherit'] });
+  return true;
+}
+
 function main() {
   const args = process.argv.slice(2);
   let command = 'install';
@@ -397,6 +521,8 @@ function main() {
       process.exit(0);
     } else if (arg === 'install' || arg === 'reinstall' || arg === 'update') {
       command = arg;
+    } else if (arg === '--postinstall' || arg === 'postinstall') {
+      command = 'postinstall';
     } else {
       console.error(`Unknown argument: ${arg}\n`);
       printUsage(process.stderr);
@@ -405,21 +531,29 @@ function main() {
   } else if (args.length === 2 && args[0] === 'update' && args[1] === '--no-self-update') {
     command = 'update';
     noSelfUpdate = true;
+  } else if (args.length === 2 && args[0] === 'install' && args[1] === '--postinstall') {
+    command = 'postinstall';
   } else {
     console.error(`Unexpected arguments: ${args.join(' ')}\n`);
     printUsage(process.stderr);
     process.exit(2);
   }
 
+  if (command === 'postinstall') {
+    process.exit(runPostinstall());
+  }
+
   if (command === 'update' && !noSelfUpdate) {
     process.exit(runUpdate());
   }
 
+  ensureBunGlobalTrusted();
   checkAgyCli();
 
   runCommand('agy', ['plugin', 'uninstall', 'native-gravity']);
   runCommand('agy', ['plugin', 'install', packageRoot]);
   verifyPluginInstalled();
+  writePostinstallStamp(packageRoot);
 }
 
 function isMainModule() {
@@ -439,11 +573,15 @@ export {
   buildScriptInstallCommand,
   buildSelfUpdateCommand,
   detectInstallMethod,
+  ensureBunGlobalTrusted,
+  ensureInstalledPluginApplied,
   getPackageName,
   getVersion,
+  isInstalledPackageContext,
   resolveInstalledScript,
   resolveScriptInstallScript,
   resolveUpdatePackageName,
+  runPostinstall,
   runSelfUpdate,
 };
 

@@ -268,6 +268,8 @@ test('package.json metadata completeness: required fields are present and valid'
   assert.equal(pkg.license, 'MIT');
   assert.equal(typeof pkg.bin, 'object');
   assert.equal(pkg.bin['native-gravity'], 'scripts/npm-install.mjs');
+  assert.equal(pkg.bin['ntg'], 'scripts/npm-install.mjs');
+  assert.equal(pkg.scripts?.postinstall, 'node scripts/npm-install.mjs --postinstall');
   assert.ok(Array.isArray(pkg.files) && pkg.files.length > 0);
   assert.ok(pkg.engines && typeof pkg.engines.node === 'string');
   assert.ok(Array.isArray(pkg.keywords) && pkg.keywords.length > 0);
