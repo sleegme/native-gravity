@@ -318,7 +318,7 @@ export function nativeZen(request, { agyPath = process.env.AGY_PATH || 'agy', cw
  * Native specialist invocation for direct workers (Bobcat, Jaguar, Puma) and
  * cross-caller Strix Halo review when running live without injected test adapters.
  */
-export function nativeSpecialist(role, slice, { agyPath: explicitAgyPath, cwd = process.cwd(), timeout = 600000, installedModels } = {}) {
+export function nativeSpecialist(role, slice, { agyPath: explicitAgyPath, cwd = process.cwd(), timeout = 600000, installedModels, escalate = false } = {}) {
   const normalizedRole = typeof role === 'string' && role.trim().toLowerCase() === 'strix_halo'
     ? 'strix-halo'
     : String(role || '').trim().toLowerCase();
@@ -328,7 +328,16 @@ export function nativeSpecialist(role, slice, { agyPath: explicitAgyPath, cwd = 
   }
   const agyPath = explicitAgyPath || process.env.AGY_PATH || 'agy';
   const startTime = Date.now();
-  const slug = resolveSlug(normalizedRole, { agyPath, installedModels });
+  const shouldEscalate = normalizedRole === 'strix-halo'
+    ? Boolean(
+      escalate
+      || slice?.escalate
+      || slice?.high_risk
+      || (typeof slice?.review_attempt === 'number' && slice.review_attempt >= 2)
+      || slice?.previous_verdict === 'REVISE'
+    )
+    : Boolean(escalate);
+  const slug = resolveSlug(normalizedRole, { agyPath, installedModels, ...(shouldEscalate ? { escalate: true } : {}) });
   const instruction = normalizedRole === 'strix-halo'
     ? 'Review the candidate deliverable against the acceptance criteria and return only a bare JSON '
       + 'Halo review packet with caller, candidate_id_or_run_id, reviewed_diff_digest, '

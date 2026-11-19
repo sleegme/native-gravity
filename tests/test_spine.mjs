@@ -2373,10 +2373,24 @@ test('SteamrollerController.recoverMilestone: Bulldozer (Neon High) + on-demand 
     },
   });
   assert.equal(rec2.attempt, 2);
+  assert.equal(rec2.bulldozer_slug, 'gemini-4-neon-xhigh');
   assert.equal(rec2.instinct_invoked, true);
   assert.equal(rec2.instinct_slug, 'claude-opus-5-5-low');
   assert.equal(ledger.getState().evidence.alt_framing.length, 1);
   assert.equal(ledger.getState().evidence.alt_framing[0].adopted, false);
+  assert.equal(calls.find(c => c[0] === 'bulldozer' && c[2] === 1)[1], 'gemini-4-neon-high');
+  assert.equal(calls.find(c => c[0] === 'bulldozer' && c[2] === 2)[1], 'gemini-4-neon-xhigh');
+
+  // selectWorkerRoute escalates Bulldozer to Neon XHigh on high-risk recovery or explicit escalateBulldozer
+  const escalatedRoute = controller.selectWorkerRoute({
+    track: 'M',
+    task: 'Recover high-risk milestone',
+    recoveryMode: true,
+    highRisk: true,
+  });
+  assert.equal(escalatedRoute.role, 'bulldozer');
+  assert.equal(escalatedRoute.escalated, true);
+  assert.equal(escalatedRoute.slug, 'gemini-4-neon-xhigh');
 
   const rec3 = await controller.recoverMilestone({
     milestoneId: 'm-rec',

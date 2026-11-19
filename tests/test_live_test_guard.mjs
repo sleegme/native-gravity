@@ -300,3 +300,81 @@ process.exit(0);
   // The Argon fallback was never spawned: only the exhausted Sonnet attempt.
   assert.deepEqual(readFileSync(callsFile, 'utf8').split('\n').filter(Boolean), ['claude-sonnet-5-5-high']);
 });
+
+test('Steamroller safely fails over Neon -> Carbon -> Argon on quota exhaustion without replaying mutating roles', async t => {
+  t.after(() => resetArgonQuotaBreaker());
+  resetArgonQuotaBreaker();
+
+  // 1. Exhausted Neon fails over to Argon Medium when Carbon is not exposed.
+  const mockNeonExhausted = mockAgy(t, {
+    quotaSlugs: ['gemini-4-neon-medium'],
+    quotaStderr: 'AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429}\n',
+  });
+  const failoverRes = await invoke('steamroller', { task: 'TASK_MARKER' }, {
+    agyPath: mockNeonExhausted.agy,
+    installedModels: INSTALLED,
+  });
+  assert.equal(failoverRes.ok, true, JSON.stringify(failoverRes));
+  assert.equal(failoverRes.slug, 'gemini-4-argon-medium');
+  assert.equal(failoverRes.fallback_from, 'gemini-4-neon-medium');
+  assert.equal(failoverRes.attempts, 2);
+  assert.deepEqual(mockNeonExhausted.calls(), ['gemini-4-neon-medium', 'gemini-4-argon-medium']);
+
+  // 2. When Carbon Medium is exposed, exhausted Neon fails over to Carbon first.
+  const withCarbon = [
+    ...INSTALLED,
+    { slug: 'carbon-medium-preview', description: 'Carbon (Medium)' },
+  ];
+  const mockCarbon = mockAgy(t, {
+    quotaSlugs: ['gemini-4-neon-medium'],
+    quotaStderr: 'AGY_ERROR: Individual quota reached for gemini-4-neon-medium\n',
+  });
+  const carbonRes = await invoke('steamroller', { task: 'TASK_MARKER' }, {
+    agyPath: mockCarbon.agy,
+    installedModels: withCarbon,
+  });
+  assert.equal(carbonRes.ok, true, JSON.stringify(carbonRes));
+  assert.equal(carbonRes.slug, 'carbon-medium-preview');
+  assert.equal(carbonRes.fallback_from, 'gemini-4-neon-medium');
+  assert.deepEqual(mockCarbon.calls(), ['gemini-4-neon-medium', 'carbon-medium-preview']);
+
+  // 3. Explicit modelOverride does not silently fail over.
+  const mockPinned = mockAgy(t, {
+    quotaSlugs: ['gemini-4-neon-medium'],
+    quotaStderr: 'AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429}\n',
+  });
+  const pinnedRes = await invoke('steamroller', { task: 'TASK_MARKER' }, {
+    agyPath: mockPinned.agy,
+    installedModels: INSTALLED,
+    modelOverride: 'gemini-4-neon-medium',
+  });
+  assert.equal(pinnedRes.ok, false);
+  assert.deepEqual(mockPinned.calls(), ['gemini-4-neon-medium']);
+
+  // 4. Tripped Argon breaker prevents falling over to Argon.
+  tripArgonQuotaBreaker({ seat: 'piledriver', slug: 'gemini-4-argon-high', text: 'Resets in 1h0m0s' });
+  const mockBlockedArgon = mockAgy(t, {
+    quotaSlugs: ['gemini-4-neon-medium'],
+    quotaStderr: 'AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429}\n',
+  });
+  const blockedRes = await invoke('steamroller', { task: 'TASK_MARKER' }, {
+    agyPath: mockBlockedArgon.agy,
+    installedModels: INSTALLED,
+  });
+  assert.equal(blockedRes.ok, false);
+  assert.deepEqual(mockBlockedArgon.calls(), ['gemini-4-neon-medium']);
+
+  // 5. Mutating role (bulldozer) never replays on quota failure.
+  resetArgonQuotaBreaker();
+  const mockBulldozer = mockAgy(t, {
+    quotaSlugs: ['gemini-4-neon-high'],
+    quotaStderr: 'AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429}\n',
+  });
+  const bdRes = await invoke('bulldozer', { task: 'TASK_MARKER' }, {
+    agyPath: mockBulldozer.agy,
+    installedModels: INSTALLED,
+  });
+  assert.equal(bdRes.ok, false);
+  assert.equal(bdRes.attempts, 1);
+  assert.deepEqual(mockBulldozer.calls(), ['gemini-4-neon-high']);
+});

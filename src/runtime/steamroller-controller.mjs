@@ -579,7 +579,7 @@ export class SteamrollerController {
   }
 
   /**
-   * Selects direct/lightweight worker (Jaguar/Puma/Bobcat) or Bulldozer (Hydrogen XHigh)
+   * Selects direct/lightweight worker (Jaguar/Puma/Bobcat) or Bulldozer (Neon High / XHigh)
    * by semantic work kind and required capability rather than lexical/file-count heuristics (#235).
    */
   selectWorkerRoute({
@@ -596,15 +596,18 @@ export class SteamrollerController {
     highRisk = false,
     riskClass = null,
     recoveryMode = false,
+    escalateBulldozer = false,
     modelOverrides = {},
     resolveModel = true,
   } = {}) {
     const pick = (role, extra = {}) => {
+      const shouldEscalate = Boolean(extra.escalated);
       let slug = null;
       if (resolveModel) {
         try {
           slug = this.resolveRoleModel(role, {
             modelOverride: modelOverrides?.[role],
+            ...(shouldEscalate ? { escalate: true } : {}),
           }).slug;
         } catch (error) {
           if (
@@ -656,11 +659,17 @@ export class SteamrollerController {
           requiresCoordinator ||
           crossFileDependency))
     ) {
+      const escalated = Boolean(escalateBulldozer || (recoveryMode && highRisk));
       return pick("bulldozer", {
         semantics,
+        escalated,
         reason: recoveryMode
-          ? "Bulldozer (Hydrogen XHigh) leads primary failure recovery"
-          : "Track M milestone complexity routes to Bulldozer (Hydrogen XHigh)",
+          ? escalated
+            ? "Bulldozer (Neon XHigh) leads escalated high-risk failure recovery"
+            : "Bulldozer (Neon High) leads primary failure recovery"
+          : escalated
+            ? "Track M milestone complexity escalates to Bulldozer (Neon XHigh)"
+            : "Track M milestone complexity routes to Bulldozer (Neon High)",
       });
     }
 
@@ -767,9 +776,9 @@ export class SteamrollerController {
   }
 
   /**
-   * Runs bounded milestone recovery via Bulldozer (Hydrogen XHigh) + on-demand
-   * Instinct (Claude Sonnet 5.5 High / Opus 5.5 High escalated), unified with
-   * recommendNeedsAlt and bounded by LedgerKernel's hard safety cap (#234).
+   * Runs bounded milestone recovery via Bulldozer (Neon High, escalating to Neon XHigh
+   * on repeated stagnation or explicit request) + on-demand Instinct (Claude Opus 5.5 Low),
+   * unified with recommendNeedsAlt and bounded by LedgerKernel's hard safety cap (#234).
    */
   async recoverMilestone({
     milestoneId,
@@ -778,6 +787,7 @@ export class SteamrollerController {
     invokeInstinct = null,
     triggerInstinct = false,
     escalateInstinct = false,
+    escalateBulldozer = false,
     previousSignatures = [],
     evidence = [],
   } = {}) {
@@ -785,7 +795,6 @@ export class SteamrollerController {
       throw new Error("SteamrollerController.recoverMilestone requires a LedgerKernel instance");
     }
     const attemptInfo = this.ledger.recordRecoveryAttempt(milestoneId);
-    const bulldozerRoute = this.resolveRoleModel("bulldozer");
 
     const altSummaries = recommendNeedsAlt(this.ledger.evidence, this.ledger._verification_history);
     const matchingAlt = altSummaries.find((s) => s.milestone_id === milestoneId);
@@ -794,6 +803,8 @@ export class SteamrollerController {
       Boolean(matchingAlt?.needs_alt_recommended) ||
       (Array.isArray(previousSignatures) && previousSignatures.length >= 2) ||
       /stagnat|repeated|same[- ]class/i.test(String(failureReason));
+    const shouldEscalateBulldozer = Boolean(escalateBulldozer || repeatedStagnation);
+    const bulldozerRoute = this.resolveRoleModel("bulldozer", { escalate: shouldEscalateBulldozer });
     const shouldInvokeInstinct = Boolean(triggerInstinct || repeatedStagnation);
 
     let instinctAdvice = null;
@@ -1151,16 +1162,28 @@ export class SteamrollerController {
     });
   }
 
+  #shouldEscalateHalo(req, options = {}) {
+    return Boolean(
+      options?.escalate ||
+      req?.escalate ||
+      req?.high_risk ||
+      (typeof req?.review_attempt === "number" && req.review_attempt >= 2) ||
+      req?.previous_verdict === "REVISE"
+    );
+  }
+
   async #invokeHaloGate(req) {
+    const escalate = this.#shouldEscalateHalo(req);
     if (typeof this.#invokeHalo === "function") {
-      return await this.#invokeHalo(req);
+      return await this.#invokeHalo(req, { escalate });
     }
     if (typeof this.#invokeSpecialist === "function") {
       if (this.#ledger && this.state.current_milestone !== null) {
-        return await this.invokeStrixHalo(req, { caller: req.caller ?? "steamroller" });
+        return await this.invokeStrixHalo(req, { caller: req.caller ?? "steamroller", escalate });
       }
       return await this.#invokeSpecialist("strix-halo", req, {
         caller: req.caller ?? "steamroller",
+        escalate,
       });
     }
     const roleInvoker = this.#invokeRole ?? invoke;
@@ -1171,18 +1194,20 @@ export class SteamrollerController {
         req
       );
     }
-    return this.#nativeHaloGate(req);
+    return this.#nativeHaloGate(req, { escalate });
   }
 
-  #nativeHaloGate(req) {
+  #nativeHaloGate(req, options = {}) {
     const agyPath = this.#runnerOptions.agyPath || process.env.AGY_PATH || "agy";
     const refusal = realAgyRefusalUnderNodeTest(this.#runnerOptions.agyPath);
     if (refusal) {
       throw new Error(refusal.message);
     }
+    const escalate = this.#shouldEscalateHalo(req, options);
     const slug = resolveSlug("strix-halo", {
       agyPath,
       installedModels: this.#runnerOptions.installedModels,
+      escalate,
     });
     const instruction =
       "Review the candidate deliverable against the acceptance criteria and return only a bare JSON " +
@@ -1233,11 +1258,14 @@ export class SteamrollerController {
     if (refusal) {
       throw new Error(refusal.message);
     }
+    const escalate =
+      targetRole === "strix-halo" ? this.#shouldEscalateHalo(slice, options) : Boolean(options.escalate);
     const slug =
       options.slug ??
       resolveSlug(targetRole, {
         agyPath,
         installedModels: this.#runnerOptions.installedModels ?? options.installedModels,
+        ...(escalate ? { escalate: true } : {}),
       });
     const instruction =
       targetRole === "strix-halo"

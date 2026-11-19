@@ -19,6 +19,7 @@ import {
   normalizeRoleName,
   parseInstalledModels,
   realAgyRefusalUnderNodeTest,
+  resolvePriorityCandidateSlugs,
   resolveSlug as resolveRouterSlug,
   validateDynamicOverride,
 } from "../src/core/model-router.mjs";
@@ -1088,17 +1089,55 @@ export function invoke(role, packet, opts = {}) {
   // One wall-clock budget (the original timeout) is shared by all attempts.
   const totalTimeout = typeof options.timeout === "number" ? options.timeout : 90000;
   const deadline = Date.now() + totalTimeout;
-  const run = () => invokeTransport({
+  const run = (targetSlug) => invokeTransport({
     ...options,
     timeout: Math.max(1, deadline - Date.now()),
-    slug,
+    slug: targetSlug,
     prompt,
     role,
     outputFormat: "json",
   });
 
-  let attempt = run();
+  // Safe runtime quota failover is restricted strictly to non-mutating roles
+  // with priorityCandidates (e.g. Steamroller Neon -> Carbon -> Argon,
+  // Piledriver Carbon -> Argon) and never replays mutating roles or pinned overrides.
+  const authority = ROLE_AUTHORITY_TABLE[normalizedRole];
+  const isSafeNonMutating = Boolean(authority && !authority.canMutateProjectFiles && !authority.canRunCommand);
+  const canQuotaFailover =
+    isSafeNonMutating &&
+    options.modelOverride == null &&
+    !options.escalate &&
+    !options.quotaFallback;
+  const priorityCandidates = canQuotaFailover
+    ? resolvePriorityCandidateSlugs(role, options)
+    : [];
+  const candidateQueue = priorityCandidates.length > 0
+    ? [slug, ...priorityCandidates.filter((s) => s !== slug)]
+    : [slug];
+
+  const isQuotaFailure = (res) => {
+    if (!res || res.ok) return false;
+    if (res.error === "ARGON_QUOTA_EXHAUSTED") return true;
+    const combined = `${res.stderr ?? ""}\n${res.message ?? ""}\n${res.stdout ?? ""}`;
+    return QUOTA_EXHAUSTED_RE.test(combined);
+  };
+
+  let activeSlug = candidateQueue[0];
+  let failoverFrom = null;
+  let attempt = run(activeSlug);
   let attempts = 1;
+
+  if (canQuotaFailover && candidateQueue.length > 1 && isQuotaFailure(attempt)) {
+    for (let i = 1; i < candidateQueue.length && Date.now() < deadline; i++) {
+      const nextSlug = candidateQueue[i];
+      if (argonBreakerBlocksSlug(nextSlug)) continue;
+      if (!failoverFrom) failoverFrom = activeSlug;
+      activeSlug = nextSlug;
+      attempt = run(activeSlug);
+      attempts++;
+      if (!isQuotaFailure(attempt)) break;
+    }
+  }
 
   // Retry boundedly only when SUCCESS has an empty response and no explicit
   // denied_actions. Explicit tool denials are classified by parseResponseEnvelope.
@@ -1108,7 +1147,7 @@ export function invoke(role, packet, opts = {}) {
   const retryable = normalizedRole !== "bulldozer" && normalizedRole !== "navi";
   while (retryable && attempts <= MAX_EMPTY_RETRIES && Date.now() < deadline
     && attempt.ok && (attempt.response || "").trim() === "") {
-    attempt = run();
+    attempt = run(activeSlug);
     attempts++;
   }
   const totalDurationMs = Math.max(0, Date.now() - startTime);
@@ -1117,7 +1156,8 @@ export function invoke(role, packet, opts = {}) {
       ok: false,
       error: "EMPTY_RESPONSE",
       role,
-      slug,
+      slug: activeSlug,
+      ...(failoverFrom ? { fallback_from: failoverFrom } : {}),
       attempts,
       duration_ms: totalDurationMs,
       usage: attempt.usage,
@@ -1125,6 +1165,7 @@ export function invoke(role, packet, opts = {}) {
   }
   return {
     ...attempt,
+    ...(failoverFrom ? { fallback_from: failoverFrom } : {}),
     attempts,
     duration_ms: totalDurationMs,
     usage: attempt.usage,

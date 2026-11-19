@@ -557,6 +557,49 @@ export function isNaviLegacyFallbackRequested(opts = {}) {
 }
 
 /**
+ * Returns the ordered list of installed candidate slugs matching a role's
+ * `priorityCandidates` chain (e.g. Steamroller `Neon -> Carbon -> Argon`,
+ * Piledriver `Carbon -> Argon`). Used for safe runtime quota failover on
+ * non-mutating roles without re-evaluating ambiguous or excluded slugs.
+ */
+export function resolvePriorityCandidateSlugs(role, opts = {}) {
+  const normalized = normalizeRoleName(role);
+  const basePolicy = ROLE_POLICY_TABLE[normalized];
+  if (!basePolicy || !Array.isArray(basePolicy.priorityCandidates) || basePolicy.priorityCandidates.length === 0) {
+    return [];
+  }
+  if (opts.modelOverride !== undefined && opts.modelOverride !== null) {
+    return [];
+  }
+  const installed = getInstalledCatalog(normalized, opts);
+  const slugs = [];
+  for (const candidate of basePolicy.priorityCandidates) {
+    const candidatePolicy = Object.freeze({
+      ...basePolicy,
+      family: candidate.family,
+      effort: candidate.effort,
+      provenance: candidate.provenance ?? basePolicy.provenance,
+    });
+    const matches = installed.filter((m) => matchesPolicy(candidatePolicy, m));
+    if (matches.length === 1) {
+      const resolved = matches[0];
+      const slug = typeof resolved === "string" ? resolved : resolved.slug;
+      if (!slugs.includes(slug)) {
+        slugs.push(slug);
+      }
+    } else if (matches.length > 1) {
+      const candidateSlugs = matches.map((m) => (typeof m === "string" ? m : m.slug));
+      throw new UnresolvedModelSlugError(
+        role,
+        `Ambiguous model slug resolution for role "${role}": multiple matching models found: ${candidateSlugs.join(", ")}`,
+        { reason: "AMBIGUOUS", matches: candidateSlugs }
+      );
+    }
+  }
+  return slugs;
+}
+
+/**
  * Resolves a role name to its exact AGY model slug against the installed AGY catalog.
  * Fails closed when absent, ambiguous, excluded, or attempting authority expansion.
  */

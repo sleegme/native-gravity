@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
-import { breakStaleLedgerLock, main, nativeZen, parseZenEnvelope, resolveInvocationTimeoutMs, runCli, ROLE_TIMEOUT_S, DEFAULT_RUNNER_TIMEOUT_S } from '../scripts/ntg-vnext.mjs';
+import { breakStaleLedgerLock, main, nativeSpecialist, nativeZen, parseZenEnvelope, resolveInvocationTimeoutMs, runCli, ROLE_TIMEOUT_S, DEFAULT_RUNNER_TIMEOUT_S } from '../scripts/ntg-vnext.mjs';
 import { AuthoritativeLedger, computeDeliveredTreeDigest, computeUsageRollup, StaleVerdictError } from '../scripts/ledger.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { symlinkSync } from 'node:fs';
@@ -1635,4 +1635,56 @@ test('PR #231 Finding 2 CLI: review refuses to promote after bounded file mutate
   assert.deepEqual(after.completed_milestones, []);
   assert.equal(after.current_milestone, null);
   assert.equal(after.evidence.one.candidates[0].is_stale, true);
+});
+
+test('nativeSpecialist escalates strix-halo from Neon Medium to Neon High on review retry or high-risk request', t => {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-halo-escalate-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const agy = join(dir, 'agy');
+  const callsFile = join(dir, 'calls.txt');
+  writeFileSync(agy, `#!/usr/bin/env node
+const { appendFileSync } = require('node:fs');
+const argv = process.argv.slice(2);
+const slug = argv[argv.indexOf('--model') + 1];
+appendFileSync(${JSON.stringify(callsFile)}, slug + '\\n');
+process.stdout.write(JSON.stringify({
+  status: 'SUCCESS',
+  response: JSON.stringify({ verdict: 'ACCEPT', findings: [] }),
+}));
+`, { mode: 0o755 });
+
+  const installedModels = [
+    { slug: 'gemini-4-neon-medium', description: 'Gemini 4 Neon (Medium)' },
+    { slug: 'gemini-4-neon-high', description: 'Gemini 4 Neon (High)' },
+  ];
+
+  // Initial review uses Neon Medium
+  const first = nativeSpecialist('strix-halo', {
+    caller: 'steamroller',
+    candidate_id_or_run_id: 'c1',
+    review_attempt: 1,
+  }, { agyPath: agy, installedModels });
+  assert.equal(first.slug, 'gemini-4-neon-medium');
+
+  // Review retry (review_attempt >= 2) escalates to Neon High
+  const retry = nativeSpecialist('strix-halo', {
+    caller: 'steamroller',
+    candidate_id_or_run_id: 'c1',
+    review_attempt: 2,
+    previous_verdict: 'REVISE',
+  }, { agyPath: agy, installedModels });
+  assert.equal(retry.slug, 'gemini-4-neon-high');
+
+  // High-risk review escalates to Neon High
+  const highRisk = nativeSpecialist('strix-halo', {
+    caller: 'steamroller',
+    candidate_id_or_run_id: 'c2',
+    high_risk: true,
+  }, { agyPath: agy, installedModels });
+  assert.equal(highRisk.slug, 'gemini-4-neon-high');
+
+  assert.deepEqual(
+    readFileSync(callsFile, 'utf8').trim().split('\n'),
+    ['gemini-4-neon-medium', 'gemini-4-neon-high', 'gemini-4-neon-high']
+  );
 });
