@@ -117,10 +117,14 @@ runTest("1.3: Ambiguous surface error (multiple matches) throws UnresolvedModelS
 
 runTest("1.4: Deterministic resolution against cached installed models for all roles", () => {
   const mockSurface = [
+    { slug: "gemini-4-neon-medium", description: "Gemini 4 Neon (Medium)" },
+    { slug: "gemini-4-neon-high", description: "Gemini 4 Neon (High)" },
+    { slug: "gemini-4-neon-xhigh", description: "Gemini 4 Neon (XHigh)" },
     { slug: "gemini-4-argon-medium", description: "Gemini 4 Argon (Medium)" },
     { slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" },
-    { slug: "gemini-4-hydrogen-xhigh", description: "Gemini 4 Hydrogen (XHigh)" },
+    { slug: "gemini-4-hydrogen-medium", description: "Gemini 4 Hydrogen (Medium)" },
     { slug: "claude-sonnet-5-5-high", description: "Claude Sonnet 5.5 (High)" },
+    { slug: "claude-opus-5-5-low", description: "Claude Opus 5.5 (Low)" },
     { slug: "claude-opus-5-5-high", description: "Claude Opus 5.5 (High)" },
   ];
 
@@ -132,22 +136,22 @@ runTest("1.4: Deterministic resolution against cached installed models for all r
   assert.strictEqual(piledriverUpper, "gemini-4-argon-high");
 
   const bulldozerSlug = resolveSlug("bulldozer", { installedModels: mockSurface });
-  assert.strictEqual(bulldozerSlug, "gemini-4-hydrogen-xhigh");
+  assert.strictEqual(bulldozerSlug, "gemini-4-neon-high");
 
   const steamrollerSlug = resolveSlug("steamroller", { installedModels: mockSurface });
-  assert.strictEqual(steamrollerSlug, "gemini-4-argon-medium");
+  assert.strictEqual(steamrollerSlug, "gemini-4-neon-medium");
 
   // Verify ROLE_POLICY_TABLE definitions
   assert.strictEqual(ROLE_POLICY_TABLE.piledriver.family, "Gemini 4 Argon");
   assert.strictEqual(ROLE_POLICY_TABLE.piledriver.effort, "High");
-  assert.strictEqual(ROLE_POLICY_TABLE.bulldozer.family, "Gemini 4 Hydrogen");
-  assert.strictEqual(ROLE_POLICY_TABLE.bulldozer.effort, "XHigh");
-  assert.strictEqual(ROLE_POLICY_TABLE.steamroller.family, "Gemini 4 Argon");
+  assert.strictEqual(ROLE_POLICY_TABLE.bulldozer.family, "Gemini 4 Neon");
+  assert.strictEqual(ROLE_POLICY_TABLE.bulldozer.effort, "High");
+  assert.strictEqual(ROLE_POLICY_TABLE.steamroller.family, "Gemini 4 Neon");
   assert.strictEqual(ROLE_POLICY_TABLE.steamroller.effort, "Medium");
   // Zen is policy-resolved for its native invocation without becoming a runner role.
-  assert.strictEqual(ROLE_POLICY_TABLE.zen.family, "Claude Opus 5.5");
+  assert.strictEqual(ROLE_POLICY_TABLE.zen.family, "Claude Sonnet 5.5");
   assert.strictEqual(ROLE_POLICY_TABLE.zen.effort, "High");
-  assert.strictEqual(resolveSlug("zen", { installedModels: mockSurface }), "claude-opus-5-5-high");
+  assert.strictEqual(resolveSlug("zen", { installedModels: mockSurface }), "claude-sonnet-5-5-high");
 
   // Hard-coded mapping removed from ROLE_MODEL_TABLE
   assert.deepStrictEqual(Object.keys(ROLE_MODEL_TABLE), []);
@@ -369,7 +373,7 @@ console.log(JSON.stringify({ status: "SUCCESS", response: "" }));
     agyPath: mockScript,
     installedModels: [
       { slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" },
-      { slug: "gemini-4-hydrogen-xhigh", description: "Gemini 4 Hydrogen (XHigh)" },
+      { slug: "gemini-4-neon-high", description: "Gemini 4 Neon (High)" },
     ],
     env: { MOCK_CALLS_FILE: callsFile },
   };
@@ -436,10 +440,10 @@ runTest("2.6b4: attempt count accompanies success and transport failure after re
     });
     syncBuiltinESMExports();
     try {
-      const result = invoke("steamroller", { task: "Retry read-only work" }, {
+      const result = invoke("piledriver", { task: "Retry read-only work" }, {
         agyPath: "mock-agy",
         timeout: 100,
-        installedModels: [{ slug: "gemini-4-argon-medium", description: "Gemini 4 Argon (Medium)" }],
+        installedModels: [{ slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" }],
       });
       assert.strictEqual(result.attempts, emptyAttempts + 1);
       assert.deepStrictEqual(timeouts, Array.from({ length: emptyAttempts + 1 }, (_, i) => 100 - i * 10));
@@ -963,7 +967,7 @@ runTest("2.7b: Timeout with pending background task in stderr returns BACKGROUND
     const invokeRes = invoke("bulldozer", { task: "Test" }, {
       agyPath: "mock-agy",
       timeout: 5000,
-      installedModels: [{ slug: "gemini-4-hydrogen-xhigh", description: "Gemini 4 Hydrogen (XHigh)" }],
+      installedModels: [{ slug: "gemini-4-neon-high", description: "Gemini 4 Neon (High)" }],
     });
     assert.strictEqual(invokeRes.ok, false);
     assert.strictEqual(invokeRes.error, "BACKGROUND_TASK_PENDING");
@@ -972,7 +976,7 @@ runTest("2.7b: Timeout with pending background task in stderr returns BACKGROUND
     // invoke() passes the remaining budget (deadline - now), so it is at most 5000 ms.
     assert.ok(invokeRes.timeout > 0 && invokeRes.timeout <= 5000, `timeout ${invokeRes.timeout}`);
     assert.strictEqual(invokeRes.stderr, bgStderr);
-    assert.strictEqual(invokeRes.slug, "gemini-4-hydrogen-xhigh");
+    assert.strictEqual(invokeRes.slug, "gemini-4-neon-high");
     assert.strictEqual(invokeRes.role, "bulldozer");
   } finally {
     transport.mock.restore();
@@ -1008,14 +1012,14 @@ runTest("2.7c (control, same on base): Timeout without pending background task i
     const invokeRes = invoke("bulldozer", { task: "Test" }, {
       agyPath: "mock-agy",
       timeout: 5000,
-      installedModels: [{ slug: "gemini-4-hydrogen-xhigh", description: "Gemini 4 Hydrogen (XHigh)" }],
+      installedModels: [{ slug: "gemini-4-neon-high", description: "Gemini 4 Neon (High)" }],
     });
     assert.strictEqual(invokeRes.ok, false);
     assert.strictEqual(invokeRes.error, "TIMEOUT");
     // invoke() passes the remaining budget (deadline - now), so it is at most 5000 ms.
     assert.ok(invokeRes.timeout > 0 && invokeRes.timeout <= 5000, `timeout ${invokeRes.timeout}`);
     assert.strictEqual(invokeRes.stderr, genericStderr);
-    assert.strictEqual(invokeRes.slug, "gemini-4-hydrogen-xhigh");
+    assert.strictEqual(invokeRes.slug, "gemini-4-neon-high");
     assert.strictEqual(invokeRes.role, "bulldozer");
     assert.strictEqual(invokeRes.line, undefined);
   } finally {
@@ -1508,7 +1512,14 @@ function withRoleBodies(fn) {
   const cwd = join(root, "neutral");
   const capture = join(root, "transport-called");
   const agyPath = join(root, "agy.mjs");
-  const installedModels = ["gemini-4-argon-medium", "gemini-4-hydrogen-xhigh", "claude-sonnet-5-5-high", "gemini-4-argon-high"];
+  const installedModels = [
+    "gemini-4-neon-medium",
+    "gemini-4-neon-high",
+    "gemini-4-argon-medium",
+    "gemini-4-argon-high",
+    "claude-opus-5-5-low",
+    "claude-sonnet-5-5-high",
+  ];
   try {
     mkdirSync(roleBodyDir);
     mkdirSync(cwd);
@@ -1722,6 +1733,9 @@ runTest("6.9: CLI injects env-selected role body from neutral cwd and reports mi
 // =============================================================================
 
 const claudeSurface = [
+  { slug: "gemini-4-neon-medium", description: "Gemini 4 Neon (Medium)" },
+  { slug: "gemini-4-neon-high", description: "Gemini 4 Neon (High)" },
+  { slug: "gemini-4-neon-xhigh", description: "Gemini 4 Neon (XHigh)" },
   { slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" },
   { slug: "gemini-4-argon-medium", description: "Gemini 4 Argon (Medium)" },
   { slug: "claude-sonnet-5-5-low", description: "Claude Sonnet 5.5 (Low)" },
@@ -1735,7 +1749,7 @@ const claudeSurface = [
 
 runTest("7.0: a different version with a prefix-colliding slug never satisfies the instinct family", () => {
   for (const [escalate, slug, description] of [
-    [false, "claude-sonnet-5-50-high", "Claude Sonnet 5.50 (High)"],
+    [false, "claude-opus-5-50-low", "Claude Opus 5.50 (Low)"],
     [true, "claude-opus-5-50-high", "Claude Opus 5.50 (High)"],
   ]) {
     for (const surface of [[slug], [{ slug, description }]]) {
@@ -1747,26 +1761,26 @@ runTest("7.0: a different version with a prefix-colliding slug never satisfies t
     }
   }
   // Exact families on the same surface still resolve, including Gemini roles.
-  const mixed = ["claude-sonnet-5-50-high", "claude-sonnet-5-5-high", "gemini-4-hydrogen-xhigh", "claude-opus-5-5-high", "gemini-4-argon-high"];
-  assert.strictEqual(resolveSlug("instinct", { installedModels: mixed }), "claude-sonnet-5-5-high");
-  assert.strictEqual(resolveSlug("bulldozer", { installedModels: mixed }), "gemini-4-hydrogen-xhigh");
+  const mixed = ["claude-opus-5-50-low", "claude-opus-5-5-low", "gemini-4-neon-high", "claude-opus-5-5-high", "gemini-4-argon-high"];
+  assert.strictEqual(resolveSlug("instinct", { installedModels: mixed }), "claude-opus-5-5-low");
+  assert.strictEqual(resolveSlug("bulldozer", { installedModels: mixed }), "gemini-4-neon-high");
   assert.strictEqual(resolveSlug("piledriver", { installedModels: mixed }), "gemini-4-argon-high");
 });
 
-runTest("7.1: instinct targets Claude Sonnet 5.5 High and Opus 5.5 High only on explicit escalation", () => {
-  assert.strictEqual(ROLE_POLICY_TABLE.instinct.family, "Claude Sonnet 5.5");
-  assert.strictEqual(ROLE_POLICY_TABLE.instinct.effort, "High");
+runTest("7.1: instinct targets Claude Opus 5.5 Low and Opus 5.5 High only on explicit escalation", () => {
+  assert.strictEqual(ROLE_POLICY_TABLE.instinct.family, "Claude Opus 5.5");
+  assert.strictEqual(ROLE_POLICY_TABLE.instinct.effort, "Low");
   assert.strictEqual(ROLE_POLICY_TABLE.instinct.escalated.family, "Claude Opus 5.5");
   assert.strictEqual(ROLE_POLICY_TABLE.instinct.escalated.effort, "High");
 
-  assert.strictEqual(resolveSlug("instinct", { installedModels: claudeSurface }), "claude-sonnet-5-5-high");
-  assert.strictEqual(resolveSlug("instinct", { installedModels: claudeSurface, escalate: false }), "claude-sonnet-5-5-high");
+  assert.strictEqual(resolveSlug("instinct", { installedModels: claudeSurface }), "claude-opus-5-5-low");
+  assert.strictEqual(resolveSlug("instinct", { installedModels: claudeSurface, escalate: false }), "claude-opus-5-5-low");
   assert.strictEqual(resolveSlug(" InStinct ", { installedModels: claudeSurface, escalate: true }), "claude-opus-5-5-high");
 
-  // Escalation is instinct-scoped; other roles keep their policy models.
+  // Roles with escalated policies honor escalate: true; others keep their policy models.
   assert.strictEqual(resolveSlug("piledriver", { installedModels: claudeSurface, escalate: true }), "gemini-4-argon-high");
-  assert.strictEqual(resolveSlug("bulldozer", { installedModels: claudeSurface, escalate: true }), "gemini-4-hydrogen-xhigh");
-  assert.strictEqual(resolveSlug("steamroller", { installedModels: claudeSurface, escalate: true }), "gemini-4-argon-medium");
+  assert.strictEqual(resolveSlug("bulldozer", { installedModels: claudeSurface, escalate: true }), "gemini-4-neon-xhigh");
+  assert.strictEqual(resolveSlug("steamroller", { installedModels: claudeSurface, escalate: true }), "gemini-4-neon-medium");
 });
 
 runTest("7.2: missing or ambiguous Claude surface fails closed without silent fallback", () => {
@@ -1793,8 +1807,8 @@ runTest("7.2: missing or ambiguous Claude surface fails closed without silent fa
 
   const ambiguousCases = [
     [
-      { slug: "claude-sonnet-5-5-high", description: "Claude Sonnet 5.5 (High)" },
-      { slug: "claude-sonnet-5-5-high-v2", description: "Claude Sonnet 5.5 (High) v2" },
+      { slug: "claude-opus-5-5-low", description: "Claude Opus 5.5 (Low)" },
+      { slug: "claude-opus-5-5-low-v2", description: "Claude Opus 5.5 (Low) v2" },
     ],
   ];
   for (const installedModels of ambiguousCases) {
@@ -1806,7 +1820,7 @@ runTest("7.2: missing or ambiguous Claude surface fails closed without silent fa
     }
     assert.ok(caught instanceof UnresolvedModelSlugError);
     assert.strictEqual(caught.reason, "AMBIGUOUS");
-    assert.deepStrictEqual(caught.matches, ["claude-sonnet-5-5-high", "claude-sonnet-5-5-high-v2"]);
+    assert.deepStrictEqual(caught.matches, ["claude-opus-5-5-low", "claude-opus-5-5-low-v2"]);
   }
 
   let opusCaught = null;
@@ -1825,7 +1839,7 @@ runTest("7.2: missing or ambiguous Claude surface fails closed without silent fa
   assert.strictEqual(opusCaught.reason, "AMBIGUOUS");
 });
 
-runTest("7.3: transport selects Opus only when escalation is explicitly requested", () => {
+runTest("7.3: transport selects Opus High only when escalation is explicitly requested", () => {
   const root = mkdtempSync(join(tmpdir(), "mock-agy-escalate-"));
   const mockScript = join(root, "agy.mjs");
   const callsFile = join(root, "calls");
@@ -1843,16 +1857,16 @@ console.log(JSON.stringify({ status: "SUCCESS", response: '{"current_framing":"x
     env: { MOCK_CALLS_FILE: callsFile },
   };
   try {
-    const sonnet = invoke("instinct", { task: "Reframe the stall" }, opts);
-    assert.strictEqual(sonnet.ok, true, JSON.stringify(sonnet));
-    assert.strictEqual(sonnet.slug, "claude-sonnet-5-5-high");
-    const opus = invoke("instinct", { task: "Reframe the stall" }, { ...opts, escalate: true });
-    assert.strictEqual(opus.ok, true, JSON.stringify(opus));
-    assert.strictEqual(opus.slug, "claude-opus-5-5-high");
+    const opusLow = invoke("instinct", { task: "Reframe the stall" }, opts);
+    assert.strictEqual(opusLow.ok, true, JSON.stringify(opusLow));
+    assert.strictEqual(opusLow.slug, "claude-opus-5-5-low");
+    const opusHigh = invoke("instinct", { task: "Reframe the stall" }, { ...opts, escalate: true });
+    assert.strictEqual(opusHigh.ok, true, JSON.stringify(opusHigh));
+    assert.strictEqual(opusHigh.slug, "claude-opus-5-5-high");
     // Instinct is not Bulldozer: no skip-permissions grant rides along.
     assert.strictEqual(
       readFileSync(callsFile, "utf8"),
-      "claude-sonnet-5-5-high skipPermissions=false\nclaude-opus-5-5-high skipPermissions=false\n"
+      "claude-opus-5-5-low skipPermissions=false\nclaude-opus-5-5-high skipPermissions=false\n"
     );
   } finally {
     rmSync(root, { recursive: true, force: true });

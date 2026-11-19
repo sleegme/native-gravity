@@ -31,6 +31,7 @@
  * 2 on a NO-GO/BLOCKED/NEEDS_DEEP outcome, 1 on errors.
  */
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, realpathSync, unlinkSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import process from 'node:process';
@@ -318,7 +319,7 @@ export function nativeZen(request, { agyPath = process.env.AGY_PATH || 'agy', cw
  * Native specialist invocation for direct workers (Bobcat, Jaguar, Puma) and
  * cross-caller Strix Halo review when running live without injected test adapters.
  */
-export function nativeSpecialist(role, slice, { agyPath: explicitAgyPath, cwd = process.cwd(), timeout = 600000, installedModels } = {}) {
+export function nativeSpecialist(role, slice, { agyPath: explicitAgyPath, cwd = process.cwd(), timeout = 600000, installedModels, escalate = false } = {}) {
   const normalizedRole = typeof role === 'string' && role.trim().toLowerCase() === 'strix_halo'
     ? 'strix-halo'
     : String(role || '').trim().toLowerCase();
@@ -328,7 +329,16 @@ export function nativeSpecialist(role, slice, { agyPath: explicitAgyPath, cwd = 
   }
   const agyPath = explicitAgyPath || process.env.AGY_PATH || 'agy';
   const startTime = Date.now();
-  const slug = resolveSlug(normalizedRole, { agyPath, installedModels });
+  const shouldEscalate = normalizedRole === 'strix-halo'
+    ? Boolean(
+      escalate
+      || slice?.escalate
+      || slice?.high_risk
+      || (typeof slice?.review_attempt === 'number' && slice.review_attempt >= 2)
+      || slice?.previous_verdict === 'REVISE'
+    )
+    : Boolean(escalate);
+  const slug = resolveSlug(normalizedRole, { agyPath, installedModels, ...(shouldEscalate ? { escalate: true } : {}) });
   const instruction = normalizedRole === 'strix-halo'
     ? 'Review the candidate deliverable against the acceptance criteria and return only a bare JSON '
       + 'Halo review packet with caller, candidate_id_or_run_id, reviewed_diff_digest, '
@@ -885,6 +895,8 @@ export async function main(argv, deps = {}) {
     invokeRole: wrappedInvokeRole,
     invokeSpecialist: wrappedInvokeSpecialist,
     invokeZen: wrappedInvokeZen,
+    ...(typeof deps.reviewPlanningAdvice === 'function' ? { reviewPlanningAdvice: deps.reviewPlanningAdvice } : {}),
+    ...(deps.requireInitialPlanning !== undefined ? { requireInitialPlanning: deps.requireInitialPlanning } : {}),
     runnerOptions: spineRunnerOptions,
     ...(spineRunnerOptions.coverageCwd ? { cwd: spineRunnerOptions.coverageCwd } : {}),
   });
@@ -901,20 +913,45 @@ export async function main(argv, deps = {}) {
   if (isTrackLRun) {
     const planDoc = opts.plan && existsSync(opts.plan) ? readJson(opts.plan) : null;
     const planMilestone = planDoc?.milestones?.find(m => !opts.milestone || m.id === opts.milestone) ?? null;
+    const taskText = opts.task || planMilestone?.objective || planDoc?.goal || 'Lightweight Track L task';
+    const goalText = planDoc?.goal || opts.task || '';
+    const boundedScope = planMilestone?.bounded_scope ?? [];
+    const planVersion = planDoc?.plan_version ?? 1;
+    const stableRunId =
+      opts.milestone ??
+      `track-l-${createHash('sha256')
+        .update(JSON.stringify({ task: taskText, goal: goalText, scope: boundedScope, planVersion }))
+        .digest('hex')
+        .slice(0, 12)}`;
     const lResult = await controller.runTrackL({
-      runId: opts.milestone ?? `track-l-${Date.now()}`,
-      task: opts.task || planMilestone?.objective || planDoc?.goal || 'Lightweight Track L task',
-      goal: planDoc?.goal || opts.task || '',
+      runId: stableRunId,
+      task: taskText,
+      goal: goalText,
       workerRole: deps.workerRole ?? null,
-      boundedScope: planMilestone?.bounded_scope ?? [],
+      boundedScope,
       acceptanceCriteria: planMilestone?.acceptance_criteria ?? [],
-      planVersion: planDoc?.plan_version ?? 1,
+      planVersion,
       highRiskEscalation: Boolean(opts.escalate),
+      ...(typeof deps.reviewPlanningAdvice === 'function' ? { reviewPlanningAdvice: deps.reviewPlanningAdvice } : {}),
     });
+    if (lResult.status === 'NEEDS_REPLAN' || lResult.verified === false) {
+      return {
+        code: 2,
+        out: {
+          track: 'L',
+          status: lResult.status ?? 'NEEDS_REPLAN',
+          run_id: lResult.run_id,
+          planning_pass: lResult.planning_pass ?? null,
+          supervisor_decision: lResult.supervisor_decision ?? null,
+          results: [lResult],
+        },
+      };
+    }
     return {
       code: 0,
       out: {
         track: 'L',
+        run_id: lResult.run_id,
         assurance_badge: lResult.assurance_badge,
         results: [lResult],
         record: lResult.record,

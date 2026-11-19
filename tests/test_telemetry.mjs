@@ -53,6 +53,7 @@ function fixture(t, { bulldozer, zen, piledriver, invokeSpecialist, initialPlan 
     ledgerPath,
     plan: initialPlan,
     invokeSpecialist,
+    requireInitialPlanning: false,
     invokeRole: async (role, packet, runnerOptions = {}) => {
       if (role === 'strix-halo') {
         const req = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));

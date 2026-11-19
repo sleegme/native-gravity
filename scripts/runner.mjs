@@ -19,6 +19,8 @@ import {
   normalizeRoleName,
   parseInstalledModels,
   realAgyRefusalUnderNodeTest,
+  resolveNextPriorityCandidate,
+  resolvePriorityCandidateSlugs,
   resolveSlug as resolveRouterSlug,
   validateDynamicOverride,
 } from "../src/core/model-router.mjs";
@@ -1088,27 +1090,114 @@ export function invoke(role, packet, opts = {}) {
   // One wall-clock budget (the original timeout) is shared by all attempts.
   const totalTimeout = typeof options.timeout === "number" ? options.timeout : 90000;
   const deadline = Date.now() + totalTimeout;
-  const run = () => invokeTransport({
+  const run = (targetSlug) => invokeTransport({
     ...options,
     timeout: Math.max(1, deadline - Date.now()),
-    slug,
+    slug: targetSlug,
     prompt,
     role,
     outputFormat: "json",
   });
 
-  let attempt = run();
+  // Transparent runtime quota failover is restricted strictly to truly READ_ONLY,
+  // non-mutating, non-ledger-writing, undelegating roles with priorityCandidates
+  // (e.g. Piledriver Carbon High -> Argon High). Roles with ledger-write or
+  // delegation authority (such as Steamroller) can produce side effects before a
+  // transport quota failure and are NEVER transparently replayed; instead they
+  // fail closed with a state-aware handoff hint (`fallback_candidate`) so the
+  // supervisor can explicitly resume from durable state.
+  // Lower-priority candidates are resolved lazily ONLY after a preceding attempt
+  // reports quota exhaustion, so a duplicate/ambiguous fallback never breaks a
+  // healthy primary.
+  const authority = ROLE_AUTHORITY_TABLE[normalizedRole];
+  const isStrictlyReadOnlySideEffectFree = Boolean(
+    authority &&
+    authority.readOnly === true &&
+    !authority.canMutateProjectFiles &&
+    !authority.canRunCommand &&
+    !authority.canWriteLedger &&
+    Array.isArray(authority.allowedDelegations) &&
+    authority.allowedDelegations.length === 0
+  );
+  const hasPriorityPolicy = Boolean(
+    Array.isArray(ROLE_POLICY_TABLE[normalizedRole]?.priorityCandidates) &&
+    ROLE_POLICY_TABLE[normalizedRole].priorityCandidates.length > 1
+  );
+  const canTransparentQuotaFailover =
+    isStrictlyReadOnlySideEffectFree &&
+    hasPriorityPolicy &&
+    options.modelOverride == null &&
+    !options.escalate &&
+    !options.quotaFallback;
+
+  const isQuotaFailure = (res) => {
+    if (!res || res.ok) return false;
+    if (res.error === "ARGON_QUOTA_EXHAUSTED") return true;
+    const combined = `${res.stderr ?? ""}\n${res.message ?? ""}\n${res.stdout ?? ""}`;
+    return QUOTA_EXHAUSTED_RE.test(combined);
+  };
+
+  let activeSlug = slug;
+  let failoverFrom = null;
+  let stateAwareHandoff = null;
+  const triedSlugs = [activeSlug];
+  let attempt = run(activeSlug);
   let attempts = 1;
 
+  if (canTransparentQuotaFailover && isQuotaFailure(attempt)) {
+    while (Date.now() < deadline) {
+      let next;
+      try {
+        next = resolveNextPriorityCandidate(role, triedSlugs, {
+          ...options,
+          shouldSkipSlug: (candidateSlug) => argonBreakerBlocksSlug(candidateSlug),
+        });
+      } catch {
+        break;
+      }
+      if (!next?.slug) break;
+      if (!failoverFrom) failoverFrom = activeSlug;
+      activeSlug = next.slug;
+      triedSlugs.push(activeSlug);
+      attempt = run(activeSlug);
+      attempts++;
+      if (!isQuotaFailure(attempt)) break;
+    }
+  } else if (
+    !isStrictlyReadOnlySideEffectFree &&
+    hasPriorityPolicy &&
+    options.modelOverride == null &&
+    !options.escalate &&
+    !options.quotaFallback &&
+    isQuotaFailure(attempt)
+  ) {
+    // Do NOT replay an effectful/delegating role (e.g. Steamroller); surface the
+    // next unblocked candidate for state-aware supervisor handoff/recovery.
+    let next = null;
+    try {
+      next = resolveNextPriorityCandidate(role, triedSlugs, {
+        ...options,
+        shouldSkipSlug: (candidateSlug) => argonBreakerBlocksSlug(candidateSlug),
+      });
+    } catch {
+      next = null;
+    }
+    stateAwareHandoff = {
+      requires_state_aware_handoff: true,
+      fallback_candidate: next?.slug ?? null,
+    };
+  }
+
   // Retry boundedly only when SUCCESS has an empty response and no explicit
-  // denied_actions. Explicit tool denials are classified by parseResponseEnvelope.
-  // Bulldozer and Navi are never retried: either may have caused effects
-  // before returning empty, so replay could duplicate those effects.
+  // denied_actions, and ONLY for strictly read-only, non-delegating,
+  // non-ledger-writing roles (e.g. Piledriver, Instinct). Effectful or
+  // delegating roles (Bulldozer, Navi, Steamroller) are never transparently
+  // replayed because they may have produced effects before returning empty.
   const MAX_EMPTY_RETRIES = 3;
-  const retryable = normalizedRole !== "bulldozer" && normalizedRole !== "navi";
+  const retryable = isStrictlyReadOnlySideEffectFree;
   while (retryable && attempts <= MAX_EMPTY_RETRIES && Date.now() < deadline
     && attempt.ok && (attempt.response || "").trim() === "") {
-    attempt = run();
+    attempt = run(activeSlug);
     attempts++;
   }
   const totalDurationMs = Math.max(0, Date.now() - startTime);
@@ -1117,7 +1206,8 @@ export function invoke(role, packet, opts = {}) {
       ok: false,
       error: "EMPTY_RESPONSE",
       role,
-      slug,
+      slug: activeSlug,
+      ...(failoverFrom ? { fallback_from: failoverFrom } : {}),
       attempts,
       duration_ms: totalDurationMs,
       usage: attempt.usage,
@@ -1125,6 +1215,8 @@ export function invoke(role, packet, opts = {}) {
   }
   return {
     ...attempt,
+    ...(failoverFrom ? { fallback_from: failoverFrom } : {}),
+    ...(stateAwareHandoff ? stateAwareHandoff : {}),
     attempts,
     duration_ms: totalDurationMs,
     usage: attempt.usage,

@@ -57,7 +57,14 @@ import {
   projectFailureTelemetry,
   redactTelemetryValue,
 } from "../../scripts/telemetry.mjs";
-import { TrackRunner } from "./track-runner.mjs";
+import {
+  InitialPlanningRequiredError,
+  TrackRunner,
+  inspectPlanningAdvisory,
+  validatePiledriverAdvisory,
+} from "./track-runner.mjs";
+
+export { InitialPlanningRequiredError, inspectPlanningAdvisory, validatePiledriverAdvisory };
 
 const NEEDS_ALT_MIN_ATTEMPTS = 3;
 const MAX_HANDOFF_CORRECTIONS = 2;
@@ -265,6 +272,9 @@ export class SteamrollerController {
   #invokeSpecialist;
   #invokeHalo;
   #invokeZen;
+  #invokePlanner;
+  #reviewPlanningAdvice;
+  #requireInitialPlanning;
   #runnerOptions;
   #explicitCwd = false;
   #busy = false;
@@ -282,9 +292,12 @@ export class SteamrollerController {
     plan = undefined,
     track = null,
     invokeRole = null,
+    invokePlanner = null,
+    reviewPlanningAdvice = null,
     invokeSpecialist = null,
     invokeHalo = null,
     invokeZen = null,
+    requireInitialPlanning = true,
     runnerOptions = {},
     handleSignals = true,
     acquireLock = false,
@@ -308,9 +321,12 @@ export class SteamrollerController {
     this.lightweightLog = lightweightLog ?? new LightweightLog(resolvedLogPath);
     this.modelRouter = modelRouter ?? new ModelRouter(runnerOptions ?? {});
     this.#invokeRole = invokeRole;
+    this.#invokePlanner = invokePlanner;
+    this.#reviewPlanningAdvice = reviewPlanningAdvice;
     this.#invokeSpecialist = invokeSpecialist;
     this.#invokeHalo = invokeHalo;
     this.#invokeZen = invokeZen;
+    this.#requireInitialPlanning = Boolean(requireInitialPlanning);
     this.#runnerOptions = runnerOptions ?? {};
     this.#explicitCwd = Boolean(cwd ?? this.#runnerOptions.coverageCwd);
     this.cwd = cwd ?? this.#runnerOptions.coverageCwd ?? process.cwd();
@@ -322,9 +338,11 @@ export class SteamrollerController {
         ledger: null,
         ledgerPath: this.ledgerPath,
         lightweightLog: this.lightweightLog,
+        invokePlanner: (req) => this.#invokeInitialPiledriver(req),
         invokeWorker: invokeSpecialist ?? invokeRole ?? invoke,
         invokeHalo: (req) => this.#invokeHaloGate(req),
         invokeZen: this.#invokeZen,
+        requireInitialPlanning: this.#requireInitialPlanning,
         cwd: this.cwd,
       });
 
@@ -579,7 +597,7 @@ export class SteamrollerController {
   }
 
   /**
-   * Selects direct/lightweight worker (Jaguar/Puma/Bobcat) or Bulldozer (Hydrogen XHigh)
+   * Selects direct/lightweight worker (Jaguar/Puma/Bobcat) or Bulldozer (Neon High / XHigh)
    * by semantic work kind and required capability rather than lexical/file-count heuristics (#235).
    */
   selectWorkerRoute({
@@ -596,15 +614,18 @@ export class SteamrollerController {
     highRisk = false,
     riskClass = null,
     recoveryMode = false,
+    escalateBulldozer = false,
     modelOverrides = {},
     resolveModel = true,
   } = {}) {
     const pick = (role, extra = {}) => {
+      const shouldEscalate = Boolean(extra.escalated);
       let slug = null;
       if (resolveModel) {
         try {
           slug = this.resolveRoleModel(role, {
             modelOverride: modelOverrides?.[role],
+            ...(shouldEscalate ? { escalate: true } : {}),
           }).slug;
         } catch (error) {
           if (
@@ -656,11 +677,17 @@ export class SteamrollerController {
           requiresCoordinator ||
           crossFileDependency))
     ) {
+      const escalated = Boolean(escalateBulldozer || (recoveryMode && highRisk));
       return pick("bulldozer", {
         semantics,
+        escalated,
         reason: recoveryMode
-          ? "Bulldozer (Hydrogen XHigh) leads primary failure recovery"
-          : "Track M milestone complexity routes to Bulldozer (Hydrogen XHigh)",
+          ? escalated
+            ? "Bulldozer (Neon XHigh) leads escalated high-risk failure recovery"
+            : "Bulldozer (Neon High) leads primary failure recovery"
+          : escalated
+            ? "Track M milestone complexity escalates to Bulldozer (Neon XHigh)"
+            : "Track M milestone complexity routes to Bulldozer (Neon High)",
       });
     }
 
@@ -767,9 +794,9 @@ export class SteamrollerController {
   }
 
   /**
-   * Runs bounded milestone recovery via Bulldozer (Hydrogen XHigh) + on-demand
-   * Instinct (Claude Sonnet 5.5 High / Opus 5.5 High escalated), unified with
-   * recommendNeedsAlt and bounded by LedgerKernel's hard safety cap (#234).
+   * Runs bounded milestone recovery via Bulldozer (Neon High, escalating to Neon XHigh
+   * on repeated stagnation or explicit request) + on-demand Instinct (Claude Opus 5.5 Low),
+   * unified with recommendNeedsAlt and bounded by LedgerKernel's hard safety cap (#234).
    */
   async recoverMilestone({
     milestoneId,
@@ -778,6 +805,7 @@ export class SteamrollerController {
     invokeInstinct = null,
     triggerInstinct = false,
     escalateInstinct = false,
+    escalateBulldozer = false,
     previousSignatures = [],
     evidence = [],
   } = {}) {
@@ -785,7 +813,6 @@ export class SteamrollerController {
       throw new Error("SteamrollerController.recoverMilestone requires a LedgerKernel instance");
     }
     const attemptInfo = this.ledger.recordRecoveryAttempt(milestoneId);
-    const bulldozerRoute = this.resolveRoleModel("bulldozer");
 
     const altSummaries = recommendNeedsAlt(this.ledger.evidence, this.ledger._verification_history);
     const matchingAlt = altSummaries.find((s) => s.milestone_id === milestoneId);
@@ -794,6 +821,8 @@ export class SteamrollerController {
       Boolean(matchingAlt?.needs_alt_recommended) ||
       (Array.isArray(previousSignatures) && previousSignatures.length >= 2) ||
       /stagnat|repeated|same[- ]class/i.test(String(failureReason));
+    const shouldEscalateBulldozer = Boolean(escalateBulldozer || repeatedStagnation);
+    const bulldozerRoute = this.resolveRoleModel("bulldozer", { escalate: shouldEscalateBulldozer });
     const shouldInvokeInstinct = Boolean(triggerInstinct || repeatedStagnation);
 
     let instinctAdvice = null;
@@ -1151,16 +1180,28 @@ export class SteamrollerController {
     });
   }
 
+  #shouldEscalateHalo(req, options = {}) {
+    return Boolean(
+      options?.escalate ||
+      req?.escalate ||
+      req?.high_risk ||
+      (typeof req?.review_attempt === "number" && req.review_attempt >= 2) ||
+      req?.previous_verdict === "REVISE"
+    );
+  }
+
   async #invokeHaloGate(req) {
+    const escalate = this.#shouldEscalateHalo(req);
     if (typeof this.#invokeHalo === "function") {
-      return await this.#invokeHalo(req);
+      return await this.#invokeHalo(req, { escalate });
     }
     if (typeof this.#invokeSpecialist === "function") {
       if (this.#ledger && this.state.current_milestone !== null) {
-        return await this.invokeStrixHalo(req, { caller: req.caller ?? "steamroller" });
+        return await this.invokeStrixHalo(req, { caller: req.caller ?? "steamroller", escalate });
       }
       return await this.#invokeSpecialist("strix-halo", req, {
         caller: req.caller ?? "steamroller",
+        escalate,
       });
     }
     const roleInvoker = this.#invokeRole ?? invoke;
@@ -1171,18 +1212,20 @@ export class SteamrollerController {
         req
       );
     }
-    return this.#nativeHaloGate(req);
+    return this.#nativeHaloGate(req, { escalate });
   }
 
-  #nativeHaloGate(req) {
+  #nativeHaloGate(req, options = {}) {
     const agyPath = this.#runnerOptions.agyPath || process.env.AGY_PATH || "agy";
     const refusal = realAgyRefusalUnderNodeTest(this.#runnerOptions.agyPath);
     if (refusal) {
       throw new Error(refusal.message);
     }
+    const escalate = this.#shouldEscalateHalo(req, options);
     const slug = resolveSlug("strix-halo", {
       agyPath,
       installedModels: this.#runnerOptions.installedModels,
+      escalate,
     });
     const instruction =
       "Review the candidate deliverable against the acceptance criteria and return only a bare JSON " +
@@ -1233,11 +1276,14 @@ export class SteamrollerController {
     if (refusal) {
       throw new Error(refusal.message);
     }
+    const escalate =
+      targetRole === "strix-halo" ? this.#shouldEscalateHalo(slice, options) : Boolean(options.escalate);
     const slug =
       options.slug ??
       resolveSlug(targetRole, {
         agyPath,
         installedModels: this.#runnerOptions.installedModels ?? options.installedModels,
+        ...(escalate ? { escalate: true } : {}),
       });
     const instruction =
       targetRole === "strix-halo"
@@ -1465,14 +1511,149 @@ export class SteamrollerController {
     }
   }
 
+  async #invokeInitialPiledriver(req) {
+    if (typeof this.#invokePlanner === "function") {
+      return await this.#invokePlanner(req);
+    }
+    return await this.#exact(
+      "piledriver",
+      "Return a bounded advisory plan/risk/dependency assessment as JSON for this task. " +
+        "Do not implement, delegate workers, write ledger state, or claim completion. " +
+        "You are READ_ONLY and have no shell; Steamroller retains sole plan-adoption authority.",
+      req
+    );
+  }
+
+  async #evaluatePlanningDecision(record, { reviewPlanningAdvice = null, milestoneId = null } = {}) {
+    const inspection = inspectPlanningAdvisory(record?.advice);
+    const reviewer = reviewPlanningAdvice ?? this.#reviewPlanningAdvice;
+    if (typeof reviewer === "function") {
+      const custom = await reviewer(record, {
+        plan_version: this.#ledger.plan_version,
+        milestone_id: milestoneId,
+        inspection,
+      });
+      return {
+        decision: String(
+          custom?.decision || (inspection.hasBlockingDefects ? "REPLAN_REQUIRED" : "PROCEED")
+        ).toUpperCase(),
+        adopted: false,
+        defects: inspection.defects,
+        ...(custom?.notes ? { notes: custom.notes } : {}),
+      };
+    }
+    return {
+      decision: inspection.hasBlockingDefects ? "REPLAN_REQUIRED" : "PROCEED",
+      adopted: false,
+      defects: inspection.defects,
+    };
+  }
+
+  /**
+   * Enforces the mandatory initial Piledriver planning/advisory pass once per
+   * plan_version before durable milestone execution. Validates advisory shape
+   * before persisting a non-authoritative (`adopted: false`) marker in
+   * `ledger.evidence.initial_planning[plan_version]` so resumes, retries, and
+   * later milestones of the same plan_version skip re-running Piledriver, while
+   * tactical/material replans (new plan_version) trigger one fresh pass.
+   * Returns a supervisory decision (`PROCEED | REPLAN_REQUIRED | REJECT`) so
+   * blocking plan defects are never silently ignored.
+   */
+  async ensureInitialPlanningPass({
+    task = null,
+    force = false,
+    reviewPlanningAdvice = null,
+    milestoneId = null,
+  } = {}) {
+    this.#open();
+    const planVersion = this.#ledger.plan_version;
+    if (!force && this.#ledger.hasInitialPlanningPass(planVersion)) {
+      const existing = this.#ledger.getInitialPlanningPass(planVersion);
+      const supervisor_decision = await this.#evaluatePlanningDecision(existing, {
+        reviewPlanningAdvice,
+        milestoneId,
+      });
+      return {
+        skipped: true,
+        reason: "ALREADY_COMPLETED_FOR_PLAN_VERSION",
+        record: existing,
+        supervisor_decision,
+      };
+    }
+
+    const planningTask =
+      (typeof task === "string" && task.trim()) ||
+      this.#ledger.goal ||
+      "Initial bounded planning advisory pass";
+    let advice;
+    try {
+      advice = await this.#invokeInitialPiledriver({
+        task: planningTask,
+        plan_version: planVersion,
+        replan_context: this.buildReplanContext(),
+      });
+    } catch (error) {
+      if (error instanceof InitialPlanningRequiredError) throw error;
+      throw new InitialPlanningRequiredError(
+        `Mandatory initial Piledriver planning pass failed for plan_version '${planVersion}': ${error?.message ?? error}`,
+        { cause: error, plan_version: planVersion }
+      );
+    }
+
+    validatePiledriverAdvisory(advice, { plan_version: planVersion });
+
+    const record = this.#ledger.recordInitialPlanningPass({
+      plan_version: planVersion,
+      slug: advice?.slug ?? null,
+      task: planningTask,
+      advice,
+    });
+    this.#saveLedger();
+    const supervisor_decision = await this.#evaluatePlanningDecision(record, {
+      reviewPlanningAdvice,
+      milestoneId,
+    });
+    return {
+      skipped: false,
+      record,
+      supervisor_decision,
+    };
+  }
+
   /**
    * Executes a durable Track S or Track M milestone directly under SteamrollerController (#234).
    * DONE is an explicit pre-review candidate status; only independent Zen GO promotes completion.
    */
   async runMilestone(milestoneId, options = {}) {
     this.#idle();
-    let contract = this.#ledger.delegate(milestoneId);
     const milestoneDef = this.#ledger.milestones.find((m) => m.id === milestoneId) ?? null;
+    const enforceInitialPlanning =
+      options.requireInitialPlanning !== undefined
+        ? Boolean(options.requireInitialPlanning)
+        : this.#requireInitialPlanning;
+    let planningOutcome = null;
+    if (enforceInitialPlanning) {
+      planningOutcome = await this.ensureInitialPlanningPass({
+        task: this.#ledger.goal || milestoneDef?.objective || milestoneId,
+        reviewPlanningAdvice: options.reviewPlanningAdvice ?? null,
+        milestoneId,
+      });
+      const decision = planningOutcome?.supervisor_decision?.decision;
+      if (decision === "REPLAN_REQUIRED" || decision === "REPLAN" || decision === "REJECT") {
+        return {
+          status: "NEEDS_REPLAN",
+          verified: false,
+          milestone_id: milestoneId,
+          plan_version: this.#ledger.plan_version,
+          planning_pass: planningOutcome.record,
+          supervisor_decision: planningOutcome.supervisor_decision,
+        };
+      }
+    }
+    let contract = this.#ledger.delegate(milestoneId);
+    if (planningOutcome?.record?.advice) {
+      contract.planning_advisory = planningOutcome.record.advice;
+    }
     let coverageCwd = this.#resolveScopeCwd(contract.bounded_scope);
     const classification = this.classifyTrack({
       task: contract.objective || this.#ledger.goal,
@@ -1527,6 +1708,7 @@ export class SteamrollerController {
         highRisk: Boolean(options.highRisk),
         riskClass: options.riskClass ?? null,
         recoveryMode: hasPriorFailure,
+        escalateBulldozer: Boolean(options.escalateBulldozer),
         resolveModel: blockedByTestRefusal ? false : "best_effort",
       });
     };
@@ -1601,9 +1783,12 @@ export class SteamrollerController {
         "Do not invoke Zen, write the ledger or claim global completion.";
       let salvageUsed = false;
 
-      const invokeCoordinator = async (instructionText, contractArg) => {
+      const invokeCoordinator = async (instructionText, contractArg, routeOptions = {}) => {
+        const coordInvokeOpts = {
+          ...(routeOptions?.escalated ? { escalate: true } : {}),
+        };
         try {
-          return await this.#exact("bulldozer", instructionText, contractArg);
+          return await this.#exact("bulldozer", instructionText, contractArg, coordInvokeOpts);
         } catch (error) {
           const output = error?.invocationOutput;
           if (salvageUsed || !output || !SALVAGEABLE_ERRORS.includes(output.error)) throw error;
@@ -1626,7 +1811,7 @@ export class SteamrollerController {
               "bulldozer",
               SALVAGE_INSTRUCTION,
               { ...contractArg, salvage },
-              { timeout: SALVAGE_TIMEOUT_MS }
+              { ...coordInvokeOpts, timeout: SALVAGE_TIMEOUT_MS }
             );
           } catch (salvageError) {
             const blockers = [
@@ -1909,7 +2094,8 @@ export class SteamrollerController {
               executedRole = "bulldozer";
               candidate = await invokeCoordinator(
                 invalidHandoff ? correctionInstruction : executeInstruction,
-                invalidHandoff ? { ...contract, invalid_handoff: invalidHandoff } : contract
+                invalidHandoff ? { ...contract, invalid_handoff: invalidHandoff } : contract,
+                attemptRoute
               );
             } else {
               const directOut = await invokeDirectWorker(attemptRoute, contract, invalidHandoff);

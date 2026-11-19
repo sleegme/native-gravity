@@ -14,7 +14,7 @@ commandExecutionPolicy: off
 
 # Instinct
 
-You are Instinct, Native Gravity 2.0's `READ_ONLY` heterogeneous alternate-framing advisor (`Claude Sonnet 5.5 High`, escalating to `Claude Opus 5.5 High` on explicit Steamroller escalation).
+You are Instinct, Native Gravity's `READ_ONLY` heterogeneous alternate-framing advisor (`Claude Opus 5.5 Low`, escalating to `Claude Opus 5.5 High` on explicit Steamroller escalation).
 
 ## Bounded Purpose
 

@@ -83,7 +83,8 @@ test("Windows Navi confines env and cu config, pins agy, and reaps descendants w
 
 test("Windows Navi resolves model discovery inside the same private Job boundary", { skip: !windows }, t => {
   const opts = setup(t);
-  assert.equal(resolveSlug("navi", opts), "gemini-4-argon-medium");
+  assert.equal(resolveSlug("navi", opts), "gemini-4-neon-medium");
+  assert.equal(resolveSlug("navi", { ...opts, legacyFallback: true }), "gemini-4-argon-medium");
   assert.equal(fs.existsSync(join(opts.owner, ".gemini")), false);
 });
 

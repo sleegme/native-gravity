@@ -17,6 +17,10 @@ import {
 } from "../src/core/model-router.mjs";
 
 const NTG2_CATALOG = [
+  { slug: "gemini-4-neon-low", description: "Gemini 4 Neon (Low)" },
+  { slug: "gemini-4-neon-medium", description: "Gemini 4 Neon (Medium)" },
+  { slug: "gemini-4-neon-high", description: "Gemini 4 Neon (High)" },
+  { slug: "gemini-4-neon-xhigh", description: "Gemini 4 Neon (XHigh)" },
   { slug: "gemini-4-argon-medium", description: "Gemini 4 Argon (Medium)" },
   { slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" },
   { slug: "gemini-4-hydrogen-xhigh", description: "Gemini 4 Hydrogen (XHigh)" },
@@ -24,41 +28,68 @@ const NTG2_CATALOG = [
   { slug: "gemini-4-hydrogen-medium", description: "Gemini 4 Hydrogen (Medium)" },
   { slug: "gemini-3.8-flash-low", description: "Gemini 3.8 Flash (Low)" },
   { slug: "gemini-3.8-flash-high", description: "Gemini 3.8 Flash (High)" },
+  { slug: "claude-opus-5-5-low", description: "Claude Opus 5.5 (Low)" },
   { slug: "claude-opus-5-5-high", description: "Claude Opus 5.5 (High)" },
   { slug: "claude-sonnet-5-5-high", description: "Claude Sonnet 5.5 (High)" },
+  { slug: "gemini-pro-orchestrator-neon", description: "Orchestrator (Neon)" },
   { slug: "gemini-pro-orchestrator-g1-pro", description: "Orchestrator (Argon)" },
 ];
 
-test("ModelRouter resolves all NTG 2.0 role slots accurately and retires Excavator", () => {
+test("ModelRouter resolves all NTG v2.1.0 role slots accurately and retires Excavator", () => {
   assert.equal(ROLE_POLICY_TABLE.excavator, undefined);
 
-  assert.equal(resolveSlug("steamroller", { installedModels: NTG2_CATALOG }), "gemini-4-argon-medium");
+  assert.equal(resolveSlug("steamroller", { installedModels: NTG2_CATALOG }), "gemini-4-neon-medium");
   assert.equal(resolveSlug("piledriver", { installedModels: NTG2_CATALOG }), "gemini-4-argon-high");
-  assert.equal(resolveSlug("bulldozer", { installedModels: NTG2_CATALOG }), "gemini-4-hydrogen-xhigh");
-  assert.equal(resolveSlug("strix-halo", { installedModels: NTG2_CATALOG }), "gemini-4-hydrogen-high");
-  assert.equal(resolveSlug("strix_halo", { installedModels: NTG2_CATALOG }), "gemini-4-hydrogen-high");
+  assert.equal(resolveSlug("bulldozer", { installedModels: NTG2_CATALOG }), "gemini-4-neon-high");
+  assert.equal(resolveSlug("bulldozer", { installedModels: NTG2_CATALOG, escalate: true }), "gemini-4-neon-xhigh");
+  assert.equal(resolveSlug("strix-halo", { installedModels: NTG2_CATALOG }), "gemini-4-neon-medium");
+  assert.equal(resolveSlug("strix_halo", { installedModels: NTG2_CATALOG }), "gemini-4-neon-medium");
+  assert.equal(resolveSlug("strix-halo", { installedModels: NTG2_CATALOG, escalate: true }), "gemini-4-neon-high");
   assert.equal(resolveSlug("bobcat", { installedModels: NTG2_CATALOG }), "gemini-4-hydrogen-medium");
   assert.equal(resolveSlug("jaguar", { installedModels: NTG2_CATALOG }), "gemini-3.8-flash-low");
   assert.equal(resolveSlug("puma", { installedModels: NTG2_CATALOG }), "gemini-3.8-flash-low");
-  assert.equal(resolveSlug("zen", { installedModels: NTG2_CATALOG }), "claude-opus-5-5-high");
+  assert.equal(resolveSlug("zen", { installedModels: NTG2_CATALOG }), "claude-sonnet-5-5-high");
   assert.equal(resolveSlug("zen", { installedModels: NTG2_CATALOG, quotaFallback: true }), "gemini-4-argon-high");
-  assert.equal(resolveSlug("instinct", { installedModels: NTG2_CATALOG }), "claude-sonnet-5-5-high");
+  assert.equal(resolveSlug("instinct", { installedModels: NTG2_CATALOG }), "claude-opus-5-5-low");
   assert.equal(resolveSlug("instinct", { installedModels: NTG2_CATALOG, escalate: true }), "claude-opus-5-5-high");
-  assert.equal(resolveSlug("navi", { installedModels: NTG2_CATALOG }), "gemini-4-argon-medium");
+  assert.equal(resolveSlug("navi", { installedModels: NTG2_CATALOG }), "gemini-4-neon-medium");
+  assert.equal(resolveSlug("navi", { installedModels: NTG2_CATALOG, legacyFallback: true }), "gemini-4-argon-medium");
+  assert.equal(
+    resolveSlug("navi", { installedModels: NTG2_CATALOG, env: { NTG_NAVI_EXPERIMENTAL_NEON: "0" } }),
+    "gemini-4-argon-medium"
+  );
+
+  const router = new ModelRouter({ installedModels: NTG2_CATALOG });
+  assert.equal(router.resolve("navi").experimental, true);
+  assert.equal(router.resolve("navi", { legacyFallback: true }).experimental, false);
 });
 
-test("Steamroller resolves Carbon Medium first when exposed and excludes gemini-pro-orchestrator-g1-pro", () => {
+test("Steamroller and Piledriver priority chains resolve accurately and exclude AGY Orchestrator slugs", () => {
   const withCarbon = [
     ...NTG2_CATALOG,
     { slug: "carbon-medium-preview", description: "Carbon (Medium)" },
+    { slug: "carbon-high-preview", description: "Carbon (High)" },
   ];
-  assert.equal(resolveSlug("steamroller", { installedModels: withCarbon }), "carbon-medium-preview");
+  // Steamroller prefers Neon Medium over Carbon Medium over Argon Medium
+  assert.equal(resolveSlug("steamroller", { installedModels: withCarbon }), "gemini-4-neon-medium");
+  const withoutNeon = withCarbon.filter((m) => !m.slug.includes("neon"));
+  assert.equal(resolveSlug("steamroller", { installedModels: withoutNeon }), "carbon-medium-preview");
+  const argonOnly = NTG2_CATALOG.filter((m) => !m.slug.includes("neon"));
+  assert.equal(resolveSlug("steamroller", { installedModels: argonOnly }), "gemini-4-argon-medium");
 
-  // Even if only AGY Orchestrator is available, default routing must exclude it and fail closed.
+  // Piledriver prefers Carbon High over Argon High
+  assert.equal(resolveSlug("piledriver", { installedModels: withCarbon }), "carbon-high-preview");
+  assert.equal(resolveSlug("piledriver", { installedModels: NTG2_CATALOG }), "gemini-4-argon-high");
+
+  // Even if only AGY Orchestrator slugs are available, default routing must exclude them and fail closed.
   assert.ok(EXCLUDED_DEFAULT_MODELS.includes("gemini-pro-orchestrator-g1-pro"));
+  assert.ok(EXCLUDED_DEFAULT_MODELS.includes("gemini-pro-orchestrator-neon"));
   assert.throws(
     () => resolveSlug("steamroller", {
-      installedModels: [{ slug: "gemini-pro-orchestrator-g1-pro", description: "Orchestrator (Argon)" }],
+      installedModels: [
+        { slug: "gemini-pro-orchestrator-g1-pro", description: "Orchestrator (Argon)" },
+        { slug: "gemini-pro-orchestrator-neon", description: "Orchestrator (Neon)" },
+      ],
     }),
     (err) => err instanceof UnresolvedModelSlugError && err.reason === "NOT_FOUND"
   );
@@ -66,6 +97,13 @@ test("Steamroller resolves Carbon Medium first when exposed and excludes gemini-
     () => resolveSlug("steamroller", {
       installedModels: NTG2_CATALOG,
       modelOverride: "gemini-pro-orchestrator-g1-pro",
+    }),
+    (err) => err instanceof UnresolvedModelSlugError && err.reason === "EXCLUDED_MODEL"
+  );
+  assert.throws(
+    () => resolveSlug("steamroller", {
+      installedModels: NTG2_CATALOG,
+      modelOverride: "gemini-pro-orchestrator-neon",
     }),
     (err) => err instanceof UnresolvedModelSlugError && err.reason === "EXCLUDED_MODEL"
   );
@@ -150,9 +188,9 @@ process.stdout.write(${JSON.stringify(
 
   assert.equal(first.length, NTG2_CATALOG.length);
   assert.deepEqual(second, first);
-  assert.equal(slug1, "gemini-4-hydrogen-xhigh");
+  assert.equal(slug1, "gemini-4-neon-high");
   assert.equal(slug2, "gemini-4-hydrogen-medium");
-  assert.equal(slug3, "gemini-4-hydrogen-high");
+  assert.equal(slug3, "gemini-4-neon-medium");
 
   const calls = readFileSync(counterFile, "utf8").trim().split("\n").filter(Boolean);
   assert.equal(calls.length, 1, `expected agy models to run once per session, ran ${calls.length} times`);

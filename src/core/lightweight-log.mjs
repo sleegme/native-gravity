@@ -164,6 +164,7 @@ export class LightweightLog {
       reviewed_diff_digest: entry.reviewed_diff_digest ?? null,
       acceptance_criteria_digest: entry.acceptance_criteria_digest ?? null,
       halo_review: entry.halo_review ? structuredClone(entry.halo_review) : null,
+      ...(entry.planning_pass ? { planning_pass: structuredClone(entry.planning_pass) } : {}),
       escalated_to_ledger: entry.escalated_to_ledger ?? null,
       timestamp: entry.timestamp || new Date().toISOString(),
     });
@@ -197,5 +198,50 @@ export class LightweightLog {
       if (all[i]?.run_id === runId) return all[i];
     }
     return null;
+  }
+
+  /**
+   * Appends a standalone Track L Piledriver planning receipt BEFORE worker
+   * execution (`status: 'PLANNING_COMPLETED'`, never marking execution complete).
+   * Ensures worker failures or Halo REVISE retries do not re-run Piledriver for
+   * the same `(runId, planVersion)`.
+   */
+  recordPlanningPass({ run_id, plan_version = 1, goal = '', caller = 'steamroller', planning_pass }) {
+    if (!planning_pass || typeof planning_pass !== 'object' || planning_pass.status !== 'COMPLETED') {
+      throw new LightweightLogError('recordPlanningPass requires a COMPLETED planning_pass object');
+    }
+    return this.recordRun({
+      run_id,
+      track: 'L',
+      status: 'PLANNING_COMPLETED',
+      plan_version,
+      goal,
+      caller,
+      planning_pass,
+    });
+  }
+
+  getPlanningPass(runId, planVersion = 1) {
+    const all = this.readAll();
+    const pv = String(planVersion);
+    for (let i = all.length - 1; i >= 0; i -= 1) {
+      const rec = all[i];
+      if (
+        rec?.run_id === runId &&
+        String(rec?.plan_version) === pv &&
+        rec?.planning_pass?.status === 'COMPLETED'
+      ) {
+        return rec.planning_pass;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Returns true if a non-authoritative Piledriver planning pass has already
+   * been persisted for `(runId, planVersion)` so resumes/retries do not rerun it.
+   */
+  hasPlanningPass(runId, planVersion = 1) {
+    return this.getPlanningPass(runId, planVersion) !== null;
   }
 }

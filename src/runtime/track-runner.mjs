@@ -32,31 +32,131 @@ function unwrapPacket(res) {
   return res;
 }
 
+export class InitialPlanningRequiredError extends Error {
+  constructor(message, details = {}) {
+    super(message || "Mandatory initial Piledriver planning pass failed or is unavailable");
+    this.name = "InitialPlanningRequiredError";
+    this.code = "PILEDRIVER_PLANNING_UNAVAILABLE";
+    this.ok = false;
+    if (details && typeof details === "object") {
+      Object.assign(this, details);
+    }
+  }
+}
+
+const MEANINGFUL_ADVISORY_KEYS = Object.freeze([
+  "recommendation",
+  "plan",
+  "milestones",
+  "risks",
+  "blocking_risks",
+  "dependencies",
+  "defects",
+  "plan_defects",
+  "summary",
+  "advice",
+  "notes",
+  "recommend_replan",
+]);
+
+/**
+ * Validates that a Piledriver response is a meaningful non-empty advisory object
+ * before persisting a `COMPLETED` planning marker.
+ */
+export function validatePiledriverAdvisory(advice, context = {}) {
+  if (!advice || typeof advice !== "object" || Array.isArray(advice)) {
+    throw new InitialPlanningRequiredError(
+      "Mandatory initial Piledriver advisory must be a non-null JSON object",
+      { reason: "INVALID_ADVISORY_SHAPE", ...context }
+    );
+  }
+  const hasMeaningfulField = MEANINGFUL_ADVISORY_KEYS.some((key) => {
+    if (!(key in advice)) return false;
+    const val = advice[key];
+    if (val === null || val === undefined) return false;
+    if (typeof val === "string") return val.trim().length > 0;
+    return true;
+  });
+  if (!hasMeaningfulField) {
+    throw new InitialPlanningRequiredError(
+      "Mandatory initial Piledriver advisory lacks a meaningful advisory field (e.g. recommendation, plan, milestones, risks, plan_defects, summary)",
+      { reason: "INVALID_ADVISORY_SHAPE", ...context }
+    );
+  }
+  return advice;
+}
+
+const BLOCKING_RECOMMENDATION_RE =
+  /\b(?:replan|do\s+not\s+proceed|don['’]t\s+proceed|must\s+not\s+proceed|cannot\s+proceed|can['’]t\s+proceed|should\s+not\s+proceed|halt|abort|reject|stop\s+before|unsafe|blocking\s+(?:issue|defect|risk|gap))\b/i;
+
+/**
+ * Inspects a validated Piledriver advisory for blocking plan defects, blocking
+ * status/action, or blocking prose recommendations so Steamroller never silently
+ * ignores unsafe or defect-flagged advice.
+ */
+export function inspectPlanningAdvisory(advice) {
+  const defects = [];
+  if (Array.isArray(advice?.plan_defects)) defects.push(...advice.plan_defects);
+  if (Array.isArray(advice?.defects)) defects.push(...advice.defects);
+  if (Array.isArray(advice?.blocking_risks)) defects.push(...advice.blocking_risks);
+
+  const recText = typeof advice?.recommendation === "string" ? advice.recommendation.trim() : "";
+  const summaryText = typeof advice?.summary === "string" ? advice.summary.trim() : "";
+  const statusUpper = typeof advice?.status === "string" ? advice.status.trim().toUpperCase() : "";
+  const actionUpper = typeof advice?.action === "string" ? advice.action.trim().toUpperCase() : "";
+
+  const blockingProse =
+    (recText && BLOCKING_RECOMMENDATION_RE.test(recText)) ||
+    (summaryText && BLOCKING_RECOMMENDATION_RE.test(summaryText));
+  const blockingStatus =
+    ["BLOCKED", "NEEDS_REPLAN", "REPLAN", "REJECT", "REJECTED"].includes(statusUpper) ||
+    ["BLOCK", "REPLAN", "REJECT", "HALT", "ABORT"].includes(actionUpper);
+  const explicitReplan = advice?.recommend_replan === true || blockingProse || blockingStatus;
+
+  if (blockingProse && defects.length === 0) {
+    defects.push(recText || summaryText);
+  }
+  return {
+    hasBlockingDefects: defects.length > 0 || explicitReplan,
+    defects,
+    explicitReplan,
+  };
+}
+
 /**
  * Coordinates NTG 2.0 Track L (`HALO_LIGHTWEIGHT`) and Track S/M (`ZEN_DURABLE`)
  * verification gates with strict Halo/Zen separation and staleness enforcement.
  */
 export class TrackRunner {
+  #invokePlanner;
   #invokeWorker;
   #invokeHalo;
   #invokeZen;
+  #requireInitialPlanning;
 
   constructor({
     ledger = null,
     ledgerPath = null,
     lightweightLog = null,
     lightweightLogPath = ".ntg/lightweight-runs.jsonl",
+    invokePlanner = null,
     invokeWorker = null,
     invokeHalo = null,
     invokeZen = null,
+    requireInitialPlanning = undefined,
     cwd = process.cwd(),
   } = {}) {
     this.ledger = ledger;
     this.ledgerPath = ledgerPath;
     this.lightweightLog = lightweightLog ?? new LightweightLog(lightweightLogPath);
+    this.#invokePlanner = invokePlanner;
     this.#invokeWorker = invokeWorker;
     this.#invokeHalo = invokeHalo;
     this.#invokeZen = invokeZen;
+    this.#requireInitialPlanning =
+      requireInitialPlanning !== undefined
+        ? Boolean(requireInitialPlanning)
+        : typeof invokePlanner === "function";
     this.cwd = cwd;
   }
 
@@ -79,6 +179,12 @@ export class TrackRunner {
     acceptanceCriteria = [],
     planVersion = 1,
     highRiskEscalation = false,
+    escalateHalo = false,
+    reviewAttempt = null,
+    previousVerdict = null,
+    planningPass = null,
+    reviewPlanningAdvice = null,
+    requireInitialPlanning = undefined,
     evidenceBasis = undefined,
     caller = "steamroller",
     requiresMutation = undefined,
@@ -90,6 +196,106 @@ export class TrackRunner {
   } = {}) {
     if (!runId || typeof runId !== "string" || !runId.trim()) {
       throw new Error("Track L execution requires a non-empty runId");
+    }
+
+    const enforcePlanning =
+      requireInitialPlanning !== undefined
+        ? Boolean(requireInitialPlanning)
+        : this.#requireInitialPlanning;
+    let resolvedPlanningPass = planningPass;
+    const persistedPlanningPass = this.lightweightLog.getPlanningPass(runId, planVersion);
+    const alreadyPlanned =
+      resolvedPlanningPass?.status === "COMPLETED" ||
+      persistedPlanningPass !== null;
+    if (enforcePlanning && !alreadyPlanned) {
+      if (typeof this.#invokePlanner !== "function") {
+        throw new InitialPlanningRequiredError(
+          `Track L run '${runId}' (plan_version=${planVersion}) requires a bounded Piledriver advisory pass before execution, but no planner handler is available.`
+        );
+      }
+      let rawPlan;
+      try {
+        rawPlan = unwrapPacket(
+          await this.#invokePlanner({
+            run_id: runId,
+            track: "L",
+            task: task || goal,
+            goal: goal || task,
+            bounded_scope: boundedScope,
+            acceptance_criteria: acceptanceCriteria,
+            plan_version: planVersion,
+          })
+        );
+      } catch (err) {
+        if (err instanceof InitialPlanningRequiredError) throw err;
+        throw new InitialPlanningRequiredError(
+          `Mandatory initial Piledriver planning pass failed for Track L run '${runId}': ${err?.message ?? err}`,
+          { cause: err, run_id: runId, plan_version: planVersion }
+        );
+      }
+      if (!rawPlan || rawPlan.ok === false) {
+        throw new InitialPlanningRequiredError(
+          `Mandatory initial Piledriver planning pass failed for Track L run '${runId}': ${rawPlan?.error || "UNAVAILABLE"}`,
+          { run_id: runId, plan_version: planVersion, details: rawPlan ?? null }
+        );
+      }
+      validatePiledriverAdvisory(rawPlan, { run_id: runId, plan_version: planVersion });
+      resolvedPlanningPass = {
+        role: "piledriver",
+        status: "COMPLETED",
+        plan_version: String(planVersion),
+        slug: rawPlan.slug ?? null,
+        adopted: false,
+        advice: rawPlan,
+        timestamp: new Date().toISOString(),
+      };
+      // Persist standalone append-only planning receipt BEFORE worker execution so
+      // worker failures or Halo REVISE retries never re-run Piledriver for the same (runId, planVersion).
+      this.lightweightLog.recordPlanningPass({
+        run_id: runId,
+        plan_version: planVersion,
+        goal: goal || task,
+        caller,
+        planning_pass: resolvedPlanningPass,
+      });
+    } else if (!resolvedPlanningPass && persistedPlanningPass) {
+      resolvedPlanningPass = persistedPlanningPass;
+    }
+
+    // Supervisory review of non-authoritative Piledriver advice: never silently ignore blocking plan defects.
+    let supervisorDecision = null;
+    if (resolvedPlanningPass?.advice) {
+      const inspection = inspectPlanningAdvisory(resolvedPlanningPass.advice);
+      if (typeof reviewPlanningAdvice === "function") {
+        const customDecision = await reviewPlanningAdvice(resolvedPlanningPass, {
+          track: "L",
+          run_id: runId,
+          plan_version: planVersion,
+          inspection,
+        });
+        supervisorDecision = {
+          decision: String(customDecision?.decision || (inspection.hasBlockingDefects ? "REPLAN_REQUIRED" : "PROCEED")).toUpperCase(),
+          adopted: false,
+          defects: inspection.defects,
+          ...(customDecision?.notes ? { notes: customDecision.notes } : {}),
+        };
+      } else {
+        supervisorDecision = {
+          decision: inspection.hasBlockingDefects ? "REPLAN_REQUIRED" : "PROCEED",
+          adopted: false,
+          defects: inspection.defects,
+        };
+      }
+      if (supervisorDecision.decision === "REPLAN_REQUIRED" || supervisorDecision.decision === "REPLAN" || supervisorDecision.decision === "REJECT") {
+        return {
+          track: "L",
+          status: "NEEDS_REPLAN",
+          verified: false,
+          run_id: runId,
+          planning_pass: resolvedPlanningPass,
+          supervisor_decision: supervisorDecision,
+        };
+      }
     }
 
     const semantics = analyzeWorkSemantics({
@@ -149,6 +355,7 @@ export class TrackRunner {
           bounded_scope: boundedScope,
           acceptance_criteria: acceptanceCriteria,
           plan_version: planVersion,
+          ...(resolvedPlanningPass?.advice ? { planning_advisory: resolvedPlanningPass.advice } : {}),
           harness,
         })
       );
@@ -228,6 +435,10 @@ export class TrackRunner {
       track: "L",
       acceptance_criteria: acceptanceCriteria,
       context_digest: contextDigest,
+      escalate: Boolean(escalateHalo || highRiskEscalation),
+      high_risk: Boolean(highRiskEscalation),
+      review_attempt: reviewAttempt,
+      previous_verdict: previousVerdict,
     });
 
     let rawHalo = haloReview;
@@ -458,6 +669,7 @@ export class TrackRunner {
       acceptance_criteria_digest: acceptanceCriteriaDigest,
       evidence_basis: resolvedEvidence,
       halo_review: rawHalo,
+      ...(resolvedPlanningPass ? { planning_pass: resolvedPlanningPass } : {}),
       escalated_to_ledger: escalatedLedgerMeta,
     });
 
@@ -468,6 +680,7 @@ export class TrackRunner {
       worker_role: effectiveRole,
       rerouted_from: reroutedFrom,
       reroute_reason: rerouteReason,
+      ...(resolvedPlanningPass ? { planning_pass: resolvedPlanningPass } : {}),
       worker_result: resolvedWorkerResult,
       halo_review: rawHalo,
       zen_status: highRiskEscalation ? "ESCALATED" : "OMITTED",
@@ -491,6 +704,10 @@ export class TrackRunner {
     invokeZen = null,
     caller = "bulldozer",
     currentDiffDigest = null,
+    highRisk = false,
+    escalateHalo = false,
+    reviewAttempt = null,
+    previousVerdict = null,
   } = {}) {
     const normalizedTrack = String(track || "M").trim().toUpperCase();
     if (normalizedTrack !== "S" && normalizedTrack !== "M") {
@@ -525,6 +742,10 @@ export class TrackRunner {
           evidence_basis: expectedEvidenceBasis,
           track: normalizedTrack,
           acceptance_criteria: contract.acceptance_criteria ?? [],
+          escalate: Boolean(escalateHalo || highRisk),
+          high_risk: Boolean(highRisk),
+          review_attempt: reviewAttempt,
+          previous_verdict: previousVerdict,
         });
         rawHalo = unwrapPacket(await haloFn(req));
         if (rawHalo?.ok === false) {

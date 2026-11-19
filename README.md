@@ -8,7 +8,7 @@
 
 Native Gravity 2.0 (NTG 2.0) is an Antigravity-native (`agy`) hybrid orchestration plugin centered on interactive **Steamroller** + **`LedgerKernel`** (`src/core/ledger-kernel.mjs`) and **`LightweightLog`** (`src/core/lightweight-log.mjs`).
 
-Simply describe a task with `/ntg <task>`. Steamroller automatically classifies complexity across **Track L (`HALO_LIGHTWEIGHT`)**, **Track S (`ZEN_DURABLE`)**, and **Track M (`ZEN_DURABLE`)**, selects Direct/Lightweight specialists or **Bulldozer** (`Gemini 4 Hydrogen XHigh`), runs quality review (**Strix Halo**) and independent verification (**Zen**), and persists durable progress outside conversation memory.
+Simply describe a task with `/ntg <task>`. Steamroller automatically classifies complexity across **Track L (`HALO_LIGHTWEIGHT`)**, **Track S (`ZEN_DURABLE`)**, and **Track M (`ZEN_DURABLE`)**, selects Direct/Lightweight specialists or **Bulldozer** (`Gemini 4 Neon High` / `XHigh`), runs quality review (**Strix Halo**) and independent verification (**Zen**), and persists durable progress outside conversation memory.
 
 ## Key Capabilities
 
