@@ -19,6 +19,7 @@ import {
   normalizeRoleName,
   parseInstalledModels,
   realAgyRefusalUnderNodeTest,
+  resolveNextPriorityCandidate,
   resolvePriorityCandidateSlugs,
   resolveSlug as resolveRouterSlug,
   validateDynamicOverride,
@@ -1101,6 +1102,9 @@ export function invoke(role, packet, opts = {}) {
   // Safe runtime quota failover is restricted strictly to non-mutating roles
   // with priorityCandidates (e.g. Steamroller Neon -> Carbon -> Argon,
   // Piledriver Carbon -> Argon) and never replays mutating roles or pinned overrides.
+  // Lower-priority candidates are resolved lazily ONLY after a preceding attempt
+  // reports quota exhaustion, so a duplicate/ambiguous fallback never breaks a
+  // healthy primary.
   const authority = ROLE_AUTHORITY_TABLE[normalizedRole];
   const isSafeNonMutating = Boolean(authority && !authority.canMutateProjectFiles && !authority.canRunCommand);
   const canQuotaFailover =
@@ -1108,12 +1112,6 @@ export function invoke(role, packet, opts = {}) {
     options.modelOverride == null &&
     !options.escalate &&
     !options.quotaFallback;
-  const priorityCandidates = canQuotaFailover
-    ? resolvePriorityCandidateSlugs(role, options)
-    : [];
-  const candidateQueue = priorityCandidates.length > 0
-    ? [slug, ...priorityCandidates.filter((s) => s !== slug)]
-    : [slug];
 
   const isQuotaFailure = (res) => {
     if (!res || res.ok) return false;
@@ -1122,17 +1120,27 @@ export function invoke(role, packet, opts = {}) {
     return QUOTA_EXHAUSTED_RE.test(combined);
   };
 
-  let activeSlug = candidateQueue[0];
+  let activeSlug = slug;
   let failoverFrom = null;
+  const triedSlugs = [activeSlug];
   let attempt = run(activeSlug);
   let attempts = 1;
 
-  if (canQuotaFailover && candidateQueue.length > 1 && isQuotaFailure(attempt)) {
-    for (let i = 1; i < candidateQueue.length && Date.now() < deadline; i++) {
-      const nextSlug = candidateQueue[i];
-      if (argonBreakerBlocksSlug(nextSlug)) continue;
+  if (canQuotaFailover && isQuotaFailure(attempt)) {
+    while (Date.now() < deadline) {
+      let next;
+      try {
+        next = resolveNextPriorityCandidate(role, triedSlugs, {
+          ...options,
+          shouldSkipSlug: (candidateSlug) => argonBreakerBlocksSlug(candidateSlug),
+        });
+      } catch {
+        break;
+      }
+      if (!next?.slug) break;
       if (!failoverFrom) failoverFrom = activeSlug;
-      activeSlug = nextSlug;
+      activeSlug = next.slug;
+      triedSlugs.push(activeSlug);
       attempt = run(activeSlug);
       attempts++;
       if (!isQuotaFailure(attempt)) break;

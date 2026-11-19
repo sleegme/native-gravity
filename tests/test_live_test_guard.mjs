@@ -377,4 +377,34 @@ test('Steamroller safely fails over Neon -> Carbon -> Argon on quota exhaustion 
   assert.equal(bdRes.ok, false);
   assert.equal(bdRes.attempts, 1);
   assert.deepEqual(mockBulldozer.calls(), ['gemini-4-neon-high']);
+
+  // 6. Duplicate/ambiguous lower-priority fallback (two Carbon previews) never breaks a healthy Neon primary,
+  //    and on Neon quota exhaustion lazily skips ambiguous Carbon to succeed on Argon Medium.
+  const duplicateCarbonCatalog = [
+    ...INSTALLED,
+    { slug: 'carbon-medium-preview-a', description: 'Carbon (Medium)' },
+    { slug: 'carbon-medium-preview-b', description: 'Carbon (Medium)' },
+  ];
+  const mockHealthyNeon = mockAgy(t, { quotaSlugs: [] });
+  const healthyRes = await invoke('steamroller', { task: 'TASK_MARKER' }, {
+    agyPath: mockHealthyNeon.agy,
+    installedModels: duplicateCarbonCatalog,
+  });
+  assert.equal(healthyRes.ok, true, JSON.stringify(healthyRes));
+  assert.equal(healthyRes.slug, 'gemini-4-neon-medium');
+  assert.equal(healthyRes.attempts, 1);
+  assert.deepEqual(mockHealthyNeon.calls(), ['gemini-4-neon-medium']);
+
+  const mockExhaustedNeonDupCarbon = mockAgy(t, {
+    quotaSlugs: ['gemini-4-neon-medium'],
+    quotaStderr: 'AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429}\n',
+  });
+  const lazyFailoverRes = await invoke('steamroller', { task: 'TASK_MARKER' }, {
+    agyPath: mockExhaustedNeonDupCarbon.agy,
+    installedModels: duplicateCarbonCatalog,
+  });
+  assert.equal(lazyFailoverRes.ok, true, JSON.stringify(lazyFailoverRes));
+  assert.equal(lazyFailoverRes.slug, 'gemini-4-argon-medium');
+  assert.equal(lazyFailoverRes.fallback_from, 'gemini-4-neon-medium');
+  assert.deepEqual(mockExhaustedNeonDupCarbon.calls(), ['gemini-4-neon-medium', 'gemini-4-argon-medium']);
 });

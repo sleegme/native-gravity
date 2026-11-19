@@ -164,6 +164,7 @@ export class LightweightLog {
       reviewed_diff_digest: entry.reviewed_diff_digest ?? null,
       acceptance_criteria_digest: entry.acceptance_criteria_digest ?? null,
       halo_review: entry.halo_review ? structuredClone(entry.halo_review) : null,
+      ...(entry.planning_pass ? { planning_pass: structuredClone(entry.planning_pass) } : {}),
       escalated_to_ledger: entry.escalated_to_ledger ?? null,
       timestamp: entry.timestamp || new Date().toISOString(),
     });
@@ -197,5 +198,25 @@ export class LightweightLog {
       if (all[i]?.run_id === runId) return all[i];
     }
     return null;
+  }
+
+  /**
+   * Returns true if a non-authoritative Piledriver planning pass has already
+   * been persisted for `(runId, planVersion)` so resumes/retries do not rerun it.
+   */
+  hasPlanningPass(runId, planVersion = 1) {
+    const all = this.readAll();
+    const pv = String(planVersion);
+    for (let i = all.length - 1; i >= 0; i -= 1) {
+      const rec = all[i];
+      if (
+        rec?.run_id === runId &&
+        String(rec?.plan_version) === pv &&
+        rec?.planning_pass?.status === 'COMPLETED'
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 }

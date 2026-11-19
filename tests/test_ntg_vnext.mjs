@@ -109,7 +109,7 @@ test('run --all promotes milestones in dependency order and declares completion 
   await h.cli('init', '--plan', h.write('plan.json', plan()));
   const { code, out } = await h.cli('run', '--all');
   assert.equal(code, 0);
-  assert.deepEqual(h.calls, ['bulldozer', 'strix-halo', 'zen:one', 'bulldozer', 'strix-halo', 'zen:two']);
+  assert.deepEqual(h.calls, ['piledriver', 'bulldozer', 'strix-halo', 'zen:one', 'bulldozer', 'strix-halo', 'zen:two']);
   assert.deepEqual(out.state.completed_milestones, ['one', 'two']);
   assert.ok(out.global_completion);
 });
@@ -124,6 +124,7 @@ for (const status of ['BLOCKED', 'NEEDS_DEEP']) {
       runnerOptions: { installedModels: ['gemini-3.8-flash-high'] },
       invokeRole: async (role, packet) => {
         calls.push(role);
+        if (role === 'piledriver') return envelope({ recommendation: 'advisory planning pass' });
         const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
         return envelope({
           milestone_id: contract.milestone_id, plan_version: contract.plan_version,
@@ -139,7 +140,7 @@ for (const status of ['BLOCKED', 'NEEDS_DEEP']) {
     };
     const result = await main(['run', '--ledger', h.ledger, '--track', 'M'], deps);
     assert.equal(result.code, 2);
-    assert.deepEqual(calls, ['bulldozer']);
+    assert.deepEqual(calls, ['piledriver', 'bulldozer']);
     const state = AuthoritativeLedger.load(h.ledger).getState();
     assert.equal(state.current_milestone, null);
     assert.deepEqual(state.completed_milestones, []);
@@ -171,7 +172,7 @@ test('Zen NO-GO stops the run with exit 2 once the repair budget is spent; a rer
   const second = await h.cli('run');
   assert.equal(second.code, 0);
   assert.deepEqual(second.out.state.completed_milestones, ['one']);
-  assert.deepEqual(h.calls, ['bobcat', 'zen:one', 'bulldozer', 'zen:one', 'bulldozer', 'zen:one']);
+  assert.deepEqual(h.calls, ['piledriver', 'bobcat', 'zen:one', 'bulldozer', 'zen:one', 'bulldozer', 'zen:one']);
 });
 
 test('fresh-context resume continues from the ledger at the next eligible milestone', async t => {
@@ -211,7 +212,7 @@ const invokeRole = () => {
   process.send({ executor: executor.pid });
   return new Promise(() => {});
 };
-main(['run', '--ledger', process.argv[2]], { invokeRole, invokeZen: () => {}, handleSignals: false });
+main(['run', '--ledger', process.argv[2]], { invokeRole, invokeZen: () => {}, handleSignals: false, requireInitialPlanning: false });
 setInterval(() => {}, 1 << 30); // a pending promise alone does not keep the loop alive
 `);
   const child = fork(holder, [h.ledger], { stdio: 'ignore' });
@@ -311,6 +312,7 @@ test('status surfaces NEEDS_ALT recommendations derived from durable failure his
   const ledger = join(dir, 'ledger.json');
   const deps = {
     handleSignals: false,
+    requireInitialPlanning: false,
     invokeZen: async () => { throw new Error('zen must not run'); },
     invokeRole: async () => ({ ok: false, error: 'TIMEOUT', role: 'bulldozer', slug: 'gemini-3.8-flash-high' }),
   };
@@ -933,6 +935,7 @@ console.log(JSON.stringify({
 
   const deps = {
     handleSignals: false,
+    requireInitialPlanning: false,
     runnerOptions: {
       agyPath: agy,
       installedModels: [
@@ -1029,6 +1032,7 @@ console.log(JSON.stringify({
 
   const deps = {
     handleSignals: false,
+    requireInitialPlanning: false,
     runnerOptions: {
       agyPath: agy,
       installedModels: [
@@ -1346,7 +1350,7 @@ test('review retries the last candidate gate-only after a zen quota stop', async
   assert.equal(out.review.status, 'REVIEWED');
   assert.equal(out.review.verified, true);
   assert.equal(zenRequests.length, 1);
-  assert.equal(roleCalls(), 1, 'review must not re-run Bulldozer');
+  assert.equal(roleCalls(), 2, 'review must not re-run Piledriver or Bulldozer');
   const done = AuthoritativeLedger.load(ledger).getState();
   assert.deepEqual(done.completed_milestones, ['one']);
   assert.equal(done.verification.one.verdict, 'GO');
@@ -1506,7 +1510,7 @@ test('run --track S sets Track S policy, omits strix-halo by default, and requir
   assert.equal(out.track, 'S');
   assert.equal(out.assurance_badge, 'ZEN_DURABLE');
   assert.equal(out.halo_status, 'OMITTED');
-  assert.deepEqual(h.calls, ['bobcat', 'zen:one']);
+  assert.deepEqual(h.calls, ['piledriver', 'bobcat', 'zen:one']);
   assert.deepEqual(out.state.completed_milestones, ['one']);
 });
 
@@ -1517,7 +1521,7 @@ test('run --track M enforces mandatory strix-halo before Zen and rejects on Halo
   assert.equal(code, 0);
   assert.equal(out.track, 'M');
   assert.equal(out.assurance_badge, 'ZEN_DURABLE');
-  assert.deepEqual(h.calls, ['bulldozer', 'strix-halo', 'zen:one']);
+  assert.deepEqual(h.calls, ['piledriver', 'bulldozer', 'strix-halo', 'zen:one']);
 
   const dir = mkdtempSync(join(tmpdir(), 'ntg-vnext-revise-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -1687,4 +1691,199 @@ process.stdout.write(JSON.stringify({
     readFileSync(callsFile, 'utf8').trim().split('\n'),
     ['gemini-4-neon-medium', 'gemini-4-neon-high', 'gemini-4-neon-high']
   );
+});
+
+test('TrackRunner end-to-end Halo escalation selects Neon Medium by default and Neon High when caller escalates', async t => {
+  const { TrackRunner } = await import('../src/runtime/track-runner.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-tr-halo-e2e-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'doc.md'), 'hello\n');
+  const agy = join(dir, 'agy');
+  const callsFile = join(dir, 'calls.txt');
+  writeFileSync(agy, `#!/usr/bin/env node
+const { appendFileSync } = require('node:fs');
+const argv = process.argv.slice(2);
+const slug = argv[argv.indexOf('--model') + 1];
+const prompt = argv[argv.indexOf('-p') + 1];
+const req = JSON.parse(prompt.slice(prompt.indexOf('Request:\\n') + 'Request:\\n'.length));
+appendFileSync(${JSON.stringify(callsFile)}, slug + '\\n');
+process.stdout.write(JSON.stringify({
+  status: 'SUCCESS',
+  response: JSON.stringify({
+    caller: req.caller,
+    candidate_id_or_run_id: req.candidate_id_or_run_id,
+    reviewed_diff_digest: req.reviewed_diff_digest,
+    acceptance_criteria_digest: req.acceptance_criteria_digest,
+    plan_version: req.plan_version,
+    evidence_basis: req.evidence_basis,
+    verdict: 'ACCEPT',
+    findings: [],
+  }),
+}));
+`, { mode: 0o755 });
+
+  const installedModels = [
+    { slug: 'gemini-4-neon-medium', description: 'Gemini 4 Neon (Medium)' },
+    { slug: 'gemini-4-neon-high', description: 'Gemini 4 Neon (High)' },
+  ];
+
+  const runner = new TrackRunner({
+    lightweightLogPath: join(dir, 'lw.jsonl'),
+    invokeWorker: async () => ({ status: 'READY', changes_made: ['doc.md'], verification_evidence: ['checked'] }),
+    invokeHalo: async (req) => nativeSpecialist('strix-halo', req, { agyPath: agy, installedModels, cwd: dir }),
+    requireInitialPlanning: false,
+    cwd: dir,
+  });
+
+  // 1. Default Track L review -> Neon Medium
+  const r1 = await runner.runTrackL({
+    runId: 'lw-1',
+    task: 'Fix typo in doc.md',
+    boundedScope: ['doc.md'],
+    acceptanceCriteria: ['typo fixed'],
+  });
+  assert.equal(r1.halo_review.slug, 'gemini-4-neon-medium');
+
+  // 2. Caller-escalated Track L review -> Neon High
+  const r2 = await runner.runTrackL({
+    runId: 'lw-2',
+    task: 'Careful edit in doc.md',
+    boundedScope: ['doc.md'],
+    acceptanceCriteria: ['accurate'],
+    escalateHalo: true,
+  });
+  assert.equal(r2.halo_review.slug, 'gemini-4-neon-high');
+
+  // 3. Track M verifyTrackSMCandidate with reviewAttempt: 2 -> Neon High
+  const sm = await runner.verifyTrackSMCandidate({
+    track: 'M',
+    milestoneId: 'm1',
+    candidate: { candidate_artifact_ref: 'sha256:m1', verification_evidence: observed },
+    contract: { plan_version: 'v1', bounded_scope: ['doc.md'], acceptance_criteria: ['content matches'] },
+    reviewAttempt: 2,
+    invokeZen: async (req) => ({
+      milestone_id: req.milestone_id,
+      plan_version: req.plan_version,
+      result_ref: req.result_ref,
+      verdict: 'GO',
+      verification_evidence: observed,
+    }),
+  });
+  assert.equal(sm.verified, true);
+  assert.equal(sm.halo_review.verdict, 'ACCEPT');
+
+  assert.deepEqual(
+    readFileSync(callsFile, 'utf8').trim().split('\n'),
+    ['gemini-4-neon-medium', 'gemini-4-neon-high', 'gemini-4-neon-high']
+  );
+});
+
+test('PO mandatory initial Piledriver planning pass: runs once per plan_version across Track L/S/M, skips on resume, reruns on replan, fails closed when unavailable', async t => {
+  // 1. Track M: runs once for v1 (before m1, skipped before m2 and resume), reruns once after tactical-replan (v2).
+  const h = harness(t);
+  await h.cli('init', '--plan', h.write('plan.json', plan('v1', ['one', 'two'])));
+  const m1 = await h.cli('run');
+  assert.equal(m1.code, 0);
+  assert.deepEqual(h.calls, ['piledriver', 'bulldozer', 'strix-halo', 'zen:one']);
+  const afterM1 = AuthoritativeLedger.load(h.ledger).getState();
+  assert.equal(afterM1.evidence.initial_planning.v1.status, 'COMPLETED');
+  assert.equal(afterM1.evidence.initial_planning.v1.adopted, false);
+
+  // Fresh-process resume for m2 skips Piledriver (already recorded for v1).
+  const m2 = await h.cli('run');
+  assert.equal(m2.code, 0);
+  assert.deepEqual(h.calls, ['piledriver', 'bulldozer', 'strix-halo', 'zen:one', 'bulldozer', 'strix-halo', 'zen:two']);
+
+  // Tactical replan bumps plan_version -> v2, requiring one fresh Piledriver advisory pass for v2.
+  const replanned = await h.cli('tactical-replan', '--plan', h.write('plan-v2.json', plan('v2', ['one'])));
+  assert.equal(replanned.code, 0);
+  const v2Run = await h.cli('run');
+  assert.equal(v2Run.code, 0);
+  assert.deepEqual(h.calls, [
+    'piledriver', 'bulldozer', 'strix-halo', 'zen:one',
+    'bulldozer', 'strix-halo', 'zen:two',
+    'piledriver', 'bobcat', 'zen:one',
+  ]);
+  const afterV2 = AuthoritativeLedger.load(h.ledger).getState();
+  assert.equal(afterV2.evidence.initial_planning.v2.status, 'COMPLETED');
+  assert.equal(afterV2.evidence.initial_planning.v2.adopted, false);
+
+  // 2. Track L: runs Piledriver once before worker, persists planning_pass, skips on resume for same (runId, planVersion).
+  const { SteamrollerController, InitialPlanningRequiredError } = await import('../src/runtime/steamroller-controller.mjs');
+  const lwDir = mkdtempSync(join(tmpdir(), 'ntg-piledriver-trackl-'));
+  t.after(() => rmSync(lwDir, { recursive: true, force: true }));
+  writeFileSync(join(lwDir, 'readme.md'), 'hello\n');
+  const lwCalls = [];
+  const lwController = new SteamrollerController({
+    lightweightLogPath: join(lwDir, 'lightweight-runs.jsonl'),
+    invokePlanner: async (req) => {
+      lwCalls.push(`piledriver:${req.run_id}:${req.plan_version}`);
+      return { recommendation: 'bounded doc edit', risks: [], slug: 'gemini-4-argon-high' };
+    },
+    invokeSpecialist: async (role) => {
+      lwCalls.push(`worker:${role}`);
+      return { status: 'READY', changes_made: ['readme.md'], verification_evidence: ['checked'] };
+    },
+    invokeHalo: async (req) => {
+      lwCalls.push('strix-halo');
+      return {
+        caller: req.caller,
+        candidate_id_or_run_id: req.candidate_id_or_run_id,
+        reviewed_diff_digest: req.reviewed_diff_digest,
+        acceptance_criteria_digest: req.acceptance_criteria_digest,
+        plan_version: req.plan_version,
+        evidence_basis: req.evidence_basis,
+        verdict: 'ACCEPT',
+        findings: [],
+      };
+    },
+    cwd: lwDir,
+  });
+  const lwFirst = await lwController.runTrackL({
+    runId: 'lw-plan-1',
+    task: 'Fix typo in readme.md',
+    boundedScope: ['readme.md'],
+    acceptanceCriteria: ['typo fixed'],
+    planVersion: 1,
+  });
+  assert.equal(lwFirst.planning_pass.status, 'COMPLETED');
+  assert.equal(lwFirst.planning_pass.adopted, false);
+  assert.equal(lwFirst.record.planning_pass.status, 'COMPLETED');
+  assert.deepEqual(lwCalls, ['piledriver:lw-plan-1:1', 'worker:puma', 'strix-halo']);
+
+  // Resume / re-run for same (runId, planVersion) skips Piledriver.
+  await lwController.runTrackL({
+    runId: 'lw-plan-1',
+    task: 'Fix typo in readme.md',
+    boundedScope: ['readme.md'],
+    acceptanceCriteria: ['typo fixed'],
+    planVersion: 1,
+  });
+  assert.deepEqual(lwCalls, ['piledriver:lw-plan-1:1', 'worker:puma', 'strix-halo', 'worker:puma', 'strix-halo']);
+
+  // 3. Fail-closed when both Piledriver candidates (Carbon High, Argon High) are unavailable.
+  const failDir = mkdtempSync(join(tmpdir(), 'ntg-piledriver-unavail-'));
+  t.after(() => rmSync(failDir, { recursive: true, force: true }));
+  const failLedger = join(failDir, 'ledger.json');
+  const failPlan = join(failDir, 'plan.json');
+  writeFileSync(failPlan, JSON.stringify(plan('v1', ['one'])));
+  let bulldozerRan = false;
+  await main(['init', '--ledger', failLedger, '--plan', failPlan], { handleSignals: false });
+  await assert.rejects(
+    main(['run', '--ledger', failLedger], {
+      handleSignals: false,
+      invokeRole: async (role) => {
+        if (role === 'piledriver') {
+          return { ok: false, error: 'UNRESOLVED_MODEL_SLUG', role: 'piledriver', message: 'Carbon/Argon unavailable' };
+        }
+        bulldozerRan = true;
+        return envelope({});
+      },
+      invokeZen: async () => assert.fail('Zen must not run when initial planning fails'),
+    }),
+    err => err instanceof InitialPlanningRequiredError && err.code === 'PILEDRIVER_PLANNING_UNAVAILABLE'
+  );
+  assert.equal(bulldozerRan, false, 'Workers must not execute when mandatory Piledriver planning pass fails');
+  const failState = AuthoritativeLedger.load(failLedger).getState();
+  assert.equal(failState.evidence?.initial_planning?.v1, undefined, 'Failed planning pass must never persist a completed marker');
 });

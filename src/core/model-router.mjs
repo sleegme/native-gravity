@@ -600,6 +600,76 @@ export function resolvePriorityCandidateSlugs(role, opts = {}) {
 }
 
 /**
+ * Lazily resolves the next unambiguous installed fallback candidate in a role's
+ * `priorityCandidates` chain strictly after `afterSlug` (or after any slug in
+ * `triedSlugs`). Never throws on a lower-priority duplicate candidate before it
+ * is needed; instead records ambiguous candidates in `skippedAmbiguous` so a
+ * healthy primary is never broken and a later unambiguous fallback can still be
+ * selected.
+ */
+export function resolveNextPriorityCandidate(role, triedSlugs = [], opts = {}) {
+  const normalized = normalizeRoleName(role);
+  const basePolicy = ROLE_POLICY_TABLE[normalized];
+  if (!basePolicy || !Array.isArray(basePolicy.priorityCandidates) || basePolicy.priorityCandidates.length === 0) {
+    return { slug: null, skippedAmbiguous: [] };
+  }
+  if (opts.modelOverride !== undefined && opts.modelOverride !== null) {
+    return { slug: null, skippedAmbiguous: [] };
+  }
+
+  const tried = new Set(
+    (Array.isArray(triedSlugs) ? triedSlugs : [triedSlugs])
+      .filter((s) => typeof s === "string" && s.trim())
+      .map((s) => s.trim().toLowerCase())
+  );
+  const installed = getInstalledCatalog(normalized, opts);
+
+  // Locate the highest index already tried so we only inspect strictly lower-priority candidates.
+  let startIndex = 0;
+  for (let i = 0; i < basePolicy.priorityCandidates.length; i++) {
+    const candidate = basePolicy.priorityCandidates[i];
+    const candidatePolicy = Object.freeze({
+      ...basePolicy,
+      family: candidate.family,
+      effort: candidate.effort,
+      provenance: candidate.provenance ?? basePolicy.provenance,
+    });
+    const matches = installed.filter((m) => matchesPolicy(candidatePolicy, m));
+    if (matches.some((m) => tried.has(String(typeof m === "string" ? m : m.slug).trim().toLowerCase()))) {
+      startIndex = i + 1;
+    }
+  }
+
+  const skippedAmbiguous = [];
+  for (let i = startIndex; i < basePolicy.priorityCandidates.length; i++) {
+    const candidate = basePolicy.priorityCandidates[i];
+    const candidatePolicy = Object.freeze({
+      ...basePolicy,
+      family: candidate.family,
+      effort: candidate.effort,
+      provenance: candidate.provenance ?? basePolicy.provenance,
+    });
+    const matches = installed.filter((m) => matchesPolicy(candidatePolicy, m));
+    if (matches.length === 0) continue;
+    if (matches.length > 1) {
+      skippedAmbiguous.push({
+        family: candidate.family,
+        effort: candidate.effort,
+        matches: matches.map((m) => (typeof m === "string" ? m : m.slug)),
+      });
+      continue;
+    }
+    const resolved = matches[0];
+    const slug = typeof resolved === "string" ? resolved : resolved.slug;
+    if (tried.has(slug.trim().toLowerCase())) continue;
+    if (typeof opts.shouldSkipSlug === "function" && opts.shouldSkipSlug(slug)) continue;
+    return { slug, skippedAmbiguous };
+  }
+
+  return { slug: null, skippedAmbiguous };
+}
+
+/**
  * Resolves a role name to its exact AGY model slug against the installed AGY catalog.
  * Fails closed when absent, ambiguous, excluded, or attempting authority expansion.
  */

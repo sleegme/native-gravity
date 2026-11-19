@@ -1495,6 +1495,49 @@ export class LedgerKernel {
   }
 
   /**
+   * Returns true if the mandatory initial Piledriver planning/advisory pass has
+   * already been recorded for `planVersion` (so resumes, retries, and later
+   * milestones of the same plan_version skip re-running it).
+   */
+  hasInitialPlanningPass(planVersion = this.plan_version) {
+    const key = String(planVersion ?? "");
+    if (!key) return false;
+    return this.evidence?.initial_planning?.[key]?.status === "COMPLETED";
+  }
+
+  getInitialPlanningPass(planVersion = this.plan_version) {
+    const key = String(planVersion ?? "");
+    if (!key) return null;
+    return this.evidence?.initial_planning?.[key] ?? null;
+  }
+
+  /**
+   * Records a non-authoritative (`adopted: false`) Piledriver advisory planning
+   * pass keyed by `plan_version`. Never adopts or modifies the active plan.
+   */
+  recordInitialPlanningPass(record = {}) {
+    const planVersion = String(record.plan_version ?? this.plan_version ?? "");
+    if (!planVersion) {
+      throw new InvalidTransitionError("Initial planning pass requires plan_version");
+    }
+    const entry = {
+      role: "piledriver",
+      status: "COMPLETED",
+      plan_version: planVersion,
+      slug: record.slug ?? null,
+      task: redactTelemetryValue(record.task ?? ""),
+      advice: redactTelemetryValue(record.advice ?? null),
+      adopted: false,
+      timestamp: new Date().toISOString(),
+    };
+    if (!this.evidence.initial_planning || typeof this.evidence.initial_planning !== "object" || Array.isArray(this.evidence.initial_planning)) {
+      this.evidence.initial_planning = {};
+    }
+    this.evidence.initial_planning[planVersion] = entry;
+    return entry;
+  }
+
+  /**
    * Records a bound Strix Halo formative review (`ACCEPT | REVISE | ESCALATE`),
    * strictly separated from `this.verification` (Zen summative verdicts).
    * Halo ACCEPT never promotes a Track S/M milestone or satisfies declareGlobalCompletion.

@@ -32,31 +32,52 @@ function unwrapPacket(res) {
   return res;
 }
 
+export class InitialPlanningRequiredError extends Error {
+  constructor(message, details = {}) {
+    super(message || "Mandatory initial Piledriver planning pass failed or is unavailable");
+    this.name = "InitialPlanningRequiredError";
+    this.code = "PILEDRIVER_PLANNING_UNAVAILABLE";
+    this.ok = false;
+    if (details && typeof details === "object") {
+      Object.assign(this, details);
+    }
+  }
+}
+
 /**
  * Coordinates NTG 2.0 Track L (`HALO_LIGHTWEIGHT`) and Track S/M (`ZEN_DURABLE`)
  * verification gates with strict Halo/Zen separation and staleness enforcement.
  */
 export class TrackRunner {
+  #invokePlanner;
   #invokeWorker;
   #invokeHalo;
   #invokeZen;
+  #requireInitialPlanning;
 
   constructor({
     ledger = null,
     ledgerPath = null,
     lightweightLog = null,
     lightweightLogPath = ".ntg/lightweight-runs.jsonl",
+    invokePlanner = null,
     invokeWorker = null,
     invokeHalo = null,
     invokeZen = null,
+    requireInitialPlanning = undefined,
     cwd = process.cwd(),
   } = {}) {
     this.ledger = ledger;
     this.ledgerPath = ledgerPath;
     this.lightweightLog = lightweightLog ?? new LightweightLog(lightweightLogPath);
+    this.#invokePlanner = invokePlanner;
     this.#invokeWorker = invokeWorker;
     this.#invokeHalo = invokeHalo;
     this.#invokeZen = invokeZen;
+    this.#requireInitialPlanning =
+      requireInitialPlanning !== undefined
+        ? Boolean(requireInitialPlanning)
+        : typeof invokePlanner === "function";
     this.cwd = cwd;
   }
 
@@ -79,6 +100,11 @@ export class TrackRunner {
     acceptanceCriteria = [],
     planVersion = 1,
     highRiskEscalation = false,
+    escalateHalo = false,
+    reviewAttempt = null,
+    previousVerdict = null,
+    planningPass = null,
+    requireInitialPlanning = undefined,
     evidenceBasis = undefined,
     caller = "steamroller",
     requiresMutation = undefined,
@@ -90,6 +116,65 @@ export class TrackRunner {
   } = {}) {
     if (!runId || typeof runId !== "string" || !runId.trim()) {
       throw new Error("Track L execution requires a non-empty runId");
+    }
+
+    const enforcePlanning =
+      requireInitialPlanning !== undefined
+        ? Boolean(requireInitialPlanning)
+        : this.#requireInitialPlanning;
+    let resolvedPlanningPass = planningPass;
+    const alreadyPlanned =
+      resolvedPlanningPass?.status === "COMPLETED" ||
+      this.lightweightLog.hasPlanningPass(runId, planVersion);
+    if (enforcePlanning && !alreadyPlanned) {
+      if (typeof this.#invokePlanner !== "function") {
+        throw new InitialPlanningRequiredError(
+          `Track L run '${runId}' (plan_version=${planVersion}) requires a bounded Piledriver advisory pass before execution, but no planner handler is available.`
+        );
+      }
+      let rawPlan;
+      try {
+        rawPlan = unwrapPacket(
+          await this.#invokePlanner({
+            run_id: runId,
+            track: "L",
+            task: task || goal,
+            goal: goal || task,
+            bounded_scope: boundedScope,
+            acceptance_criteria: acceptanceCriteria,
+            plan_version: planVersion,
+          })
+        );
+      } catch (err) {
+        if (err instanceof InitialPlanningRequiredError) throw err;
+        throw new InitialPlanningRequiredError(
+          `Mandatory initial Piledriver planning pass failed for Track L run '${runId}': ${err?.message ?? err}`,
+          { cause: err, run_id: runId, plan_version: planVersion }
+        );
+      }
+      if (!rawPlan || rawPlan.ok === false) {
+        throw new InitialPlanningRequiredError(
+          `Mandatory initial Piledriver planning pass failed for Track L run '${runId}': ${rawPlan?.error || "UNAVAILABLE"}`,
+          { run_id: runId, plan_version: planVersion, details: rawPlan ?? null }
+        );
+      }
+      resolvedPlanningPass = {
+        role: "piledriver",
+        status: "COMPLETED",
+        plan_version: String(planVersion),
+        slug: rawPlan.slug ?? null,
+        adopted: false,
+        advice: rawPlan,
+        timestamp: new Date().toISOString(),
+      };
+    } else if (!resolvedPlanningPass && alreadyPlanned) {
+      const prior = this.lightweightLog.getByRunId(runId);
+      resolvedPlanningPass = prior?.planning_pass ?? {
+        role: "piledriver",
+        status: "COMPLETED",
+        plan_version: String(planVersion),
+        adopted: false,
+      };
     }
 
     const semantics = analyzeWorkSemantics({
@@ -228,6 +313,10 @@ export class TrackRunner {
       track: "L",
       acceptance_criteria: acceptanceCriteria,
       context_digest: contextDigest,
+      escalate: Boolean(escalateHalo || highRiskEscalation),
+      high_risk: Boolean(highRiskEscalation),
+      review_attempt: reviewAttempt,
+      previous_verdict: previousVerdict,
     });
 
     let rawHalo = haloReview;
@@ -458,6 +547,7 @@ export class TrackRunner {
       acceptance_criteria_digest: acceptanceCriteriaDigest,
       evidence_basis: resolvedEvidence,
       halo_review: rawHalo,
+      ...(resolvedPlanningPass ? { planning_pass: resolvedPlanningPass } : {}),
       escalated_to_ledger: escalatedLedgerMeta,
     });
 
@@ -468,6 +558,7 @@ export class TrackRunner {
       worker_role: effectiveRole,
       rerouted_from: reroutedFrom,
       reroute_reason: rerouteReason,
+      ...(resolvedPlanningPass ? { planning_pass: resolvedPlanningPass } : {}),
       worker_result: resolvedWorkerResult,
       halo_review: rawHalo,
       zen_status: highRiskEscalation ? "ESCALATED" : "OMITTED",
@@ -491,6 +582,10 @@ export class TrackRunner {
     invokeZen = null,
     caller = "bulldozer",
     currentDiffDigest = null,
+    highRisk = false,
+    escalateHalo = false,
+    reviewAttempt = null,
+    previousVerdict = null,
   } = {}) {
     const normalizedTrack = String(track || "M").trim().toUpperCase();
     if (normalizedTrack !== "S" && normalizedTrack !== "M") {
@@ -525,6 +620,10 @@ export class TrackRunner {
           evidence_basis: expectedEvidenceBasis,
           track: normalizedTrack,
           acceptance_criteria: contract.acceptance_criteria ?? [],
+          escalate: Boolean(escalateHalo || highRisk),
+          high_risk: Boolean(highRisk),
+          review_attempt: reviewAttempt,
+          previous_verdict: previousVerdict,
         });
         rawHalo = unwrapPacket(await haloFn(req));
         if (rawHalo?.ok === false) {

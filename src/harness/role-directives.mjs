@@ -102,6 +102,10 @@ export function buildHaloReviewRequest({
   track = "M",
   acceptance_criteria = [],
   context_digest = null,
+  escalate = false,
+  high_risk = false,
+  review_attempt = null,
+  previous_verdict = null,
 }) {
   const normalizedCaller = normalizeRoleName(caller);
   if (!HALO_CALLERS.includes(normalizedCaller)) {
@@ -124,6 +128,10 @@ export function buildHaloReviewRequest({
     evidence_basis: evidence_basis ?? [],
     acceptance_criteria: [...acceptance_criteria],
     context_digest,
+    ...(escalate ? { escalate: true } : {}),
+    ...(high_risk ? { high_risk: true } : {}),
+    ...(typeof review_attempt === "number" ? { review_attempt } : {}),
+    ...(previous_verdict ? { previous_verdict } : {}),
   });
 }
 

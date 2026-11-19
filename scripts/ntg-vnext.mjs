@@ -894,6 +894,7 @@ export async function main(argv, deps = {}) {
     invokeRole: wrappedInvokeRole,
     invokeSpecialist: wrappedInvokeSpecialist,
     invokeZen: wrappedInvokeZen,
+    ...(deps.requireInitialPlanning !== undefined ? { requireInitialPlanning: deps.requireInitialPlanning } : {}),
     runnerOptions: spineRunnerOptions,
     ...(spineRunnerOptions.coverageCwd ? { cwd: spineRunnerOptions.coverageCwd } : {}),
   });

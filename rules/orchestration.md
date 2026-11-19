@@ -54,6 +54,10 @@ Steamroller operates as an interactive AGY orchestrator coupled with `LedgerKern
 
 **Authority Decoupling Invariant:** Dynamic model routing controls capability/intelligence only and **NEVER** expands a role's tool permissions, mutation authority, delegation authority, or verification requirements.
 
+**Mandatory Initial Piledriver Planning Pass (v2.1.0):** Every newly accepted task (Track L, Track S, Track M) runs **one** bounded `READ_ONLY` Piledriver advisory pass (`Carbon High -> Argon High`, `adopted: false`) before execution, persisted per `plan_version` (`ledger.evidence.initial_planning[plan_version]` or Track L `planning_pass`) so resumes, retries, and subsequent milestones of the same `plan_version` skip it. Tactical/Material replans bump `plan_version` and trigger one fresh pass. If both Carbon High and Argon High are unavailable, execution fails closed (`PILEDRIVER_PLANNING_UNAVAILABLE`) without falsely recording completion.
+
+**Runtime Quota Failover Scope:** `scripts/runner.mjs::invoke()` performs lazy, safe quota-exhaustion failover across `priorityCandidates` strictly for non-mutating roles (`steamroller`, `piledriver`), skipping `argonBreaker`-blocked or ambiguous lower-priority entries without preflighting them before the primary runs. Interactive top-level AGY Steamroller sessions depend on host AGY model selection rather than `runner.invoke()`.
+
 ## Valid `LedgerKernel` transitions
 
 | Transition | Preconditions and effects |

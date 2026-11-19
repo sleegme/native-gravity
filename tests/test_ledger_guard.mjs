@@ -43,6 +43,9 @@ function guardHarness(t, { sabotage } = {}) {
     handleSignals: false,
     invokeRole: async (role, packet) => {
       calls.push(role);
+      if (role === 'piledriver') {
+        return envelope({ recommendation: 'advisory planning pass', risks: [] });
+      }
       if (role === 'strix-halo') {
         const req = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
         return envelope({
@@ -86,7 +89,7 @@ test('deleting the ledger directory mid-invocation stops the run with an integri
     assert.equal(error.code, 'LEDGER_INTEGRITY');
     return true;
   });
-  assert.deepEqual(h.calls, ['bulldozer'], 'Zen must never run after the violation');
+  assert.deepEqual(h.calls, ['piledriver', 'bulldozer'], 'Zen must never run after the violation');
   assert.equal(existsSync(h.ntg), false, 'the deleted ledger directory must not be recreated');
   assert.equal(existsSync(h.ledger), false);
   assert.equal(existsSync(h.lock), false);
@@ -101,7 +104,7 @@ test('deleting only the lock mid-invocation stops the run without rewriting the 
     assert.match(error.message, /after bulldozer invocation for milestone one/);
     return true;
   });
-  assert.deepEqual(h.calls, ['bulldozer'], 'Zen must never run after the violation');
+  assert.deepEqual(h.calls, ['piledriver', 'bulldozer'], 'Zen must never run after the violation');
   assert.equal(existsSync(h.lock), false);
   assert.equal(existsSync(h.ledger), true, 'ledger.json is left exactly as last saved');
   const disk = JSON.parse(readFileSync(h.ledger, 'utf8'));
@@ -117,7 +120,7 @@ test('a lock taken over by another pid mid-invocation stops the run', async t =>
     assert.match(error.message, /after bulldozer invocation for milestone one/);
     return true;
   });
-  assert.deepEqual(h.calls, ['bulldozer'], 'Zen must never run after the violation');
+  assert.deepEqual(h.calls, ['piledriver', 'bulldozer'], 'Zen must never run after the violation');
   const disk = JSON.parse(readFileSync(h.ledger, 'utf8'));
   assert.equal(disk.current_milestone, 'one', 'the delegate save is the last write');
   assert.equal(disk.usage, undefined, 'no post-invocation accounting may be recorded over the violation');
@@ -156,7 +159,7 @@ test('a normal run is unchanged: the guard stays silent and accounting and compl
   await h.cli('init', '--plan', h.write('plan.json', plan()));
   const { code, out } = await h.cli('run', '--all');
   assert.equal(code, 0);
-  assert.deepEqual(h.calls, ['bulldozer', 'strix-halo', 'zen:one', 'bulldozer', 'strix-halo', 'zen:two']);
+  assert.deepEqual(h.calls, ['piledriver', 'bulldozer', 'strix-halo', 'zen:one', 'bulldozer', 'strix-halo', 'zen:two']);
   assert.deepEqual(out.state.completed_milestones, ['one', 'two']);
   assert.ok(out.global_completion);
   const disk = JSON.parse(readFileSync(h.ledger, 'utf8'));
@@ -192,6 +195,13 @@ const { readFileSync, rmSync } = require('node:fs');
 const argv = process.argv.slice(2);
 if (argv[0] === 'models') {
   process.stdout.write(readFileSync(${JSON.stringify(join(dir, 'models.txt'))}, 'utf8'));
+} else if (argv[argv.indexOf('--model') + 1] === 'gemini-4-argon-high') {
+  process.stdout.write(JSON.stringify({
+    status: 'SUCCESS',
+    response: JSON.stringify({ recommendation: 'advisory planning pass', risks: [] }),
+    duration_seconds: 0.1,
+    usage: { input_tokens: 5, output_tokens: 5, total_tokens: 10 },
+  }));
 } else {
   rmSync(${JSON.stringify(ntg)}, { recursive: true, force: true });
   process.stdout.write(JSON.stringify({

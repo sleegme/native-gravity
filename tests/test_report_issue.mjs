@@ -746,6 +746,7 @@ test("ntg-vnext: no prompt can appear before main() settles and releases ledger 
     const events = [];
     const deps = {
       handleSignals: false,
+      requireInitialPlanning: false,
       invokeRole: async () => {
         events.push("main_executing");
         assert.ok(existsSync(lockPath), "ledger lock must be held during main execution");
