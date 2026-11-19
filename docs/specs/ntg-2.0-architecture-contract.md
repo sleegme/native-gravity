@@ -33,29 +33,29 @@ NTG 2.0 replaces the 1.x `MinimalSpine` loop with a clean-room hybrid control pl
 
 ```text
 USER (/ntg UX)
-  └─► STEAMROLLER  [Carbon Medium -> Gemini 4 Argon Medium; AGY Orchestrator excluded]
+  └─► STEAMROLLER  [Neon Medium -> Carbon Medium -> Gemini 4 Argon Medium; AGY Orchestrator excluded]
         │  (Autonomous Track L / S / M classification, routing, dynamic capability overrides,
         │   high-risk Zen escalation, Instinct invocation timing, retry judgment within cap)
         │
         ├─► Track L (HALO_LIGHTWEIGHT -> .ntg/lightweight-runs.jsonl)
         │     ├─► Direct Lightweight Workers: JAGUAR / PUMA (3.8 Flash Low) or BOBCAT (Hydrogen Medium)
-        │     └─► STRIX HALO (Hydrogen High) [REQUIRED completion gate; Zen OMITTED unless escalated]
+        │     └─► STRIX HALO (Neon Medium, High when needed) [REQUIRED completion gate; Zen OMITTED unless escalated]
         │
         ├─► Track S / Track M (ZEN_DURABLE -> .ntg/ledger.json)
-        │     ├─► PILEDRIVER (Gemini 4 Argon High, READ_ONLY) — architecture, milestone graph, replans
+        │     ├─► PILEDRIVER (Carbon High -> Gemini 4 Argon High, READ_ONLY) — architecture, milestone graph, replans
         │     ├─► Direct Workers: JAGUAR / PUMA (Flash Low) or BOBCAT (Hydrogen Medium)
-        │     ├─► BULLDOZER (Gemini 4 Hydrogen XHigh) — selective coordinator & primary recovery lead
+        │     ├─► BULLDOZER (Gemini 4 Neon High, XHigh when needed) — selective coordinator & primary recovery lead
         │     │     ├─► JAGUAR (Flash Low, READ_ONLY scout)
         │     │     ├─► PUMA (Flash Low, separate mechanical/formatting/config worker)
         │     │     ├─► BOBCAT (Hydrogen Medium, substantive implementation + local verification)
-        │     │     └─► STRIX HALO (Hydrogen High, READ_ONLY reviewer; callable by Steamroller/Bulldozer/Bobcat)
-        │     ├─► INSTINCT (Sonnet 5.5 High / Opus 5.5 High escalated, READ_ONLY) — autonomous alternate framing
-        │     └─► ZEN (Opus 5.5 High / Argon High quota fallback, non-mutating) — summative GO / NO-GO gate
+        │     │     └─► STRIX HALO (Neon Medium, High when needed, READ_ONLY reviewer; callable by Steamroller/Bulldozer/Bobcat)
+        │     ├─► INSTINCT (Opus 5.5 Low, READ_ONLY) — autonomous alternate framing
+        │     └─► ZEN (Sonnet 5.5 High / Argon High quota fallback, non-mutating) — summative GO / NO-GO gate
         │
-        └─► NAVI (Gemini 4 Argon Medium) — isolated Linux desktop leaf (private HOME, `cu` MCP only)
+        └─► NAVI (Gemini 4 Neon Medium experimental / Argon Medium fallback) — isolated Linux desktop leaf (private HOME, `cu` MCP only)
 ```
 
-**Retired completely:** `Excavator` (`agents/excavator.md`, `scripts/excavator-agy.mjs`, `hooks/excavator-shell-guard.py`) is permanently retired and replaced by **Bulldozer (Gemini 4 Hydrogen XHigh) + Instinct**.
+**Retired completely:** `Excavator` (`agents/excavator.md`, `scripts/excavator-agy.mjs`, `hooks/excavator-shell-guard.py`) is permanently retired and replaced by **Bulldozer (Gemini 4 Neon High / XHigh) + Instinct**.
 
 ---
 
@@ -67,22 +67,22 @@ Model slugs are resolved dynamically against the installed AGY catalog (`agy mod
 
 | Role | Primary Model Policy | Fallback / Escalation | Provenance | Authority & Permissions |
 |---|---|---|---|---|
-| **Steamroller** | `Carbon (Medium)` (when exposed on catalog) -> `Gemini 4 Argon (Medium)` (`gemini-4-argon-medium`); **excludes** `gemini-pro-orchestrator-g1-pro` | None | `PO_CONFIRMED` | Interactive AGY orchestrator + `LedgerKernel` owner; classifies tracks, routes work, manages dynamic overrides, triggers Instinct/Zen/Navi |
-| **Piledriver** | `Gemini 4 Argon (High)` | None | `PO_CONFIRMED` | `READ_ONLY` bounded architect, planner, and replan/NEEDS_DEEP advisor (no edits, no shell, no delegation) |
-| **Bulldozer** | `Gemini 4 Hydrogen (XHigh)` | None | `PO_CONFIRMED` | Selective coordinator & primary recovery lead; read tools + subagent orchestration (`jaguar`, `puma`, `bobcat`, `strix-halo`) + **general `run_command` shell access** guarded across shell & file tools by `hooks/shell-safety-guard.py` (no direct ledger/hook/plugin mutation, no Zen invocation) |
-| **Strix Halo** | `Gemini 4 Hydrogen (High)` | None | `PO_CONFIRMED` | `READ_ONLY` cross-caller reviewer (`view_file`, `grep_search`, `list_dir`, `find_by_name`); invocable by `steamroller`, `bulldozer`, and `bobcat` via unified `ReviewRequest`; returns `ACCEPT \| REVISE \| ESCALATE` |
+| **Steamroller** | `Gemini 4 Neon (Medium)` -> `Carbon (Medium)` (when exposed) -> `Gemini 4 Argon (Medium)`; **excludes** `gemini-pro-orchestrator-g1-pro`, `gemini-pro-orchestrator-neon` | Priority chain: `Neon -> Carbon -> Argon` | `PO_CONFIRMED` | Interactive AGY orchestrator + `LedgerKernel` owner; classifies tracks, routes work, manages dynamic overrides, triggers Instinct/Zen/Navi |
+| **Piledriver** | `Carbon (High)` (when exposed) -> `Gemini 4 Argon (High)` | Priority chain: `Carbon -> Argon` | `PO_CONFIRMED` | `READ_ONLY` bounded architect, planner, and replan/NEEDS_DEEP advisor (no edits, no shell, no delegation) |
+| **Bulldozer** | `Gemini 4 Neon (High)` | Escalation (`escalate: true`): `Gemini 4 Neon (XHigh)` | `PO_CONFIRMED` | Selective coordinator & primary recovery lead; read tools + subagent orchestration (`jaguar`, `puma`, `bobcat`, `strix-halo`) + **general `run_command` shell access** guarded across shell & file tools by `hooks/shell-safety-guard.py` (no direct ledger/hook/plugin mutation, no Zen invocation) |
+| **Strix Halo** | `Gemini 4 Neon (Medium)` | Escalation (`escalate: true`): `Gemini 4 Neon (High)` | `PO_CONFIRMED` | `READ_ONLY` cross-caller reviewer (`view_file`, `grep_search`, `list_dir`, `find_by_name`); invocable by `steamroller`, `bulldozer`, and `bobcat` via unified `ReviewRequest`; returns `ACCEPT \| REVISE \| ESCALATE` |
 | **Bobcat** | `Gemini 4 Hydrogen (Medium)` | None | `PO_CONFIRMED` | Substantive feature implementation, refactoring, stateful/API logic, bug fixes, and test authorship; file read/write + `run_command` (guarded) + `invoke_subagent` limited to `strix-halo` |
 | **Jaguar** | `Gemini 3.8 Flash (Low)` | Reroute to `bobcat` / `bulldozer` | `PO_CONFIRMED` | `READ_ONLY` lightweight codebase scout under Lightweight Worker Harness (no edits, no shell, no delegation) |
 | **Puma** | `Gemini 3.8 Flash (Low)` | Reroute to `bobcat` | `PO_CONFIRMED` | Separate lightweight mechanical, formatting & config worker under Lightweight Worker Harness (NOT merged into Bobcat; bounded text/config edits, no shell, no delegation) |
-| **Zen** | `Claude Opus 5.5 (High)` | Quota fallback: `Gemini 4 Argon (High)` (`EXISTING_BASELINE_DEFAULT`) | `PO_CONFIRMED` / `EXISTING_BASELINE_DEFAULT` | Non-mutating summative verifier (`GO \| NO-GO`); enforced at execution boundary across shell & file tools via runner-injected `NTG_ACTIVE_ROLE=zen`; zero edits or delegation |
-| **Instinct** | `Claude Sonnet 5.5 (High)` | Explicit escalation: `Claude Opus 5.5 (High)` | `EXISTING_BASELINE_DEFAULT` | `READ_ONLY` autonomous on-demand alternate-framing advisor (no edits, no shell, no delegation) |
-| **Navi** | `Gemini 4 Argon (Medium)` | None | `EXISTING_BASELINE_DEFAULT` | Isolated desktop GUI leaf via private HOME & `cu` MCP dispatcher (`NEEDS_CONFIRMATION` before external/irreversible actions) |
+| **Zen** | `Claude Sonnet 5.5 (High)` | Quota fallback: `Gemini 4 Argon (High)` (`EXISTING_BASELINE_DEFAULT`) | `PO_CONFIRMED` / `EXISTING_BASELINE_DEFAULT` | Non-mutating summative verifier (`GO \| NO-GO`); enforced at execution boundary across shell & file tools via runner-injected `NTG_ACTIVE_ROLE=zen`; zero edits or delegation |
+| **Instinct** | `Claude Opus 5.5 (Low)` | Explicit escalation: `Claude Opus 5.5 (High)` | `PO_CONFIRMED` / `EXISTING_BASELINE_DEFAULT` | `READ_ONLY` autonomous on-demand alternate-framing advisor (no edits, no shell, no delegation) |
+| **Navi** | `Gemini 4 Neon (Medium)` (**Experimental**) | Legacy fallback (`legacyFallback: true` or `NTG_NAVI_EXPERIMENTAL_NEON=0`): `Gemini 4 Argon (Medium)` | `PO_CONFIRMED` / `EXISTING_BASELINE_DEFAULT` | Isolated desktop GUI leaf via private HOME & `cu` MCP dispatcher (`NEEDS_CONFIRMATION` before external/irreversible actions) |
 
 ### 2.2 Capability vs. Authority Decoupling (`DI-NTG2-01`)
 
 > **Hard Invariant:** Model routing controls **capability/intelligence only**. Steamroller may dynamically override a role's model (fail-closed against the installed AGY catalog), but dynamic model overrides **NEVER** expand a role's tool permissions, mutation authority, delegation authority, or verification requirements.
 
-When a task exceeds a lightweight worker's capability (`3.8 Flash Low` on Jaguar/Puma), Steamroller or Bulldozer cleanly reroutes the work to `bobcat` (`Hydrogen Medium`) or `bulldozer` (`Hydrogen XHigh`), or applies an authorized capability upgrade without altering authority boundaries.
+When a task exceeds a lightweight worker's capability (`3.8 Flash Low` on Jaguar/Puma), Steamroller or Bulldozer cleanly reroutes the work to `bobcat` (`Hydrogen Medium`) or `bulldozer` (`Neon High` / `Neon XHigh`), or applies an authorized capability upgrade without altering authority boundaries. Because Steamroller and Strix Halo both default to `Neon Medium`, Strix Halo preserves verification independence through `READ_ONLY` isolation, strict digest binding (`reviewed_diff_digest`, `acceptance_criteria_digest`, `plan_version`, `evidence_basis`), optional escalation to `Neon High`, and mandatory heterogeneous `Zen (Claude Sonnet 5.5 High)` verification on Track S/M and high-risk escalations.
 
 ---
 

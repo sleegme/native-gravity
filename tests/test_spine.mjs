@@ -361,7 +361,7 @@ console.log(JSON.stringify({ status: 'SUCCESS', response: '' }));
     invokeRole: invoke,
     runnerOptions: {
       agyPath: script,
-      installedModels: [{ slug: 'gemini-4-hydrogen-xhigh', description: 'Gemini 4 Hydrogen (XHigh)' }],
+      installedModels: [{ slug: 'gemini-4-neon-high', description: 'Gemini 4 Neon (High)' }],
       env: { MUTATIONS_FILE: mutations },
     },
   });
@@ -2063,6 +2063,9 @@ test('repairStopQuestion names the milestone and offers plain choices', () => {
 test('SteamrollerController: Track L/S/M classification, authority-decoupled routing, and 3.8 Flash Low rerouting', () => {
   assert.equal(SteamrollerSpine, MinimalSpine);
   const installedModels = [
+    { slug: 'gemini-4-neon-medium', description: 'Gemini 4 Neon (Medium)' },
+    { slug: 'gemini-4-neon-high', description: 'Gemini 4 Neon (High)' },
+    { slug: 'gemini-4-neon-xhigh', description: 'Gemini 4 Neon (XHigh)' },
     { slug: 'gemini-4-argon-medium', description: 'Gemini 4 Argon (Medium)' },
     { slug: 'gemini-4-argon-high', description: 'Gemini 4 Argon (High)' },
     { slug: 'gemini-4-hydrogen-medium', description: 'Gemini 4 Hydrogen (Medium)' },
@@ -2070,6 +2073,7 @@ test('SteamrollerController: Track L/S/M classification, authority-decoupled rou
     { slug: 'gemini-4-hydrogen-xhigh', description: 'Gemini 4 Hydrogen (XHigh)' },
     { slug: 'gemini-3.8-flash-low', description: 'Gemini 3.8 Flash (Low)' },
     { slug: 'claude-sonnet-5-5-high', description: 'Claude Sonnet 5.5 (High)' },
+    { slug: 'claude-opus-5-5-low', description: 'Claude Opus 5.5 (Low)' },
     { slug: 'claude-opus-5-5-high', description: 'Claude Opus 5.5 (High)' },
   ];
   const controller = new SteamrollerController({
@@ -2100,7 +2104,7 @@ test('SteamrollerController: Track L/S/M classification, authority-decoupled rou
     targetFiles: ['a.mjs', 'b.mjs', 'c.mjs'],
   });
   assert.equal(mRoute.role, 'bulldozer');
-  assert.equal(mRoute.slug, 'gemini-4-hydrogen-xhigh');
+  assert.equal(mRoute.slug, 'gemini-4-neon-high');
 
   const overriddenPuma = controller.resolveRoleModel('puma', { modelOverride: 'gemini-4-hydrogen-medium' });
   assert.equal(overriddenPuma.overridden, true);
@@ -2308,10 +2312,12 @@ test('TrackRunner: Track L Halo binding, staleness rejection, high-risk Zen esca
   assert.equal(sRes.verified, true);
 });
 
-test('SteamrollerController.recoverMilestone: Bulldozer (Hydrogen XHigh) + on-demand Instinct bounded by max_recovery_retries = 3', async () => {
+test('SteamrollerController.recoverMilestone: Bulldozer (Neon High) + on-demand Instinct bounded by max_recovery_retries = 3', async () => {
   const installedModels = [
-    { slug: 'gemini-4-hydrogen-xhigh', description: 'Gemini 4 Hydrogen (XHigh)' },
+    { slug: 'gemini-4-neon-high', description: 'Gemini 4 Neon (High)' },
+    { slug: 'gemini-4-neon-xhigh', description: 'Gemini 4 Neon (XHigh)' },
     { slug: 'claude-sonnet-5-5-high', description: 'Claude Sonnet 5.5 (High)' },
+    { slug: 'claude-opus-5-5-low', description: 'Claude Opus 5.5 (Low)' },
     { slug: 'claude-opus-5-5-high', description: 'Claude Opus 5.5 (High)' },
   ];
   const ledger = new AuthoritativeLedger({
@@ -2350,7 +2356,7 @@ test('SteamrollerController.recoverMilestone: Bulldozer (Hydrogen XHigh) + on-de
     },
   });
   assert.equal(rec1.recovery_lead, 'bulldozer');
-  assert.equal(rec1.bulldozer_slug, 'gemini-4-hydrogen-xhigh');
+  assert.equal(rec1.bulldozer_slug, 'gemini-4-neon-high');
   assert.equal(rec1.attempt, 1);
   assert.equal(rec1.instinct_invoked, false);
 
@@ -2368,7 +2374,7 @@ test('SteamrollerController.recoverMilestone: Bulldozer (Hydrogen XHigh) + on-de
   });
   assert.equal(rec2.attempt, 2);
   assert.equal(rec2.instinct_invoked, true);
-  assert.equal(rec2.instinct_slug, 'claude-sonnet-5-5-high');
+  assert.equal(rec2.instinct_slug, 'claude-opus-5-5-low');
   assert.equal(ledger.getState().evidence.alt_framing.length, 1);
   assert.equal(ledger.getState().evidence.alt_framing[0].adopted, false);
 
@@ -2836,6 +2842,8 @@ test('Issue #233: TrackRunner Zen verification enforces LedgerKernel strict bind
 
 test('Issue #235: SteamrollerController semantic routing selects Puma/Jaguar/Bobcat/Bulldozer without lexical false promotions', () => {
   const installedModels = [
+    { slug: 'gemini-4-neon-medium', description: 'Gemini 4 Neon (Medium)' },
+    { slug: 'gemini-4-neon-high', description: 'Gemini 4 Neon (High)' },
     { slug: 'gemini-4-argon-medium', description: 'Gemini 4 Argon (Medium)' },
     { slug: 'gemini-4-hydrogen-medium', description: 'Gemini 4 Hydrogen (Medium)' },
     { slug: 'gemini-4-hydrogen-xhigh', description: 'Gemini 4 Hydrogen (XHigh)' },

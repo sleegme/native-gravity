@@ -2,23 +2,25 @@ import { spawnSync } from "node:child_process";
 import process from "node:process";
 
 /**
- * Models explicitly excluded from Steamroller default routing (PO_CONFIRMED).
+ * Models explicitly excluded from default routing (PO_CONFIRMED).
  */
 export const EXCLUDED_DEFAULT_MODELS = Object.freeze([
   "gemini-pro-orchestrator-g1-pro",
+  "gemini-pro-orchestrator-neon",
 ]);
 
 /**
- * Canonical NTG 2.0 role model policy table (ModelRouter).
+ * Canonical NTG v2.1.0 role model policy table (ModelRouter).
  * Capability selection only; never grants or expands role authority.
  */
 export const ROLE_POLICY_TABLE = Object.freeze({
   steamroller: Object.freeze({
     role: "steamroller",
-    family: "Gemini 4 Argon",
+    family: "Gemini 4 Neon",
     effort: "Medium",
     provenance: "PO_CONFIRMED",
     priorityCandidates: Object.freeze([
+      Object.freeze({ family: "Gemini 4 Neon", effort: "Medium", provenance: "PO_CONFIRMED" }),
       Object.freeze({ family: "Carbon", effort: "Medium", provenance: "PO_CONFIRMED" }),
       Object.freeze({ family: "Gemini 4 Argon", effort: "Medium", provenance: "PO_CONFIRMED" }),
     ]),
@@ -29,18 +31,35 @@ export const ROLE_POLICY_TABLE = Object.freeze({
     family: "Gemini 4 Argon",
     effort: "High",
     provenance: "PO_CONFIRMED",
+    priorityCandidates: Object.freeze([
+      Object.freeze({ family: "Carbon", effort: "High", provenance: "PO_CONFIRMED" }),
+      Object.freeze({ family: "Gemini 4 Argon", effort: "High", provenance: "PO_CONFIRMED" }),
+    ]),
+    excludedSlugs: EXCLUDED_DEFAULT_MODELS,
   }),
   bulldozer: Object.freeze({
     role: "bulldozer",
-    family: "Gemini 4 Hydrogen",
-    effort: "XHigh",
+    family: "Gemini 4 Neon",
+    effort: "High",
     provenance: "PO_CONFIRMED",
+    escalated: Object.freeze({
+      family: "Gemini 4 Neon",
+      effort: "XHigh",
+      provenance: "PO_CONFIRMED",
+    }),
+    excludedSlugs: EXCLUDED_DEFAULT_MODELS,
   }),
   "strix-halo": Object.freeze({
     role: "strix-halo",
-    family: "Gemini 4 Hydrogen",
-    effort: "High",
+    family: "Gemini 4 Neon",
+    effort: "Medium",
     provenance: "PO_CONFIRMED",
+    escalated: Object.freeze({
+      family: "Gemini 4 Neon",
+      effort: "High",
+      provenance: "PO_CONFIRMED",
+    }),
+    excludedSlugs: EXCLUDED_DEFAULT_MODELS,
   }),
   bobcat: Object.freeze({
     role: "bobcat",
@@ -62,7 +81,7 @@ export const ROLE_POLICY_TABLE = Object.freeze({
   }),
   zen: Object.freeze({
     role: "zen",
-    family: "Claude Opus 5.5",
+    family: "Claude Sonnet 5.5",
     effort: "High",
     provenance: "PO_CONFIRMED",
     quotaFallback: Object.freeze({
@@ -73,9 +92,9 @@ export const ROLE_POLICY_TABLE = Object.freeze({
   }),
   instinct: Object.freeze({
     role: "instinct",
-    family: "Claude Sonnet 5.5",
-    effort: "High",
-    provenance: "EXISTING_BASELINE_DEFAULT",
+    family: "Claude Opus 5.5",
+    effort: "Low",
+    provenance: "PO_CONFIRMED",
     escalated: Object.freeze({
       family: "Claude Opus 5.5",
       effort: "High",
@@ -84,9 +103,16 @@ export const ROLE_POLICY_TABLE = Object.freeze({
   }),
   navi: Object.freeze({
     role: "navi",
-    family: "Gemini 4 Argon",
+    family: "Gemini 4 Neon",
     effort: "Medium",
-    provenance: "EXISTING_BASELINE_DEFAULT",
+    experimental: true,
+    provenance: "PO_CONFIRMED",
+    legacyFallback: Object.freeze({
+      family: "Gemini 4 Argon",
+      effort: "Medium",
+      provenance: "EXISTING_BASELINE_DEFAULT",
+    }),
+    excludedSlugs: EXCLUDED_DEFAULT_MODELS,
   }),
 });
 
@@ -516,6 +542,20 @@ function getInstalledCatalog(normalized, opts = {}) {
   return Array.isArray(installed) ? installed : [installed];
 }
 
+const NAVI_LEGACY_DISABLE_VALUES = new Set(["0", "false", "off", "legacy", "argon"]);
+
+/**
+ * Returns true when Navi's experimental Gemini 4 Neon routing is explicitly
+ * reverted to its legacy Gemini 4 Argon (Medium) baseline via option or env.
+ */
+export function isNaviLegacyFallbackRequested(opts = {}) {
+  if (opts?.legacyFallback) return true;
+  const envSource = opts?.env && typeof opts.env === "object" ? opts.env : process.env;
+  const raw = envSource?.NTG_NAVI_EXPERIMENTAL_NEON;
+  if (raw === undefined || raw === null) return false;
+  return NAVI_LEGACY_DISABLE_VALUES.has(String(raw).trim().toLowerCase());
+}
+
 /**
  * Resolves a role name to its exact AGY model slug against the installed AGY catalog.
  * Fails closed when absent, ambiguous, excluded, or attempting authority expansion.
@@ -549,7 +589,8 @@ export function resolveSlug(role, opts = {}) {
 
   const override =
     (opts?.escalate && basePolicy?.escalated) ||
-    (opts?.quotaFallback && basePolicy?.quotaFallback);
+    (opts?.quotaFallback && basePolicy?.quotaFallback) ||
+    (normalized === "navi" && isNaviLegacyFallbackRequested(opts) && basePolicy?.legacyFallback);
 
   if (override) {
     const overridePolicy = Object.freeze({
@@ -639,10 +680,13 @@ export class ModelRouter {
     const slug = resolveSlug(normalized, merged);
     const authority = getRoleAuthority(normalized);
     const policy = ROLE_POLICY_TABLE[normalized];
+    const overridden = merged.modelOverride !== undefined && merged.modelOverride !== null;
+    const legacyFallback = normalized === "navi" && isNaviLegacyFallbackRequested(merged);
     return Object.freeze({
       role: normalized,
       slug,
-      overridden: merged.modelOverride !== undefined && merged.modelOverride !== null,
+      overridden,
+      experimental: Boolean(policy.experimental && !legacyFallback && !overridden),
       provenance: policy.provenance,
       authority,
     });

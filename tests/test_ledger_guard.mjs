@@ -167,9 +167,15 @@ test('a normal run is unchanged: the guard stays silent and accounting and compl
 // The real CLI surface through a fake agy that reproduces the incident: the
 // Bulldozer invocation deletes .ntg/ and still returns a valid DONE packet.
 const MODELS = [
+  'gemini-4-neon-medium\tGemini 4 Neon (Medium)',
+  'gemini-4-neon-high\tGemini 4 Neon (High)',
+  'gemini-4-neon-xhigh\tGemini 4 Neon (XHigh)',
   'gemini-4-argon-high\tGemini 4 Argon (High)',
+  'gemini-4-hydrogen-medium\tGemini 4 Hydrogen (Medium)',
   'gemini-4-hydrogen-xhigh\tGemini 4 Hydrogen (XHigh)',
   'gemini-3.8-flash-high\tGemini 3.8 Flash (High)',
+  'claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)',
+  'claude-opus-5-5-low\tClaude Opus 5.5 (Low)',
   'claude-opus-5-5-high\tClaude Opus 5.5 (High)',
 ].join('\n');
 

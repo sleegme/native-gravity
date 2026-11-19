@@ -702,7 +702,7 @@ test('native Zen is model-pinned by policy and never by --agent', t => {
 
   const args = zenArgs(agy);
   assert.equal(args.includes('--agent'), false);
-  assert.equal(args[args.indexOf('--model') + 1], 'claude-opus-5-5-high');
+  assert.equal(args[args.indexOf('--model') + 1], 'claude-sonnet-5-5-high');
   assert.equal(args[args.indexOf('--output-format') + 1], 'json');
   assert.ok(args.includes('--dangerously-skip-permissions'));
   assert.ok(args.includes('-p'));
@@ -728,7 +728,7 @@ if (argv[0] === 'models') {
 } else {
   const slug = argv[argv.indexOf('--model') + 1];
   appendFileSync(${JSON.stringify(join(dir, 'calls.txt'))}, slug + '\\n');
-  if (slug === 'claude-opus-5-5-high' || slug === 'pinned-slug') {
+  if (slug === 'claude-sonnet-5-5-high' || slug === 'pinned-slug') {
     process.stderr.write('AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429}\\n');
     process.exit(3);
   }
@@ -738,12 +738,12 @@ if (argv[0] === 'models') {
   return { agy, calls: () => readFileSync(join(dir, 'calls.txt'), 'utf8').trim().split('\n') };
 }
 
-test('native Zen retries once on Argon High when Opus is out of quota', t => {
-  const { agy, calls } = quotaZen(t, 'claude-opus-5-5-high\tClaude Opus 5.5 (High)\ngemini-4-argon-high\tGemini 4 Argon (High)');
+test('native Zen retries once on Argon High when Sonnet is out of quota', t => {
+  const { agy, calls } = quotaZen(t, 'claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)\ngemini-4-argon-high\tGemini 4 Argon (High)');
   const result = nativeZen({}, { agyPath: agy });
   assert.equal(result.verdict, 'GO');
   assert.equal(result.slug, 'gemini-4-argon-high');
-  assert.deepEqual(calls(), ['claude-opus-5-5-high', 'gemini-4-argon-high']);
+  assert.deepEqual(calls(), ['claude-sonnet-5-5-high', 'gemini-4-argon-high']);
 });
 
 test('a pinned NTG_ZEN_MODEL does not fall back on quota', t => {
@@ -936,6 +936,7 @@ console.log(JSON.stringify({
     runnerOptions: {
       agyPath: agy,
       installedModels: [
+        { slug: 'gemini-4-neon-high', description: 'Gemini 4 Neon (High)' },
         { slug: 'gemini-4-hydrogen-xhigh', description: 'Gemini 4 Hydrogen (XHigh)' },
         { slug: 'gemini-3.8-flash-high', description: 'Gemini 3.8 Flash (High)' },
       ],
@@ -1031,6 +1032,7 @@ console.log(JSON.stringify({
     runnerOptions: {
       agyPath: agy,
       installedModels: [
+        { slug: 'gemini-4-neon-high', description: 'Gemini 4 Neon (High)' },
         { slug: 'gemini-4-hydrogen-xhigh', description: 'Gemini 4 Hydrogen (XHigh)' },
         { slug: 'gemini-3.8-flash-high', description: 'Gemini 3.8 Flash (High)' },
       ],

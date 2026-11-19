@@ -23,15 +23,21 @@ import { ZenReviewPendingError, nativeZen } from '../scripts/ntg-vnext.mjs';
 // SKIP_LIVE_TESTS=1, and an exhausted Argon pool trips a run-scoped breaker.
 
 const INSTALLED = [
+  { slug: 'gemini-4-neon-medium', description: 'Gemini 4 Neon (Medium)' },
+  { slug: 'gemini-4-neon-high', description: 'Gemini 4 Neon (High)' },
+  { slug: 'gemini-4-neon-xhigh', description: 'Gemini 4 Neon (XHigh)' },
   { slug: 'gemini-4-argon-high', description: 'Gemini 4 Argon (High)' },
   { slug: 'gemini-4-argon-medium', description: 'Gemini 4 Argon (Medium)' },
+  { slug: 'gemini-4-hydrogen-medium', description: 'Gemini 4 Hydrogen (Medium)' },
   { slug: 'gemini-4-hydrogen-xhigh', description: 'Gemini 4 Hydrogen (XHigh)' },
   { slug: 'gemini-3.8-flash-high', description: 'Gemini 3.8 Flash (High)' },
+  { slug: 'claude-sonnet-5-5-high', description: 'Claude Sonnet 5.5 (High)' },
+  { slug: 'claude-opus-5-5-low', description: 'Claude Opus 5.5 (Low)' },
   { slug: 'claude-opus-5-5-high', description: 'Claude Opus 5.5 (High)' },
 ];
 
 /** Real tab/newline `agy models` surface for the two zen policy models. */
-const ZEN_SURFACE = 'claude-opus-5-5-high\tClaude Opus 5.5 (High)\ngemini-4-argon-high\tGemini 4 Argon (High)\n';
+const ZEN_SURFACE = 'claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)\ngemini-4-argon-high\tGemini 4 Argon (High)\n';
 
 function withEnv(t, patch) {
   const saved = {};
@@ -134,7 +140,7 @@ test('listInstalledModels refuses the ambient agy under node --test; an explicit
 
   const models = listInstalledModels({ agyPath: mock.agy });
   assert.equal(models.length, INSTALLED.length);
-  assert.equal(models[0].slug, 'gemini-4-argon-high');
+  assert.equal(models[0].slug, INSTALLED[0].slug);
   assert.deepEqual(mock.calls(), ['models']);
 });
 
@@ -228,7 +234,7 @@ test('an Argon quota failure trips the breaker; later Argon seats fail fast, Fla
   // Non-Argon seats are unaffected by the Argon breaker.
   const flash = await invoke('bulldozer', { task: 'TASK_MARKER' }, opts);
   assert.equal(flash.ok, true, JSON.stringify(flash));
-  assert.deepEqual(mock.calls(), ['gemini-4-argon-high', 'gemini-4-hydrogen-xhigh']);
+  assert.deepEqual(mock.calls(), ['gemini-4-argon-high', 'gemini-4-neon-high']);
 });
 
 test('zen stops review-pending when the Argon fallback pool is also exhausted', t => {
@@ -247,7 +253,7 @@ if (argv[0] === 'models') {
 }
 const slug = argv[argv.indexOf('--model') + 1];
 appendFileSync(${JSON.stringify(callsFile)}, slug + '\\n');
-if (slug === 'claude-opus-5-5-high') {
+if (slug === 'claude-sonnet-5-5-high') {
   process.stderr.write('AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429}\\n');
   process.exit(3);
 }
@@ -262,7 +268,7 @@ process.exit(3);
     && err.reset_seconds === 18000
     && /review/.test(err.message));
   assert.deepEqual(readFileSync(callsFile, 'utf8').split('\n').filter(Boolean),
-    ['claude-opus-5-5-high', 'gemini-4-argon-high']);
+    ['claude-sonnet-5-5-high', 'gemini-4-argon-high']);
   assert.equal(argonQuotaBreakerState().seat, 'zen');
 });
 
@@ -282,7 +288,7 @@ if (argv[0] === 'models') {
 }
 const slug = argv[argv.indexOf('--model') + 1];
 appendFileSync(${JSON.stringify(callsFile)}, slug + '\\n');
-if (slug === 'claude-opus-5-5-high') {
+if (slug === 'claude-sonnet-5-5-high') {
   process.stderr.write('AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429}\\n');
   process.exit(3);
 }
@@ -291,6 +297,6 @@ process.exit(0);
   withEnv(t, { NTG_ZEN_MODEL: undefined, AGY_PATH: undefined, NTG_LIVE_TESTS: undefined });
 
   assert.throws(() => nativeZen({}, { agyPath: agy }), ZenReviewPendingError);
-  // The Argon fallback was never spawned: only the exhausted Opus attempt.
-  assert.deepEqual(readFileSync(callsFile, 'utf8').split('\n').filter(Boolean), ['claude-opus-5-5-high']);
+  // The Argon fallback was never spawned: only the exhausted Sonnet attempt.
+  assert.deepEqual(readFileSync(callsFile, 'utf8').split('\n').filter(Boolean), ['claude-sonnet-5-5-high']);
 });

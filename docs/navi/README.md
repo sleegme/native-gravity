@@ -1,8 +1,9 @@
 # Navi: bounded Linux desktop access
 
 Navi is named for AMD's Navi GPU architecture and "navigate". Steamroller
-requests this desktop leaf through the exact-model runner on Gemini 4 Argon /
-Medium. The runner invocation builds a private per-process config root that
+requests this desktop leaf through the exact-model runner on Gemini 4 Neon /
+Medium (experimental; set `NTG_NAVI_EXPERIMENTAL_NEON=0` or pass
+`legacyFallback: true` to revert to Gemini 4 Argon / Medium). The runner invocation builds a private per-process config root that
 registers only the desktop server `cu`; the model reaches its tools through
 AGY's generic `call_mcp_tool` dispatcher, because AGY does not list MCP tools
 by name. No agent frontmatter, plugin, global or workspace MCP configuration

@@ -8,7 +8,7 @@
 
 Native Gravity 2.0(NTG 2.0)은 Google Antigravity(`agy`) 위에서 동작하는 하이브리드 오케스트레이션 플러그인으로, 인터랙티브 **Steamroller**와 **`LedgerKernel`** (`src/core/ledger-kernel.mjs`), **`LightweightLog`** (`src/core/lightweight-log.mjs`)를 중심으로 동작합니다.
 
-`/ntg <할 일>`만 입력하면 Steamroller가 작업 규모와 위험도를 판단해 **Track L (`HALO_LIGHTWEIGHT`)**, **Track S (`ZEN_DURABLE`)**, **Track M (`ZEN_DURABLE`)** 중 적절한 경로를 선택하고, 직접 실행/경량 워커(`Jaguar`/`Puma`/`Bobcat`) 또는 **Bulldozer** (`Gemini 4 Hydrogen XHigh`) 위임, **Strix Halo** 품질 리뷰, **Zen** 독립 검수, 세션 밖 진행 상태 저장을 자동으로 처리합니다.
+`/ntg <할 일>`만 입력하면 Steamroller가 작업 규모와 위험도를 판단해 **Track L (`HALO_LIGHTWEIGHT`)**, **Track S (`ZEN_DURABLE`)**, **Track M (`ZEN_DURABLE`)** 중 적절한 경로를 선택하고, 직접 실행/경량 워커(`Jaguar`/`Puma`/`Bobcat`) 또는 **Bulldozer** (`Gemini 4 Neon High` / `XHigh`) 위임, **Strix Halo** 품질 리뷰, **Zen** 독립 검수, 세션 밖 진행 상태 저장을 자동으로 처리합니다.
 
 ## 주요 기능
 

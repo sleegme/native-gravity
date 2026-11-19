@@ -16,6 +16,7 @@ public class FakeWindowsAgy {
             return 0;
         }
         if (args.Length > 0 && args[0] == "models") {
+            Console.WriteLine("gemini-4-neon-medium Gemini 4 Neon Medium");
             Console.WriteLine("gemini-4-argon-medium Gemini 4 Argon Medium");
             return 0;
         }

@@ -12,22 +12,22 @@ This is the routing, authority, and verification contract for the Native Gravity
 
 ```text
 User (/ntg)
-  Steamroller — interactive AGY orchestrator & LedgerKernel owner (Carbon Medium -> Argon Medium; AGY Orchestrator excluded)
+  Steamroller — interactive AGY orchestrator & LedgerKernel owner (Neon Medium -> Carbon Medium -> Argon Medium; AGY Orchestrator excluded)
     Track L (HALO_LIGHTWEIGHT -> .ntg/lightweight-runs.jsonl)
       Jaguar / Puma (3.8 Flash Low, Lightweight Worker Harness) or Bobcat (Hydrogen Medium)
-      Strix Halo (Hydrogen High) — REQUIRED completion gate (Zen OMITTED unless escalated)
+      Strix Halo (Neon Medium, High when needed) — REQUIRED completion gate (Zen OMITTED unless escalated)
     Track S / Track M (ZEN_DURABLE -> .ntg/ledger.json)
-      Piledriver (Argon High, READ_ONLY) — architecture, milestone graph, replans, NEEDS_DEEP
+      Piledriver (Carbon High -> Argon High, READ_ONLY) — architecture, milestone graph, replans, NEEDS_DEEP
       Jaguar / Puma / Bobcat — direct workers when bounded
-      Bulldozer (Hydrogen XHigh) — selective coordinator, primary recovery lead, guarded general shell
+      Bulldozer (Neon High, XHigh when needed) — selective coordinator, primary recovery lead, guarded general shell
         Jaguar (3.8 Flash Low) / Puma (3.8 Flash Low) / Bobcat (Hydrogen Medium)
-        Strix Halo (Hydrogen High) — callable by Steamroller, Bulldozer, or Bobcat
-      Instinct (Sonnet 5.5 High / Opus 5.5 High escalated, READ_ONLY) — autonomous alternate framing
-      Zen (Opus 5.5 High / Argon High fallback, non-mutating) — independent summative GO / NO-GO gate
-    Navi (Argon Medium) — isolated Linux desktop leaf (private HOME, `cu` MCP only)
+        Strix Halo (Neon Medium, High when needed) — callable by Steamroller, Bulldozer, or Bobcat
+      Instinct (Opus 5.5 Low, READ_ONLY) — autonomous alternate framing
+      Zen (Sonnet 5.5 High / Argon High fallback, non-mutating) — independent summative GO / NO-GO gate
+    Navi (Neon Medium experimental / Argon Medium fallback) — isolated Linux desktop leaf (private HOME, `cu` MCP only)
 ```
 
-Excavator is **COMPLETELY RETIRED** and replaced by **Bulldozer (Hydrogen XHigh) + Instinct**. The graph stays shallow (no unbounded coordination runtime).
+Excavator is **COMPLETELY RETIRED** and replaced by **Bulldozer (Neon High / XHigh) + Instinct**. The graph stays shallow (no unbounded coordination runtime).
 
 ## Routing by kind of work
 
@@ -36,18 +36,18 @@ Excavator is **COMPLETELY RETIRED** and replaced by **Bulldozer (Hydrogen XHigh)
 | Factual discovery, locate existing behavior | `jaguar` (`Gemini 3.8 Flash Low`, `READ_ONLY`, Lightweight Worker Harness) |
 | Small, clear, low-risk mechanical / formatting / config edits | `puma` (`Gemini 3.8 Flash Low`, kept separate from `bobcat`) |
 | Substantive implementation, stateful/API logic, bug fixes, tests | `bobcat` (`Gemini 4 Hydrogen Medium`) |
-| Cross-caller implementation / quality review | `strix-halo` (`Gemini 4 Hydrogen High`, `READ_ONLY`; callable by `steamroller`, `bulldozer`, `bobcat`) |
-| Complex milestones, multi-worker synthesis, failure recovery | `bulldozer` (`Gemini 4 Hydrogen XHigh`, selective coordinator + general shell under universal guard) |
-| Planning, architecture, ambiguity, replan / `NEEDS_DEEP` | `piledriver` (`Gemini 4 Argon High`, `READ_ONLY` advisory via `steamroller`) |
-| Alternate causal framing / second-leg recovery | `instinct` (`Claude Sonnet 5.5 High` / `Opus 5.5 High` escalated, `READ_ONLY` autonomous via `steamroller`) |
-| Independent summative verification | `zen` (`Claude Opus 5.5 High` / `Gemini 4 Argon High` quota fallback, non-mutating via `steamroller`) |
-| Linux desktop observation & bounded interaction | `navi` (`Gemini 4 Argon Medium`, isolated private HOME leaf via `steamroller`) |
+| Cross-caller implementation / quality review | `strix-halo` (`Gemini 4 Neon Medium`, `Neon High` when needed, `READ_ONLY`; callable by `steamroller`, `bulldozer`, `bobcat`) |
+| Complex milestones, multi-worker synthesis, failure recovery | `bulldozer` (`Gemini 4 Neon High`, `Neon XHigh` when needed, selective coordinator + general shell under universal guard) |
+| Planning, architecture, ambiguity, replan / `NEEDS_DEEP` | `piledriver` (`Carbon High -> Gemini 4 Argon High`, `READ_ONLY` advisory via `steamroller`) |
+| Alternate causal framing / second-leg recovery | `instinct` (`Claude Opus 5.5 Low`, `READ_ONLY` autonomous via `steamroller`) |
+| Independent summative verification | `zen` (`Claude Sonnet 5.5 High` / `Gemini 4 Argon High` quota fallback, non-mutating via `steamroller`) |
+| Linux desktop observation & bounded interaction | `navi` (`Gemini 4 Neon Medium` experimental / `Gemini 4 Argon Medium` fallback, isolated private HOME leaf via `steamroller`) |
 
 ## Steamroller — interactive orchestrator & kernel owner
 
 Steamroller operates as an interactive AGY orchestrator coupled with `LedgerKernel` (`src/core/ledger-kernel.mjs`) and `LightweightLog` (`src/core/lightweight-log.mjs`). It autonomously:
 - Classifies work into **Track L**, **Track S**, or **Track M**;
-- Routes work directly to lightweight/implementation workers (`jaguar`, `puma`, `bobcat`) or delegates complex/recovery milestones to `bulldozer` (`Hydrogen XHigh`);
+- Routes work directly to lightweight/implementation workers (`jaguar`, `puma`, `bobcat`) or delegates complex/recovery milestones to `bulldozer` (`Neon High`, escalating to `Neon XHigh` when needed);
 - Judges high-risk escalation (requiring `zen` even for small high-risk tasks);
 - Selects `instinct` invocation timing and failure retry counts within `LedgerKernel`'s orchestration-level hard safety cap (default `3`);
 - Applies dynamic model capability overrides via `ModelRouter` (`src/core/model-router.mjs`), validated fail-closed against the installed AGY catalog.
@@ -93,11 +93,11 @@ Any change to delivered files/diff digest, acceptance criteria, `plan_version`, 
 
 ## Bulldozer, workers & Strix Halo
 
-- **Bulldozer (`Gemini 4 Hydrogen XHigh`)**: Accepts one current-version milestone packet, coordinates `jaguar`, `puma`, `bobcat`, and `strix-halo`, and holds **general `run_command` shell access** guarded universally across shell and file-mutation tools by `hooks/shell-safety-guard.py`. Leads root-cause failure recovery (replacing retired Excavator) alongside `instinct`. Cannot mutate protected ledger/hook/plugin paths, invoke Zen, or issue `result_ref`.
+- **Bulldozer (`Gemini 4 Neon High`, `Neon XHigh` when needed)**: Accepts one current-version milestone packet, coordinates `jaguar`, `puma`, `bobcat`, and `strix-halo`, and holds **general `run_command` shell access** guarded universally across shell and file-mutation tools by `hooks/shell-safety-guard.py`. Leads root-cause failure recovery (replacing retired Excavator) alongside `instinct`. Cannot mutate protected ledger/hook/plugin paths, invoke Zen, or issue `result_ref`.
 - **Jaguar (`Gemini 3.8 Flash Low`)**: `READ_ONLY` codebase scout under Lightweight Worker Harness. Tasks needing deep cross-cutting reasoning reroute cleanly to `bobcat` / `bulldozer`.
 - **Puma (`Gemini 3.8 Flash Low`)**: Separate mechanical, formatting, and config worker under Lightweight Worker Harness (NOT merged into `bobcat`). Substantive code/state/test tasks reroute to `bobcat`.
 - **Bobcat (`Gemini 4 Hydrogen Medium`)**: Substantive implementation, refactoring, stateful/API logic, bug fixes, and test authorship (`run_command` guarded; `invoke_subagent` limited to `strix-halo`).
-- **Strix Halo (`Gemini 4 Hydrogen High`)**: `READ_ONLY` cross-caller reviewer (`steamroller`, `bulldozer`, `bobcat`) returning `ACCEPT | REVISE | ESCALATE`.
+- **Strix Halo (`Gemini 4 Neon Medium`, `Neon High` when needed)**: `READ_ONLY` cross-caller reviewer (`steamroller`, `bulldozer`, `bobcat`) returning `ACCEPT | REVISE | ESCALATE`. Evaluates strictly from inspected artifacts and bound digests (never trusting caller summaries) and escalates to `Neon High` or heterogeneous `Zen` when risk warrants.
 
 ## Model-Aware Harness & observation-first telemetry
 
@@ -119,15 +119,15 @@ Any change to delivered files/diff digest, acceptance criteria, `plan_version`, 
 
 | Role | Model policy | Effort | Invocation |
 |---|---|---|---|
-| `steamroller` | `Carbon` (when exposed) -> `Gemini 4 Argon` (excludes `gemini-pro-orchestrator-g1-pro`) | `Medium` | Interactive / `ModelRouter` |
-| `piledriver` | `Gemini 4 Argon` | `High` | `ModelRouter` / runner |
-| `bulldozer` | `Gemini 4 Hydrogen` | `XHigh` | `ModelRouter` / runner |
-| `strix-halo` | `Gemini 4 Hydrogen` | `High` | Native / cross-caller `ReviewRequest` |
+| `steamroller` | `Gemini 4 Neon` -> `Carbon` (when exposed) -> `Gemini 4 Argon` (excludes `gemini-pro-orchestrator-g1-pro`, `gemini-pro-orchestrator-neon`) | `Medium` | Interactive / `ModelRouter` |
+| `piledriver` | `Carbon` (when exposed) -> `Gemini 4 Argon` | `High` | `ModelRouter` / runner |
+| `bulldozer` | `Gemini 4 Neon` | `High` (`XHigh` when needed) | `ModelRouter` / runner |
+| `strix-halo` | `Gemini 4 Neon` | `Medium` (`High` when needed) | Native / cross-caller `ReviewRequest` |
 | `bobcat` | `Gemini 4 Hydrogen` | `Medium` | Native worker |
 | `jaguar` | `Gemini 3.8 Flash` | `Low` | Native worker (Lightweight Harness) |
 | `puma` | `Gemini 3.8 Flash` | `Low` | Native worker (Lightweight Harness) |
-| `zen` | `Claude Opus 5.5` (quota fallback: `Gemini 4 Argon`) | `High` | Native invocation (`NTG_ACTIVE_ROLE=zen`) |
-| `instinct` | `Claude Sonnet 5.5` (escalated: `Claude Opus 5.5`) | `High` | `ModelRouter` / runner |
-| `navi` | `Gemini 4 Argon` | `Medium` | Isolated desktop leaf |
+| `zen` | `Claude Sonnet 5.5` (quota fallback: `Gemini 4 Argon`) | `High` | Native invocation (`NTG_ACTIVE_ROLE=zen`) |
+| `instinct` | `Claude Opus 5.5` | `Low` | `ModelRouter` / runner |
+| `navi` | `Gemini 4 Neon` (Experimental; legacy fallback: `Gemini 4 Argon` via `NTG_NAVI_EXPERIMENTAL_NEON=0` or `legacyFallback: true`) | `Medium` | Isolated desktop leaf |
 
 `listInstalledModels()` caches `agy models` at runner session scope (#230).
