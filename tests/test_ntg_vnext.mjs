@@ -2049,3 +2049,130 @@ test('Piledriver advisory with plan_defects halts before worker execution, valid
   assert.equal(lwPlannerCalls, 1, 'Piledriver must not re-run after worker failure for the same (runId, planVersion)');
   assert.equal(lwWorkerCalls, 2);
 });
+
+test('Track L CLI returns exit code 2 on blocking Piledriver prose advice and reuses deterministic run_id planning receipt on retry without --milestone', async t => {
+  // 1. CLI Track L with non-keyword blocking prose advice -> exit code 2, NEEDS_REPLAN, zero worker calls.
+  const dir1 = mkdtempSync(join(tmpdir(), 'ntg-cli-trackl-defect-'));
+  t.after(() => rmSync(dir1, { recursive: true, force: true }));
+  const ledger1 = join(dir1, 'ledger.json');
+  let workerRan = false;
+  const defectRes = await main(['run', '--ledger', ledger1, '--track', 'L', '--task', 'Update interface doc'], {
+    handleSignals: false,
+    invokeRole: async (role) => {
+      if (role === 'piledriver') {
+        return envelope({
+          recommendation: 'Do not proceed; unsafe interface assumptions detected',
+        });
+      }
+      workerRan = true;
+      return envelope({});
+    },
+    invokeSpecialist: async () => {
+      workerRan = true;
+      return { status: 'READY', changes_made: ['README.md'] };
+    },
+  });
+  assert.equal(defectRes.code, 2, 'Track L NEEDS_REPLAN must exit nonzero (2), never 0');
+  assert.equal(defectRes.out.status, 'NEEDS_REPLAN');
+  assert.equal(defectRes.out.planning_pass.adopted, false);
+  assert.equal(defectRes.out.supervisor_decision.decision, 'REPLAN_REQUIRED');
+  assert.equal(defectRes.out.assurance_badge, undefined);
+  assert.equal(workerRan, false, 'Workers must not run when Piledriver gives blocking prose advice');
+
+  // 2. CLI Track L retry without --milestone reuses deterministic run_id and skips Piledriver after worker failure.
+  const dir2 = mkdtempSync(join(tmpdir(), 'ntg-cli-trackl-retry-'));
+  t.after(() => rmSync(dir2, { recursive: true, force: true }));
+  const ledger2 = join(dir2, 'ledger.json');
+  let piledriverCalls = 0;
+  let workerCalls = 0;
+  const retryDeps = {
+    handleSignals: false,
+    invokeRole: async (role, packet) => {
+      if (role === 'piledriver') {
+        piledriverCalls += 1;
+        return envelope({ recommendation: 'safe bounded edit', risks: [] });
+      }
+      if (role === 'strix-halo') {
+        const req = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+        return envelope({
+          caller: req.caller,
+          candidate_id_or_run_id: req.candidate_id_or_run_id,
+          reviewed_diff_digest: req.reviewed_diff_digest,
+          acceptance_criteria_digest: req.acceptance_criteria_digest,
+          plan_version: req.plan_version,
+          evidence_basis: req.evidence_basis,
+          verdict: 'ACCEPT',
+          findings: [],
+        });
+      }
+      workerCalls += 1;
+      if (workerCalls === 1) throw new Error('transient track-l cli worker failure');
+      return envelope({ status: 'READY', changes_made: ['README.md'], verification_evidence: ['checked'] });
+    },
+  };
+
+  await assert.rejects(
+    main(['run', '--ledger', ledger2, '--track', 'L', '--task', 'Fix README typo'], retryDeps),
+    /transient track-l cli worker failure/
+  );
+  assert.equal(piledriverCalls, 1);
+  assert.equal(workerCalls, 1);
+
+  const secondCli = await main(['run', '--ledger', ledger2, '--track', 'L', '--task', 'Fix README typo'], retryDeps);
+  assert.equal(secondCli.code, 0);
+  assert.equal(piledriverCalls, 1, 'Retrying the same Track L CLI task without --milestone must reuse the persisted planning receipt');
+  assert.equal(workerCalls, 2);
+  assert.ok(secondCli.out.run_id && secondCli.out.run_id.startsWith('track-l-'));
+
+  // 3. CLI Track M with non-keyword blocking prose halts with exit code 2, and custom reviewPlanningAdvice can override.
+  const dir3 = mkdtempSync(join(tmpdir(), 'ntg-cli-trackm-prose-'));
+  t.after(() => rmSync(dir3, { recursive: true, force: true }));
+  const ledger3 = join(dir3, 'ledger.json');
+  const plan3 = join(dir3, 'plan.json');
+  writeFileSync(plan3, JSON.stringify(plan('v1', ['one'])));
+  await main(['init', '--ledger', ledger3, '--plan', plan3], { handleSignals: false });
+  let mWorkers = 0;
+  const mDeps = {
+    handleSignals: false,
+    invokeRole: async (role, packet) => {
+      if (role === 'piledriver') {
+        return envelope({ recommendation: 'Do not proceed; unsafe interface assumptions' });
+      }
+      if (role === 'strix-halo') {
+        const req = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+        return envelope({
+          caller: req.caller,
+          candidate_id_or_run_id: req.candidate_id_or_run_id,
+          reviewed_diff_digest: req.reviewed_diff_digest,
+          acceptance_criteria_digest: req.acceptance_criteria_digest,
+          plan_version: req.plan_version,
+          evidence_basis: req.evidence_basis,
+          verdict: 'ACCEPT',
+          findings: [],
+        });
+      }
+      mWorkers += 1;
+      const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+      return envelope({
+        milestone_id: contract.milestone_id, plan_version: contract.plan_version, status: 'DONE',
+        changes_made: contract.bounded_scope, verification_evidence: observed, unresolved_unknowns: [],
+        scope_deviations: [], candidate_artifact_ref: 'sha256:one',
+      });
+    },
+    invokeZen: async (req) => ({
+      milestone_id: req.milestone_id, plan_version: req.plan_version, result_ref: req.result_ref,
+      verdict: 'GO', verification_evidence: observed,
+    }),
+  };
+  const mBlocked = await main(['run', '--ledger', ledger3, '--track', 'M'], mDeps);
+  assert.equal(mBlocked.code, 2);
+  assert.equal(mBlocked.out.results[0].status, 'NEEDS_REPLAN');
+  assert.equal(mWorkers, 0);
+
+  const mApproved = await main(['run', '--ledger', ledger3, '--track', 'M'], {
+    ...mDeps,
+    reviewPlanningAdvice: () => ({ decision: 'PROCEED', notes: 'Interface assumption verified by Steamroller' }),
+  });
+  assert.equal(mApproved.code, 0);
+  assert.equal(mWorkers, 1);
+});

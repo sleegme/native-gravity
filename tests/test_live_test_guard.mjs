@@ -390,7 +390,26 @@ process.exit(3);
   assert.equal(srRes.fallback_candidate, 'gemini-4-argon-medium');
   assert.deepEqual(readFileSync(effectLog, 'utf8').trim().split('\n'), ['effect:gemini-4-neon-medium']);
 
-  // 6. Mutating role (bulldozer) never replays on quota failure.
+  // 6. Effectful Steamroller NEVER retries on empty SUCCESS response either (no side-effect replay).
+  const emptyDir = mkdtempSync(join(tmpdir(), 'ntg-steamroller-empty-'));
+  t.after(() => rmSync(emptyDir, { recursive: true, force: true }));
+  const emptyEffectLog = join(emptyDir, 'empty-effects.txt');
+  const emptyAgy = join(emptyDir, 'agy');
+  writeFileSync(emptyAgy, `#!/usr/bin/env node
+const { appendFileSync } = require('node:fs');
+appendFileSync(${JSON.stringify(emptyEffectLog)}, 'empty-call\\n');
+console.log(JSON.stringify({ status: 'SUCCESS', response: '' }));
+`, { mode: 0o755 });
+  const emptySrRes = await invoke('steamroller', { task: 'TASK_MARKER' }, {
+    agyPath: emptyAgy,
+    installedModels: INSTALLED,
+  });
+  assert.equal(emptySrRes.ok, false);
+  assert.equal(emptySrRes.error, 'EMPTY_RESPONSE');
+  assert.equal(emptySrRes.attempts, 1, 'Effectful Steamroller must never retry on empty response');
+  assert.deepEqual(readFileSync(emptyEffectLog, 'utf8').trim().split('\n'), ['empty-call']);
+
+  // 7. Mutating role (bulldozer) never replays on quota failure.
   const mockBulldozer = mockAgy(t, {
     quotaSlugs: ['gemini-4-neon-high'],
     quotaStderr: 'AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429}\n',

@@ -86,17 +86,36 @@ export function validatePiledriverAdvisory(advice, context = {}) {
   return advice;
 }
 
+const BLOCKING_RECOMMENDATION_RE =
+  /\b(?:replan|do\s+not\s+proceed|don['’]t\s+proceed|must\s+not\s+proceed|cannot\s+proceed|can['’]t\s+proceed|should\s+not\s+proceed|halt|abort|reject|stop\s+before|unsafe|blocking\s+(?:issue|defect|risk|gap))\b/i;
+
 /**
- * Inspects a validated Piledriver advisory for blocking plan defects or an
- * explicit replan recommendation so Steamroller never silently ignores them.
+ * Inspects a validated Piledriver advisory for blocking plan defects, blocking
+ * status/action, or blocking prose recommendations so Steamroller never silently
+ * ignores unsafe or defect-flagged advice.
  */
 export function inspectPlanningAdvisory(advice) {
   const defects = [];
   if (Array.isArray(advice?.plan_defects)) defects.push(...advice.plan_defects);
   if (Array.isArray(advice?.defects)) defects.push(...advice.defects);
   if (Array.isArray(advice?.blocking_risks)) defects.push(...advice.blocking_risks);
-  const recStr = typeof advice?.recommendation === "string" ? advice.recommendation.trim().toLowerCase() : "";
-  const explicitReplan = advice?.recommend_replan === true || recStr === "replan";
+
+  const recText = typeof advice?.recommendation === "string" ? advice.recommendation.trim() : "";
+  const summaryText = typeof advice?.summary === "string" ? advice.summary.trim() : "";
+  const statusUpper = typeof advice?.status === "string" ? advice.status.trim().toUpperCase() : "";
+  const actionUpper = typeof advice?.action === "string" ? advice.action.trim().toUpperCase() : "";
+
+  const blockingProse =
+    (recText && BLOCKING_RECOMMENDATION_RE.test(recText)) ||
+    (summaryText && BLOCKING_RECOMMENDATION_RE.test(summaryText));
+  const blockingStatus =
+    ["BLOCKED", "NEEDS_REPLAN", "REPLAN", "REJECT", "REJECTED"].includes(statusUpper) ||
+    ["BLOCK", "REPLAN", "REJECT", "HALT", "ABORT"].includes(actionUpper);
+  const explicitReplan = advice?.recommend_replan === true || blockingProse || blockingStatus;
+
+  if (blockingProse && defects.length === 0) {
+    defects.push(recText || summaryText);
+  }
   return {
     hasBlockingDefects: defects.length > 0 || explicitReplan,
     defects,

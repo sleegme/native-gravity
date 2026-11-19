@@ -440,10 +440,10 @@ runTest("2.6b4: attempt count accompanies success and transport failure after re
     });
     syncBuiltinESMExports();
     try {
-      const result = invoke("steamroller", { task: "Retry read-only work" }, {
+      const result = invoke("piledriver", { task: "Retry read-only work" }, {
         agyPath: "mock-agy",
         timeout: 100,
-        installedModels: [{ slug: "gemini-4-argon-medium", description: "Gemini 4 Argon (Medium)" }],
+        installedModels: [{ slug: "gemini-4-argon-high", description: "Gemini 4 Argon (High)" }],
       });
       assert.strictEqual(result.attempts, emptyAttempts + 1);
       assert.deepStrictEqual(timeouts, Array.from({ length: emptyAttempts + 1 }, (_, i) => 100 - i * 10));

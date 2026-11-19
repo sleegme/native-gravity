@@ -1189,11 +1189,12 @@ export function invoke(role, packet, opts = {}) {
   }
 
   // Retry boundedly only when SUCCESS has an empty response and no explicit
-  // denied_actions. Explicit tool denials are classified by parseResponseEnvelope.
-  // Bulldozer and Navi are never retried: either may have caused effects
-  // before returning empty, so replay could duplicate those effects.
+  // denied_actions, and ONLY for strictly read-only, non-delegating,
+  // non-ledger-writing roles (e.g. Piledriver, Instinct). Effectful or
+  // delegating roles (Bulldozer, Navi, Steamroller) are never transparently
+  // replayed because they may have produced effects before returning empty.
   const MAX_EMPTY_RETRIES = 3;
-  const retryable = normalizedRole !== "bulldozer" && normalizedRole !== "navi";
+  const retryable = isStrictlyReadOnlySideEffectFree;
   while (retryable && attempts <= MAX_EMPTY_RETRIES && Date.now() < deadline
     && attempt.ok && (attempt.response || "").trim() === "") {
     attempt = run(activeSlug);
