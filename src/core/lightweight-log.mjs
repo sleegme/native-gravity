@@ -201,10 +201,27 @@ export class LightweightLog {
   }
 
   /**
-   * Returns true if a non-authoritative Piledriver planning pass has already
-   * been persisted for `(runId, planVersion)` so resumes/retries do not rerun it.
+   * Appends a standalone Track L Piledriver planning receipt BEFORE worker
+   * execution (`status: 'PLANNING_COMPLETED'`, never marking execution complete).
+   * Ensures worker failures or Halo REVISE retries do not re-run Piledriver for
+   * the same `(runId, planVersion)`.
    */
-  hasPlanningPass(runId, planVersion = 1) {
+  recordPlanningPass({ run_id, plan_version = 1, goal = '', caller = 'steamroller', planning_pass }) {
+    if (!planning_pass || typeof planning_pass !== 'object' || planning_pass.status !== 'COMPLETED') {
+      throw new LightweightLogError('recordPlanningPass requires a COMPLETED planning_pass object');
+    }
+    return this.recordRun({
+      run_id,
+      track: 'L',
+      status: 'PLANNING_COMPLETED',
+      plan_version,
+      goal,
+      caller,
+      planning_pass,
+    });
+  }
+
+  getPlanningPass(runId, planVersion = 1) {
     const all = this.readAll();
     const pv = String(planVersion);
     for (let i = all.length - 1; i >= 0; i -= 1) {
@@ -214,9 +231,17 @@ export class LightweightLog {
         String(rec?.plan_version) === pv &&
         rec?.planning_pass?.status === 'COMPLETED'
       ) {
-        return true;
+        return rec.planning_pass;
       }
     }
-    return false;
+    return null;
+  }
+
+  /**
+   * Returns true if a non-authoritative Piledriver planning pass has already
+   * been persisted for `(runId, planVersion)` so resumes/retries do not rerun it.
+   */
+  hasPlanningPass(runId, planVersion = 1) {
+    return this.getPlanningPass(runId, planVersion) !== null;
   }
 }

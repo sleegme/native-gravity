@@ -44,6 +44,66 @@ export class InitialPlanningRequiredError extends Error {
   }
 }
 
+const MEANINGFUL_ADVISORY_KEYS = Object.freeze([
+  "recommendation",
+  "plan",
+  "milestones",
+  "risks",
+  "blocking_risks",
+  "dependencies",
+  "defects",
+  "plan_defects",
+  "summary",
+  "advice",
+  "notes",
+  "recommend_replan",
+]);
+
+/**
+ * Validates that a Piledriver response is a meaningful non-empty advisory object
+ * before persisting a `COMPLETED` planning marker.
+ */
+export function validatePiledriverAdvisory(advice, context = {}) {
+  if (!advice || typeof advice !== "object" || Array.isArray(advice)) {
+    throw new InitialPlanningRequiredError(
+      "Mandatory initial Piledriver advisory must be a non-null JSON object",
+      { reason: "INVALID_ADVISORY_SHAPE", ...context }
+    );
+  }
+  const hasMeaningfulField = MEANINGFUL_ADVISORY_KEYS.some((key) => {
+    if (!(key in advice)) return false;
+    const val = advice[key];
+    if (val === null || val === undefined) return false;
+    if (typeof val === "string") return val.trim().length > 0;
+    return true;
+  });
+  if (!hasMeaningfulField) {
+    throw new InitialPlanningRequiredError(
+      "Mandatory initial Piledriver advisory lacks a meaningful advisory field (e.g. recommendation, plan, milestones, risks, plan_defects, summary)",
+      { reason: "INVALID_ADVISORY_SHAPE", ...context }
+    );
+  }
+  return advice;
+}
+
+/**
+ * Inspects a validated Piledriver advisory for blocking plan defects or an
+ * explicit replan recommendation so Steamroller never silently ignores them.
+ */
+export function inspectPlanningAdvisory(advice) {
+  const defects = [];
+  if (Array.isArray(advice?.plan_defects)) defects.push(...advice.plan_defects);
+  if (Array.isArray(advice?.defects)) defects.push(...advice.defects);
+  if (Array.isArray(advice?.blocking_risks)) defects.push(...advice.blocking_risks);
+  const recStr = typeof advice?.recommendation === "string" ? advice.recommendation.trim().toLowerCase() : "";
+  const explicitReplan = advice?.recommend_replan === true || recStr === "replan";
+  return {
+    hasBlockingDefects: defects.length > 0 || explicitReplan,
+    defects,
+    explicitReplan,
+  };
+}
+
 /**
  * Coordinates NTG 2.0 Track L (`HALO_LIGHTWEIGHT`) and Track S/M (`ZEN_DURABLE`)
  * verification gates with strict Halo/Zen separation and staleness enforcement.
@@ -104,6 +164,7 @@ export class TrackRunner {
     reviewAttempt = null,
     previousVerdict = null,
     planningPass = null,
+    reviewPlanningAdvice = null,
     requireInitialPlanning = undefined,
     evidenceBasis = undefined,
     caller = "steamroller",
@@ -123,9 +184,10 @@ export class TrackRunner {
         ? Boolean(requireInitialPlanning)
         : this.#requireInitialPlanning;
     let resolvedPlanningPass = planningPass;
+    const persistedPlanningPass = this.lightweightLog.getPlanningPass(runId, planVersion);
     const alreadyPlanned =
       resolvedPlanningPass?.status === "COMPLETED" ||
-      this.lightweightLog.hasPlanningPass(runId, planVersion);
+      persistedPlanningPass !== null;
     if (enforcePlanning && !alreadyPlanned) {
       if (typeof this.#invokePlanner !== "function") {
         throw new InitialPlanningRequiredError(
@@ -158,6 +220,7 @@ export class TrackRunner {
           { run_id: runId, plan_version: planVersion, details: rawPlan ?? null }
         );
       }
+      validatePiledriverAdvisory(rawPlan, { run_id: runId, plan_version: planVersion });
       resolvedPlanningPass = {
         role: "piledriver",
         status: "COMPLETED",
@@ -167,14 +230,53 @@ export class TrackRunner {
         advice: rawPlan,
         timestamp: new Date().toISOString(),
       };
-    } else if (!resolvedPlanningPass && alreadyPlanned) {
-      const prior = this.lightweightLog.getByRunId(runId);
-      resolvedPlanningPass = prior?.planning_pass ?? {
-        role: "piledriver",
-        status: "COMPLETED",
-        plan_version: String(planVersion),
-        adopted: false,
-      };
+      // Persist standalone append-only planning receipt BEFORE worker execution so
+      // worker failures or Halo REVISE retries never re-run Piledriver for the same (runId, planVersion).
+      this.lightweightLog.recordPlanningPass({
+        run_id: runId,
+        plan_version: planVersion,
+        goal: goal || task,
+        caller,
+        planning_pass: resolvedPlanningPass,
+      });
+    } else if (!resolvedPlanningPass && persistedPlanningPass) {
+      resolvedPlanningPass = persistedPlanningPass;
+    }
+
+    // Supervisory review of non-authoritative Piledriver advice: never silently ignore blocking plan defects.
+    let supervisorDecision = null;
+    if (resolvedPlanningPass?.advice) {
+      const inspection = inspectPlanningAdvisory(resolvedPlanningPass.advice);
+      if (typeof reviewPlanningAdvice === "function") {
+        const customDecision = await reviewPlanningAdvice(resolvedPlanningPass, {
+          track: "L",
+          run_id: runId,
+          plan_version: planVersion,
+          inspection,
+        });
+        supervisorDecision = {
+          decision: String(customDecision?.decision || (inspection.hasBlockingDefects ? "REPLAN_REQUIRED" : "PROCEED")).toUpperCase(),
+          adopted: false,
+          defects: inspection.defects,
+          ...(customDecision?.notes ? { notes: customDecision.notes } : {}),
+        };
+      } else {
+        supervisorDecision = {
+          decision: inspection.hasBlockingDefects ? "REPLAN_REQUIRED" : "PROCEED",
+          adopted: false,
+          defects: inspection.defects,
+        };
+      }
+      if (supervisorDecision.decision === "REPLAN_REQUIRED" || supervisorDecision.decision === "REPLAN" || supervisorDecision.decision === "REJECT") {
+        return {
+          track: "L",
+          status: "NEEDS_REPLAN",
+          verified: false,
+          run_id: runId,
+          planning_pass: resolvedPlanningPass,
+          supervisor_decision: supervisorDecision,
+        };
+      }
     }
 
     const semantics = analyzeWorkSemantics({
@@ -234,6 +336,7 @@ export class TrackRunner {
           bounded_scope: boundedScope,
           acceptance_criteria: acceptanceCriteria,
           plan_version: planVersion,
+          ...(resolvedPlanningPass?.advice ? { planning_advisory: resolvedPlanningPass.advice } : {}),
           harness,
         })
       );

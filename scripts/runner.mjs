@@ -1099,16 +1099,33 @@ export function invoke(role, packet, opts = {}) {
     outputFormat: "json",
   });
 
-  // Safe runtime quota failover is restricted strictly to non-mutating roles
-  // with priorityCandidates (e.g. Steamroller Neon -> Carbon -> Argon,
-  // Piledriver Carbon -> Argon) and never replays mutating roles or pinned overrides.
+  // Transparent runtime quota failover is restricted strictly to truly READ_ONLY,
+  // non-mutating, non-ledger-writing, undelegating roles with priorityCandidates
+  // (e.g. Piledriver Carbon High -> Argon High). Roles with ledger-write or
+  // delegation authority (such as Steamroller) can produce side effects before a
+  // transport quota failure and are NEVER transparently replayed; instead they
+  // fail closed with a state-aware handoff hint (`fallback_candidate`) so the
+  // supervisor can explicitly resume from durable state.
   // Lower-priority candidates are resolved lazily ONLY after a preceding attempt
   // reports quota exhaustion, so a duplicate/ambiguous fallback never breaks a
   // healthy primary.
   const authority = ROLE_AUTHORITY_TABLE[normalizedRole];
-  const isSafeNonMutating = Boolean(authority && !authority.canMutateProjectFiles && !authority.canRunCommand);
-  const canQuotaFailover =
-    isSafeNonMutating &&
+  const isStrictlyReadOnlySideEffectFree = Boolean(
+    authority &&
+    authority.readOnly === true &&
+    !authority.canMutateProjectFiles &&
+    !authority.canRunCommand &&
+    !authority.canWriteLedger &&
+    Array.isArray(authority.allowedDelegations) &&
+    authority.allowedDelegations.length === 0
+  );
+  const hasPriorityPolicy = Boolean(
+    Array.isArray(ROLE_POLICY_TABLE[normalizedRole]?.priorityCandidates) &&
+    ROLE_POLICY_TABLE[normalizedRole].priorityCandidates.length > 1
+  );
+  const canTransparentQuotaFailover =
+    isStrictlyReadOnlySideEffectFree &&
+    hasPriorityPolicy &&
     options.modelOverride == null &&
     !options.escalate &&
     !options.quotaFallback;
@@ -1122,11 +1139,12 @@ export function invoke(role, packet, opts = {}) {
 
   let activeSlug = slug;
   let failoverFrom = null;
+  let stateAwareHandoff = null;
   const triedSlugs = [activeSlug];
   let attempt = run(activeSlug);
   let attempts = 1;
 
-  if (canQuotaFailover && isQuotaFailure(attempt)) {
+  if (canTransparentQuotaFailover && isQuotaFailure(attempt)) {
     while (Date.now() < deadline) {
       let next;
       try {
@@ -1145,6 +1163,29 @@ export function invoke(role, packet, opts = {}) {
       attempts++;
       if (!isQuotaFailure(attempt)) break;
     }
+  } else if (
+    !isStrictlyReadOnlySideEffectFree &&
+    hasPriorityPolicy &&
+    options.modelOverride == null &&
+    !options.escalate &&
+    !options.quotaFallback &&
+    isQuotaFailure(attempt)
+  ) {
+    // Do NOT replay an effectful/delegating role (e.g. Steamroller); surface the
+    // next unblocked candidate for state-aware supervisor handoff/recovery.
+    let next = null;
+    try {
+      next = resolveNextPriorityCandidate(role, triedSlugs, {
+        ...options,
+        shouldSkipSlug: (candidateSlug) => argonBreakerBlocksSlug(candidateSlug),
+      });
+    } catch {
+      next = null;
+    }
+    stateAwareHandoff = {
+      requires_state_aware_handoff: true,
+      fallback_candidate: next?.slug ?? null,
+    };
   }
 
   // Retry boundedly only when SUCCESS has an empty response and no explicit
@@ -1174,6 +1215,7 @@ export function invoke(role, packet, opts = {}) {
   return {
     ...attempt,
     ...(failoverFrom ? { fallback_from: failoverFrom } : {}),
+    ...(stateAwareHandoff ? stateAwareHandoff : {}),
     attempts,
     duration_ms: totalDurationMs,
     usage: attempt.usage,

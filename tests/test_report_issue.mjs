@@ -593,15 +593,20 @@ test("ntg-vnext: interactive failure plus 'y' or 'yes' invokes report flow once 
     };
     const deps = {
       handleSignals: false,
-      invokeRole: async () => ({
-        ok: true,
-        status: "SUCCESS",
-        response: JSON.stringify({
-          milestone_id: "m1", plan_version: "v1", status: "DONE",
-          changes_made: ["m1.txt"], verification_evidence: [{ classification: "OBSERVED", criterion: "c1", result: "ok" }],
-          unresolved_unknowns: [], scope_deviations: [], candidate_artifact_ref: "sha256:m1",
-        }),
-      }),
+      invokeRole: async (role) => {
+        if (role === "piledriver") {
+          return { ok: true, status: "SUCCESS", response: JSON.stringify({ recommendation: "advisory planning pass" }) };
+        }
+        return {
+          ok: true,
+          status: "SUCCESS",
+          response: JSON.stringify({
+            milestone_id: "m1", plan_version: "v1", status: "DONE",
+            changes_made: ["m1.txt"], verification_evidence: [{ classification: "OBSERVED", criterion: "c1", result: "ok" }],
+            unresolved_unknowns: [], scope_deviations: [], candidate_artifact_ref: "sha256:m1",
+          }),
+        };
+      },
       invokeZen: async (request) => ({
         milestone_id: request.milestone_id,
         plan_version: request.plan_version,

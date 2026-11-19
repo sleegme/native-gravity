@@ -57,9 +57,14 @@ import {
   projectFailureTelemetry,
   redactTelemetryValue,
 } from "../../scripts/telemetry.mjs";
-import { InitialPlanningRequiredError, TrackRunner } from "./track-runner.mjs";
+import {
+  InitialPlanningRequiredError,
+  TrackRunner,
+  inspectPlanningAdvisory,
+  validatePiledriverAdvisory,
+} from "./track-runner.mjs";
 
-export { InitialPlanningRequiredError };
+export { InitialPlanningRequiredError, inspectPlanningAdvisory, validatePiledriverAdvisory };
 
 const NEEDS_ALT_MIN_ATTEMPTS = 3;
 const MAX_HANDOFF_CORRECTIONS = 2;
@@ -268,6 +273,7 @@ export class SteamrollerController {
   #invokeHalo;
   #invokeZen;
   #invokePlanner;
+  #reviewPlanningAdvice;
   #requireInitialPlanning;
   #runnerOptions;
   #explicitCwd = false;
@@ -287,6 +293,7 @@ export class SteamrollerController {
     track = null,
     invokeRole = null,
     invokePlanner = null,
+    reviewPlanningAdvice = null,
     invokeSpecialist = null,
     invokeHalo = null,
     invokeZen = null,
@@ -315,6 +322,7 @@ export class SteamrollerController {
     this.modelRouter = modelRouter ?? new ModelRouter(runnerOptions ?? {});
     this.#invokeRole = invokeRole;
     this.#invokePlanner = invokePlanner;
+    this.#reviewPlanningAdvice = reviewPlanningAdvice;
     this.#invokeSpecialist = invokeSpecialist;
     this.#invokeHalo = invokeHalo;
     this.#invokeZen = invokeZen;
@@ -1516,22 +1524,60 @@ export class SteamrollerController {
     );
   }
 
+  async #evaluatePlanningDecision(record, { reviewPlanningAdvice = null, milestoneId = null } = {}) {
+    const inspection = inspectPlanningAdvisory(record?.advice);
+    const reviewer = reviewPlanningAdvice ?? this.#reviewPlanningAdvice;
+    if (typeof reviewer === "function") {
+      const custom = await reviewer(record, {
+        plan_version: this.#ledger.plan_version,
+        milestone_id: milestoneId,
+        inspection,
+      });
+      return {
+        decision: String(
+          custom?.decision || (inspection.hasBlockingDefects ? "REPLAN_REQUIRED" : "PROCEED")
+        ).toUpperCase(),
+        adopted: false,
+        defects: inspection.defects,
+        ...(custom?.notes ? { notes: custom.notes } : {}),
+      };
+    }
+    return {
+      decision: inspection.hasBlockingDefects ? "REPLAN_REQUIRED" : "PROCEED",
+      adopted: false,
+      defects: inspection.defects,
+    };
+  }
+
   /**
    * Enforces the mandatory initial Piledriver planning/advisory pass once per
-   * plan_version before durable milestone execution. Persists a non-authoritative
-   * (`adopted: false`) marker in `ledger.evidence.initial_planning[plan_version]`
-   * so resumes, retries, and later milestones of the same plan_version skip it,
-   * while tactical/material replans (new plan_version) trigger one fresh pass.
-   * Fails closed if Piledriver is unavailable or fails.
+   * plan_version before durable milestone execution. Validates advisory shape
+   * before persisting a non-authoritative (`adopted: false`) marker in
+   * `ledger.evidence.initial_planning[plan_version]` so resumes, retries, and
+   * later milestones of the same plan_version skip re-running Piledriver, while
+   * tactical/material replans (new plan_version) trigger one fresh pass.
+   * Returns a supervisory decision (`PROCEED | REPLAN_REQUIRED | REJECT`) so
+   * blocking plan defects are never silently ignored.
    */
-  async ensureInitialPlanningPass({ task = null, force = false } = {}) {
+  async ensureInitialPlanningPass({
+    task = null,
+    force = false,
+    reviewPlanningAdvice = null,
+    milestoneId = null,
+  } = {}) {
     this.#open();
     const planVersion = this.#ledger.plan_version;
     if (!force && this.#ledger.hasInitialPlanningPass(planVersion)) {
+      const existing = this.#ledger.getInitialPlanningPass(planVersion);
+      const supervisor_decision = await this.#evaluatePlanningDecision(existing, {
+        reviewPlanningAdvice,
+        milestoneId,
+      });
       return {
         skipped: true,
         reason: "ALREADY_COMPLETED_FOR_PLAN_VERSION",
-        record: this.#ledger.getInitialPlanningPass(planVersion),
+        record: existing,
+        supervisor_decision,
       };
     }
 
@@ -1554,6 +1600,8 @@ export class SteamrollerController {
       );
     }
 
+    validatePiledriverAdvisory(advice, { plan_version: planVersion });
+
     const record = this.#ledger.recordInitialPlanningPass({
       plan_version: planVersion,
       slug: advice?.slug ?? null,
@@ -1561,9 +1609,14 @@ export class SteamrollerController {
       advice,
     });
     this.#saveLedger();
+    const supervisor_decision = await this.#evaluatePlanningDecision(record, {
+      reviewPlanningAdvice,
+      milestoneId,
+    });
     return {
       skipped: false,
       record,
+      supervisor_decision,
     };
   }
 
@@ -1578,12 +1631,29 @@ export class SteamrollerController {
       options.requireInitialPlanning !== undefined
         ? Boolean(options.requireInitialPlanning)
         : this.#requireInitialPlanning;
-    if (enforceInitialPlanning && !this.#ledger.hasInitialPlanningPass(this.#ledger.plan_version)) {
-      await this.ensureInitialPlanningPass({
+    let planningOutcome = null;
+    if (enforceInitialPlanning) {
+      planningOutcome = await this.ensureInitialPlanningPass({
         task: this.#ledger.goal || milestoneDef?.objective || milestoneId,
+        reviewPlanningAdvice: options.reviewPlanningAdvice ?? null,
+        milestoneId,
       });
+      const decision = planningOutcome?.supervisor_decision?.decision;
+      if (decision === "REPLAN_REQUIRED" || decision === "REPLAN" || decision === "REJECT") {
+        return {
+          status: "NEEDS_REPLAN",
+          verified: false,
+          milestone_id: milestoneId,
+          plan_version: this.#ledger.plan_version,
+          planning_pass: planningOutcome.record,
+          supervisor_decision: planningOutcome.supervisor_decision,
+        };
+      }
     }
     let contract = this.#ledger.delegate(milestoneId);
+    if (planningOutcome?.record?.advice) {
+      contract.planning_advisory = planningOutcome.record.advice;
+    }
     let coverageCwd = this.#resolveScopeCwd(contract.bounded_scope);
     const classification = this.classifyTrack({
       task: contract.objective || this.#ledger.goal,

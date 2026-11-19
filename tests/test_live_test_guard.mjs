@@ -301,71 +301,96 @@ process.exit(0);
   assert.deepEqual(readFileSync(callsFile, 'utf8').split('\n').filter(Boolean), ['claude-sonnet-5-5-high']);
 });
 
-test('Steamroller safely fails over Neon -> Carbon -> Argon on quota exhaustion without replaying mutating roles', async t => {
+test('Transparent quota failover is restricted to strictly READ_ONLY undelegating roles (Piledriver); effectful Steamroller never replays', async t => {
   t.after(() => resetArgonQuotaBreaker());
   resetArgonQuotaBreaker();
 
-  // 1. Exhausted Neon fails over to Argon Medium when Carbon is not exposed.
-  const mockNeonExhausted = mockAgy(t, {
-    quotaSlugs: ['gemini-4-neon-medium'],
+  // 1. Piledriver (READ_ONLY, undelegating, non-ledger-writing) transparently fails over Carbon High -> Argon High on quota exhaustion.
+  const withCarbonHigh = [
+    ...INSTALLED,
+    { slug: 'carbon-high-preview', description: 'Carbon (High)' },
+  ];
+  const mockPiledriverQuota = mockAgy(t, {
+    quotaSlugs: ['carbon-high-preview'],
     quotaStderr: 'AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429}\n',
   });
-  const failoverRes = await invoke('steamroller', { task: 'TASK_MARKER' }, {
-    agyPath: mockNeonExhausted.agy,
-    installedModels: INSTALLED,
+  const pdRes = await invoke('piledriver', { task: 'TASK_MARKER' }, {
+    agyPath: mockPiledriverQuota.agy,
+    installedModels: withCarbonHigh,
   });
-  assert.equal(failoverRes.ok, true, JSON.stringify(failoverRes));
-  assert.equal(failoverRes.slug, 'gemini-4-argon-medium');
-  assert.equal(failoverRes.fallback_from, 'gemini-4-neon-medium');
-  assert.equal(failoverRes.attempts, 2);
-  assert.deepEqual(mockNeonExhausted.calls(), ['gemini-4-neon-medium', 'gemini-4-argon-medium']);
+  assert.equal(pdRes.ok, true, JSON.stringify(pdRes));
+  assert.equal(pdRes.slug, 'gemini-4-argon-high');
+  assert.equal(pdRes.fallback_from, 'carbon-high-preview');
+  assert.equal(pdRes.attempts, 2);
+  assert.deepEqual(mockPiledriverQuota.calls(), ['carbon-high-preview', 'gemini-4-argon-high']);
 
-  // 2. When Carbon Medium is exposed, exhausted Neon fails over to Carbon first.
-  const withCarbon = [
-    ...INSTALLED,
-    { slug: 'carbon-medium-preview', description: 'Carbon (Medium)' },
+  // 2. Duplicate/ambiguous lower-priority fallback never breaks a healthy primary (Piledriver Carbon High healthy, two Argon High entries).
+  const dupArgonCatalog = [
+    { slug: 'carbon-high-preview', description: 'Carbon (High)' },
+    { slug: 'gemini-4-argon-high-a', description: 'Gemini 4 Argon (High)' },
+    { slug: 'gemini-4-argon-high-b', description: 'Gemini 4 Argon (High)' },
   ];
-  const mockCarbon = mockAgy(t, {
-    quotaSlugs: ['gemini-4-neon-medium'],
-    quotaStderr: 'AGY_ERROR: Individual quota reached for gemini-4-neon-medium\n',
+  const mockHealthyCarbon = mockAgy(t, { quotaSlugs: [] });
+  const healthyPd = await invoke('piledriver', { task: 'TASK_MARKER' }, {
+    agyPath: mockHealthyCarbon.agy,
+    installedModels: dupArgonCatalog,
   });
-  const carbonRes = await invoke('steamroller', { task: 'TASK_MARKER' }, {
-    agyPath: mockCarbon.agy,
-    installedModels: withCarbon,
-  });
-  assert.equal(carbonRes.ok, true, JSON.stringify(carbonRes));
-  assert.equal(carbonRes.slug, 'carbon-medium-preview');
-  assert.equal(carbonRes.fallback_from, 'gemini-4-neon-medium');
-  assert.deepEqual(mockCarbon.calls(), ['gemini-4-neon-medium', 'carbon-medium-preview']);
+  assert.equal(healthyPd.ok, true, JSON.stringify(healthyPd));
+  assert.equal(healthyPd.slug, 'carbon-high-preview');
+  assert.equal(healthyPd.attempts, 1);
 
   // 3. Explicit modelOverride does not silently fail over.
   const mockPinned = mockAgy(t, {
-    quotaSlugs: ['gemini-4-neon-medium'],
+    quotaSlugs: ['carbon-high-preview'],
     quotaStderr: 'AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429}\n',
   });
-  const pinnedRes = await invoke('steamroller', { task: 'TASK_MARKER' }, {
+  const pinnedRes = await invoke('piledriver', { task: 'TASK_MARKER' }, {
     agyPath: mockPinned.agy,
-    installedModels: INSTALLED,
-    modelOverride: 'gemini-4-neon-medium',
+    installedModels: withCarbonHigh,
+    modelOverride: 'carbon-high-preview',
   });
   assert.equal(pinnedRes.ok, false);
-  assert.deepEqual(mockPinned.calls(), ['gemini-4-neon-medium']);
+  assert.deepEqual(mockPinned.calls(), ['carbon-high-preview']);
 
   // 4. Tripped Argon breaker prevents falling over to Argon.
   tripArgonQuotaBreaker({ seat: 'piledriver', slug: 'gemini-4-argon-high', text: 'Resets in 1h0m0s' });
   const mockBlockedArgon = mockAgy(t, {
-    quotaSlugs: ['gemini-4-neon-medium'],
+    quotaSlugs: ['carbon-high-preview'],
     quotaStderr: 'AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429}\n',
   });
-  const blockedRes = await invoke('steamroller', { task: 'TASK_MARKER' }, {
+  const blockedRes = await invoke('piledriver', { task: 'TASK_MARKER' }, {
     agyPath: mockBlockedArgon.agy,
-    installedModels: INSTALLED,
+    installedModels: withCarbonHigh,
   });
   assert.equal(blockedRes.ok, false);
-  assert.deepEqual(mockBlockedArgon.calls(), ['gemini-4-neon-medium']);
+  assert.deepEqual(mockBlockedArgon.calls(), ['carbon-high-preview']);
 
-  // 5. Mutating role (bulldozer) never replays on quota failure.
+  // 5. Effectful Steamroller (canWriteLedger + allowedDelegations) NEVER transparently replays on quota exhaustion;
+  //    instead it fails closed after 1 attempt with a state-aware handoff hint.
   resetArgonQuotaBreaker();
+  const effectDir = mkdtempSync(join(tmpdir(), 'ntg-steamroller-effect-'));
+  t.after(() => rmSync(effectDir, { recursive: true, force: true }));
+  const effectLog = join(effectDir, 'effects.txt');
+  const effectAgy = join(effectDir, 'agy');
+  writeFileSync(effectAgy, `#!/usr/bin/env node
+const { appendFileSync } = require('node:fs');
+const argv = process.argv.slice(2);
+const slug = argv[argv.indexOf('--model') + 1];
+appendFileSync(${JSON.stringify(effectLog)}, 'effect:' + slug + '\\n');
+process.stderr.write('AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429}\\n');
+process.exit(3);
+`, { mode: 0o755 });
+  const srRes = await invoke('steamroller', { task: 'TASK_MARKER' }, {
+    agyPath: effectAgy,
+    installedModels: INSTALLED,
+  });
+  assert.equal(srRes.ok, false);
+  assert.equal(srRes.attempts, 1, 'Effectful Steamroller must never be transparently replayed');
+  assert.equal(srRes.requires_state_aware_handoff, true);
+  assert.equal(srRes.fallback_candidate, 'gemini-4-argon-medium');
+  assert.deepEqual(readFileSync(effectLog, 'utf8').trim().split('\n'), ['effect:gemini-4-neon-medium']);
+
+  // 6. Mutating role (bulldozer) never replays on quota failure.
   const mockBulldozer = mockAgy(t, {
     quotaSlugs: ['gemini-4-neon-high'],
     quotaStderr: 'AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429}\n',
@@ -377,34 +402,4 @@ test('Steamroller safely fails over Neon -> Carbon -> Argon on quota exhaustion 
   assert.equal(bdRes.ok, false);
   assert.equal(bdRes.attempts, 1);
   assert.deepEqual(mockBulldozer.calls(), ['gemini-4-neon-high']);
-
-  // 6. Duplicate/ambiguous lower-priority fallback (two Carbon previews) never breaks a healthy Neon primary,
-  //    and on Neon quota exhaustion lazily skips ambiguous Carbon to succeed on Argon Medium.
-  const duplicateCarbonCatalog = [
-    ...INSTALLED,
-    { slug: 'carbon-medium-preview-a', description: 'Carbon (Medium)' },
-    { slug: 'carbon-medium-preview-b', description: 'Carbon (Medium)' },
-  ];
-  const mockHealthyNeon = mockAgy(t, { quotaSlugs: [] });
-  const healthyRes = await invoke('steamroller', { task: 'TASK_MARKER' }, {
-    agyPath: mockHealthyNeon.agy,
-    installedModels: duplicateCarbonCatalog,
-  });
-  assert.equal(healthyRes.ok, true, JSON.stringify(healthyRes));
-  assert.equal(healthyRes.slug, 'gemini-4-neon-medium');
-  assert.equal(healthyRes.attempts, 1);
-  assert.deepEqual(mockHealthyNeon.calls(), ['gemini-4-neon-medium']);
-
-  const mockExhaustedNeonDupCarbon = mockAgy(t, {
-    quotaSlugs: ['gemini-4-neon-medium'],
-    quotaStderr: 'AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429}\n',
-  });
-  const lazyFailoverRes = await invoke('steamroller', { task: 'TASK_MARKER' }, {
-    agyPath: mockExhaustedNeonDupCarbon.agy,
-    installedModels: duplicateCarbonCatalog,
-  });
-  assert.equal(lazyFailoverRes.ok, true, JSON.stringify(lazyFailoverRes));
-  assert.equal(lazyFailoverRes.slug, 'gemini-4-argon-medium');
-  assert.equal(lazyFailoverRes.fallback_from, 'gemini-4-neon-medium');
-  assert.deepEqual(mockExhaustedNeonDupCarbon.calls(), ['gemini-4-neon-medium', 'gemini-4-argon-medium']);
 });

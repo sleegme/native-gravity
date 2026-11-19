@@ -107,6 +107,7 @@ test('run emits paired start/end events for execution and review matching ledger
 test('specialist adapter invocations emit events; declared native delegations emit none', async t => {
   const h = harness(t, { deps: {
     invokeRole: async (role, packet, runnerOptions = {}) => {
+      if (role === 'piledriver') return { ok: true, response: JSON.stringify({ recommendation: 'advisory' }) };
       if (role !== 'bulldozer') return { ok: true, response: '{}' };
       if (runnerOptions.invokeSpecialist) {
         await runnerOptions.invokeSpecialist('bobcat', { task: 'implement' });
