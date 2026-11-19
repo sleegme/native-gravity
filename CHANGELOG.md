@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.0.1](https://github.com/sleegme/native-gravity/compare/native-gravity-v2.0.0...native-gravity-v2.0.1) (2026-11-19)
+
+
+### Bug Fixes
+
+* **install:** auto-apply agy plugin on npm/bun install ([#237](https://github.com/sleegme/native-gravity/issues/237)) ([63926bc](https://github.com/sleegme/native-gravity/commit/63926bcf2cf25035e51bbe3c58a8a49a3fa00fe3))
+
 ## [2.0.0](https://github.com/sleegme/native-gravity/compare/native-gravity-v1.2.0...native-gravity-v2.0.0) (2026-11-18)
 
 
