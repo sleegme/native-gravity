@@ -3,6 +3,18 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.1.0](https://github.com/sleegme/native-gravity/compare/native-gravity-v2.0.0...native-gravity-v2.1.0) (2026-11-23)
+
+
+### Features
+
+* **model-router:** NTG v2.1.0 — Gemini 4 Neon integration & model routing optimization ([#239](https://github.com/sleegme/native-gravity/issues/239)) ([09fb3e0](https://github.com/sleegme/native-gravity/commit/09fb3e0a83c032b04032017ec7dc2ed9383901da))
+
+
+### Bug Fixes
+
+* **install:** auto-apply agy plugin on npm/bun install ([#237](https://github.com/sleegme/native-gravity/issues/237)) ([63926bc](https://github.com/sleegme/native-gravity/commit/63926bcf2cf25035e51bbe3c58a8a49a3fa00fe3))
+
 ## [2.0.0](https://github.com/sleegme/native-gravity/compare/native-gravity-v1.2.0...native-gravity-v2.0.0) (2026-11-18)
 
 
