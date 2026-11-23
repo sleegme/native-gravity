@@ -2,7 +2,7 @@
 
 [English](../status.md) · [사용법](usage.md) · [내부 동작](../internals.md)
 
-- **Native Gravity**: 2.1.0
+- **Native Gravity**: 2.1.1
 - **상태**: NTG 2.0 (Season 2 on `feat/ntg-2.0.0`)
 - **호환성**:
   - 호스트 `agy models` 카탈로그 확인 완료 (`gemini-4-argon-{low,medium,high}`, `gemini-4-hydrogen-{low,medium,high,xhigh}`, `gemini-3.8-flash-{low,medium,high}`, `claude-opus-5-5-{low,medium,high}`, `claude-sonnet-5-5-{low,medium,high}`)

@@ -69,6 +69,16 @@ Commands:
 }
 
 const MIN_AGY = [1, 3, 0];
+const SEMVER_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/;
+const NTG_PACKAGE_NAMES = ['native-gravity', '@sleeg/ntg'];
+const DEPENDENCY_SECTIONS = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'];
+
+function normalizeVersion(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().replace(/^v(?=\d)/, '');
+  if (!trimmed || !SEMVER_RE.test(trimmed)) return null;
+  return trimmed;
+}
 
 function checkAgyCli({ allowMissing = false, env = process.env } = {}) {
   const warnOrExit = (lines, exitCode = 1) => {
@@ -225,21 +235,90 @@ function isInstalledPackageContext(
   return false;
 }
 
-function ensureBunGlobalTrusted({ env = process.env, home = homedir() } = {}) {
+function bunGlobalManifestPaths({ env = process.env, home = homedir() } = {}) {
   const candidates = [resolve(join(home, '.bun'), 'install', 'global', 'package.json')];
   if (env.BUN_INSTALL) {
     candidates.push(resolve(env.BUN_INSTALL, 'install', 'global', 'package.json'));
   }
-  const requiredTrusted = ['native-gravity', '@sleeg/ntg'];
+  return [...new Set(candidates)];
+}
+
+function isLocalPackageSpecifier(specifier) {
+  if (typeof specifier !== 'string') return false;
+  const trimmed = specifier.trim();
+  if (!trimmed) return false;
+
+  if (/^(?:file|link|portal):/i.test(trimmed)) return true;
+  if (trimmed === '.' || trimmed === '..') return true;
+  if (/^(?:\.\.?[\\/]|\/|~[\\/]|[a-zA-Z]:[\\/])/.test(trimmed)) return true;
+
+  const withoutQueryOrHash = trimmed.split(/[?#]/, 1)[0];
+  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed) && /\.(?:tgz|tar\.gz)$/i.test(withoutQueryOrHash)) {
+    return true;
+  }
+  return false;
+}
+
+function detectBunGlobalConflicts({ env = process.env, home = homedir() } = {}) {
+  const conflicts = [];
+  for (const manifestPath of bunGlobalManifestPaths({ env, home })) {
+    if (!existsSync(manifestPath)) continue;
+    let pkg;
+    try {
+      pkg = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    } catch {
+      continue;
+    }
+    if (!pkg || typeof pkg !== 'object' || Array.isArray(pkg)) continue;
+
+    const entries = [];
+    for (const section of DEPENDENCY_SECTIONS) {
+      const deps = pkg[section];
+      if (!deps || typeof deps !== 'object' || Array.isArray(deps)) continue;
+      for (const name of NTG_PACKAGE_NAMES) {
+        if (Object.prototype.hasOwnProperty.call(deps, name) && deps[name] !== undefined) {
+          entries.push({ name, specifier: deps[name], section });
+        }
+      }
+    }
+
+    if (entries.length === 0) continue;
+
+    const foundNames = new Set(entries.map((entry) => entry.name));
+    if (foundNames.has('native-gravity') && foundNames.has('@sleeg/ntg')) {
+      conflicts.push({
+        type: 'duplicate-packages',
+        manifestPath,
+        packages: ['native-gravity', '@sleeg/ntg'],
+        entries,
+      });
+    }
+
+    for (const entry of entries) {
+      if (isLocalPackageSpecifier(entry.specifier)) {
+        conflicts.push({
+          type: 'local-specifier',
+          manifestPath,
+          packageName: entry.name,
+          specifier: entry.specifier,
+          section: entry.section,
+        });
+      }
+    }
+  }
+  return conflicts;
+}
+
+function ensureBunGlobalTrusted({ env = process.env, home = homedir() } = {}) {
   let updatedAny = false;
-  for (const pkgPath of [...new Set(candidates)]) {
+  for (const pkgPath of bunGlobalManifestPaths({ env, home })) {
     if (!existsSync(pkgPath)) continue;
     try {
       const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
       if (!pkg || typeof pkg !== 'object' || Array.isArray(pkg)) continue;
       const existing = Array.isArray(pkg.trustedDependencies) ? [...pkg.trustedDependencies] : [];
       let changed = !Array.isArray(pkg.trustedDependencies);
-      for (const name of requiredTrusted) {
+      for (const name of NTG_PACKAGE_NAMES) {
         if (!existing.includes(name)) {
           existing.push(name);
           changed = true;
@@ -398,6 +477,274 @@ function resolveInstalledScript(scriptPath, packageName) {
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
 }
 
+function resolveRegistryLatestVersion(packageName, options = {}) {
+  const env = options.env ?? process.env;
+  const platform = options.platform ?? process.platform;
+
+  if (typeof options.resolveLatestVersion === 'function') {
+    let resolved;
+    try {
+      resolved = options.resolveLatestVersion(packageName, { env, platform });
+    } catch (err) {
+      return {
+        available: false,
+        version: null,
+        source: 'injected',
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+
+    if (resolved == null) {
+      return { available: false, version: null, source: 'injected', reason: 'unavailable' };
+    }
+    if (typeof resolved === 'string') {
+      const trimmed = resolved.trim();
+      if (!trimmed) {
+        return { available: false, version: null, source: 'injected', reason: 'unavailable' };
+      }
+      const version = normalizeVersion(trimmed);
+      if (!version) {
+        return {
+          available: false,
+          version: null,
+          source: 'injected',
+          error: `Invalid version returned by resolver: ${JSON.stringify(resolved)}`,
+        };
+      }
+      return { available: true, version, source: 'injected' };
+    }
+    if (typeof resolved === 'object') {
+      const source = typeof resolved.source === 'string' && resolved.source ? resolved.source : 'injected';
+      if (resolved.available === false || resolved.version == null || String(resolved.version).trim() === '') {
+        return {
+          available: false,
+          version: null,
+          source,
+          ...(resolved.reason ? { reason: resolved.reason } : { reason: 'unavailable' }),
+          ...(resolved.error ? { error: resolved.error } : {}),
+        };
+      }
+      const version = normalizeVersion(String(resolved.version));
+      if (!version) {
+        return {
+          available: false,
+          version: null,
+          source,
+          error: resolved.error || `Invalid version returned by resolver: ${JSON.stringify(resolved.version)}`,
+        };
+      }
+      return { available: true, version, source };
+    }
+    return {
+      available: false,
+      version: null,
+      source: 'injected',
+      error: `Unsupported resolver result type: ${typeof resolved}`,
+    };
+  }
+
+  if (Object.prototype.hasOwnProperty.call(env, 'NTG_LATEST_VERSION') && env.NTG_LATEST_VERSION !== undefined) {
+    const raw = String(env.NTG_LATEST_VERSION).trim();
+    const lowered = raw.toLowerCase();
+    if (!raw || lowered === 'offline' || lowered === 'unavailable') {
+      return { available: false, version: null, source: 'env', reason: 'unavailable' };
+    }
+    const version = normalizeVersion(raw);
+    if (!version) {
+      return {
+        available: false,
+        version: null,
+        source: 'env',
+        error: `Invalid NTG_LATEST_VERSION value: ${JSON.stringify(raw)}`,
+      };
+    }
+    return { available: true, version, source: 'env' };
+  }
+
+  if (typeof env.NTG_REGISTRY_LOOKUP_CMD === 'string' && env.NTG_REGISTRY_LOOKUP_CMD.trim() !== '') {
+    const parts = splitCommand(env.NTG_REGISTRY_LOOKUP_CMD);
+    if (!parts) {
+      return {
+        available: false,
+        version: null,
+        source: 'env-cmd',
+        error: 'Empty NTG_REGISTRY_LOOKUP_CMD override',
+      };
+    }
+    const lookupRes = spawnSync(parts[0], [...parts.slice(1), packageName], {
+      encoding: 'utf8',
+      env,
+      timeout: 10000,
+    });
+    if (lookupRes.error) {
+      return { available: false, version: null, source: 'env-cmd', error: lookupRes.error.message };
+    }
+    if (lookupRes.status !== 0) {
+      const errMsg = (lookupRes.stderr ?? '').trim() || `Lookup command exited with code ${lookupRes.status ?? 1}`;
+      return { available: false, version: null, source: 'env-cmd', error: errMsg };
+    }
+    const rawOut = String(lookupRes.stdout ?? '').trim();
+    const version = normalizeVersion(rawOut);
+    if (!version) {
+      return {
+        available: false,
+        version: null,
+        source: 'env-cmd',
+        error: `Invalid version output from NTG_REGISTRY_LOOKUP_CMD: ${JSON.stringify(rawOut)}`,
+      };
+    }
+    return { available: true, version, source: 'env-cmd' };
+  }
+
+  if (
+    options.skipRegistryLookup === true
+    || env.SKIP_LIVE_TESTS === '1'
+    || Boolean(env.NODE_TEST_CONTEXT)
+    || Boolean(env.NTG_SELF_UPDATE_CMD)
+    || Boolean(env.NTG_INSTALL_SH_CMD)
+    || Boolean(env.NTG_INSTALL_PS1_CMD)
+    || typeof options.spawnSync === 'function'
+  ) {
+    return { available: false, version: null, source: 'skipped', reason: 'offline-or-stubbed' };
+  }
+
+  const npmCmd = platform === 'win32' ? 'npm.cmd' : 'npm';
+  const npmRes = spawnSync(npmCmd, ['view', packageName, 'version'], {
+    encoding: 'utf8',
+    env,
+    shell: platform === 'win32',
+    timeout: 10000,
+  });
+  if (!npmRes.error && npmRes.status === 0) {
+    const npmVersion = normalizeVersion(npmRes.stdout ?? '');
+    if (npmVersion) {
+      return { available: true, version: npmVersion, source: 'npm-view' };
+    }
+  }
+  const npmError = npmRes.error
+    ? npmRes.error.message
+    : npmRes.status === 0
+      ? `npm view returned invalid version: ${JSON.stringify((npmRes.stdout ?? '').trim())}`
+      : ((npmRes.stderr ?? '').trim() || `npm view exited with code ${npmRes.status ?? 1}`);
+
+  const fetchScript = [
+    '(async () => {',
+    '  const pkg = process.argv[1];',
+    "  const res = await fetch('https://registry.npmjs.org/' + encodeURIComponent(pkg) + '/latest', { signal: AbortSignal.timeout(8000) });",
+    '  if (res.ok) {',
+    '    const data = await res.json();',
+    "    if (typeof data?.version === 'string' && data.version.trim()) {",
+    "      process.stdout.write(data.version.trim() + '\\n');",
+    '      return;',
+    '    }',
+    '  }',
+    "  if (pkg.startsWith('@')) {",
+    "    const alt = await fetch('https://registry.npmjs.org/' + encodeURIComponent(pkg), {",
+    "      headers: { accept: 'application/vnd.npm.install-v1+json' },",
+    '      signal: AbortSignal.timeout(8000),',
+    '    });',
+    '    if (alt.ok) {',
+    '      const data = await alt.json();',
+    "      const latest = data?.['dist-tags']?.latest;",
+    "      if (typeof latest === 'string' && latest.trim()) {",
+    "        process.stdout.write(latest.trim() + '\\n');",
+    '        return;',
+    '      }',
+    '    }',
+    '    process.stderr.write(`HTTP ${alt.status}\\n`);',
+    '    process.exit(1);',
+    '  }',
+    '  process.stderr.write(`HTTP ${res.status}\\n`);',
+    '  process.exit(1);',
+    '})().catch((err) => {',
+    "  process.stderr.write((err?.message || String(err)) + '\\n');",
+    '  process.exit(1);',
+    '});',
+  ].join('\n');
+
+  const fetchRes = spawnSync(process.execPath, ['-e', fetchScript, packageName], {
+    encoding: 'utf8',
+    env,
+    timeout: 10000,
+  });
+  if (!fetchRes.error && fetchRes.status === 0) {
+    const fetchedVersion = normalizeVersion(fetchRes.stdout ?? '');
+    if (fetchedVersion) {
+      return { available: true, version: fetchedVersion, source: 'registry-fetch' };
+    }
+  }
+  const fetchError = fetchRes.error
+    ? fetchRes.error.message
+    : fetchRes.status === 0
+      ? `registry fetch returned invalid version: ${JSON.stringify((fetchRes.stdout ?? '').trim())}`
+      : ((fetchRes.stderr ?? '').trim() || `registry fetch exited with code ${fetchRes.status ?? 1}`);
+
+  return {
+    available: false,
+    version: null,
+    source: 'registry',
+    error: `npm view failed (${npmError}); registry fetch failed (${fetchError})`,
+  };
+}
+
+function formatBunGlobalConflictDiagnostics(conflicts) {
+  const lines = ['Self-update aborted: conflicting Bun global dependency configuration detected.'];
+  for (const conflict of conflicts) {
+    if (conflict.type === 'duplicate-packages') {
+      const entrySummary = conflict.entries
+        .map((entry) => `${entry.name}=${JSON.stringify(entry.specifier)} (${entry.section})`)
+        .join(', ');
+      lines.push(
+        `- Duplicate packages in ${conflict.manifestPath}: both 'native-gravity' and '@sleeg/ntg' are present (${entrySummary}).`
+      );
+    } else if (conflict.type === 'local-specifier') {
+      lines.push(
+        `- Local tarball/path specifier in ${conflict.manifestPath} (${conflict.section}): ${conflict.packageName}=${JSON.stringify(conflict.specifier)}.`
+      );
+    }
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+function formatUpdateRecoveryGuidance({
+  reason,
+  packageName = DEFAULT_PACKAGE_NAME,
+  installMethod,
+  conflicts = [],
+} = {}) {
+  const lines = ['To recover safely, run:'];
+  if (reason === 'bun-global-conflict') {
+    const hasDuplicate = conflicts.some((conflict) => conflict.type === 'duplicate-packages');
+    const removePackages = hasDuplicate
+      ? [...NTG_PACKAGE_NAMES]
+      : [...new Set(conflicts.map((conflict) => conflict.packageName).filter(Boolean))];
+    const toRemove = removePackages.length > 0 ? removePackages : [packageName];
+    lines.push(`  bun remove -g ${toRemove.join(' ')}`);
+    lines.push(`  bun add -g ${packageName}@latest`);
+    lines.push('  ntg reinstall');
+    return `${lines.join('\n')}\n`;
+  }
+
+  if (installMethod?.type === 'script') {
+    const shell = installMethod.shell === 'ps1' ? 'ps1' : 'sh';
+    lines.push(`  ${scriptInstallOneLiner(shell)}`);
+    lines.push('  ntg reinstall');
+    return `${lines.join('\n')}\n`;
+  }
+
+  if (installMethod?.manager === 'bun') {
+    lines.push(`  bun remove -g ${packageName}`);
+    lines.push(`  bun add -g ${packageName}@latest`);
+    lines.push('  ntg reinstall');
+    return `${lines.join('\n')}\n`;
+  }
+
+  lines.push(`  npm uninstall -g ${packageName}`);
+  lines.push(`  npm install -g ${packageName}@latest`);
+  lines.push('  ntg reinstall');
+  return `${lines.join('\n')}\n`;
+}
+
 function runSelfUpdate(options = {}) {
   const scriptPath = options.scriptPath ?? fileURLToPath(import.meta.url);
   const root = options.packageRoot ?? packageRoot;
@@ -412,6 +759,32 @@ function runSelfUpdate(options = {}) {
   const packageName = resolveUpdatePackageName(root, scriptPath);
   const installMethod = detectInstallMethod(scriptPath, env, home, platform);
   const isScriptInstall = installMethod.type === 'script';
+
+  const shouldCheckBunConflicts = installMethod.manager === 'bun'
+    || (installMethod.type === 'package' && findNodeModulesRoots(scriptPath).length === 0);
+  if (shouldCheckBunConflicts) {
+    const conflicts = detectBunGlobalConflicts({ env, home });
+    if (conflicts.length > 0) {
+      stderr.write(formatBunGlobalConflictDiagnostics(conflicts));
+      stderr.write(formatUpdateRecoveryGuidance({
+        reason: 'bun-global-conflict',
+        packageName,
+        installMethod,
+        conflicts,
+      }));
+      return {
+        ok: false,
+        status: 1,
+        reason: 'bun-global-conflict',
+        packageName,
+        packageManager: isScriptInstall ? null : installMethod.manager,
+        installMethod,
+        oldVersion,
+        conflicts,
+      };
+    }
+  }
+
   const command = isScriptInstall
     ? buildScriptInstallCommand(installMethod.shell, env)
     : buildSelfUpdateCommand(installMethod.manager, packageName, env, platform);
@@ -437,7 +810,58 @@ function runSelfUpdate(options = {}) {
   const freshScript = isScriptInstall
     ? resolveScriptInstallScript(scriptPath, { env, home, platform })
     : resolveInstalledScript(scriptPath, getPackageName(root));
-  const freshVersion = readPackageJson(resolve(dirname(freshScript), '..'))?.version ?? 'unknown';
+  const freshPkg = readPackageJson(resolve(dirname(freshScript), '..'));
+  const freshVersion = freshPkg?.version ?? 'unknown';
+  const versionLookupPackageName = (typeof freshPkg?.name === 'string' && freshPkg.name.trim())
+    ? freshPkg.name.trim()
+    : getPackageName(root);
+
+  const latestLookup = resolveRegistryLatestVersion(versionLookupPackageName, {
+    env,
+    platform,
+    resolveLatestVersion: options.resolveLatestVersion,
+    skipRegistryLookup: options.skipRegistryLookup,
+    spawnSync: options.spawnSync,
+  });
+  const expectedVersion = latestLookup.available ? latestLookup.version : null;
+  if (!latestLookup.available && latestLookup.error) {
+    stderr.write(
+      `Warning: could not verify latest registry version for ${versionLookupPackageName} (${latestLookup.error}); skipping post-update version check.\n`
+    );
+  }
+
+  const normalizedFreshVersion = normalizeVersion(freshVersion)
+    ?? String(freshVersion ?? '').trim().replace(/^v(?=\d)/, '');
+  const normalizedExpectedVersion = expectedVersion
+    ? (normalizeVersion(expectedVersion) ?? expectedVersion)
+    : null;
+
+  if (normalizedExpectedVersion && normalizedFreshVersion !== normalizedExpectedVersion) {
+    stderr.write(
+      `Update verification failed for ${packageName}: expected latest version ${normalizedExpectedVersion}, but installed version is ${freshVersion} (previous: ${oldVersion}).\n`
+    );
+    stderr.write(formatUpdateRecoveryGuidance({
+      reason: 'version-mismatch',
+      packageName,
+      installMethod,
+      oldVersion,
+      newVersion: freshVersion,
+      expectedVersion: normalizedExpectedVersion,
+    }));
+    return {
+      ok: false,
+      status: 1,
+      reason: 'version-mismatch',
+      scriptPath: freshScript,
+      packageName,
+      packageManager: isScriptInstall ? null : installMethod.manager,
+      installMethod,
+      oldVersion,
+      newVersion: freshVersion,
+      expectedVersion: normalizedExpectedVersion,
+    };
+  }
+
   stdout.write(`Updated ${packageName} ${oldVersion} -> ${freshVersion}\n`);
   return {
     ok: true,
@@ -448,6 +872,7 @@ function runSelfUpdate(options = {}) {
     installMethod,
     oldVersion,
     newVersion: freshVersion,
+    expectedVersion: normalizedExpectedVersion,
   };
 }
 
@@ -572,13 +997,19 @@ function isMainModule() {
 export {
   buildScriptInstallCommand,
   buildSelfUpdateCommand,
+  bunGlobalManifestPaths,
+  detectBunGlobalConflicts,
   detectInstallMethod,
   ensureBunGlobalTrusted,
   ensureInstalledPluginApplied,
+  formatUpdateRecoveryGuidance,
   getPackageName,
   getVersion,
   isInstalledPackageContext,
+  isLocalPackageSpecifier,
+  normalizeVersion,
   resolveInstalledScript,
+  resolveRegistryLatestVersion,
   resolveScriptInstallScript,
   resolveUpdatePackageName,
   runPostinstall,
