@@ -1,6 +1,6 @@
 {
   "name": "@sleeg/ntg",
-  "version": "2.1.2",
+  "version": "2.0.0",
   "description": "Short alias for native-gravity: `npm i -g @sleeg/ntg` or `bun add -g --trust @sleeg/ntg`.",
   "type": "module",
   "bin": {
@@ -14,7 +14,7 @@
     "README.md"
   ],
   "dependencies": {
-    "native-gravity": "^2.1.2"
+    "native-gravity": "^2.0.0"
   },
   "trustedDependencies": [
     "native-gravity"

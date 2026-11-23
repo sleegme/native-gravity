@@ -2,7 +2,7 @@
 
 [한국어](ko/status.md) · [Usage](usage.md) · [Internals](internals.md)
 
-- **Native Gravity**: 2.1.2
+- **Native Gravity**: 2.0.0
 - **Status**: NTG 2.0 (Season 2 on `feat/ntg-2.0.0`)
 - **Compatibility**:
   - Host `agy models` surface verified (`gemini-4-argon-{low,medium,high}`, `gemini-4-hydrogen-{low,medium,high,xhigh}`, `gemini-3.8-flash-{low,medium,high}`, `claude-opus-5-5-{low,medium,high}`, `claude-sonnet-5-5-{low,medium,high}`)
