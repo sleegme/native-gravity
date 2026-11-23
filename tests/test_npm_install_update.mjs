@@ -14,7 +14,16 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { buildSelfUpdateCommand, runSelfUpdate } from '../scripts/npm-install.mjs';
+import {
+  buildSelfUpdateCommand,
+  bunGlobalManifestPaths,
+  detectBunGlobalConflicts,
+  formatUpdateRecoveryGuidance,
+  isLocalPackageSpecifier,
+  normalizeVersion,
+  resolveRegistryLatestVersion,
+  runSelfUpdate,
+} from '../scripts/npm-install.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '..');
@@ -200,6 +209,9 @@ function createHarness() {
     const env = { ...process.env };
     if (!('XDG_DATA_HOME' in extraEnv)) delete env.XDG_DATA_HOME;
     if (!('LOCALAPPDATA' in extraEnv)) delete env.LOCALAPPDATA;
+    if (!('BUN_INSTALL' in extraEnv)) delete env.BUN_INSTALL;
+    if (!('NTG_LATEST_VERSION' in extraEnv)) delete env.NTG_LATEST_VERSION;
+    if (!('NTG_REGISTRY_LOOKUP_CMD' in extraEnv)) delete env.NTG_REGISTRY_LOOKUP_CMD;
     Object.assign(env, {
       HOME: tempHome,
       PATH: `${binDir}:${process.env.PATH}`,
@@ -514,5 +526,624 @@ test('win32 npm self-update spawns npm.cmd so the npm shim can execute', () => {
     assert.equal(buildSelfUpdateCommand('bun', 'native-gravity', {}, 'win32').cmd, 'bun');
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function writeJsonFile(filePath, value) {
+  mkdirSync(dirname(filePath), { recursive: true });
+  writeFileSync(filePath, JSON.stringify(value, null, 2) + '\n', 'utf8');
+}
+
+test('isLocalPackageSpecifier distinguishes local tarballs/paths from registry specifiers', () => {
+  const localSpecs = [
+    'native-gravity-2.1.0.tgz',
+    'native-gravity-2.1.0.tgz?cache=1#sha',
+    'dist/native-gravity-2.1.0.tar.gz',
+    'native-gravity-2.1.0.TAR.GZ#hash',
+    'file:../native-gravity',
+    'file:/tmp/native-gravity',
+    'link:../native-gravity',
+    'portal:./native-gravity',
+    './native-gravity',
+    '../native-gravity',
+    '/tmp/native-gravity-2.1.0.tgz',
+    '~/work/native-gravity',
+    '.\\native-gravity',
+    '..\\native-gravity',
+    'C:\\work\\native-gravity',
+    'D:/work/native-gravity',
+  ];
+  for (const spec of localSpecs) {
+    assert.equal(isLocalPackageSpecifier(spec), true, `expected local specifier to be detected: ${spec}`);
+  }
+
+  const registrySpecs = [
+    '^2.1.0',
+    '~2.1.0',
+    '2.1.1',
+    '2.1.1-rc.1',
+    'latest',
+    '*',
+    '>=2.0.0 <3.0.0',
+    'npm:native-gravity@^2.1.0',
+    'https://registry.npmjs.org/native-gravity/-/native-gravity-2.1.0.tgz',
+    '',
+    '   ',
+    null,
+    undefined,
+  ];
+  for (const spec of registrySpecs) {
+    assert.equal(isLocalPackageSpecifier(spec), false, `expected registry/non-local specifier not to trigger: ${String(spec)}`);
+  }
+});
+
+test('bunGlobalManifestPaths deduplicates default ~/.bun and BUN_INSTALL paths', () => {
+  const home = '/tmp/ntg-home-example';
+  const defaultPath = resolve(join(home, '.bun'), 'install', 'global', 'package.json');
+  assert.deepEqual(bunGlobalManifestPaths({ env: {}, home }), [defaultPath]);
+  assert.deepEqual(
+    bunGlobalManifestPaths({ env: { BUN_INSTALL: join(home, '.bun') }, home }),
+    [defaultPath]
+  );
+  const customBun = '/tmp/custom-bun-install';
+  assert.deepEqual(
+    bunGlobalManifestPaths({ env: { BUN_INSTALL: customBun }, home }),
+    [defaultPath, resolve(customBun, 'install', 'global', 'package.json')]
+  );
+});
+
+test('bun update fails before upgrade when ~/.bun global manifest has duplicate native-gravity and @sleeg/ntg', () => {
+  const h = createHarness();
+  try {
+    const install = h.createFakeInstall({ manager: 'bun', version: OLD_VERSION });
+    const manifestPath = join(h.tempHome, '.bun', 'install', 'global', 'package.json');
+    writeJsonFile(manifestPath, {
+      dependencies: {
+        'native-gravity': '^2.1.0',
+      },
+      optionalDependencies: {
+        '@sleeg/ntg': '^2.1.0',
+      },
+    });
+
+    const res = h.runUpdate(install, [], {
+      STUB_UPGRADE_PACKAGE_JSON: install.pkgPath,
+      STUB_UPGRADE_NEW_VERSION: NEW_VERSION,
+    });
+    assert.equal(res.status, 1);
+    assert.match(res.stderr, new RegExp(escapeRegExp(manifestPath)));
+    assert.match(res.stderr, /Duplicate packages/i);
+    assert.match(res.stderr, /native-gravity/);
+    assert.match(res.stderr, /@sleeg\/ntg/);
+    assert.match(res.stderr, /bun remove -g native-gravity @sleeg\/ntg/);
+    assert.match(res.stderr, /bun add -g native-gravity@latest/);
+    assert.match(res.stderr, /ntg reinstall/);
+    assert.deepEqual(h.readUpgradeCalls(), []);
+    assert.deepEqual(h.readAgyCalls(), []);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('bun update fails before upgrade when $BUN_INSTALL global manifest has duplicate packages', () => {
+  const h = createHarness();
+  try {
+    const customBunInstall = join(h.tempHome, 'custom-bun');
+    const root = join(customBunInstall, 'install', 'global', 'node_modules', 'native-gravity');
+    const scriptPath = join(root, 'scripts', 'npm-install.mjs');
+    mkdirSync(dirname(scriptPath), { recursive: true });
+    writeFileSync(scriptPath, INSTALLER_SOURCE, 'utf8');
+    writeJsonFile(join(root, 'package.json'), { name: 'native-gravity', version: OLD_VERSION });
+
+    const manifestPath = join(customBunInstall, 'install', 'global', 'package.json');
+    writeJsonFile(manifestPath, {
+      devDependencies: {
+        'native-gravity': '2.1.0',
+      },
+      peerDependencies: {
+        '@sleeg/ntg': 'latest',
+      },
+    });
+
+    const res = h.runUpdate({ root, scriptPath, pkgPath: join(root, 'package.json') }, [], {
+      BUN_INSTALL: customBunInstall,
+      STUB_UPGRADE_PACKAGE_JSON: join(root, 'package.json'),
+      STUB_UPGRADE_NEW_VERSION: NEW_VERSION,
+    });
+    assert.equal(res.status, 1);
+    assert.match(res.stderr, new RegExp(escapeRegExp(manifestPath)));
+    assert.match(res.stderr, /Duplicate packages/i);
+    assert.match(res.stderr, /bun remove -g native-gravity @sleeg\/ntg/);
+    assert.match(res.stderr, /bun add -g native-gravity@latest/);
+    assert.match(res.stderr, /ntg reinstall/);
+    assert.deepEqual(h.readUpgradeCalls(), []);
+    assert.deepEqual(h.readAgyCalls(), []);
+  } finally {
+    h.cleanup();
+  }
+});
+
+for (const specifier of [
+  './native-gravity-2.1.0.tgz',
+  'native-gravity-2.1.0.tar.gz?v=1#hash',
+  'file:/tmp/native-gravity',
+  'link:../native-gravity',
+  '../native-gravity',
+  '/tmp/native-gravity',
+]) {
+  test(`bun update fails before upgrade when global manifest uses local specifier ${specifier}`, () => {
+    const h = createHarness();
+    try {
+      const install = h.createFakeInstall({ manager: 'bun', version: OLD_VERSION });
+      const manifestPath = join(h.tempHome, '.bun', 'install', 'global', 'package.json');
+      writeJsonFile(manifestPath, {
+        dependencies: {
+          'native-gravity': specifier,
+        },
+      });
+
+      const res = h.runUpdate(install, [], {
+        STUB_UPGRADE_PACKAGE_JSON: install.pkgPath,
+        STUB_UPGRADE_NEW_VERSION: NEW_VERSION,
+      });
+      assert.equal(res.status, 1);
+      assert.match(res.stderr, new RegExp(escapeRegExp(manifestPath)));
+      assert.match(res.stderr, new RegExp(escapeRegExp(specifier)));
+      assert.match(res.stderr, /bun remove -g native-gravity/);
+      assert.match(res.stderr, /bun add -g native-gravity@latest/);
+      assert.match(res.stderr, /ntg reinstall/);
+      assert.deepEqual(h.readUpgradeCalls(), []);
+      assert.deepEqual(h.readAgyCalls(), []);
+    } finally {
+      h.cleanup();
+    }
+  });
+}
+
+test('bun symlink-escaped file:/ install (outside node_modules) still detects Bun global conflict', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-bun-symlink-escape-'));
+  try {
+    const fakeHome = join(dir, 'home');
+    const localRepo = join(dir, 'local-checkout');
+    mkdirSync(join(localRepo, 'scripts'), { recursive: true });
+    writeJsonFile(join(localRepo, 'package.json'), { name: 'native-gravity', version: OLD_VERSION });
+    const manifestPath = join(fakeHome, '.bun', 'install', 'global', 'package.json');
+    writeJsonFile(manifestPath, {
+      dependencies: {
+        'native-gravity': `file:${localRepo}`,
+      },
+    });
+
+    const spawned = [];
+    let stderr = '';
+    const result = runSelfUpdate({
+      scriptPath: join(localRepo, 'scripts', 'npm-install.mjs'),
+      packageRoot: localRepo,
+      env: {},
+      home: fakeHome,
+      platform: 'linux',
+      spawnSync: (...args) => {
+        spawned.push(args);
+        return { status: 0 };
+      },
+      stdout: { write: () => {} },
+      stderr: { write: (text) => { stderr += text; } },
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 1);
+    assert.equal(result.reason, 'bun-global-conflict');
+    assert.equal(result.conflicts.length, 1);
+    assert.equal(result.conflicts[0].type, 'local-specifier');
+    assert.deepEqual(spawned, []);
+    assert.match(stderr, new RegExp(escapeRegExp(manifestPath)));
+    assert.match(stderr, /bun remove -g native-gravity/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('bun update allows normal registry specifiers and clean single @sleeg/ntg alias install', () => {
+  const h = createHarness();
+  try {
+    const manifestPath = join(h.tempHome, '.bun', 'install', 'global', 'package.json');
+    writeJsonFile(manifestPath, {
+      dependencies: {
+        '@sleeg/ntg': '^2.1.0',
+      },
+    });
+    assert.deepEqual(detectBunGlobalConflicts({ env: {}, home: h.tempHome }), []);
+
+    const install = h.createFakeInstall({ manager: 'bun', packageName: '@sleeg/ntg', version: OLD_VERSION });
+    const res = h.runUpdate(install, [], {
+      STUB_UPGRADE_PACKAGE_JSON: install.pkgPath,
+      STUB_UPGRADE_NEW_VERSION: NEW_VERSION,
+      NTG_LATEST_VERSION: NEW_VERSION,
+    });
+    assert.equal(res.status, 0, `expected clean single @sleeg/ntg update to succeed; stderr=${res.stderr}`);
+    assert.equal(h.readUpgradeCalls().length, 1);
+    assert.deepEqual(h.readUpgradeCalls()[0].argv, ['add', '-g', '@sleeg/ntg@latest']);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('bun global combined duplicate and local tarball conflict reports both and prints recovery guidance', () => {
+  const h = createHarness();
+  try {
+    const install = h.createFakeInstall({ manager: 'bun', version: OLD_VERSION });
+    const manifestPath = join(h.tempHome, '.bun', 'install', 'global', 'package.json');
+    writeJsonFile(manifestPath, {
+      dependencies: {
+        'native-gravity': './native-gravity-2.1.0.tgz',
+        '@sleeg/ntg': 'latest',
+      },
+    });
+
+    const conflicts = detectBunGlobalConflicts({ env: {}, home: h.tempHome });
+    assert.equal(conflicts.length, 2);
+    assert.ok(conflicts.some((c) => c.type === 'duplicate-packages'));
+    assert.ok(conflicts.some((c) => c.type === 'local-specifier' && c.packageName === 'native-gravity'));
+
+    const res = h.runUpdate(install, [], {
+      STUB_UPGRADE_PACKAGE_JSON: install.pkgPath,
+      STUB_UPGRADE_NEW_VERSION: NEW_VERSION,
+    });
+    assert.equal(res.status, 1);
+    assert.match(res.stderr, /Duplicate packages/i);
+    assert.match(res.stderr, /Local tarball\/path specifier/i);
+    assert.match(res.stderr, /\.\/native-gravity-2\.1\.0\.tgz/);
+    assert.match(res.stderr, /bun remove -g native-gravity @sleeg\/ntg/);
+    assert.match(res.stderr, /bun add -g native-gravity@latest/);
+    assert.match(res.stderr, /ntg reinstall/);
+    assert.deepEqual(h.readUpgradeCalls(), []);
+    assert.deepEqual(h.readAgyCalls(), []);
+  } finally {
+    h.cleanup();
+  }
+});
+
+for (const manager of ['bun', 'npm', 'sh']) {
+  test(`update fails with version-mismatch and tailored recovery guidance for ${manager} when installed version lags registry latest`, () => {
+    const h = createHarness();
+    try {
+      const install = h.createFakeInstall({ manager, version: OLD_VERSION });
+      const res = h.runUpdate(install, [], {
+        NTG_LATEST_VERSION: NEW_VERSION,
+      });
+      assert.equal(res.status, 1);
+      assert.match(res.stderr, /Update verification failed for native-gravity/);
+      assert.match(res.stderr, new RegExp(`expected latest version ${escapeRegExp(NEW_VERSION)}`));
+      assert.match(res.stderr, new RegExp(`installed version is ${escapeRegExp(OLD_VERSION)}`));
+      assert.match(res.stderr, /ntg reinstall/);
+      if (manager === 'bun') {
+        assert.match(res.stderr, /bun remove -g native-gravity/);
+        assert.match(res.stderr, /bun add -g native-gravity@latest/);
+      } else if (manager === 'npm') {
+        assert.match(res.stderr, /npm uninstall -g native-gravity/);
+        assert.match(res.stderr, /npm install -g native-gravity@latest/);
+      } else {
+        assert.match(res.stderr, /curl -fsSL \S+install\.sh \| sh/);
+      }
+      assert.deepEqual(h.readAgyCalls(), []);
+    } finally {
+      h.cleanup();
+    }
+  });
+}
+
+test('runSelfUpdate unit test catches version mismatch via injected options.resolveLatestVersion', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-self-update-mismatch-'));
+  try {
+    const pkgRoot = join(dir, 'node_modules', 'native-gravity');
+    mkdirSync(join(pkgRoot, 'scripts'), { recursive: true });
+    writeJsonFile(join(pkgRoot, 'package.json'), { name: 'native-gravity', version: '2.1.0' });
+    const scriptPath = join(pkgRoot, 'scripts', 'npm-install.mjs');
+    writeFileSync(scriptPath, '// stub\n', 'utf8');
+
+    let stderr = '';
+    let stdout = '';
+    const result = runSelfUpdate({
+      scriptPath,
+      packageRoot: pkgRoot,
+      env: {},
+      home: dir,
+      platform: 'linux',
+      spawnSync: () => ({ status: 0 }),
+      resolveLatestVersion: () => ({ version: 'v2.2.0', source: 'injected-test' }),
+      stdout: { write: (text) => { stdout += text; } },
+      stderr: { write: (text) => { stderr += text; } },
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 1);
+    assert.equal(result.reason, 'version-mismatch');
+    assert.equal(result.packageName, 'native-gravity');
+    assert.equal(result.oldVersion, '2.1.0');
+    assert.equal(result.newVersion, '2.1.0');
+    assert.equal(result.expectedVersion, '2.2.0');
+    assert.doesNotMatch(stdout, /Updated native-gravity/);
+    assert.match(stderr, /expected latest version 2\.2\.0, but installed version is 2\.1\.0 \(previous: 2\.1\.0\)/);
+    assert.match(stderr, /npm uninstall -g native-gravity/);
+    assert.match(stderr, /npm install -g native-gravity@latest/);
+    assert.match(stderr, /ntg reinstall/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('update succeeds cleanly when registry latest matches installed version via NTG_LATEST_VERSION and resolveLatestVersion', () => {
+  const h = createHarness();
+  try {
+    const install = h.createFakeInstall({ manager: 'npm', version: OLD_VERSION });
+    const res = h.runUpdate(install, [], {
+      STUB_UPGRADE_PACKAGE_JSON: install.pkgPath,
+      STUB_UPGRADE_NEW_VERSION: NEW_VERSION,
+      NTG_LATEST_VERSION: `v${NEW_VERSION}`,
+    });
+    assert.equal(res.status, 0, `expected matching update to succeed; stderr=${res.stderr}`);
+    assert.match(
+      res.stdout,
+      new RegExp(`Updated native-gravity ${escapeRegExp(OLD_VERSION)} -> ${escapeRegExp(NEW_VERSION)}`)
+    );
+    assert.equal(h.readAgyCalls().length, 4);
+  } finally {
+    h.cleanup();
+  }
+
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-self-update-match-'));
+  try {
+    const pkgRoot = join(dir, 'node_modules', 'native-gravity');
+    mkdirSync(join(pkgRoot, 'scripts'), { recursive: true });
+    writeJsonFile(join(pkgRoot, 'package.json'), { name: 'native-gravity', version: '2.1.0' });
+    const scriptPath = join(pkgRoot, 'scripts', 'npm-install.mjs');
+    writeFileSync(scriptPath, '// stub\n', 'utf8');
+
+    let stdout = '';
+    const result = runSelfUpdate({
+      scriptPath,
+      packageRoot: pkgRoot,
+      env: {},
+      home: dir,
+      platform: 'linux',
+      spawnSync: () => {
+        writeJsonFile(join(pkgRoot, 'package.json'), { name: 'native-gravity', version: '2.2.0' });
+        return { status: 0 };
+      },
+      resolveLatestVersion: () => '2.2.0',
+      stdout: { write: (text) => { stdout += text; } },
+      stderr: { write: () => {} },
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.status, 0);
+    assert.equal(result.oldVersion, '2.1.0');
+    assert.equal(result.newVersion, '2.2.0');
+    assert.equal(result.expectedVersion, '2.2.0');
+    assert.match(stdout, /Updated native-gravity 2\.1\.0 -> 2\.2\.0/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('offline/unavailable registry lookup fallback succeeds without crashing and warns on lookup errors', () => {
+  const h = createHarness();
+  try {
+    for (const envValue of ['', 'offline', 'unavailable']) {
+      const install = h.createFakeInstall({ manager: 'npm', version: OLD_VERSION });
+      const res = h.runUpdate(install, [], {
+        STUB_UPGRADE_PACKAGE_JSON: install.pkgPath,
+        STUB_UPGRADE_NEW_VERSION: NEW_VERSION,
+        NTG_LATEST_VERSION: envValue,
+      });
+      assert.equal(res.status, 0, `expected NTG_LATEST_VERSION=${JSON.stringify(envValue)} to succeed; stderr=${res.stderr}`);
+      assert.match(
+        res.stdout,
+        new RegExp(`Updated native-gravity ${escapeRegExp(OLD_VERSION)} -> ${escapeRegExp(NEW_VERSION)}`)
+      );
+    }
+
+    const failingLookupScript = join(h.tempHome, 'failing-lookup.mjs');
+    writeFileSync(failingLookupScript, "process.stderr.write('registry unreachable\\n'); process.exit(2);\n", 'utf8');
+    const installFailCmd = h.createFakeInstall({ manager: 'npm', version: OLD_VERSION });
+    const failCmdRes = h.runUpdate(installFailCmd, [], {
+      STUB_UPGRADE_PACKAGE_JSON: installFailCmd.pkgPath,
+      STUB_UPGRADE_NEW_VERSION: NEW_VERSION,
+      NTG_REGISTRY_LOOKUP_CMD: `${process.execPath} ${failingLookupScript}`,
+    });
+    assert.equal(failCmdRes.status, 0, `failing lookup cmd must be non-fatal; stderr=${failCmdRes.stderr}`);
+    assert.match(failCmdRes.stderr, /Warning: could not verify latest registry version for native-gravity/);
+    assert.match(failCmdRes.stderr, /registry unreachable/);
+    assert.match(
+      failCmdRes.stdout,
+      new RegExp(`Updated native-gravity ${escapeRegExp(OLD_VERSION)} -> ${escapeRegExp(NEW_VERSION)}`)
+    );
+
+    const badOutputLookupScript = join(h.tempHome, 'bad-output-lookup.mjs');
+    writeFileSync(badOutputLookupScript, "process.stdout.write('not a semver token\\n');\n", 'utf8');
+    const badOut = resolveRegistryLatestVersion('native-gravity', {
+      env: { NTG_REGISTRY_LOOKUP_CMD: `${process.execPath} ${badOutputLookupScript}` },
+    });
+    assert.equal(badOut.available, false);
+    assert.equal(badOut.version, null);
+    assert.equal(badOut.source, 'env-cmd');
+    assert.match(badOut.error, /Invalid version output/);
+  } finally {
+    h.cleanup();
+  }
+
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-self-update-null-resolver-'));
+  try {
+    const pkgRoot = join(dir, 'node_modules', 'native-gravity');
+    mkdirSync(join(pkgRoot, 'scripts'), { recursive: true });
+    writeJsonFile(join(pkgRoot, 'package.json'), { name: 'native-gravity', version: '2.1.0' });
+    const scriptPath = join(pkgRoot, 'scripts', 'npm-install.mjs');
+    writeFileSync(scriptPath, '// stub\n', 'utf8');
+
+    let stderr = '';
+    const result = runSelfUpdate({
+      scriptPath,
+      packageRoot: pkgRoot,
+      env: {},
+      home: dir,
+      platform: 'linux',
+      spawnSync: () => {
+        writeJsonFile(join(pkgRoot, 'package.json'), { name: 'native-gravity', version: '2.2.0' });
+        return { status: 0 };
+      },
+      resolveLatestVersion: () => null,
+      stdout: { write: () => {} },
+      stderr: { write: (text) => { stderr += text; } },
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.expectedVersion, null);
+    assert.equal(stderr, '');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('resolveRegistryLatestVersion respects priority order and offline/test guards', () => {
+  assert.equal(normalizeVersion('v2.1.0'), '2.1.0');
+  assert.equal(normalizeVersion('2.1.0-beta.1'), '2.1.0-beta.1');
+  assert.equal(normalizeVersion('2.1.0 extra'), null);
+
+  assert.deepEqual(
+    resolveRegistryLatestVersion('native-gravity', {
+      env: { NTG_LATEST_VERSION: '1.0.0' },
+      resolveLatestVersion: () => '2.3.4',
+    }),
+    { available: true, version: '2.3.4', source: 'injected' }
+  );
+
+  assert.deepEqual(
+    resolveRegistryLatestVersion('native-gravity', {
+      env: { NTG_LATEST_VERSION: '2.3.4', SKIP_LIVE_TESTS: '1' },
+    }),
+    { available: true, version: '2.3.4', source: 'env' }
+  );
+
+  assert.deepEqual(
+    resolveRegistryLatestVersion('native-gravity', {
+      env: { NTG_LATEST_VERSION: 'offline' },
+    }),
+    { available: false, version: null, source: 'env', reason: 'unavailable' }
+  );
+
+  assert.deepEqual(
+    resolveRegistryLatestVersion('native-gravity', {
+      env: { SKIP_LIVE_TESTS: '1' },
+    }),
+    { available: false, version: null, source: 'skipped', reason: 'offline-or-stubbed' }
+  );
+
+  assert.deepEqual(
+    resolveRegistryLatestVersion('native-gravity', {
+      env: {},
+      skipRegistryLookup: true,
+    }),
+    { available: false, version: null, source: 'skipped', reason: 'offline-or-stubbed' }
+  );
+
+  const lookupDir = mkdtempSync(join(tmpdir(), 'ntg-registry-lookup-cmd-'));
+  try {
+    const okLookupScript = join(lookupDir, 'ok-lookup.mjs');
+    writeFileSync(okLookupScript, "process.stdout.write('v2.4.0\\n');\n", 'utf8');
+    const lookupCmd = `${process.execPath} ${okLookupScript}`;
+
+    // (c) NTG_REGISTRY_LOOKUP_CMD succeeds and overrides (d) SKIP_LIVE_TESTS=1
+    assert.deepEqual(
+      resolveRegistryLatestVersion('native-gravity', {
+        env: { NTG_REGISTRY_LOOKUP_CMD: lookupCmd, SKIP_LIVE_TESTS: '1' },
+      }),
+      { available: true, version: '2.4.0', source: 'env-cmd' }
+    );
+
+    // (b) NTG_LATEST_VERSION takes precedence over (c) NTG_REGISTRY_LOOKUP_CMD
+    assert.deepEqual(
+      resolveRegistryLatestVersion('native-gravity', {
+        env: { NTG_LATEST_VERSION: '2.5.0', NTG_REGISTRY_LOOKUP_CMD: lookupCmd },
+      }),
+      { available: true, version: '2.5.0', source: 'env' }
+    );
+  } finally {
+    rmSync(lookupDir, { recursive: true, force: true });
+  }
+
+  const ps1Guidance = formatUpdateRecoveryGuidance({
+    reason: 'version-mismatch',
+    packageName: 'native-gravity',
+    installMethod: { type: 'script', shell: 'ps1' },
+  });
+  assert.match(ps1Guidance, /irm \S+install\.ps1 \| iex/);
+  assert.match(ps1Guidance, /ntg reinstall/);
+});
+
+test('runSelfUpdate queries native-gravity version while upgrading and guiding @sleeg/ntg on alias-wrapper installs', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-alias-wrapper-lookup-'));
+  try {
+    const modulesRoot = join(dir, '.npm-global', 'lib', 'node_modules');
+    const pkgRoot = join(modulesRoot, 'native-gravity');
+    const aliasRoot = join(modulesRoot, '@sleeg', 'ntg');
+    mkdirSync(join(pkgRoot, 'scripts'), { recursive: true });
+    mkdirSync(aliasRoot, { recursive: true });
+    writeJsonFile(join(pkgRoot, 'package.json'), { name: 'native-gravity', version: '2.1.0' });
+    writeJsonFile(join(aliasRoot, 'package.json'), { name: '@sleeg/ntg', version: '1.1.1' });
+    const scriptPath = join(pkgRoot, 'scripts', 'npm-install.mjs');
+    writeFileSync(scriptPath, '// stub\n', 'utf8');
+
+    const spawned = [];
+    const lookedUpPackages = [];
+    let stderr = '';
+    const mismatchResult = runSelfUpdate({
+      scriptPath,
+      packageRoot: pkgRoot,
+      env: {},
+      home: dir,
+      platform: 'linux',
+      spawnSync: (cmd, args) => {
+        spawned.push({ cmd, args });
+        return { status: 0 };
+      },
+      resolveLatestVersion: (lookupPkg) => {
+        lookedUpPackages.push(lookupPkg);
+        return '2.2.0';
+      },
+      stdout: { write: () => {} },
+      stderr: { write: (text) => { stderr += text; } },
+    });
+
+    assert.deepEqual(spawned, [{ cmd: 'npm', args: ['install', '-g', '@sleeg/ntg@latest'] }]);
+    assert.deepEqual(lookedUpPackages, ['native-gravity']);
+    assert.equal(mismatchResult.ok, false);
+    assert.equal(mismatchResult.reason, 'version-mismatch');
+    assert.equal(mismatchResult.packageName, '@sleeg/ntg');
+    assert.equal(mismatchResult.expectedVersion, '2.2.0');
+    assert.match(stderr, /npm uninstall -g @sleeg\/ntg/);
+    assert.match(stderr, /npm install -g @sleeg\/ntg@latest/);
+    assert.match(stderr, /ntg reinstall/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('update --no-self-update succeeds cleanly even when Bun global manifest has conflicts', () => {
+  const h = createHarness();
+  try {
+    const install = h.createFakeInstall({ manager: 'bun', version: OLD_VERSION });
+    const manifestPath = join(h.tempHome, '.bun', 'install', 'global', 'package.json');
+    writeJsonFile(manifestPath, {
+      dependencies: {
+        'native-gravity': './native-gravity-2.1.0.tgz',
+        '@sleeg/ntg': '^2.1.0',
+      },
+    });
+
+    const res = h.runUpdate(install, ['--no-self-update']);
+    assert.equal(res.status, 0, `expected --no-self-update to bypass self-update conflict check; stderr=${res.stderr}`);
+    assert.deepEqual(h.readUpgradeCalls(), []);
+    assert.equal(h.readAgyCalls().length, 4);
+  } finally {
+    h.cleanup();
   }
 });

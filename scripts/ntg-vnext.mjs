@@ -37,7 +37,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { SteamrollerController, recommendNeedsAlt } from '../src/runtime/steamroller-controller.mjs';
-import { TrackRunner, computePlanningInputDigest } from '../src/runtime/track-runner.mjs';
+import { TrackRunner, computePlanningInputDigest, normalizePiledriverMode } from '../src/runtime/track-runner.mjs';
 import { createEventLog, makeEvent } from './events.mjs';
 import { AuthoritativeLedger, computeUsageRollup } from './ledger.mjs';
 import { countProbeHits, MAX_PROBE_HITS } from './coverage.mjs';
@@ -109,6 +109,7 @@ function parseArgs(argv) {
     all: false,
     escalate: false,
     track: null,
+    piledriver: null,
     requirePlanningDecision: false,
     planningDecision: null,
     planningDecisionDigest: null,
@@ -127,6 +128,7 @@ function parseArgs(argv) {
       '--evidence': 'evidence',
       '--timeout': 'timeout',
       '--track': 'track',
+      '--piledriver': 'piledriver',
       '--planning-decision': 'planningDecision',
       '--planning-decision-digest': 'planningDecisionDigest',
       '--planning-decision-note': 'planningDecisionNote',
@@ -140,6 +142,13 @@ function parseArgs(argv) {
     const t = String(opts.track).trim().toUpperCase();
     if (!['L', 'S', 'M'].includes(t)) throw new Error(`--track must be L, S, or M\n${USAGE}`);
     opts.track = t;
+  }
+  if (opts.piledriver !== null) {
+    try {
+      opts.piledriver = normalizePiledriverMode(opts.piledriver);
+    } catch {
+      throw new Error(`--piledriver must be auto, always, or never\n${USAGE}`);
+    }
   }
   if (!opts.ledger) throw new Error(`--ledger is required\n${USAGE}`);
   // Explicit timeouts keep today's flat semantics for every role; without one,
@@ -923,6 +932,16 @@ export async function main(argv, deps = {}) {
     deps.requirePlanningDecision !== undefined
       ? Boolean(deps.requirePlanningDecision)
       : (opts.requirePlanningDecision || effectiveEnv.NTG_REQUIRE_PLANNING_DECISION === '1');
+  const rawPiledriverMode =
+    opts.piledriver ??
+    deps.piledriverMode ??
+    (effectiveEnv.NTG_PILEDRIVER_MODE !== undefined && effectiveEnv.NTG_PILEDRIVER_MODE !== ''
+      ? effectiveEnv.NTG_PILEDRIVER_MODE
+      : undefined);
+  const resolvedPiledriverMode = normalizePiledriverMode(rawPiledriverMode, {
+    requireInitialPlanning: deps.requireInitialPlanning,
+    defaultMode: 'auto',
+  });
 
   controller = new SteamrollerController({
     ledgerPath: opts.ledger,
@@ -934,7 +953,7 @@ export async function main(argv, deps = {}) {
     ...(typeof deps.reviewPlanningAdvice === 'function' ? { reviewPlanningAdvice: deps.reviewPlanningAdvice } : {}),
     ...(resolvedPlanningDecision ? { planningDecision: resolvedPlanningDecision } : {}),
     requirePlanningDecision: resolvedRequirePlanningDecision,
-    ...(deps.requireInitialPlanning !== undefined ? { requireInitialPlanning: deps.requireInitialPlanning } : {}),
+    piledriverMode: resolvedPiledriverMode,
     runnerOptions: spineRunnerOptions,
     ...(spineRunnerOptions.coverageCwd ? { cwd: spineRunnerOptions.coverageCwd } : {}),
   });
@@ -978,6 +997,7 @@ export async function main(argv, deps = {}) {
       acceptanceCriteria,
       planVersion,
       highRiskEscalation: Boolean(opts.escalate),
+      piledriverMode: resolvedPiledriverMode,
       ...(typeof deps.reviewPlanningAdvice === 'function' ? { reviewPlanningAdvice: deps.reviewPlanningAdvice } : {}),
       ...(resolvedPlanningDecision ? { planningDecision: resolvedPlanningDecision } : {}),
       requirePlanningDecision: resolvedRequirePlanningDecision,
@@ -1097,7 +1117,10 @@ export async function main(argv, deps = {}) {
         const results = [];
         let id = opts.milestone ?? nextEligible(controller.state);
         while (id) {
-          const result = await controller.runMilestone(id, { track: effectiveTrack });
+          const result = await controller.runMilestone(id, {
+            track: effectiveTrack,
+            highRisk: Boolean(opts.escalate),
+          });
           results.push({ milestone_id: id, ...result });
           if (!result.verified) {
             return {

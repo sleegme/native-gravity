@@ -697,3 +697,54 @@ test('run and resume: enforce interactive Steamroller planning decision via NTG_
     harness.cleanup();
   }
 });
+
+test('run, resume, and --help support and forward --piledriver <auto|always|never>', () => {
+  const helpOut = [];
+  const helpCode = runNtgCommand(['--help'], {
+    stdout: { write: (chunk) => helpOut.push(chunk) },
+  });
+  assert.equal(helpCode, 0);
+  assert.match(helpOut.join(''), /--piledriver <auto\|always\|never>/);
+
+  const runCalls = [];
+  const runCode = runNtgCommand(['run', '--piledriver', 'always', '--track', 'S'], {
+    vnextScript: '/stub/ntg-vnext.mjs',
+    stdio: 'pipe',
+    spawnSync: (_cmd, args, opts) => {
+      runCalls.push({ args, env: opts.env });
+      return { status: 0 };
+    },
+  });
+  assert.equal(runCode, 0);
+  assert.equal(runCalls.length, 1);
+  assert.deepEqual(runCalls[0].args.slice(1), [
+    'run',
+    '--ledger',
+    DEFAULT_LEDGER,
+    '--piledriver',
+    'always',
+    '--track',
+    'S',
+  ]);
+
+  const resumeCalls = [];
+  const resumeCode = runNtgCommand(['resume', '--piledriver', 'never'], {
+    vnextScript: '/stub/ntg-vnext.mjs',
+    stdio: 'pipe',
+    spawnSync: (_cmd, args, opts) => {
+      resumeCalls.push({ args, env: opts.env });
+      return { status: 0 };
+    },
+  });
+  assert.equal(resumeCode, 0);
+  assert.equal(resumeCalls.length, 2);
+  assert.deepEqual(resumeCalls[0].args.slice(1), ['status', '--ledger', DEFAULT_LEDGER]);
+  assert.deepEqual(resumeCalls[1].args.slice(1), [
+    'run',
+    '--ledger',
+    DEFAULT_LEDGER,
+    '--all',
+    '--piledriver',
+    'never',
+  ]);
+});

@@ -760,7 +760,10 @@ test('SIGKILL between durable delegation and candidate requires observed crash r
   const interrupted = AuthoritativeLedger.load(f.ledgerPath).getState();
   assert.equal(interrupted.current_milestone, 'one');
   assert.deepEqual(interrupted.completed_milestones, []);
-  assert.deepEqual(interrupted.evidence, {});
+  assert.equal(interrupted.evidence.one, undefined);
+  assert.equal(interrupted.evidence.initial_planning?.v1?.status, 'SKIPPED');
+  assert.equal(interrupted.evidence.initial_planning?.v1?.invoked, false);
+  assert.equal(interrupted.evidence.initial_planning?.v1?.decision_reason, 'explicit_never_override');
   assert.deepEqual(interrupted.verification, {});
   const bytes = readFileSync(f.ledgerPath, 'utf8');
   assert.equal(child.kill('SIGKILL'), true);
