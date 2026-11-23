@@ -2531,4 +2531,21 @@ test('real /ntg CLI decision protocol requires digest-bound Steamroller decision
   assert.equal(lRetry.code, 0, 'Track L retry without flags must reuse persisted PROCEED decision');
   assert.equal(lPiledriverCalls, 1, 'Track L must reuse persisted planning pass after Steamroller decision');
   assert.equal(lWorkerCalls, 2);
+
+  // --- Invalid in-process reviewPlanningAdvice callback decision fails closed ---
+  const badCbLedger = join(dir, 'bad-cb-ledger.json');
+  let badCbWorkers = 0;
+  const badCbRes = await main(['run', '--ledger', badCbLedger, '--track', 'L', '--task', 'Fix doc wording'], {
+    handleSignals: false,
+    reviewPlanningAdvice: () => ({ decision: 'MAYBE_LATER' }),
+    invokeRole: async (role) => {
+      if (role === 'piledriver') return envelope({ recommendation: 'Safe bounded edit' });
+      badCbWorkers += 1;
+      return envelope({});
+    },
+  });
+  assert.equal(badCbRes.code, 2, 'Invalid reviewPlanningAdvice callback decision must fail closed');
+  assert.equal(badCbRes.out.status, 'AWAITING_PLANNING_DECISION');
+  assert.equal(badCbRes.out.supervisor_decision.reason, 'INVALID_PLANNING_DECISION');
+  assert.equal(badCbWorkers, 0, 'Workers must not execute on an invalid callback decision');
 });

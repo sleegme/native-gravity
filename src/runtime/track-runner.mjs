@@ -280,12 +280,24 @@ export async function resolveSupervisorPlanningDecision({
       advisory_digest: digest,
       inspection,
     });
-    const decision = String(
-      custom?.decision || (inspection.hasBlockingDefects ? "REPLAN_REQUIRED" : "PROCEED")
-    ).trim().toUpperCase();
+    const rawDecision =
+      custom?.decision !== undefined && custom?.decision !== null
+        ? String(custom.decision).trim().toUpperCase()
+        : (inspection.hasBlockingDefects ? "REPLAN_REQUIRED" : "PROCEED");
+    if (!VALID_SUPERVISOR_DECISIONS.includes(rawDecision)) {
+      return {
+        awaiting_decision: true,
+        reason: "INVALID_PLANNING_DECISION",
+        provided_decision: String(custom?.decision ?? ""),
+        advisory_digest: digest,
+        safety_gate: inspection,
+        adopted: false,
+        defects: inspection.defects,
+      };
+    }
     return {
       awaiting_decision: false,
-      decision: decision === "REPLAN" ? "REPLAN_REQUIRED" : decision,
+      decision: rawDecision === "REPLAN" ? "REPLAN_REQUIRED" : rawDecision,
       adopted: false,
       source: "callback",
       advisory_digest: digest,
