@@ -37,7 +37,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { SteamrollerController, recommendNeedsAlt } from '../src/runtime/steamroller-controller.mjs';
-import { TrackRunner } from '../src/runtime/track-runner.mjs';
+import { TrackRunner, computePlanningInputDigest } from '../src/runtime/track-runner.mjs';
 import { createEventLog, makeEvent } from './events.mjs';
 import { AuthoritativeLedger, computeUsageRollup } from './ledger.mjs';
 import { countProbeHits, MAX_PROBE_HITS } from './coverage.mjs';
@@ -104,12 +104,33 @@ const USAGE = 'usage: ntg-vnext <init|plan|run|replan|tactical-replan|recover|al
 
 function parseArgs(argv) {
   const [command, ...rest] = argv;
-  const opts = { command, all: false, escalate: false, track: null };
+  const opts = {
+    command,
+    all: false,
+    escalate: false,
+    track: null,
+    requirePlanningDecision: false,
+    planningDecision: null,
+    planningDecisionDigest: null,
+    planningDecisionNote: null,
+  };
   for (let i = 0; i < rest.length; i += 1) {
     const arg = rest[i];
     if (arg === '--all') { opts.all = true; continue; }
     if (arg === '--escalate') { opts.escalate = true; continue; }
-    const key = { '--ledger': 'ledger', '--plan': 'plan', '--task': 'task', '--milestone': 'milestone', '--evidence': 'evidence', '--timeout': 'timeout', '--track': 'track' }[arg];
+    if (arg === '--require-planning-decision') { opts.requirePlanningDecision = true; continue; }
+    const key = {
+      '--ledger': 'ledger',
+      '--plan': 'plan',
+      '--task': 'task',
+      '--milestone': 'milestone',
+      '--evidence': 'evidence',
+      '--timeout': 'timeout',
+      '--track': 'track',
+      '--planning-decision': 'planningDecision',
+      '--planning-decision-digest': 'planningDecisionDigest',
+      '--planning-decision-note': 'planningDecisionNote',
+    }[arg];
     if (!key || rest[i + 1] === undefined) throw new Error(`Unknown or incomplete option: ${arg}\n${USAGE}`);
     opts[key] = rest[i + 1];
     i += 1;
@@ -888,6 +909,21 @@ export async function main(argv, deps = {}) {
     return result;
   };
 
+  const effectiveEnv = deps.env ?? process.env;
+  const resolvedPlanningDecisionValue =
+    opts.planningDecision ?? effectiveEnv.NTG_PLANNING_DECISION ?? null;
+  const resolvedPlanningDecision = resolvedPlanningDecisionValue
+    ? {
+        decision: resolvedPlanningDecisionValue,
+        digest: opts.planningDecisionDigest ?? effectiveEnv.NTG_PLANNING_DECISION_DIGEST ?? null,
+        notes: opts.planningDecisionNote ?? effectiveEnv.NTG_PLANNING_DECISION_NOTE ?? null,
+      }
+    : (deps.planningDecision ?? null);
+  const resolvedRequirePlanningDecision =
+    deps.requirePlanningDecision !== undefined
+      ? Boolean(deps.requirePlanningDecision)
+      : (opts.requirePlanningDecision || effectiveEnv.NTG_REQUIRE_PLANNING_DECISION === '1');
+
   controller = new SteamrollerController({
     ledgerPath: opts.ledger,
     lightweightLogPath: deps.lightweightLogPath ?? join(dirname(resolve(opts.ledger)), 'lightweight-runs.jsonl'),
@@ -896,6 +932,8 @@ export async function main(argv, deps = {}) {
     invokeSpecialist: wrappedInvokeSpecialist,
     invokeZen: wrappedInvokeZen,
     ...(typeof deps.reviewPlanningAdvice === 'function' ? { reviewPlanningAdvice: deps.reviewPlanningAdvice } : {}),
+    ...(resolvedPlanningDecision ? { planningDecision: resolvedPlanningDecision } : {}),
+    requirePlanningDecision: resolvedRequirePlanningDecision,
     ...(deps.requireInitialPlanning !== undefined ? { requireInitialPlanning: deps.requireInitialPlanning } : {}),
     runnerOptions: spineRunnerOptions,
     ...(spineRunnerOptions.coverageCwd ? { cwd: spineRunnerOptions.coverageCwd } : {}),
@@ -916,11 +954,19 @@ export async function main(argv, deps = {}) {
     const taskText = opts.task || planMilestone?.objective || planDoc?.goal || 'Lightweight Track L task';
     const goalText = planDoc?.goal || opts.task || '';
     const boundedScope = planMilestone?.bounded_scope ?? [];
+    const acceptanceCriteria = planMilestone?.acceptance_criteria ?? [];
     const planVersion = planDoc?.plan_version ?? 1;
+    const planningInputDigest = computePlanningInputDigest({
+      task: taskText,
+      goal: goalText,
+      boundedScope,
+      acceptanceCriteria,
+      planVersion,
+    });
     const stableRunId =
       opts.milestone ??
       `track-l-${createHash('sha256')
-        .update(JSON.stringify({ task: taskText, goal: goalText, scope: boundedScope, planVersion }))
+        .update(planningInputDigest)
         .digest('hex')
         .slice(0, 12)}`;
     const lResult = await controller.runTrackL({
@@ -929,20 +975,29 @@ export async function main(argv, deps = {}) {
       goal: goalText,
       workerRole: deps.workerRole ?? null,
       boundedScope,
-      acceptanceCriteria: planMilestone?.acceptance_criteria ?? [],
+      acceptanceCriteria,
       planVersion,
       highRiskEscalation: Boolean(opts.escalate),
       ...(typeof deps.reviewPlanningAdvice === 'function' ? { reviewPlanningAdvice: deps.reviewPlanningAdvice } : {}),
+      ...(resolvedPlanningDecision ? { planningDecision: resolvedPlanningDecision } : {}),
+      requirePlanningDecision: resolvedRequirePlanningDecision,
     });
-    if (lResult.status === 'NEEDS_REPLAN' || lResult.verified === false) {
+    if (
+      lResult.status === 'AWAITING_PLANNING_DECISION' ||
+      lResult.status === 'NEEDS_REPLAN' ||
+      lResult.verified === false
+    ) {
       return {
         code: 2,
         out: {
           track: 'L',
           status: lResult.status ?? 'NEEDS_REPLAN',
           run_id: lResult.run_id,
+          ...(lResult.advisory_digest ? { advisory_digest: lResult.advisory_digest } : {}),
           planning_pass: lResult.planning_pass ?? null,
+          ...(lResult.safety_gate ? { safety_gate: lResult.safety_gate } : {}),
           supervisor_decision: lResult.supervisor_decision ?? null,
+          ...(lResult.required_action ? { required_action: lResult.required_action } : {}),
           results: [lResult],
         },
       };
@@ -1051,6 +1106,16 @@ export async function main(argv, deps = {}) {
                 track: effectiveTrack,
                 assurance_badge: 'ZEN_DURABLE',
                 halo_status: result.halo_status ?? null,
+                ...(result.status === 'AWAITING_PLANNING_DECISION' || result.status === 'NEEDS_REPLAN'
+                  ? {
+                      status: result.status,
+                      advisory_digest: result.advisory_digest ?? null,
+                      planning_pass: result.planning_pass ?? null,
+                      ...(result.safety_gate ? { safety_gate: result.safety_gate } : {}),
+                      supervisor_decision: result.supervisor_decision ?? null,
+                      ...(result.required_action ? { required_action: result.required_action } : {}),
+                    }
+                  : {}),
                 results,
                 state: controller.state,
               },

@@ -46,6 +46,12 @@ Options:
   --ledger <path>   Ledger path (default: .ntg/ledger.json)
   --plan <path>     Plan file path (required for init)
   --track <L|S|M>   Explicit NTG 2.0 track hint (L, S, or M)
+  --planning-decision <PROCEED|REPLAN_REQUIRED|REJECT>
+                    Bounded Steamroller decision on initial Piledriver advisory
+  --planning-decision-digest <sha256:...>
+                    Advisory digest binding the Steamroller decision
+  --planning-decision-note <text>
+                    Optional rationale for Steamroller's advisory decision
   --watch           Watch mode for graph (redraws on ledger change)
   --once            Print graph once without opening a side pane or terminal
   --pane            Open the side pane even when stdout is not a terminal
@@ -191,12 +197,16 @@ export function runNtgCommand(argv = [], options = {}) {
   }
 
   if (command === 'run') {
+    const runEnv =
+      spawnEnv && 'NTG_REQUIRE_PLANNING_DECISION' in spawnEnv
+        ? spawnEnv
+        : { ...spawnEnv, NTG_REQUIRE_PLANNING_DECISION: '1' };
     return executeVnext(
       vnextScript,
       ['run', '--ledger', ledger, ...passthrough],
       spawn,
       options,
-      spawnEnv,
+      runEnv,
       errStream
     );
   }
@@ -214,12 +224,16 @@ export function runNtgCommand(argv = [], options = {}) {
       return statusCode;
     }
     const runRest = passthrough.filter((arg) => arg !== '--all');
+    const resumeEnv =
+      spawnEnv && 'NTG_REQUIRE_PLANNING_DECISION' in spawnEnv
+        ? spawnEnv
+        : { ...spawnEnv, NTG_REQUIRE_PLANNING_DECISION: '1' };
     return executeVnext(
       vnextScript,
       ['run', '--ledger', ledger, '--all', ...runRest],
       spawn,
       options,
-      spawnEnv,
+      resumeEnv,
       errStream
     );
   }

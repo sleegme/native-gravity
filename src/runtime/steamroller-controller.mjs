@@ -60,11 +60,23 @@ import {
 import {
   InitialPlanningRequiredError,
   TrackRunner,
+  computeAdvisoryDigest,
+  computePlanningInputDigest,
+  hasBlockingProse,
   inspectPlanningAdvisory,
+  resolveSupervisorPlanningDecision,
   validatePiledriverAdvisory,
 } from "./track-runner.mjs";
 
-export { InitialPlanningRequiredError, inspectPlanningAdvisory, validatePiledriverAdvisory };
+export {
+  InitialPlanningRequiredError,
+  computeAdvisoryDigest,
+  computePlanningInputDigest,
+  hasBlockingProse,
+  inspectPlanningAdvisory,
+  resolveSupervisorPlanningDecision,
+  validatePiledriverAdvisory,
+};
 
 const NEEDS_ALT_MIN_ATTEMPTS = 3;
 const MAX_HANDOFF_CORRECTIONS = 2;
@@ -274,6 +286,8 @@ export class SteamrollerController {
   #invokeZen;
   #invokePlanner;
   #reviewPlanningAdvice;
+  #planningDecision;
+  #requirePlanningDecision;
   #requireInitialPlanning;
   #runnerOptions;
   #explicitCwd = false;
@@ -294,6 +308,8 @@ export class SteamrollerController {
     invokeRole = null,
     invokePlanner = null,
     reviewPlanningAdvice = null,
+    planningDecision = null,
+    requirePlanningDecision = false,
     invokeSpecialist = null,
     invokeHalo = null,
     invokeZen = null,
@@ -323,6 +339,8 @@ export class SteamrollerController {
     this.#invokeRole = invokeRole;
     this.#invokePlanner = invokePlanner;
     this.#reviewPlanningAdvice = reviewPlanningAdvice;
+    this.#planningDecision = planningDecision;
+    this.#requirePlanningDecision = Boolean(requirePlanningDecision);
     this.#invokeSpecialist = invokeSpecialist;
     this.#invokeHalo = invokeHalo;
     this.#invokeZen = invokeZen;
@@ -929,6 +947,12 @@ export class SteamrollerController {
     });
     return this.trackRunner.runTrackL({
       ...options,
+      reviewPlanningAdvice: options.reviewPlanningAdvice ?? this.#reviewPlanningAdvice,
+      planningDecision: options.planningDecision ?? this.#planningDecision,
+      requirePlanningDecision:
+        options.requirePlanningDecision !== undefined
+          ? Boolean(options.requirePlanningDecision)
+          : this.#requirePlanningDecision,
       workerRole: route.role,
       modelSlug: route.slug,
     });
@@ -1524,29 +1548,48 @@ export class SteamrollerController {
     );
   }
 
-  async #evaluatePlanningDecision(record, { reviewPlanningAdvice = null, milestoneId = null } = {}) {
-    const inspection = inspectPlanningAdvisory(record?.advice);
-    const reviewer = reviewPlanningAdvice ?? this.#reviewPlanningAdvice;
-    if (typeof reviewer === "function") {
-      const custom = await reviewer(record, {
-        plan_version: this.#ledger.plan_version,
+  async #evaluatePlanningDecision(
+    record,
+    {
+      reviewPlanningAdvice = null,
+      planningDecision = null,
+      requirePlanningDecision = undefined,
+      milestoneId = null,
+    } = {}
+  ) {
+    const planVersion = this.#ledger.plan_version;
+    const advisoryDigest =
+      record?.advisory_digest ||
+      computeAdvisoryDigest(record?.advice, { planVersion });
+    const decisionResult = await resolveSupervisorPlanningDecision({
+      record,
+      advisoryDigest,
+      reviewPlanningAdvice: reviewPlanningAdvice ?? this.#reviewPlanningAdvice,
+      planningDecision: planningDecision ?? this.#planningDecision,
+      requirePlanningDecision:
+        requirePlanningDecision !== undefined
+          ? Boolean(requirePlanningDecision)
+          : this.#requirePlanningDecision,
+      context: {
+        plan_version: planVersion,
         milestone_id: milestoneId,
-        inspection,
-      });
-      return {
-        decision: String(
-          custom?.decision || (inspection.hasBlockingDefects ? "REPLAN_REQUIRED" : "PROCEED")
-        ).toUpperCase(),
-        adopted: false,
-        defects: inspection.defects,
-        ...(custom?.notes ? { notes: custom.notes } : {}),
-      };
+      },
+    });
+    const prevDecision = record?.supervisor_decision;
+    const decisionChanged =
+      !prevDecision ||
+      prevDecision.advisory_digest !== advisoryDigest ||
+      prevDecision.decision !== decisionResult.decision ||
+      (prevDecision.notes ?? null) !== (decisionResult.notes ?? null);
+    if (
+      !decisionResult.awaiting_decision &&
+      decisionResult.source === "interactive_steamroller" &&
+      decisionChanged
+    ) {
+      this.#ledger.recordInitialPlanningDecision(planVersion, decisionResult);
+      this.#saveLedger();
     }
-    return {
-      decision: inspection.hasBlockingDefects ? "REPLAN_REQUIRED" : "PROCEED",
-      adopted: false,
-      defects: inspection.defects,
-    };
+    return decisionResult;
   }
 
   /**
@@ -1556,13 +1599,15 @@ export class SteamrollerController {
    * `ledger.evidence.initial_planning[plan_version]` so resumes, retries, and
    * later milestones of the same plan_version skip re-running Piledriver, while
    * tactical/material replans (new plan_version) trigger one fresh pass.
-   * Returns a supervisory decision (`PROCEED | REPLAN_REQUIRED | REJECT`) so
-   * blocking plan defects are never silently ignored.
+   * Returns a supervisory decision (`PROCEED | REPLAN_REQUIRED | REJECT`) or
+   * `awaiting_decision: true` when interactive Steamroller review is required.
    */
   async ensureInitialPlanningPass({
     task = null,
     force = false,
     reviewPlanningAdvice = null,
+    planningDecision = null,
+    requirePlanningDecision = undefined,
     milestoneId = null,
   } = {}) {
     this.#open();
@@ -1571,12 +1616,15 @@ export class SteamrollerController {
       const existing = this.#ledger.getInitialPlanningPass(planVersion);
       const supervisor_decision = await this.#evaluatePlanningDecision(existing, {
         reviewPlanningAdvice,
+        planningDecision,
+        requirePlanningDecision,
         milestoneId,
       });
+      const latestRecord = this.#ledger.getInitialPlanningPass(planVersion) ?? existing;
       return {
         skipped: true,
         reason: "ALREADY_COMPLETED_FOR_PLAN_VERSION",
-        record: existing,
+        record: latestRecord,
         supervisor_decision,
       };
     }
@@ -1601,21 +1649,26 @@ export class SteamrollerController {
     }
 
     validatePiledriverAdvisory(advice, { plan_version: planVersion });
+    const advisoryDigest = computeAdvisoryDigest(advice, { planVersion });
 
     const record = this.#ledger.recordInitialPlanningPass({
       plan_version: planVersion,
       slug: advice?.slug ?? null,
       task: planningTask,
       advice,
+      advisory_digest: advisoryDigest,
     });
     this.#saveLedger();
     const supervisor_decision = await this.#evaluatePlanningDecision(record, {
       reviewPlanningAdvice,
+      planningDecision,
+      requirePlanningDecision,
       milestoneId,
     });
+    const latestRecord = this.#ledger.getInitialPlanningPass(planVersion) ?? record;
     return {
       skipped: false,
-      record,
+      record: latestRecord,
       supervisor_decision,
     };
   }
@@ -1636,8 +1689,24 @@ export class SteamrollerController {
       planningOutcome = await this.ensureInitialPlanningPass({
         task: this.#ledger.goal || milestoneDef?.objective || milestoneId,
         reviewPlanningAdvice: options.reviewPlanningAdvice ?? null,
+        planningDecision: options.planningDecision ?? null,
+        requirePlanningDecision: options.requirePlanningDecision,
         milestoneId,
       });
+      if (planningOutcome?.supervisor_decision?.awaiting_decision) {
+        const digest = planningOutcome.supervisor_decision.advisory_digest;
+        return {
+          status: "AWAITING_PLANNING_DECISION",
+          verified: false,
+          milestone_id: milestoneId,
+          plan_version: this.#ledger.plan_version,
+          advisory_digest: digest,
+          planning_pass: planningOutcome.record,
+          safety_gate: planningOutcome.supervisor_decision.safety_gate,
+          supervisor_decision: planningOutcome.supervisor_decision,
+          required_action: `Review planning_pass.advice as Steamroller and re-run with --planning-decision <PROCEED|REPLAN_REQUIRED|REJECT> --planning-decision-digest ${digest}`,
+        };
+      }
       const decision = planningOutcome?.supervisor_decision?.decision;
       if (decision === "REPLAN_REQUIRED" || decision === "REPLAN" || decision === "REJECT") {
         return {
@@ -1645,6 +1714,7 @@ export class SteamrollerController {
           verified: false,
           milestone_id: milestoneId,
           plan_version: this.#ledger.plan_version,
+          advisory_digest: planningOutcome.supervisor_decision.advisory_digest,
           planning_pass: planningOutcome.record,
           supervisor_decision: planningOutcome.supervisor_decision,
         };

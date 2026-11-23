@@ -623,3 +623,77 @@ test('run: forwards NTG 2.0 --track option to runner', () => {
     harness.cleanup();
   }
 });
+
+test('run and resume: enforce interactive Steamroller planning decision via NTG_REQUIRE_PLANNING_DECISION and forward decision flags', () => {
+  const harness = createTestHarness();
+  try {
+    const calls = [];
+    const exitCode = runNtgCommand(
+      [
+        'run',
+        '--track',
+        'M',
+        '--planning-decision',
+        'PROCEED',
+        '--planning-decision-digest',
+        'sha256:abc123',
+        '--planning-decision-note',
+        'Verified by Steamroller',
+      ],
+      {
+        vnextScript: harness.stubScript,
+        env: { STUB_LOG_FILE: harness.logFile },
+        stdio: 'pipe',
+        spawnSync: (cmd, args, opts) => {
+          calls.push({ args, env: opts.env });
+          return { status: 0 };
+        },
+      }
+    );
+    assert.equal(exitCode, 0);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].env.NTG_REQUIRE_PLANNING_DECISION, '1');
+    assert.deepEqual(calls[0].args.slice(1), [
+      'run',
+      '--ledger',
+      DEFAULT_LEDGER,
+      '--track',
+      'M',
+      '--planning-decision',
+      'PROCEED',
+      '--planning-decision-digest',
+      'sha256:abc123',
+      '--planning-decision-note',
+      'Verified by Steamroller',
+    ]);
+
+    const resumeCalls = [];
+    const resumeCode = runNtgCommand(
+      ['resume', '--planning-decision', 'PROCEED', '--planning-decision-digest', 'sha256:def456'],
+      {
+        vnextScript: harness.stubScript,
+        env: { STUB_LOG_FILE: harness.logFile },
+        stdio: 'pipe',
+        spawnSync: (cmd, args, opts) => {
+          resumeCalls.push({ args, env: opts.env });
+          return { status: 0 };
+        },
+      }
+    );
+    assert.equal(resumeCode, 0);
+    assert.equal(resumeCalls.length, 2);
+    assert.equal(resumeCalls[1].env.NTG_REQUIRE_PLANNING_DECISION, '1');
+    assert.deepEqual(resumeCalls[1].args.slice(1), [
+      'run',
+      '--ledger',
+      DEFAULT_LEDGER,
+      '--all',
+      '--planning-decision',
+      'PROCEED',
+      '--planning-decision-digest',
+      'sha256:def456',
+    ]);
+  } finally {
+    harness.cleanup();
+  }
+});

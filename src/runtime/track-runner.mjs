@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
@@ -8,6 +9,7 @@ import {
 } from "../core/ledger-kernel.mjs";
 import {
   LightweightLog,
+  canonicalString,
   computeAcceptanceDigest,
   computeDiffDigest,
   validateHaloReviewBinding,
@@ -44,6 +46,40 @@ export class InitialPlanningRequiredError extends Error {
   }
 }
 
+const BLOCKING_ADVISORY_STATUSES = Object.freeze([
+  "BLOCKED",
+  "NEEDS_REPLAN",
+  "REPLAN",
+  "REJECT",
+  "REJECTED",
+]);
+
+const BLOCKING_ADVISORY_ACTIONS = Object.freeze([
+  "BLOCK",
+  "REPLAN",
+  "REJECT",
+  "HALT",
+  "ABORT",
+]);
+
+const MEANINGFUL_ADVISORY_STATUSES = Object.freeze([
+  ...BLOCKING_ADVISORY_STATUSES,
+  "PROCEED",
+  "OK",
+  "APPROVED",
+  "APPROVE",
+  "ADVISE",
+  "READY",
+]);
+
+const MEANINGFUL_ADVISORY_ACTIONS = Object.freeze([
+  ...BLOCKING_ADVISORY_ACTIONS,
+  "PROCEED",
+  "CONTINUE",
+  "APPROVE",
+  "ADVISE",
+]);
+
 const MEANINGFUL_ADVISORY_KEYS = Object.freeze([
   "recommendation",
   "plan",
@@ -57,7 +93,77 @@ const MEANINGFUL_ADVISORY_KEYS = Object.freeze([
   "advice",
   "notes",
   "recommend_replan",
+  "status",
+  "action",
 ]);
+
+const VALID_SUPERVISOR_DECISIONS = Object.freeze([
+  "PROCEED",
+  "REPLAN_REQUIRED",
+  "REPLAN",
+  "REJECT",
+]);
+
+function isNonEmptyAdvisoryElement(item) {
+  if (item === null || item === undefined) return false;
+  if (typeof item === "string") return item.trim().length > 0;
+  if (Array.isArray(item)) return item.some(isNonEmptyAdvisoryElement);
+  if (typeof item === "object") return Object.keys(item).length > 0;
+  return typeof item === "number" || typeof item === "boolean";
+}
+
+function isMeaningfulAdvisoryValue(key, val) {
+  if (val === null || val === undefined) return false;
+  if (key === "recommend_replan") return val === true;
+  if (key === "status") {
+    return typeof val === "string" && MEANINGFUL_ADVISORY_STATUSES.includes(val.trim().toUpperCase());
+  }
+  if (key === "action") {
+    return typeof val === "string" && MEANINGFUL_ADVISORY_ACTIONS.includes(val.trim().toUpperCase());
+  }
+  if (typeof val === "string") return val.trim().length > 0;
+  if (Array.isArray(val)) return val.some(isNonEmptyAdvisoryElement);
+  if (typeof val === "object") return Object.keys(val).length > 0;
+  if (typeof val === "boolean") return val === true;
+  return false;
+}
+
+/**
+ * Computes a deterministic digest for a Piledriver advisory bound to a plan
+ * version so interactive Steamroller decisions cannot be replayed across
+ * different advisories or plan versions.
+ */
+export function computeAdvisoryDigest(advice, { planVersion = 1 } = {}) {
+  const payload = {
+    plan_version: String(planVersion ?? 1),
+    advice: advice ?? null,
+  };
+  return `sha256:${createHash("sha256").update(canonicalString(payload), "utf8").digest("hex")}`;
+}
+
+/**
+ * Computes a deterministic digest of all planning-relevant immutable inputs for
+ * a Track L run (including acceptance_criteria) so changed criteria invalidate
+ * cached planning receipts even when runId/planVersion stay the same.
+ */
+export function computePlanningInputDigest({
+  task = "",
+  goal = "",
+  boundedScope = [],
+  acceptanceCriteria = [],
+  planVersion = 1,
+} = {}) {
+  const payload = {
+    task: String(task || goal || "").trim(),
+    goal: String(goal || task || "").trim(),
+    bounded_scope: Array.isArray(boundedScope) ? boundedScope : [],
+    acceptance_criteria_digest: computeAcceptanceDigest(
+      Array.isArray(acceptanceCriteria) ? acceptanceCriteria : []
+    ),
+    plan_version: String(planVersion ?? 1),
+  };
+  return `sha256:${createHash("sha256").update(canonicalString(payload), "utf8").digest("hex")}`;
+}
 
 /**
  * Validates that a Piledriver response is a meaningful non-empty advisory object
@@ -72,27 +178,54 @@ export function validatePiledriverAdvisory(advice, context = {}) {
   }
   const hasMeaningfulField = MEANINGFUL_ADVISORY_KEYS.some((key) => {
     if (!(key in advice)) return false;
-    const val = advice[key];
-    if (val === null || val === undefined) return false;
-    if (typeof val === "string") return val.trim().length > 0;
-    return true;
+    return isMeaningfulAdvisoryValue(key, advice[key]);
   });
   if (!hasMeaningfulField) {
     throw new InitialPlanningRequiredError(
-      "Mandatory initial Piledriver advisory lacks a meaningful advisory field (e.g. recommendation, plan, milestones, risks, plan_defects, summary)",
+      "Mandatory initial Piledriver advisory lacks a meaningful advisory field (e.g. recommendation, plan, milestones, risks, plan_defects, status, action, summary)",
       { reason: "INVALID_ADVISORY_SHAPE", ...context }
     );
   }
   return advice;
 }
 
-const BLOCKING_RECOMMENDATION_RE =
-  /\b(?:replan|do\s+not\s+proceed|don['’]t\s+proceed|must\s+not\s+proceed|cannot\s+proceed|can['’]t\s+proceed|should\s+not\s+proceed|halt|abort|reject|stop\s+before|unsafe|blocking\s+(?:issue|defect|risk|gap))\b/i;
+const DIRECT_BLOCKING_PHRASE_RE =
+  /\b(?:do\s+not\s+proceed|don['’]t\s+proceed|must\s+not\s+proceed|cannot\s+proceed|can['’]t\s+proceed|should\s+not\s+proceed|stop\s+before)\b/i;
+
+const NEGATABLE_BLOCKING_TERM_RE =
+  /\b(?:replan|halt|abort|reject|unsafe|blocking\s+(?:issue|defect|risk|gap)s?)\b/gi;
+
+const CLAUSE_BOUNDARY_RE =
+  /(?:[.!?;:\n]|,\s*(?:but|however|yet|except)\b|\b(?:but|however|yet|except)\b)/i;
+
+const NEGATION_PREFIX_RE =
+  /\b(?:no|not|never|without|zero|none|neither|nor|free\s+of|avoid(?:s|ed|ing)?|resolved?|eliminated?|cleared?|do\s+not|don['’]t|does\s+not|doesn['’]t|need\s+not|needn['’]t|no\s+need\s+to|no\s+reason\s+to)(?:\s+[a-z0-9'’-]+){0,3}\s*$/i;
+
+/**
+ * Conservative, negation-aware prose safety detector. Intended strictly as a
+ * fail-closed safety guard beneath Steamroller's own supervisory decision.
+ */
+export function hasBlockingProse(text) {
+  if (typeof text !== "string" || !text.trim()) return false;
+  if (DIRECT_BLOCKING_PHRASE_RE.test(text)) return true;
+  const clauses = text.split(CLAUSE_BOUNDARY_RE);
+  for (const clause of clauses) {
+    NEGATABLE_BLOCKING_TERM_RE.lastIndex = 0;
+    let match;
+    while ((match = NEGATABLE_BLOCKING_TERM_RE.exec(clause)) !== null) {
+      const prefix = clause.slice(0, match.index);
+      if (!NEGATION_PREFIX_RE.test(prefix)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
 /**
  * Inspects a validated Piledriver advisory for blocking plan defects, blocking
- * status/action, or blocking prose recommendations so Steamroller never silently
- * ignores unsafe or defect-flagged advice.
+ * status/action, or non-negated blocking prose recommendations as a fail-closed
+ * safety gate beneath Steamroller's supervisory judgment.
  */
 export function inspectPlanningAdvisory(advice) {
   const defects = [];
@@ -105,12 +238,10 @@ export function inspectPlanningAdvisory(advice) {
   const statusUpper = typeof advice?.status === "string" ? advice.status.trim().toUpperCase() : "";
   const actionUpper = typeof advice?.action === "string" ? advice.action.trim().toUpperCase() : "";
 
-  const blockingProse =
-    (recText && BLOCKING_RECOMMENDATION_RE.test(recText)) ||
-    (summaryText && BLOCKING_RECOMMENDATION_RE.test(summaryText));
+  const blockingProse = hasBlockingProse(recText) || hasBlockingProse(summaryText);
   const blockingStatus =
-    ["BLOCKED", "NEEDS_REPLAN", "REPLAN", "REJECT", "REJECTED"].includes(statusUpper) ||
-    ["BLOCK", "REPLAN", "REJECT", "HALT", "ABORT"].includes(actionUpper);
+    BLOCKING_ADVISORY_STATUSES.includes(statusUpper) ||
+    BLOCKING_ADVISORY_ACTIONS.includes(actionUpper);
   const explicitReplan = advice?.recommend_replan === true || blockingProse || blockingStatus;
 
   if (blockingProse && defects.length === 0) {
@@ -120,6 +251,133 @@ export function inspectPlanningAdvisory(advice) {
     hasBlockingDefects: defects.length > 0 || explicitReplan,
     defects,
     explicitReplan,
+  };
+}
+
+/**
+ * Resolves Steamroller's bounded supervisory decision on a validated Piledriver
+ * advisory across in-process callbacks, process-boundary CLI decision tokens
+ * (`--planning-decision` + `--planning-decision-digest`), persisted prior
+ * decisions, and the fail-closed safety gate.
+ */
+export async function resolveSupervisorPlanningDecision({
+  record,
+  advisoryDigest = null,
+  reviewPlanningAdvice = null,
+  planningDecision = null,
+  requirePlanningDecision = false,
+  context = {},
+} = {}) {
+  const inspection = inspectPlanningAdvisory(record?.advice);
+  const digest =
+    advisoryDigest ||
+    record?.advisory_digest ||
+    computeAdvisoryDigest(record?.advice, { planVersion: context.plan_version ?? record?.plan_version ?? 1 });
+
+  if (typeof reviewPlanningAdvice === "function") {
+    const custom = await reviewPlanningAdvice(record, {
+      ...context,
+      advisory_digest: digest,
+      inspection,
+    });
+    const decision = String(
+      custom?.decision || (inspection.hasBlockingDefects ? "REPLAN_REQUIRED" : "PROCEED")
+    ).trim().toUpperCase();
+    return {
+      awaiting_decision: false,
+      decision: decision === "REPLAN" ? "REPLAN_REQUIRED" : decision,
+      adopted: false,
+      source: "callback",
+      advisory_digest: digest,
+      defects: inspection.defects,
+      safety_gate: inspection,
+      ...(custom?.notes ? { notes: String(custom.notes) } : {}),
+    };
+  }
+
+  if (planningDecision && typeof planningDecision === "object" && planningDecision.decision) {
+    const rawDecision = String(planningDecision.decision).trim().toUpperCase();
+    if (!VALID_SUPERVISOR_DECISIONS.includes(rawDecision)) {
+      return {
+        awaiting_decision: true,
+        reason: "INVALID_PLANNING_DECISION",
+        advisory_digest: digest,
+        safety_gate: inspection,
+        adopted: false,
+        defects: inspection.defects,
+      };
+    }
+    const providedDigest =
+      typeof planningDecision.digest === "string" ? planningDecision.digest.trim() : "";
+    if (!providedDigest) {
+      return {
+        awaiting_decision: true,
+        reason: "PLANNING_DECISION_DIGEST_REQUIRED",
+        advisory_digest: digest,
+        safety_gate: inspection,
+        adopted: false,
+        defects: inspection.defects,
+      };
+    }
+    if (providedDigest && providedDigest !== digest) {
+      return {
+        awaiting_decision: true,
+        reason: "PLANNING_DECISION_DIGEST_MISMATCH",
+        advisory_digest: digest,
+        provided_advisory_digest: providedDigest,
+        safety_gate: inspection,
+        adopted: false,
+        defects: inspection.defects,
+      };
+    }
+    return {
+      awaiting_decision: false,
+      decision: rawDecision === "REPLAN" ? "REPLAN_REQUIRED" : rawDecision,
+      adopted: false,
+      source: "interactive_steamroller",
+      advisory_digest: digest,
+      defects: inspection.defects,
+      safety_gate: inspection,
+      ...(planningDecision.notes ? { notes: String(planningDecision.notes) } : {}),
+    };
+  }
+
+  const persisted = record?.supervisor_decision;
+  if (
+    persisted &&
+    typeof persisted === "object" &&
+    persisted.advisory_digest === digest &&
+    typeof persisted.decision === "string" &&
+    persisted.decision.trim().length > 0
+  ) {
+    return {
+      ...persisted,
+      awaiting_decision: false,
+      adopted: false,
+      advisory_digest: digest,
+      safety_gate: persisted.safety_gate ?? inspection,
+    };
+  }
+
+  if (requirePlanningDecision) {
+    return {
+      awaiting_decision: true,
+      reason: "SUPERVISOR_DECISION_REQUIRED",
+      advisory_digest: digest,
+      safety_gate: inspection,
+      adopted: false,
+      defects: inspection.defects,
+    };
+  }
+
+  return {
+    awaiting_decision: false,
+    decision: inspection.hasBlockingDefects ? "REPLAN_REQUIRED" : "PROCEED",
+    adopted: false,
+    source: "safety_gate",
+    advisory_digest: digest,
+    defects: inspection.defects,
+    safety_gate: inspection,
   };
 }
 
@@ -184,6 +442,8 @@ export class TrackRunner {
     previousVerdict = null,
     planningPass = null,
     reviewPlanningAdvice = null,
+    planningDecision = null,
+    requirePlanningDecision = false,
     requireInitialPlanning = undefined,
     evidenceBasis = undefined,
     caller = "steamroller",
@@ -202,8 +462,18 @@ export class TrackRunner {
       requireInitialPlanning !== undefined
         ? Boolean(requireInitialPlanning)
         : this.#requireInitialPlanning;
+    const acceptanceCriteriaDigest = computeAcceptanceDigest(acceptanceCriteria);
+    const planningInputDigest = computePlanningInputDigest({
+      task,
+      goal,
+      boundedScope,
+      acceptanceCriteria,
+      planVersion,
+    });
     let resolvedPlanningPass = planningPass;
-    const persistedPlanningPass = this.lightweightLog.getPlanningPass(runId, planVersion);
+    const persistedPlanningPass = this.lightweightLog.getPlanningPass(runId, planVersion, {
+      planningInputDigest,
+    });
     const alreadyPlanned =
       resolvedPlanningPass?.status === "COMPLETED" ||
       persistedPlanningPass !== null;
@@ -240,22 +510,29 @@ export class TrackRunner {
         );
       }
       validatePiledriverAdvisory(rawPlan, { run_id: runId, plan_version: planVersion });
+      const advisoryDigest = computeAdvisoryDigest(rawPlan, { planVersion });
       resolvedPlanningPass = {
         role: "piledriver",
         status: "COMPLETED",
         plan_version: String(planVersion),
         slug: rawPlan.slug ?? null,
         adopted: false,
+        advisory_digest: advisoryDigest,
+        planning_input_digest: planningInputDigest,
+        acceptance_criteria_digest: acceptanceCriteriaDigest,
         advice: rawPlan,
         timestamp: new Date().toISOString(),
       };
       // Persist standalone append-only planning receipt BEFORE worker execution so
-      // worker failures or Halo REVISE retries never re-run Piledriver for the same (runId, planVersion).
+      // worker failures or Halo REVISE retries never re-run Piledriver for the same
+      // (runId, planVersion, planningInputDigest).
       this.lightweightLog.recordPlanningPass({
         run_id: runId,
         plan_version: planVersion,
         goal: goal || task,
         caller,
+        planning_input_digest: planningInputDigest,
+        acceptance_criteria_digest: acceptanceCriteriaDigest,
         planning_pass: resolvedPlanningPass,
       });
     } else if (!resolvedPlanningPass && persistedPlanningPass) {
@@ -265,25 +542,61 @@ export class TrackRunner {
     // Supervisory review of non-authoritative Piledriver advice: never silently ignore blocking plan defects.
     let supervisorDecision = null;
     if (resolvedPlanningPass?.advice) {
-      const inspection = inspectPlanningAdvisory(resolvedPlanningPass.advice);
-      if (typeof reviewPlanningAdvice === "function") {
-        const customDecision = await reviewPlanningAdvice(resolvedPlanningPass, {
+      const advisoryDigest =
+        resolvedPlanningPass.advisory_digest ||
+        computeAdvisoryDigest(resolvedPlanningPass.advice, { planVersion });
+      if (!resolvedPlanningPass.advisory_digest) {
+        resolvedPlanningPass = { ...resolvedPlanningPass, advisory_digest: advisoryDigest };
+      }
+      supervisorDecision = await resolveSupervisorPlanningDecision({
+        record: resolvedPlanningPass,
+        advisoryDigest,
+        reviewPlanningAdvice,
+        planningDecision,
+        requirePlanningDecision,
+        context: {
           track: "L",
           run_id: runId,
           plan_version: planVersion,
-          inspection,
-        });
-        supervisorDecision = {
-          decision: String(customDecision?.decision || (inspection.hasBlockingDefects ? "REPLAN_REQUIRED" : "PROCEED")).toUpperCase(),
-          adopted: false,
-          defects: inspection.defects,
-          ...(customDecision?.notes ? { notes: customDecision.notes } : {}),
+        },
+      });
+      if (supervisorDecision.awaiting_decision) {
+        return {
+          track: "L",
+          status: "AWAITING_PLANNING_DECISION",
+          verified: false,
+          run_id: runId,
+          advisory_digest: advisoryDigest,
+          planning_pass: resolvedPlanningPass,
+          safety_gate: supervisorDecision.safety_gate,
+          supervisor_decision: supervisorDecision,
+          required_action: `Review planning_pass.advice as Steamroller and re-run with --planning-decision <PROCEED|REPLAN_REQUIRED|REJECT> --planning-decision-digest ${advisoryDigest}`,
         };
-      } else {
-        supervisorDecision = {
-          decision: inspection.hasBlockingDefects ? "REPLAN_REQUIRED" : "PROCEED",
-          adopted: false,
-          defects: inspection.defects,
+      }
+      const prevDecision = resolvedPlanningPass.supervisor_decision;
+      const decisionChanged =
+        !prevDecision ||
+        prevDecision.advisory_digest !== advisoryDigest ||
+        prevDecision.decision !== supervisorDecision.decision ||
+        (prevDecision.notes ?? null) !== (supervisorDecision.notes ?? null);
+      if (
+        supervisorDecision.source === "interactive_steamroller" &&
+        resolvedPlanningPass.status === "COMPLETED" &&
+        decisionChanged
+      ) {
+        this.lightweightLog.recordPlanningDecision({
+          run_id: runId,
+          plan_version: planVersion,
+          goal: goal || task,
+          caller,
+          planning_input_digest: planningInputDigest,
+          acceptance_criteria_digest: acceptanceCriteriaDigest,
+          planning_pass: resolvedPlanningPass,
+          supervisor_decision: supervisorDecision,
+        });
+        resolvedPlanningPass = {
+          ...resolvedPlanningPass,
+          supervisor_decision: supervisorDecision,
         };
       }
       if (supervisorDecision.decision === "REPLAN_REQUIRED" || supervisorDecision.decision === "REPLAN" || supervisorDecision.decision === "REJECT") {
@@ -292,6 +605,7 @@ export class TrackRunner {
           status: "NEEDS_REPLAN",
           verified: false,
           run_id: runId,
+          advisory_digest: advisoryDigest,
           planning_pass: resolvedPlanningPass,
           supervisor_decision: supervisorDecision,
         };
@@ -415,7 +729,6 @@ export class TrackRunner {
     }
 
     const reviewedDiffDigest = computeDiffDigest(boundedScope, { cwd: this.cwd });
-    const acceptanceCriteriaDigest = computeAcceptanceDigest(acceptanceCriteria);
 
     const resolvedEvidence =
       evidenceBasis !== undefined && evidenceBasis !== null

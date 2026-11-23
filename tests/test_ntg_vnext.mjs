@@ -14,6 +14,11 @@ import { symlinkSync } from 'node:fs';
 const CLI = new URL('../scripts/ntg-vnext.mjs', import.meta.url).pathname;
 import { parseResponseEnvelope, parseResponsePacket } from '../scripts/runner.mjs';
 import { LightweightLog, computeAcceptanceDigest } from '../src/core/lightweight-log.mjs';
+import {
+  hasBlockingProse,
+  inspectPlanningAdvisory,
+  validatePiledriverAdvisory,
+} from '../src/runtime/track-runner.mjs';
 
 const observed = [{ classification: 'OBSERVED', criterion: 'content matches', result: 'inspected' }];
 const plan = (version = 'v1', ids = ['one', 'two']) => ({
@@ -2175,4 +2180,355 @@ test('Track L CLI returns exit code 2 on blocking Piledriver prose advice and re
   });
   assert.equal(mApproved.code, 0);
   assert.equal(mWorkers, 1);
+});
+
+test('validatePiledriverAdvisory and inspectPlanningAdvisory align on status/action and reject empty containers or false-only flags', () => {
+  // status/action packets recognized by inspectPlanningAdvisory must pass validatePiledriverAdvisory
+  for (const validPacket of [
+    { status: 'NEEDS_REPLAN' },
+    { action: 'REPLAN' },
+    { status: 'BLOCKED' },
+    { action: 'PROCEED' },
+    { recommend_replan: true },
+    { risks: ['non-empty risk'] },
+    { plan: { step: 1 } },
+  ]) {
+    assert.doesNotThrow(() => validatePiledriverAdvisory(validPacket));
+  }
+  assert.equal(inspectPlanningAdvisory({ status: 'NEEDS_REPLAN' }).hasBlockingDefects, true);
+  assert.equal(inspectPlanningAdvisory({ action: 'REPLAN' }).hasBlockingDefects, true);
+  assert.equal(inspectPlanningAdvisory({ action: 'PROCEED' }).hasBlockingDefects, false);
+
+  // Empty arrays/objects and recommend_replan:false alone must be rejected as INVALID_ADVISORY_SHAPE
+  for (const invalidPacket of [
+    {},
+    { risks: [] },
+    { plan: {} },
+    { recommend_replan: false },
+    { milestones: [{}] },
+    { defects: ['   '] },
+    { status: 'UNKNOWN_GARBAGE' },
+    { action: '' },
+  ]) {
+    assert.throws(
+      () => validatePiledriverAdvisory(invalidPacket),
+      (err) => err.code === 'PILEDRIVER_PLANNING_UNAVAILABLE' && err.reason === 'INVALID_ADVISORY_SHAPE',
+      `Expected INVALID_ADVISORY_SHAPE for ${JSON.stringify(invalidPacket)}`
+    );
+  }
+});
+
+test('prose safety detector is negation-aware and avoids false positives on benign negated advisories', () => {
+  for (const benign of [
+    'No unsafe interface assumptions remain; proceed',
+    'Not unsafe; safe to proceed',
+    'No blocking issues found',
+    'No blocking defects or risks remain',
+    'No need to replan; current plan is sound',
+    'Do not replan; proceed as scoped',
+    'Without unsafe migrations, change is low risk',
+  ]) {
+    assert.equal(hasBlockingProse(benign), false, `Expected benign prose not to trigger block: ${benign}`);
+    assert.equal(inspectPlanningAdvisory({ recommendation: benign }).hasBlockingDefects, false);
+  }
+
+  for (const blocking of [
+    'Do not proceed; unsafe interface assumptions detected',
+    'No issues with docs, but unsafe interface assumptions remain',
+    'Recommend replan due to missing migration',
+    'Blocking risk: schema mismatch',
+    'Halt before touching production table',
+  ]) {
+    assert.equal(hasBlockingProse(blocking), true, `Expected blocking prose to trigger block: ${blocking}`);
+    assert.equal(inspectPlanningAdvisory({ recommendation: blocking }).hasBlockingDefects, true);
+  }
+});
+
+test('Track L planning receipt invalidates when acceptance_criteria change (CLI stableRunId and explicit runId)', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-trackl-criteria-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const ledger = join(dir, 'ledger.json');
+  const planPath = join(dir, 'plan.json');
+  let piledriverCalls = 0;
+  let workerCalls = 0;
+
+  const makePlan = (criteria) => ({
+    goal: 'Fix README link',
+    constraints: [],
+    decision_invariants: [],
+    plan_version: 1,
+    milestones: [{
+      id: 'm1',
+      title: 'm1',
+      objective: 'Fix README link',
+      bounded_scope: ['README.md'],
+      acceptance_criteria: criteria,
+      non_goals: [],
+      dependencies: [],
+    }],
+  });
+
+  const deps = {
+    handleSignals: false,
+    invokeRole: async (role, packet) => {
+      if (role === 'piledriver') {
+        piledriverCalls += 1;
+        return envelope({ recommendation: 'No unsafe changes; proceed' });
+      }
+      if (role === 'strix-halo') {
+        const req = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+        return envelope({
+          caller: req.caller,
+          candidate_id_or_run_id: req.candidate_id_or_run_id,
+          reviewed_diff_digest: req.reviewed_diff_digest,
+          acceptance_criteria_digest: req.acceptance_criteria_digest,
+          plan_version: req.plan_version,
+          evidence_basis: req.evidence_basis,
+          verdict: 'ACCEPT',
+          findings: [],
+        });
+      }
+      workerCalls += 1;
+      return envelope({ status: 'READY', changes_made: ['README.md'], verification_evidence: ['checked'] });
+    },
+  };
+
+  // Run 1 with criteria A (no --milestone -> deterministic stableRunId)
+  writeFileSync(planPath, JSON.stringify(makePlan(['link points to v2 docs'])));
+  const r1 = await main(['run', '--ledger', ledger, '--track', 'L', '--plan', planPath], deps);
+  assert.equal(r1.code, 0);
+  assert.equal(piledriverCalls, 1);
+
+  // Run 2 with criteria B (same task, goal, scope, planVersion=1 -> MUST NOT reuse old advisory)
+  writeFileSync(planPath, JSON.stringify(makePlan(['link points to v2 docs AND passes markdown lint'])));
+  const r2 = await main(['run', '--ledger', ledger, '--track', 'L', '--plan', planPath], deps);
+  assert.equal(r2.code, 0);
+  assert.notEqual(r2.out.run_id, r1.out.run_id, 'stableRunId must change when acceptance_criteria change');
+  assert.equal(piledriverCalls, 2, 'Changed acceptance_criteria must trigger a fresh Piledriver pass');
+
+  // Run 3 with explicit --milestone m1 (same runId!) and criteria A -> fresh pass
+  writeFileSync(planPath, JSON.stringify(makePlan(['criteria A'])));
+  const r3 = await main(['run', '--ledger', ledger, '--track', 'L', '--plan', planPath, '--milestone', 'm1'], deps);
+  assert.equal(r3.code, 0);
+  assert.equal(piledriverCalls, 3);
+
+  // Run 4 with explicit --milestone m1 and SAME criteria A -> reuses persisted planning receipt
+  const r4 = await main(['run', '--ledger', ledger, '--track', 'L', '--plan', planPath, '--milestone', 'm1'], deps);
+  assert.equal(r4.code, 0);
+  assert.equal(piledriverCalls, 3, 'Unchanged criteria with same runId must reuse planning receipt');
+
+  // Run 5 with explicit --milestone m1 and CHANGED criteria B -> invalidates cached receipt via planning_input_digest
+  writeFileSync(planPath, JSON.stringify(makePlan(['criteria B changed'])));
+  const r5 = await main(['run', '--ledger', ledger, '--track', 'L', '--plan', planPath, '--milestone', 'm1'], deps);
+  assert.equal(r5.code, 0);
+  assert.equal(piledriverCalls, 4, 'Changed acceptance_criteria with same runId must invalidate old planning receipt');
+  assert.equal(workerCalls, 5);
+});
+
+test('real /ntg CLI decision protocol requires digest-bound Steamroller decision before worker execution on Track L and Track M', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-cli-decision-protocol-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+
+  // --- Track M interactive Steamroller decision handshake ---
+  const mLedger = join(dir, 'm-ledger.json');
+  const mPlan = join(dir, 'm-plan.json');
+  writeFileSync(mPlan, JSON.stringify(plan('v1', ['one', 'two'])));
+  await main(['init', '--ledger', mLedger, '--plan', mPlan], { handleSignals: false });
+
+  let mPiledriverCalls = 0;
+  let mWorkerCalls = 0;
+  const mDeps = {
+    handleSignals: false,
+    env: { NTG_REQUIRE_PLANNING_DECISION: '1' },
+    invokeRole: async (role, packet) => {
+      if (role === 'piledriver') {
+        mPiledriverCalls += 1;
+        // Benign prose (no blocking keywords!) so only Steamroller can choose REPLAN_REQUIRED or PROCEED
+        return envelope({ recommendation: 'Proceed carefully after checking module boundary', risks: ['subtle coupling'] });
+      }
+      if (role === 'strix-halo') {
+        const req = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+        return envelope({
+          caller: req.caller,
+          candidate_id_or_run_id: req.candidate_id_or_run_id,
+          reviewed_diff_digest: req.reviewed_diff_digest,
+          acceptance_criteria_digest: req.acceptance_criteria_digest,
+          plan_version: req.plan_version,
+          evidence_basis: req.evidence_basis,
+          verdict: 'ACCEPT',
+          findings: [],
+        });
+      }
+      mWorkerCalls += 1;
+      const contract = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+      return envelope({
+        milestone_id: contract.milestone_id, plan_version: contract.plan_version, status: 'DONE',
+        changes_made: contract.bounded_scope, verification_evidence: observed, unresolved_unknowns: [],
+        scope_deviations: [], candidate_artifact_ref: `sha256:${contract.milestone_id}`,
+      });
+    },
+    invokeZen: async (req) => ({
+      milestone_id: req.milestone_id, plan_version: req.plan_version, result_ref: req.result_ref,
+      verdict: 'GO', verification_evidence: observed,
+    }),
+  };
+
+  // 1. Initial run surfaces Piledriver advisory to Steamroller and halts before workers
+  const awaiting = await main(['run', '--ledger', mLedger, '--track', 'M', '--all'], mDeps);
+  assert.equal(awaiting.code, 2);
+  assert.equal(awaiting.out.status, 'AWAITING_PLANNING_DECISION');
+  assert.ok(awaiting.out.advisory_digest && awaiting.out.advisory_digest.startsWith('sha256:'));
+  assert.equal(awaiting.out.planning_pass.adopted, false);
+  assert.equal(mPiledriverCalls, 1);
+  assert.equal(mWorkerCalls, 0, 'Workers must not execute before Steamroller supplies a digest-bound decision');
+
+  // 2. Missing or mismatched digest fails closed without re-running Piledriver
+  const missingDigest = await main(
+    ['run', '--ledger', mLedger, '--track', 'M', '--all', '--planning-decision', 'PROCEED'],
+    mDeps
+  );
+  assert.equal(missingDigest.code, 2);
+  assert.equal(missingDigest.out.status, 'AWAITING_PLANNING_DECISION');
+  assert.equal(missingDigest.out.supervisor_decision.reason, 'PLANNING_DECISION_DIGEST_REQUIRED');
+  assert.equal(mPiledriverCalls, 1);
+  assert.equal(mWorkerCalls, 0);
+
+  const wrongDigest = await main(
+    ['run', '--ledger', mLedger, '--track', 'M', '--all', '--planning-decision', 'PROCEED', '--planning-decision-digest', 'sha256:stale'],
+    mDeps
+  );
+  assert.equal(wrongDigest.code, 2);
+  assert.equal(wrongDigest.out.supervisor_decision.reason, 'PLANNING_DECISION_DIGEST_MISMATCH');
+  assert.equal(mPiledriverCalls, 1);
+  assert.equal(mWorkerCalls, 0);
+
+  // 3. Steamroller can reject/replan a benign-prose advisory (autonomous semantic decision, not regex!)
+  const steamrollerReplan = await main(
+    [
+      'run', '--ledger', mLedger, '--track', 'M', '--all',
+      '--planning-decision', 'REPLAN_REQUIRED',
+      '--planning-decision-digest', awaiting.out.advisory_digest,
+      '--planning-decision-note', 'Subtle coupling requires splitting scope',
+    ],
+    mDeps
+  );
+  assert.equal(steamrollerReplan.code, 2);
+  assert.equal(steamrollerReplan.out.status, 'NEEDS_REPLAN');
+  assert.equal(steamrollerReplan.out.supervisor_decision.source, 'interactive_steamroller');
+  assert.equal(mPiledriverCalls, 1);
+  assert.equal(mWorkerCalls, 0);
+
+  // 4. Steamroller approves with matching digest for milestone one -> persists updated PROCEED over prior REPLAN_REQUIRED
+  const mProceedOne = await main(
+    [
+      'run', '--ledger', mLedger, '--track', 'M', '--milestone', 'one',
+      '--planning-decision', 'PROCEED',
+      '--planning-decision-digest', awaiting.out.advisory_digest,
+      '--planning-decision-note', 'Coupling verified acceptable',
+    ],
+    mDeps
+  );
+  assert.equal(mProceedOne.code, 0);
+  assert.equal(mPiledriverCalls, 1, 'Piledriver must not re-run across decision handshake');
+  assert.equal(mWorkerCalls, 1);
+
+  // 5. Subsequent fresh run for milestone two WITHOUT --planning-decision loads persisted PROCEED (never stale REPLAN_REQUIRED)
+  const mProceedTwo = await main(['run', '--ledger', mLedger, '--track', 'M', '--milestone', 'two'], mDeps);
+  assert.equal(mProceedTwo.code, 0, 'Persisted PROCEED must survive into subsequent milestone without re-prompting');
+  assert.equal(mPiledriverCalls, 1, 'Piledriver must not re-run for milestone two of same plan_version');
+  assert.equal(mWorkerCalls, 2);
+
+  // 6. Unbound --planning-decision PROCEED without --planning-decision-digest fails closed even when NTG_REQUIRE_PLANNING_DECISION is unset
+  const unboundLedger = join(dir, 'unbound-ledger.json');
+  const unboundPlan = join(dir, 'unbound-plan.json');
+  writeFileSync(unboundPlan, JSON.stringify(plan('v1', ['one'])));
+  await main(['init', '--ledger', unboundLedger, '--plan', unboundPlan], { handleSignals: false });
+  let unboundWorkers = 0;
+  const unboundRes = await main(
+    ['run', '--ledger', unboundLedger, '--track', 'M', '--planning-decision', 'PROCEED'],
+    {
+      handleSignals: false,
+      env: {},
+      invokeRole: async (role) => {
+        if (role === 'piledriver') return envelope({ recommendation: 'Do not proceed; unsafe interface assumptions' });
+        unboundWorkers += 1;
+        return envelope({});
+      },
+    }
+  );
+  assert.equal(unboundRes.code, 2, 'Unbound --planning-decision without digest must fail closed even when NTG_REQUIRE_PLANNING_DECISION is unset');
+  assert.equal(unboundRes.out.status, 'AWAITING_PLANNING_DECISION');
+  assert.equal(unboundRes.out.supervisor_decision.reason, 'PLANNING_DECISION_DIGEST_REQUIRED');
+  assert.equal(unboundWorkers, 0);
+
+  // --- Track L interactive Steamroller decision handshake (including REPLAN_REQUIRED -> PROCEED -> retry without flags) ---
+  const lLedger = join(dir, 'l-ledger.json');
+  let lPiledriverCalls = 0;
+  let lWorkerCalls = 0;
+  const lDeps = {
+    handleSignals: false,
+    env: { NTG_REQUIRE_PLANNING_DECISION: '1' },
+    invokeRole: async (role, packet) => {
+      if (role === 'piledriver') {
+        lPiledriverCalls += 1;
+        return envelope({ recommendation: 'No unsafe interface assumptions remain; proceed' });
+      }
+      if (role === 'strix-halo') {
+        const req = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+        return envelope({
+          caller: req.caller,
+          candidate_id_or_run_id: req.candidate_id_or_run_id,
+          reviewed_diff_digest: req.reviewed_diff_digest,
+          acceptance_criteria_digest: req.acceptance_criteria_digest,
+          plan_version: req.plan_version,
+          evidence_basis: req.evidence_basis,
+          verdict: 'ACCEPT',
+          findings: [],
+        });
+      }
+      lWorkerCalls += 1;
+      if (lWorkerCalls === 1) throw new Error('transient track-l worker error after PROCEED');
+      return envelope({ status: 'READY', changes_made: ['README.md'], verification_evidence: ['checked'] });
+    },
+  };
+
+  const lAwait = await main(['run', '--ledger', lLedger, '--track', 'L', '--task', 'Fix doc wording'], lDeps);
+  assert.equal(lAwait.code, 2);
+  assert.equal(lAwait.out.status, 'AWAITING_PLANNING_DECISION');
+  assert.equal(lAwait.out.safety_gate.hasBlockingDefects, false);
+  assert.equal(lPiledriverCalls, 1);
+  assert.equal(lWorkerCalls, 0);
+
+  // First record REPLAN_REQUIRED, then supersede with PROCEED for the same digest
+  const lReplan = await main(
+    [
+      'run', '--ledger', lLedger, '--track', 'L', '--task', 'Fix doc wording',
+      '--planning-decision', 'REPLAN_REQUIRED',
+      '--planning-decision-digest', lAwait.out.advisory_digest,
+    ],
+    lDeps
+  );
+  assert.equal(lReplan.code, 2);
+  assert.equal(lReplan.out.status, 'NEEDS_REPLAN');
+  assert.equal(lWorkerCalls, 0);
+
+  await assert.rejects(
+    main(
+      [
+        'run', '--ledger', lLedger, '--track', 'L', '--task', 'Fix doc wording',
+        '--planning-decision', 'PROCEED',
+        '--planning-decision-digest', lAwait.out.advisory_digest,
+      ],
+      lDeps
+    ),
+    /transient track-l worker error after PROCEED/
+  );
+  assert.equal(lPiledriverCalls, 1);
+  assert.equal(lWorkerCalls, 1);
+
+  // Fresh retry WITHOUT --planning-decision must reuse the persisted PROCEED decision (not stale REPLAN_REQUIRED)
+  const lRetry = await main(['run', '--ledger', lLedger, '--track', 'L', '--task', 'Fix doc wording'], lDeps);
+  assert.equal(lRetry.code, 0, 'Track L retry without flags must reuse persisted PROCEED decision');
+  assert.equal(lPiledriverCalls, 1, 'Track L must reuse persisted planning pass after Steamroller decision');
+  assert.equal(lWorkerCalls, 2);
 });

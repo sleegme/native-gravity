@@ -1527,6 +1527,7 @@ export class LedgerKernel {
       slug: record.slug ?? null,
       task: redactTelemetryValue(record.task ?? ""),
       advice: redactTelemetryValue(record.advice ?? null),
+      advisory_digest: record.advisory_digest ?? null,
       adopted: false,
       timestamp: new Date().toISOString(),
     };
@@ -1535,6 +1536,38 @@ export class LedgerKernel {
     }
     this.evidence.initial_planning[planVersion] = entry;
     return entry;
+  }
+
+  /**
+   * Records Steamroller's bounded supervisory decision for an already-persisted
+   * initial Piledriver planning pass (`plan_version`). Preserves `adopted: false`
+   * on the Piledriver advisory and never promotes any milestone.
+   */
+  recordInitialPlanningDecision(planVersion = this.plan_version, supervisorDecision = null) {
+    const key = String(planVersion ?? "");
+    if (!key) {
+      throw new InvalidTransitionError("Recording planning decision requires plan_version");
+    }
+    const existing = this.evidence?.initial_planning?.[key];
+    if (!existing || existing.status !== "COMPLETED") {
+      throw new InvalidTransitionError(
+        `Cannot record planning decision before COMPLETED initial planning pass for plan_version '${key}'`
+      );
+    }
+    if (!supervisorDecision || typeof supervisorDecision !== "object") {
+      throw new InvalidTransitionError("Planning decision must be an object");
+    }
+    const updated = {
+      ...existing,
+      adopted: false,
+      supervisor_decision: redactTelemetryValue({
+        ...supervisorDecision,
+        adopted: false,
+        timestamp: supervisorDecision.timestamp || new Date().toISOString(),
+      }),
+    };
+    this.evidence.initial_planning[key] = updated;
+    return updated;
   }
 
   /**

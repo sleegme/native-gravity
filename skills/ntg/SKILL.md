@@ -77,6 +77,11 @@ Check if `.ntg/ledger.json` already exists in the workspace (including clean/emp
      ```bash
      node "<helper-path>" run --all
      ```
+   - **Mandatory Initial Piledriver Advisory Review:** On the first `run` for a new task or `plan_version` (Track L/S/M), the runner runs one bounded Piledriver advisory pass (`adopted: false`) and returns `AWAITING_PLANNING_DECISION` with `planning_pass.advice` and `advisory_digest` before executing any worker. Inspect `planning_pass.advice` as Steamroller (do not rely on static heuristics), then re-run with an explicit digest-bound decision token:
+     ```bash
+     node "<helper-path>" run --all --planning-decision PROCEED --planning-decision-digest "<advisory_digest>" --planning-decision-note "<brief rationale>"
+     ```
+     If you judge the advisory reveals a plan defect or unacceptable risk, pass `--planning-decision REPLAN_REQUIRED` (or adopt a Tactical/Material Replan). Once recorded for that `advisory_digest`, subsequent milestones and retries of the same `plan_version` proceed without re-prompting.
    - On subsequent Tactical Replans (same user goal and criteria), adapt remaining steps seamlessly; ask again only on Material Replans or confirmation gates.
 
 ## Resolving the Packaged Helper
