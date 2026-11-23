@@ -204,9 +204,10 @@ export class LightweightLog {
 
   /**
    * Appends a standalone Track L Piledriver planning receipt BEFORE worker
-   * execution (`status: 'PLANNING_COMPLETED'`, never marking execution complete).
-   * Ensures worker failures or Halo REVISE retries do not re-run Piledriver for
-   * the same `(runId, planVersion, planningInputDigest)`.
+   * execution (`status: 'PLANNING_COMPLETED'` or `'PLANNING_SKIPPED'`, never
+   * marking execution complete). Ensures worker failures or Halo REVISE
+   * retries do not re-run Piledriver for the same
+   * `(runId, planVersion, planningInputDigest)`.
    */
   recordPlanningPass({
     run_id,
@@ -218,19 +219,66 @@ export class LightweightLog {
     acceptance_criteria_digest = null,
     supervisor_decision = null,
   }) {
-    if (!planning_pass || typeof planning_pass !== 'object' || planning_pass.status !== 'COMPLETED') {
-      throw new LightweightLogError('recordPlanningPass requires a COMPLETED planning_pass object');
+    if (!planning_pass || typeof planning_pass !== 'object' || Array.isArray(planning_pass)) {
+      throw new LightweightLogError('recordPlanningPass requires a COMPLETED or SKIPPED planning_pass object');
     }
+    const passStatus =
+      typeof planning_pass.status === 'string' ? planning_pass.status.trim().toUpperCase() : '';
+    if (passStatus !== 'COMPLETED' && passStatus !== 'SKIPPED') {
+      throw new LightweightLogError('recordPlanningPass requires a COMPLETED or SKIPPED planning_pass object');
+    }
+    const expectedInvoked = passStatus === 'COMPLETED';
+    if (
+      planning_pass.invoked !== undefined &&
+      (typeof planning_pass.invoked !== 'boolean' || planning_pass.invoked !== expectedInvoked)
+    ) {
+      throw new LightweightLogError(
+        `recordPlanningPass invoked (${String(planning_pass.invoked)}) mismatches status '${passStatus}'`
+      );
+    }
+    if (
+      planning_pass.decision_reason !== undefined &&
+      (typeof planning_pass.decision_reason !== 'string' || !planning_pass.decision_reason.trim())
+    ) {
+      throw new LightweightLogError('recordPlanningPass decision_reason must be a non-empty string');
+    }
+    if (
+      planning_pass.decision_signals !== undefined &&
+      (planning_pass.decision_signals === null ||
+        typeof planning_pass.decision_signals !== 'object' ||
+        Array.isArray(planning_pass.decision_signals))
+    ) {
+      throw new LightweightLogError('recordPlanningPass decision_signals must be an object');
+    }
+    const normalizedPass = {
+      ...planning_pass,
+      status: passStatus,
+      invoked: expectedInvoked,
+      adopted: false,
+      ...(passStatus === 'SKIPPED'
+        ? { slug: null, advice: null, advisory_digest: null }
+        : {}),
+      decision_reason:
+        typeof planning_pass.decision_reason === 'string'
+          ? planning_pass.decision_reason.trim()
+          : passStatus === 'SKIPPED'
+            ? 'bounded_clear_track_l_task'
+            : 'initial_planning_completed',
+      decision_signals:
+        planning_pass.decision_signals
+          ? structuredClone(planning_pass.decision_signals)
+          : {},
+    };
     return this.recordRun({
       run_id,
       track: 'L',
-      status: 'PLANNING_COMPLETED',
+      status: passStatus === 'SKIPPED' ? 'PLANNING_SKIPPED' : 'PLANNING_COMPLETED',
       plan_version,
       goal,
       caller,
       acceptance_criteria_digest,
-      planning_input_digest: planning_input_digest ?? planning_pass.planning_input_digest ?? null,
-      planning_pass,
+      planning_input_digest: planning_input_digest ?? normalizedPass.planning_input_digest ?? null,
+      planning_pass: normalizedPass,
       ...(supervisor_decision ? { supervisor_decision } : {}),
     });
   }
@@ -283,10 +331,11 @@ export class LightweightLog {
     const pv = String(planVersion);
     for (let i = all.length - 1; i >= 0; i -= 1) {
       const rec = all[i];
+      const passStatus = rec?.planning_pass?.status;
       if (
         rec?.run_id === runId &&
         String(rec?.plan_version) === pv &&
-        rec?.planning_pass?.status === 'COMPLETED'
+        (passStatus === 'COMPLETED' || passStatus === 'SKIPPED')
       ) {
         if (planningInputDigest) {
           const recDigest = rec.planning_input_digest ?? rec.planning_pass?.planning_input_digest ?? null;

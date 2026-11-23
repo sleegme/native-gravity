@@ -3,6 +3,7 @@ export {
   BlockerNotFoundError,
   DEFAULT_MAX_RECOVERY_RETRIES,
   HALO_ALLOWED_CALLERS,
+  INITIAL_PLANNING_STATUSES,
   InvalidTransitionError,
   InvariantViolationError,
   LedgerKernel,

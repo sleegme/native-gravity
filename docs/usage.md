@@ -149,11 +149,11 @@ You need **Node.js 18+**, **Antigravity CLI (`agy`) >= 1.3.0** on your `PATH`, a
 
 If you installed without `--allow-scripts` (npm 12+) or `--trust` (Bun) and `postinstall` was skipped, run `ntg` once (or `native-gravity` / `ntg-vnext`) to register the `agy` plugin automatically (and add `native-gravity` and `@sleeg/ntg` to Bun's global `trustedDependencies` for future updates).
 
-You can also run `npx --yes native-gravity`, `bunx native-gravity`, the curl installer (`curl -fsSL https://raw.githubusercontent.com/sleegme/native-gravity/v2.1.1/scripts/install.sh | sh`), or PowerShell (`irm https://raw.githubusercontent.com/sleegme/native-gravity/v2.1.1/scripts/install.ps1 | iex`).
+You can also run `npx --yes native-gravity`, `bunx native-gravity`, the curl installer (`curl -fsSL https://raw.githubusercontent.com/sleegme/native-gravity/v2.1.2/scripts/install.sh | sh`), or PowerShell (`irm https://raw.githubusercontent.com/sleegme/native-gravity/v2.1.2/scripts/install.ps1 | iex`).
 
 Running the installer handles clean upgrades automatically (uninstalling the previous version before installing the new package).
 
-Current release: version 2.1.1, alpha, validated across offline deterministic JS + Python test suites and host `agy models` policy surface checks.
+Current release: version 2.1.2, alpha, validated across offline deterministic JS + Python test suites and host `agy models` policy surface checks.
 
 Current limits: Crash lock PID+token termination recovery uses Linux `/proc` and Python `os.pidfd_open`; only one session owns `.ntg/ledger.json.lock` at a time.
 

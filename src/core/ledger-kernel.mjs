@@ -72,6 +72,7 @@ export class BlockerNotFoundError extends Error {
 
 export const DEFAULT_MAX_RECOVERY_RETRIES = 3;
 export const HALO_ALLOWED_CALLERS = Object.freeze(["steamroller", "bulldozer", "bobcat"]);
+export const INITIAL_PLANNING_STATUSES = Object.freeze(["COMPLETED", "SKIPPED"]);
 
 export function deepFreeze(obj) {
   if (obj === null || typeof obj !== "object") {
@@ -810,6 +811,20 @@ function normalizeMilestones(milestones) {
       : [],
     coverage: Array.isArray(m.coverage) ? deepClone(m.coverage) : [],
     verify: Array.isArray(m.verify) ? [...m.verify] : [],
+    ...(m.worker_role !== undefined ? { worker_role: m.worker_role } : {}),
+    ...(m.requires_shell !== undefined ? { requires_shell: Boolean(m.requires_shell) } : {}),
+    ...(m.requires_substantive_code !== undefined
+      ? { requires_substantive_code: Boolean(m.requires_substantive_code) }
+      : {}),
+    ...(m.is_mechanical_edit !== undefined
+      ? { is_mechanical_edit: Boolean(m.is_mechanical_edit) }
+      : {}),
+    ...(m.cross_file_dependency !== undefined
+      ? { cross_file_dependency: Boolean(m.cross_file_dependency) }
+      : {}),
+    ...(m.requires_coordinator !== undefined
+      ? { requires_coordinator: Boolean(m.requires_coordinator) }
+      : {}),
   }));
 }
 
@@ -1495,14 +1510,16 @@ export class LedgerKernel {
   }
 
   /**
-   * Returns true if the mandatory initial Piledriver planning/advisory pass has
-   * already been recorded for `planVersion` (so resumes, retries, and later
-   * milestones of the same plan_version skip re-running it).
+   * Returns true if the initial Piledriver planning/advisory decision has
+   * already been resolved (`COMPLETED` or `SKIPPED`) for `planVersion` (so
+   * resumes, retries, and later milestones of the same plan_version do not
+   * re-run initial planning).
    */
   hasInitialPlanningPass(planVersion = this.plan_version) {
     const key = String(planVersion ?? "");
     if (!key) return false;
-    return this.evidence?.initial_planning?.[key]?.status === "COMPLETED";
+    const status = this.evidence?.initial_planning?.[key]?.status;
+    return INITIAL_PLANNING_STATUSES.includes(status);
   }
 
   getInitialPlanningPass(planVersion = this.plan_version) {
@@ -1512,22 +1529,76 @@ export class LedgerKernel {
   }
 
   /**
-   * Records a non-authoritative (`adopted: false`) Piledriver advisory planning
-   * pass keyed by `plan_version`. Never adopts or modifies the active plan.
+   * Records a non-authoritative (`adopted: false`) initial Piledriver planning
+   * outcome (`COMPLETED` or `SKIPPED`) keyed by `plan_version`, along with
+   * explicit `invoked`, `decision_reason`, and `decision_signals`. Never adopts
+   * or modifies the active plan.
    */
   recordInitialPlanningPass(record = {}) {
     const planVersion = String(record.plan_version ?? this.plan_version ?? "");
     if (!planVersion) {
       throw new InvalidTransitionError("Initial planning pass requires plan_version");
     }
+    const rawStatus =
+      record.status === undefined ? "COMPLETED" : String(record.status).trim().toUpperCase();
+    if (!INITIAL_PLANNING_STATUSES.includes(rawStatus)) {
+      throw new InvalidTransitionError(
+        `Initial planning pass status must be one of ${INITIAL_PLANNING_STATUSES.join(", ")}, got '${record.status}'`
+      );
+    }
+    const expectedInvoked = rawStatus === "COMPLETED";
+    if (record.invoked !== undefined) {
+      if (typeof record.invoked !== "boolean" || record.invoked !== expectedInvoked) {
+        throw new InvalidTransitionError(
+          `Initial planning pass invoked (${String(record.invoked)}) mismatches status '${rawStatus}'`
+        );
+      }
+    }
+    if (
+      record.decision_reason !== undefined &&
+      (typeof record.decision_reason !== "string" || !record.decision_reason.trim())
+    ) {
+      throw new InvalidTransitionError(
+        "Initial planning pass decision_reason must be a non-empty string"
+      );
+    }
+    const decisionReason = redactTelemetryValue(
+      typeof record.decision_reason === "string"
+        ? record.decision_reason.trim()
+        : rawStatus === "SKIPPED"
+          ? "initial_planning_skipped"
+          : "initial_planning_completed"
+    );
+    if (
+      record.decision_signals !== undefined &&
+      (record.decision_signals === null ||
+        typeof record.decision_signals !== "object" ||
+        Array.isArray(record.decision_signals))
+    ) {
+      throw new InvalidTransitionError(
+        "Initial planning pass decision_signals must be an object"
+      );
+    }
+    const decisionSignals = redactTelemetryValue(
+      record.decision_signals ? deepClone(record.decision_signals) : {}
+    );
+    const normalizedMode =
+      record.mode !== undefined && record.mode !== null && String(record.mode).trim()
+        ? redactTelemetryValue(String(record.mode).trim().toLowerCase())
+        : undefined;
+    const isSkipped = rawStatus === "SKIPPED";
     const entry = {
       role: "piledriver",
-      status: "COMPLETED",
+      status: rawStatus,
+      invoked: expectedInvoked,
       plan_version: planVersion,
-      slug: record.slug ?? null,
+      slug: isSkipped ? null : (record.slug ?? null),
       task: redactTelemetryValue(record.task ?? ""),
-      advice: redactTelemetryValue(record.advice ?? null),
-      advisory_digest: record.advisory_digest ?? null,
+      advice: isSkipped ? null : redactTelemetryValue(record.advice ?? null),
+      advisory_digest: isSkipped ? null : (record.advisory_digest ?? null),
+      decision_reason: decisionReason,
+      decision_signals: decisionSignals,
+      ...(normalizedMode !== undefined ? { mode: normalizedMode } : {}),
       adopted: false,
       timestamp: new Date().toISOString(),
     };

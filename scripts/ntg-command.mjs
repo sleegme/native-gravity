@@ -46,6 +46,8 @@ Options:
   --ledger <path>   Ledger path (default: .ntg/ledger.json)
   --plan <path>     Plan file path (required for init)
   --track <L|S|M>   Explicit NTG 2.0 track hint (L, S, or M)
+  --piledriver <auto|always|never>
+                    Initial Piledriver planning mode (default: auto)
   --planning-decision <PROCEED|REPLAN_REQUIRED|REJECT>
                     Bounded Steamroller decision on initial Piledriver advisory
   --planning-decision-digest <sha256:...>

@@ -177,7 +177,9 @@ test('Zen NO-GO stops the run with exit 2 once the repair budget is spent; a rer
   const second = await h.cli('run');
   assert.equal(second.code, 0);
   assert.deepEqual(second.out.state.completed_milestones, ['one']);
-  assert.deepEqual(h.calls, ['piledriver', 'bobcat', 'zen:one', 'bulldozer', 'zen:one', 'bulldozer', 'zen:one']);
+  assert.deepEqual(h.calls, ['bobcat', 'zen:one', 'bulldozer', 'zen:one', 'bulldozer', 'zen:one']);
+  assert.equal(second.out.state.evidence.initial_planning.v1.status, 'SKIPPED');
+  assert.equal(second.out.state.evidence.initial_planning.v1.invoked, false);
 });
 
 test('fresh-context resume continues from the ledger at the next eligible milestone', async t => {
@@ -1362,7 +1364,7 @@ test('review retries the last candidate gate-only after a zen quota stop', async
   assert.equal(out.review.status, 'REVIEWED');
   assert.equal(out.review.verified, true);
   assert.equal(zenRequests.length, 1);
-  assert.equal(roleCalls(), 2, 'review must not re-run Piledriver or Bulldozer');
+  assert.equal(roleCalls(), 1, 'review must not re-run execution workers');
   const done = AuthoritativeLedger.load(ledger).getState();
   assert.deepEqual(done.completed_milestones, ['one']);
   assert.equal(done.verification.one.verdict, 'GO');
@@ -1471,16 +1473,21 @@ test('run --track L executes via SteamrollerController and auto-selects Puma/Jag
   const log = new LightweightLog(join(dirname(h.ledger), 'lightweight-runs.jsonl'));
   const entries = log.readAll();
   assert.equal(entries.length, 2);
-  assert.equal(entries[0].status, 'PLANNING_COMPLETED');
+  assert.equal(entries[0].status, 'PLANNING_SKIPPED');
+  assert.equal(entries[0].planning_pass.status, 'SKIPPED');
+  assert.equal(entries[0].planning_pass.invoked, false);
+  assert.equal(entries[0].planning_pass.adopted, false);
+  assert.equal(entries[0].planning_pass.decision_reason, 'bounded_clear_track_l_task');
   assert.equal(entries[1].status, 'COMPLETED');
   assert.equal(entries[1].assurance_badge, 'HALO_LIGHTWEIGHT');
   assert.equal(entries[1].worker_role, 'puma');
 
-  // Read-only locate/inspect task routes automatically to Jaguar
+  // Read-only locate/inspect task routes automatically to Jaguar and skips Piledriver even when path contains architecture.md
   const jagRes = await h.cli('run', '--track', 'L', '--task', 'Locate all references in docs/architecture.md');
   assert.equal(jagRes.code, 0);
   assert.equal(jagRes.out.results[0].worker_role, 'jaguar');
   assert.ok(h.calls.includes('jaguar'));
+  assert.equal(h.calls.includes('piledriver'), false);
 });
 
 test('ntg-vnext runs directly on SteamrollerController without depending on MinimalSpine (#234)', () => {
@@ -1526,8 +1533,11 @@ test('run --track S sets Track S policy, omits strix-halo by default, and requir
   assert.equal(out.track, 'S');
   assert.equal(out.assurance_badge, 'ZEN_DURABLE');
   assert.equal(out.halo_status, 'OMITTED');
-  assert.deepEqual(h.calls, ['piledriver', 'bobcat', 'zen:one']);
+  assert.deepEqual(h.calls, ['bobcat', 'zen:one']);
   assert.deepEqual(out.state.completed_milestones, ['one']);
+  assert.equal(out.state.evidence.initial_planning.v1.status, 'SKIPPED');
+  assert.equal(out.state.evidence.initial_planning.v1.invoked, false);
+  assert.equal(out.state.evidence.initial_planning.v1.decision_reason, 'bounded_clear_single_milestone_track_s');
 });
 
 test('run --track M enforces mandatory strix-halo before Zen and rejects on Halo REVISE', async t => {
@@ -1811,21 +1821,22 @@ test('PO mandatory initial Piledriver planning pass: runs once per plan_version 
   assert.equal(m2.code, 0);
   assert.deepEqual(h.calls, ['piledriver', 'bulldozer', 'strix-halo', 'zen:one', 'bulldozer', 'strix-halo', 'zen:two']);
 
-  // Tactical replan bumps plan_version -> v2, requiring one fresh Piledriver advisory pass for v2.
-  const replanned = await h.cli('tactical-replan', '--plan', h.write('plan-v2.json', plan('v2', ['one'])));
+  // Tactical replan bumps plan_version -> v2 (Track M multi-milestone), requiring one fresh Piledriver advisory pass for v2.
+  const replanned = await h.cli('tactical-replan', '--plan', h.write('plan-v2.json', plan('v2', ['one', 'two'])));
   assert.equal(replanned.code, 0);
   const v2Run = await h.cli('run');
   assert.equal(v2Run.code, 0);
   assert.deepEqual(h.calls, [
     'piledriver', 'bulldozer', 'strix-halo', 'zen:one',
     'bulldozer', 'strix-halo', 'zen:two',
-    'piledriver', 'bobcat', 'zen:one',
+    'piledriver', 'bulldozer', 'strix-halo', 'zen:one',
   ]);
   const afterV2 = AuthoritativeLedger.load(h.ledger).getState();
   assert.equal(afterV2.evidence.initial_planning.v2.status, 'COMPLETED');
+  assert.equal(afterV2.evidence.initial_planning.v2.invoked, true);
   assert.equal(afterV2.evidence.initial_planning.v2.adopted, false);
 
-  // 2. Track L: runs Piledriver once before worker, persists planning_pass, skips on resume for same (runId, planVersion).
+  // 2. Track L (with explicit piledriverMode: 'always'): runs Piledriver once before worker, persists planning_pass, skips on resume for same (runId, planVersion).
   const { SteamrollerController, InitialPlanningRequiredError } = await import('../src/runtime/steamroller-controller.mjs');
   const lwDir = mkdtempSync(join(tmpdir(), 'ntg-piledriver-trackl-'));
   t.after(() => rmSync(lwDir, { recursive: true, force: true }));
@@ -1833,6 +1844,7 @@ test('PO mandatory initial Piledriver planning pass: runs once per plan_version 
   const lwCalls = [];
   const lwController = new SteamrollerController({
     lightweightLogPath: join(lwDir, 'lightweight-runs.jsonl'),
+    piledriverMode: 'always',
     invokePlanner: async (req) => {
       lwCalls.push(`piledriver:${req.run_id}:${req.plan_version}`);
       return { recommendation: 'bounded doc edit', risks: [], slug: 'gemini-4-argon-high' };
@@ -1864,6 +1876,7 @@ test('PO mandatory initial Piledriver planning pass: runs once per plan_version 
     planVersion: 1,
   });
   assert.equal(lwFirst.planning_pass.status, 'COMPLETED');
+  assert.equal(lwFirst.planning_pass.invoked, true);
   assert.equal(lwFirst.planning_pass.adopted, false);
   assert.equal(lwFirst.record.planning_pass.status, 'COMPLETED');
   assert.deepEqual(lwCalls, ['piledriver:lw-plan-1:1', 'worker:puma', 'strix-halo']);
@@ -1878,12 +1891,12 @@ test('PO mandatory initial Piledriver planning pass: runs once per plan_version 
   });
   assert.deepEqual(lwCalls, ['piledriver:lw-plan-1:1', 'worker:puma', 'strix-halo', 'worker:puma', 'strix-halo']);
 
-  // 3. Fail-closed when both Piledriver candidates (Carbon High, Argon High) are unavailable.
+  // 3. Fail-closed when Piledriver is required (e.g. Track M or --piledriver always) and both candidates (Carbon High, Argon High) are unavailable.
   const failDir = mkdtempSync(join(tmpdir(), 'ntg-piledriver-unavail-'));
   t.after(() => rmSync(failDir, { recursive: true, force: true }));
   const failLedger = join(failDir, 'ledger.json');
   const failPlan = join(failDir, 'plan.json');
-  writeFileSync(failPlan, JSON.stringify(plan('v1', ['one'])));
+  writeFileSync(failPlan, JSON.stringify(plan('v1', ['one', 'two'])));
   let bulldozerRan = false;
   await main(['init', '--ledger', failLedger, '--plan', failPlan], { handleSignals: false });
   await assert.rejects(
@@ -1983,6 +1996,7 @@ test('Piledriver advisory with plan_defects halts before worker execution, valid
   const badController = new SteamrollerController({
     ledgerPath: join(badDir, 'ledger.json'),
     plan: plan('v1', ['one']),
+    piledriverMode: 'always',
     cwd: badDir,
     invokePlanner: async () => ({}),
   });
@@ -2003,6 +2017,7 @@ test('Piledriver advisory with plan_defects halts before worker execution, valid
   let lwWorkerCalls = 0;
   const lwController = new SteamrollerController({
     lightweightLogPath: lwLogPath,
+    piledriverMode: 'always',
     invokePlanner: async () => {
       lwPlannerCalls += 1;
       return { recommendation: 'proceed with bounded edit', risks: [] };
@@ -2061,7 +2076,7 @@ test('Track L CLI returns exit code 2 on blocking Piledriver prose advice and re
   t.after(() => rmSync(dir1, { recursive: true, force: true }));
   const ledger1 = join(dir1, 'ledger.json');
   let workerRan = false;
-  const defectRes = await main(['run', '--ledger', ledger1, '--track', 'L', '--task', 'Update interface doc'], {
+  const defectRes = await main(['run', '--ledger', ledger1, '--track', 'L', '--piledriver', 'always', '--task', 'Update interface doc'], {
     handleSignals: false,
     invokeRole: async (role) => {
       if (role === 'piledriver') {
@@ -2117,13 +2132,13 @@ test('Track L CLI returns exit code 2 on blocking Piledriver prose advice and re
   };
 
   await assert.rejects(
-    main(['run', '--ledger', ledger2, '--track', 'L', '--task', 'Fix README typo'], retryDeps),
+    main(['run', '--ledger', ledger2, '--track', 'L', '--piledriver', 'always', '--task', 'Fix README typo'], retryDeps),
     /transient track-l cli worker failure/
   );
   assert.equal(piledriverCalls, 1);
   assert.equal(workerCalls, 1);
 
-  const secondCli = await main(['run', '--ledger', ledger2, '--track', 'L', '--task', 'Fix README typo'], retryDeps);
+  const secondCli = await main(['run', '--ledger', ledger2, '--track', 'L', '--piledriver', 'always', '--task', 'Fix README typo'], retryDeps);
   assert.equal(secondCli.code, 0);
   assert.equal(piledriverCalls, 1, 'Retrying the same Track L CLI task without --milestone must reuse the persisted planning receipt');
   assert.equal(workerCalls, 2);
@@ -2295,31 +2310,31 @@ test('Track L planning receipt invalidates when acceptance_criteria change (CLI 
 
   // Run 1 with criteria A (no --milestone -> deterministic stableRunId)
   writeFileSync(planPath, JSON.stringify(makePlan(['link points to v2 docs'])));
-  const r1 = await main(['run', '--ledger', ledger, '--track', 'L', '--plan', planPath], deps);
+  const r1 = await main(['run', '--ledger', ledger, '--track', 'L', '--piledriver', 'always', '--plan', planPath], deps);
   assert.equal(r1.code, 0);
   assert.equal(piledriverCalls, 1);
 
   // Run 2 with criteria B (same task, goal, scope, planVersion=1 -> MUST NOT reuse old advisory)
   writeFileSync(planPath, JSON.stringify(makePlan(['link points to v2 docs AND passes markdown lint'])));
-  const r2 = await main(['run', '--ledger', ledger, '--track', 'L', '--plan', planPath], deps);
+  const r2 = await main(['run', '--ledger', ledger, '--track', 'L', '--piledriver', 'always', '--plan', planPath], deps);
   assert.equal(r2.code, 0);
   assert.notEqual(r2.out.run_id, r1.out.run_id, 'stableRunId must change when acceptance_criteria change');
   assert.equal(piledriverCalls, 2, 'Changed acceptance_criteria must trigger a fresh Piledriver pass');
 
   // Run 3 with explicit --milestone m1 (same runId!) and criteria A -> fresh pass
   writeFileSync(planPath, JSON.stringify(makePlan(['criteria A'])));
-  const r3 = await main(['run', '--ledger', ledger, '--track', 'L', '--plan', planPath, '--milestone', 'm1'], deps);
+  const r3 = await main(['run', '--ledger', ledger, '--track', 'L', '--piledriver', 'always', '--plan', planPath, '--milestone', 'm1'], deps);
   assert.equal(r3.code, 0);
   assert.equal(piledriverCalls, 3);
 
   // Run 4 with explicit --milestone m1 and SAME criteria A -> reuses persisted planning receipt
-  const r4 = await main(['run', '--ledger', ledger, '--track', 'L', '--plan', planPath, '--milestone', 'm1'], deps);
+  const r4 = await main(['run', '--ledger', ledger, '--track', 'L', '--piledriver', 'always', '--plan', planPath, '--milestone', 'm1'], deps);
   assert.equal(r4.code, 0);
   assert.equal(piledriverCalls, 3, 'Unchanged criteria with same runId must reuse planning receipt');
 
   // Run 5 with explicit --milestone m1 and CHANGED criteria B -> invalidates cached receipt via planning_input_digest
   writeFileSync(planPath, JSON.stringify(makePlan(['criteria B changed'])));
-  const r5 = await main(['run', '--ledger', ledger, '--track', 'L', '--plan', planPath, '--milestone', 'm1'], deps);
+  const r5 = await main(['run', '--ledger', ledger, '--track', 'L', '--piledriver', 'always', '--plan', planPath, '--milestone', 'm1'], deps);
   assert.equal(r5.code, 0);
   assert.equal(piledriverCalls, 4, 'Changed acceptance_criteria with same runId must invalidate old planning receipt');
   assert.equal(workerCalls, 5);
@@ -2492,7 +2507,7 @@ test('real /ntg CLI decision protocol requires digest-bound Steamroller decision
     },
   };
 
-  const lAwait = await main(['run', '--ledger', lLedger, '--track', 'L', '--task', 'Fix doc wording'], lDeps);
+  const lAwait = await main(['run', '--ledger', lLedger, '--track', 'L', '--piledriver', 'always', '--task', 'Fix doc wording'], lDeps);
   assert.equal(lAwait.code, 2);
   assert.equal(lAwait.out.status, 'AWAITING_PLANNING_DECISION');
   assert.equal(lAwait.out.safety_gate.hasBlockingDefects, false);
@@ -2502,7 +2517,7 @@ test('real /ntg CLI decision protocol requires digest-bound Steamroller decision
   // First record REPLAN_REQUIRED, then supersede with PROCEED for the same digest
   const lReplan = await main(
     [
-      'run', '--ledger', lLedger, '--track', 'L', '--task', 'Fix doc wording',
+      'run', '--ledger', lLedger, '--track', 'L', '--piledriver', 'always', '--task', 'Fix doc wording',
       '--planning-decision', 'REPLAN_REQUIRED',
       '--planning-decision-digest', lAwait.out.advisory_digest,
     ],
@@ -2515,7 +2530,7 @@ test('real /ntg CLI decision protocol requires digest-bound Steamroller decision
   await assert.rejects(
     main(
       [
-        'run', '--ledger', lLedger, '--track', 'L', '--task', 'Fix doc wording',
+        'run', '--ledger', lLedger, '--track', 'L', '--piledriver', 'always', '--task', 'Fix doc wording',
         '--planning-decision', 'PROCEED',
         '--planning-decision-digest', lAwait.out.advisory_digest,
       ],
@@ -2527,7 +2542,7 @@ test('real /ntg CLI decision protocol requires digest-bound Steamroller decision
   assert.equal(lWorkerCalls, 1);
 
   // Fresh retry WITHOUT --planning-decision must reuse the persisted PROCEED decision (not stale REPLAN_REQUIRED)
-  const lRetry = await main(['run', '--ledger', lLedger, '--track', 'L', '--task', 'Fix doc wording'], lDeps);
+  const lRetry = await main(['run', '--ledger', lLedger, '--track', 'L', '--piledriver', 'always', '--task', 'Fix doc wording'], lDeps);
   assert.equal(lRetry.code, 0, 'Track L retry without flags must reuse persisted PROCEED decision');
   assert.equal(lPiledriverCalls, 1, 'Track L must reuse persisted planning pass after Steamroller decision');
   assert.equal(lWorkerCalls, 2);
@@ -2535,7 +2550,7 @@ test('real /ntg CLI decision protocol requires digest-bound Steamroller decision
   // --- Invalid in-process reviewPlanningAdvice callback decision fails closed ---
   const badCbLedger = join(dir, 'bad-cb-ledger.json');
   let badCbWorkers = 0;
-  const badCbRes = await main(['run', '--ledger', badCbLedger, '--track', 'L', '--task', 'Fix doc wording'], {
+  const badCbRes = await main(['run', '--ledger', badCbLedger, '--track', 'L', '--piledriver', 'always', '--task', 'Fix doc wording'], {
     handleSignals: false,
     reviewPlanningAdvice: () => ({ decision: 'MAYBE_LATER' }),
     invokeRole: async (role) => {
@@ -2548,4 +2563,667 @@ test('real /ntg CLI decision protocol requires digest-bound Steamroller decision
   assert.equal(badCbRes.out.status, 'AWAITING_PLANNING_DECISION');
   assert.equal(badCbRes.out.supervisor_decision.reason, 'INVALID_PLANNING_DECISION');
   assert.equal(badCbWorkers, 0, 'Workers must not execute on an invalid callback decision');
+});
+
+test('selective Piledriver: LedgerKernel and LightweightLog persist and validate COMPLETED and SKIPPED planning passes', async t => {
+  const { INITIAL_PLANNING_STATUSES, InvalidTransitionError } = await import('../scripts/ledger.mjs');
+  const { LightweightLogError } = await import('../src/core/lightweight-log.mjs');
+  assert.deepEqual(INITIAL_PLANNING_STATUSES, ['COMPLETED', 'SKIPPED']);
+
+  // 1. LedgerKernel validation & redaction
+  const ledger = new AuthoritativeLedger(plan('v1', ['one']));
+  assert.equal(ledger.hasInitialPlanningPass('v1'), false);
+
+  assert.throws(
+    () => ledger.recordInitialPlanningPass({ plan_version: 'v1', status: 'PENDING' }),
+    InvalidTransitionError
+  );
+  assert.throws(
+    () => ledger.recordInitialPlanningPass({ plan_version: 'v1', status: 'SKIPPED', invoked: true }),
+    InvalidTransitionError
+  );
+  assert.throws(
+    () => ledger.recordInitialPlanningPass({ plan_version: 'v1', status: 'COMPLETED', invoked: false }),
+    InvalidTransitionError
+  );
+  assert.throws(
+    () => ledger.recordInitialPlanningPass({ plan_version: 'v1', status: 'SKIPPED', decision_reason: '   ' }),
+    InvalidTransitionError
+  );
+
+  const skipped = ledger.recordInitialPlanningPass({
+    plan_version: 'v1',
+    status: 'SKIPPED',
+    invoked: false,
+    slug: 'should-be-nulled',
+    advice: { recommendation: 'should-be-nulled' },
+    advisory_digest: 'sha256:should-be-nulled',
+    adopted: true,
+    mode: 'AUTO',
+    decision_reason: 'bounded_clear_single_milestone_track_s sk-SECRETKEY1234567890',
+    decision_signals: { track: 'S', note: '/home/alice/private/file.mjs' },
+  });
+  assert.equal(skipped.status, 'SKIPPED');
+  assert.equal(skipped.invoked, false);
+  assert.equal(skipped.adopted, false);
+  assert.equal(skipped.slug, null);
+  assert.equal(skipped.advice, null);
+  assert.equal(skipped.advisory_digest, null);
+  assert.equal(skipped.mode, 'auto');
+  assert.equal(skipped.decision_reason.includes('sk-SECRETKEY1234567890'), false);
+  assert.equal(JSON.stringify(skipped.decision_signals).includes('/home/alice'), false);
+  assert.equal(ledger.hasInitialPlanningPass('v1'), true);
+  assert.throws(
+    () => ledger.recordInitialPlanningDecision('v1', { decision: 'PROCEED' }),
+    InvalidTransitionError
+  );
+
+  const completed = ledger.recordInitialPlanningPass({
+    plan_version: 'v2',
+    status: 'COMPLETED',
+    invoked: true,
+    slug: 'gemini-4-argon-high',
+    advice: { recommendation: 'proceed' },
+    advisory_digest: 'sha256:abc',
+    adopted: true,
+    mode: 'always',
+    decision_reason: 'explicit_always_override',
+    decision_signals: { track: 'M' },
+  });
+  assert.equal(completed.status, 'COMPLETED');
+  assert.equal(completed.invoked, true);
+  assert.equal(completed.adopted, false);
+  assert.equal(completed.slug, 'gemini-4-argon-high');
+  assert.equal(ledger.hasInitialPlanningPass('v2'), true);
+
+  // 2. LightweightLog SKIPPED & COMPLETED receipts + digest invalidation
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-lw-selective-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const log = new LightweightLog(join(dir, 'lightweight-runs.jsonl'));
+
+  assert.throws(
+    () => log.recordPlanningPass({ run_id: 'r1', planning_pass: { status: 'UNKNOWN' } }),
+    LightweightLogError
+  );
+  assert.throws(
+    () => log.recordPlanningPass({ run_id: 'r1', planning_pass: { status: 'SKIPPED', invoked: true } }),
+    LightweightLogError
+  );
+
+  const skipEntry = log.recordPlanningPass({
+    run_id: 'r1',
+    plan_version: 1,
+    goal: 'Fix typo',
+    planning_input_digest: 'sha256:in1',
+    planning_pass: {
+      role: 'piledriver',
+      status: 'SKIPPED',
+      decision_reason: 'bounded_clear_track_l_task',
+      decision_signals: { track: 'L', mode: 'auto' },
+      adopted: true,
+    },
+  });
+  assert.equal(skipEntry.status, 'PLANNING_SKIPPED');
+  assert.equal(skipEntry.planning_pass.status, 'SKIPPED');
+  assert.equal(skipEntry.planning_pass.invoked, false);
+  assert.equal(skipEntry.planning_pass.adopted, false);
+  assert.equal(log.getPlanningPass('r1', 1, { planningInputDigest: 'sha256:in1' })?.status, 'SKIPPED');
+  assert.equal(log.getPlanningPass('r1', 1, { planningInputDigest: 'sha256:different' }), null);
+
+  assert.throws(
+    () =>
+      log.recordPlanningDecision({
+        run_id: 'r1',
+        plan_version: 1,
+        planning_pass: skipEntry.planning_pass,
+        supervisor_decision: { decision: 'PROCEED' },
+      }),
+    LightweightLogError
+  );
+});
+
+test('selective Piledriver: normalizePiledriverMode and evaluateInitialPlanningNeed rules and path stripping', async () => {
+  const tr = await import('../src/runtime/track-runner.mjs');
+  const sc = await import('../src/runtime/steamroller-controller.mjs');
+  assert.equal(sc.PILEDRIVER_MODES, tr.PILEDRIVER_MODES);
+  assert.equal(sc.normalizePiledriverMode, tr.normalizePiledriverMode);
+  assert.equal(sc.evaluateInitialPlanningNeed, tr.evaluateInitialPlanningNeed);
+  assert.deepEqual(tr.PILEDRIVER_MODES, ['auto', 'always', 'never']);
+
+  assert.equal(tr.normalizePiledriverMode('AUTO'), 'auto');
+  assert.equal(tr.normalizePiledriverMode('Always', { requireInitialPlanning: false }), 'always');
+  assert.equal(tr.normalizePiledriverMode('never', { requireInitialPlanning: true }), 'never');
+  assert.equal(tr.normalizePiledriverMode(undefined, { requireInitialPlanning: true }), 'always');
+  assert.equal(tr.normalizePiledriverMode(undefined, { requireInitialPlanning: false }), 'never');
+  assert.equal(tr.normalizePiledriverMode(undefined, { defaultMode: 'auto' }), 'auto');
+  assert.throws(() => tr.normalizePiledriverMode('sometimes'), /Invalid piledriver mode/);
+
+  const expectedSignalKeys = [
+    'ambiguous', 'architectural', 'file_count', 'has_dependencies', 'high_risk',
+    'is_mechanical', 'is_read_only_discovery', 'milestone_count', 'mode',
+    'needs_coordinator', 'recommended_track', 'track',
+  ];
+
+  // Explicit overrides still compute all 12 decision_signals
+  const alwaysEval = tr.evaluateInitialPlanningNeed({ mode: 'always', track: 'L', task: 'Fix typo' });
+  assert.equal(alwaysEval.invoke, true);
+  assert.equal(alwaysEval.decision_reason, 'explicit_always_override');
+  assert.deepEqual(Object.keys(alwaysEval.decision_signals).sort(), expectedSignalKeys);
+
+  const neverEval = tr.evaluateInitialPlanningNeed({ mode: 'never', track: 'M', milestoneCount: 3 });
+  assert.equal(neverEval.invoke, false);
+  assert.equal(neverEval.decision_reason, 'explicit_never_override');
+  assert.deepEqual(Object.keys(neverEval.decision_signals).sort(), expectedSignalKeys);
+
+  // Path stripping: docs/architecture.md must NOT falsely trigger architectural
+  const pathStripEval = tr.evaluateInitialPlanningNeed({
+    mode: 'auto',
+    track: 'L',
+    task: 'Update docs/architecture.md wording',
+    boundedScope: ['docs/architecture.md'],
+  });
+  assert.equal(pathStripEval.invoke, false);
+  assert.equal(pathStripEval.decision_reason, 'bounded_clear_track_l_task');
+  assert.equal(pathStripEval.decision_signals.architectural, false);
+
+  // Read-only discovery mentioning architecture does NOT trigger architectural
+  const readOnlyEval = tr.evaluateInitialPlanningNeed({
+    mode: 'auto',
+    track: 'L',
+    task: 'Locate all architecture hooks in src/',
+  });
+  assert.equal(readOnlyEval.invoke, false);
+  assert.equal(readOnlyEval.decision_signals.is_read_only_discovery, true);
+  assert.equal(readOnlyEval.decision_signals.architectural, false);
+
+  // Bounded single-milestone Track S skips
+  const trackSSkip = tr.evaluateInitialPlanningNeed({
+    mode: 'auto',
+    track: 'S',
+    task: 'Add helper unit test in src/util.mjs',
+    milestoneCount: 1,
+    hasDependencies: false,
+    boundedScope: ['src/util.mjs'],
+  });
+  assert.equal(trackSSkip.invoke, false);
+  assert.equal(trackSSkip.decision_reason, 'bounded_clear_single_milestone_track_s');
+
+  // All 6 auto invoke triggers
+  assert.equal(
+    tr.evaluateInitialPlanningNeed({ mode: 'auto', track: 'M', task: 'Do one thing' }).decision_reason,
+    'track_m_requires_planning'
+  );
+  assert.equal(
+    tr.evaluateInitialPlanningNeed({ mode: 'auto', track: 'S', milestoneCount: 2, task: 'Two steps' }).decision_reason,
+    'multi_milestone_plan'
+  );
+  assert.equal(
+    tr.evaluateInitialPlanningNeed({ mode: 'auto', track: 'S', milestoneCount: 1, hasDependencies: true, task: 'Step' }).decision_reason,
+    'milestone_dependencies_present'
+  );
+  assert.equal(
+    tr.evaluateInitialPlanningNeed({ mode: 'auto', track: 'L', highRiskEscalation: true, task: 'Fix typo' }).decision_reason,
+    'high_risk_task'
+  );
+  assert.equal(
+    tr.evaluateInitialPlanningNeed({ mode: 'auto', track: 'S', task: 'Database schema migration and security hardening' }).decision_reason,
+    'architectural_or_cross_cutting_scope'
+  );
+  assert.equal(
+    tr.evaluateInitialPlanningNeed({ mode: 'auto', track: 'S', task: 'Investigate options and trade-offs for caching' }).decision_reason,
+    'ambiguous_task_or_plan'
+  );
+  assert.equal(
+    tr.evaluateInitialPlanningNeed({ mode: 'auto', track: 'S', ambiguous: true, task: 'Simple task' }).decision_reason,
+    'ambiguous_task_or_plan'
+  );
+});
+
+test('selective Piledriver: idempotency, always override over SKIPPED, Tactical/Material Replan re-evaluation, CLI overrides, and NEEDS_DEEP preservation', async t => {
+  const { SteamrollerController } = await import('../src/runtime/steamroller-controller.mjs');
+
+  // 1. Track S single-milestone skip -> resume idempotency -> explicit always override -> Tactical Replan (v1 SKIPPED -> v2 COMPLETED) -> Material Replan (v2 COMPLETED -> v3 SKIPPED)
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-selective-replan-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'one.txt'), 'init\n');
+  writeFileSync(join(dir, 'two.txt'), 'init\n');
+  const ledgerPath = join(dir, 'ledger.json');
+  let plannerCalls = 0;
+  let reviewCbCalls = 0;
+  let capturedContracts = [];
+
+  const controller = new SteamrollerController({
+    ledgerPath,
+    plan: plan('v1', ['one']),
+    cwd: dir,
+    requirePlanningDecision: true,
+    reviewPlanningAdvice: () => {
+      reviewCbCalls += 1;
+      return { decision: 'PROCEED', notes: 'approved' };
+    },
+    invokePlanner: async () => {
+      plannerCalls += 1;
+      return { recommendation: 'proceed safely', risks: [], slug: 'gemini-4-argon-high' };
+    },
+    invokeRole: async (_role, packet) => {
+      const parsed = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+      capturedContracts.push(parsed);
+      return envelope({
+        milestone_id: parsed.milestone_id,
+        plan_version: parsed.plan_version,
+        status: 'DONE',
+        changes_made: parsed.bounded_scope,
+        verification_evidence: observed,
+        unresolved_unknowns: [],
+        scope_deviations: [],
+        candidate_artifact_ref: `sha256:${parsed.milestone_id}-${parsed.plan_version}`,
+      });
+    },
+    invokeHalo: async (req) => ({
+      caller: req.caller,
+      candidate_id_or_run_id: req.candidate_id_or_run_id,
+      reviewed_diff_digest: req.reviewed_diff_digest,
+      acceptance_criteria_digest: req.acceptance_criteria_digest,
+      plan_version: req.plan_version,
+      evidence_basis: req.evidence_basis,
+      verdict: 'ACCEPT',
+      findings: [],
+    }),
+    invokeZen: async (req) => ({
+      milestone_id: req.milestone_id,
+      plan_version: req.plan_version,
+      result_ref: req.result_ref,
+      verdict: 'GO',
+      verification_evidence: observed,
+    }),
+  });
+  t.after(() => controller.close());
+
+  // v1 bounded single-milestone Track S: SKIPPED without calling Piledriver or reviewPlanningAdvice
+  const v1SkipFirst = await controller.ensureInitialPlanningPass({ track: 'S', milestoneId: 'one' });
+  assert.equal(v1SkipFirst.skipped, true);
+  assert.equal(v1SkipFirst.invoked, false);
+  assert.equal(v1SkipFirst.decision_reason, 'bounded_clear_single_milestone_track_s');
+  assert.equal(v1SkipFirst.record.status, 'SKIPPED');
+  assert.equal(v1SkipFirst.record.adopted, false);
+  assert.equal(v1SkipFirst.supervisor_decision, null);
+  assert.equal(plannerCalls, 0);
+  assert.equal(reviewCbCalls, 0);
+
+  // Repeat on same plan_version v1 returns ALREADY_SKIPPED_FOR_PLAN_VERSION without calling reviewPlanningAdvice
+  const v1SkipSecond = await controller.ensureInitialPlanningPass({ track: 'S', milestoneId: 'one' });
+  assert.equal(v1SkipSecond.skipped, true);
+  assert.equal(v1SkipSecond.invoked, false);
+  assert.equal(v1SkipSecond.reason, 'ALREADY_SKIPPED_FOR_PLAN_VERSION');
+  assert.equal(v1SkipSecond.supervisor_decision, null);
+  assert.equal(plannerCalls, 0);
+  assert.equal(reviewCbCalls, 0);
+
+  // Running milestone on v1 does NOT inject planning_advisory when SKIPPED
+  const runV1 = await controller.runMilestone('one', { track: 'S' });
+  assert.equal(runV1.verified, true);
+  assert.equal(plannerCalls, 0);
+  assert.equal(capturedContracts[0].planning_advisory, undefined);
+
+  // Explicit always overrides prior SKIPPED on same plan_version
+  const v1ForcedAlways = await controller.ensureInitialPlanningPass({
+    track: 'S',
+    milestoneId: 'one',
+    piledriverMode: 'always',
+  });
+  assert.equal(v1ForcedAlways.skipped, false);
+  assert.equal(v1ForcedAlways.invoked, true);
+  assert.equal(v1ForcedAlways.record.status, 'COMPLETED');
+  assert.equal(v1ForcedAlways.decision_reason, 'explicit_always_override');
+  assert.equal(plannerCalls, 1);
+  assert.equal(reviewCbCalls, 1);
+
+  // Repeat on v1 now returns ALREADY_COMPLETED_FOR_PLAN_VERSION
+  const v1AlreadyCompleted = await controller.ensureInitialPlanningPass({ track: 'S', milestoneId: 'one' });
+  assert.equal(v1AlreadyCompleted.skipped, true);
+  assert.equal(v1AlreadyCompleted.invoked, false);
+  assert.equal(v1AlreadyCompleted.reason, 'ALREADY_COMPLETED_FOR_PLAN_VERSION');
+  assert.equal(plannerCalls, 1);
+
+  // Tactical Replan: v1 -> v2 (multi-milestone Track M -> auto invokes Piledriver!)
+  controller.adoptTacticalReplan(plan('v2', ['one', 'two']));
+  const runV2M1 = await controller.runMilestone('one');
+  assert.equal(runV2M1.verified, true);
+  assert.equal(plannerCalls, 2, 'Tactical replan to v2 Track M must invoke Piledriver');
+  assert.equal(controller.state.evidence.initial_planning.v2.status, 'COMPLETED');
+  assert.equal(controller.state.evidence.initial_planning.v2.invoked, true);
+  assert.ok(capturedContracts[1].planning_advisory);
+
+  // Material Replan: v2 (COMPLETED) -> v3 (bounded single-milestone Track S -> auto SKIPS Piledriver!)
+  controller.adoptReplan(plan('v3', ['one']));
+  const runV3 = await controller.runMilestone('one', { track: 'S' });
+  assert.equal(runV3.verified, true);
+  assert.equal(plannerCalls, 2, 'Material replan to bounded single-milestone Track S must skip Piledriver');
+  assert.equal(controller.state.evidence.initial_planning.v3.status, 'SKIPPED');
+  assert.equal(controller.state.evidence.initial_planning.v3.invoked, false);
+  assert.equal(controller.state.evidence.initial_planning.v3.decision_reason, 'bounded_clear_single_milestone_track_s');
+  assert.equal(capturedContracts[2].planning_advisory, undefined);
+
+  // 2. Track L: selective SKIPPED persisted across worker failure/retry, and always overrides prior SKIPPED
+  const lwDir = mkdtempSync(join(tmpdir(), 'ntg-selective-trackl-'));
+  t.after(() => rmSync(lwDir, { recursive: true, force: true }));
+  writeFileSync(join(lwDir, 'readme.md'), 'hello\n');
+  const lwLogPath = join(lwDir, 'lightweight-runs.jsonl');
+  let lwPlannerCalls = 0;
+  let lwWorkerCalls = 0;
+  const lwController = new SteamrollerController({
+    lightweightLogPath: lwLogPath,
+    cwd: lwDir,
+    invokePlanner: async () => {
+      lwPlannerCalls += 1;
+      return { recommendation: 'explicitly planned', risks: [] };
+    },
+    invokeSpecialist: async () => {
+      lwWorkerCalls += 1;
+      if (lwWorkerCalls === 1) throw new Error('transient trackl skip failure');
+      return { status: 'READY', changes_made: ['readme.md'], verification_evidence: ['checked'] };
+    },
+    invokeHalo: async (req) => ({
+      caller: req.caller,
+      candidate_id_or_run_id: req.candidate_id_or_run_id,
+      reviewed_diff_digest: req.reviewed_diff_digest,
+      acceptance_criteria_digest: req.acceptance_criteria_digest,
+      plan_version: req.plan_version,
+      evidence_basis: req.evidence_basis,
+      verdict: 'ACCEPT',
+      findings: [],
+    }),
+  });
+
+  await assert.rejects(
+    lwController.runTrackL({
+      runId: 'lw-skip-1',
+      task: 'Fix typo in readme.md',
+      boundedScope: ['readme.md'],
+      acceptanceCriteria: ['typo fixed'],
+      planVersion: 1,
+    }),
+    /transient trackl skip failure/
+  );
+  assert.equal(lwPlannerCalls, 0);
+  const afterFail = new LightweightLog(lwLogPath).readAll();
+  assert.equal(afterFail.length, 1);
+  assert.equal(afterFail[0].status, 'PLANNING_SKIPPED');
+  assert.equal(afterFail[0].planning_pass.invoked, false);
+
+  const retrySkipped = await lwController.runTrackL({
+    runId: 'lw-skip-1',
+    task: 'Fix typo in readme.md',
+    boundedScope: ['readme.md'],
+    acceptanceCriteria: ['typo fixed'],
+    planVersion: 1,
+  });
+  assert.equal(retrySkipped.record.status, 'COMPLETED');
+  assert.equal(retrySkipped.planning_pass.status, 'SKIPPED');
+  assert.equal(lwPlannerCalls, 0);
+  // Only 2 entries total (PLANNING_SKIPPED reused, not duplicated, then COMPLETED)
+  assert.equal(new LightweightLog(lwLogPath).readAll().length, 2);
+
+  // Explicit always overrides prior SKIPPED on Track L
+  const overrideAlways = await lwController.runTrackL({
+    runId: 'lw-skip-1',
+    task: 'Fix typo in readme.md',
+    boundedScope: ['readme.md'],
+    acceptanceCriteria: ['typo fixed'],
+    planVersion: 1,
+    piledriverMode: 'always',
+  });
+  assert.equal(lwPlannerCalls, 1);
+  assert.equal(overrideAlways.planning_pass.status, 'COMPLETED');
+  assert.equal(overrideAlways.planning_pass.invoked, true);
+
+  // 3. CLI --piledriver <auto|always|never>, invalid value, NTG_PILEDRIVER_MODE, --escalate on Track S, and NEEDS_DEEP after SKIPPED
+  const cliDir = mkdtempSync(join(tmpdir(), 'ntg-selective-cli-'));
+  t.after(() => rmSync(cliDir, { recursive: true, force: true }));
+  const cliLedger = join(cliDir, 'ledger.json');
+  const cliPlan = join(cliDir, 'plan.json');
+  writeFileSync(cliPlan, JSON.stringify(plan('v1', ['one'])));
+  await main(['init', '--ledger', cliLedger, '--plan', cliPlan], { handleSignals: false });
+
+  await assert.rejects(
+    main(['run', '--ledger', cliLedger, '--piledriver', 'bogus'], { handleSignals: false }),
+    /--piledriver must be auto, always, or never/
+  );
+  await assert.rejects(
+    main(['run', '--ledger', cliLedger], {
+      handleSignals: false,
+      env: { NTG_PILEDRIVER_MODE: 'invalid-env-mode' },
+    }),
+    /Invalid piledriver mode/
+  );
+
+  // Track S with --escalate forwards highRisk -> auto invokes Piledriver!
+  const escLedger = join(cliDir, 'esc-ledger.json');
+  await main(['init', '--ledger', escLedger, '--plan', cliPlan], { handleSignals: false });
+  const escCalls = [];
+  const escRes = await main(['run', '--ledger', escLedger, '--track', 'S', '--escalate'], {
+    handleSignals: false,
+    invokeRole: async (role, packet) => {
+      escCalls.push(role);
+      if (role === 'piledriver') return envelope({ recommendation: 'high-risk reviewed', risks: [] });
+      const c = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+      return envelope({
+        milestone_id: c.milestone_id, plan_version: c.plan_version, status: 'DONE',
+        changes_made: c.bounded_scope, verification_evidence: observed,
+        unresolved_unknowns: [], scope_deviations: [], candidate_artifact_ref: 'sha256:esc',
+      });
+    },
+    invokeZen: async (req) => ({
+      milestone_id: req.milestone_id, plan_version: req.plan_version,
+      result_ref: req.result_ref, verdict: 'GO', verification_evidence: observed,
+    }),
+  });
+  assert.equal(escRes.code, 0);
+  assert.equal(escCalls[0], 'piledriver');
+  assert.equal(escRes.out.state.evidence.initial_planning.v1.decision_reason, 'high_risk_task');
+
+  // NTG_PILEDRIVER_MODE=never skips even on Track M
+  const neverLedger = join(cliDir, 'never-ledger.json');
+  const mPlan = join(cliDir, 'm-plan.json');
+  writeFileSync(mPlan, JSON.stringify(plan('v1', ['one', 'two'])));
+  await main(['init', '--ledger', neverLedger, '--plan', mPlan], { handleSignals: false });
+  const neverCalls = [];
+  const neverRes = await main(['run', '--ledger', neverLedger], {
+    handleSignals: false,
+    env: { NTG_PILEDRIVER_MODE: 'never' },
+    invokeRole: async (role, packet) => {
+      neverCalls.push(role);
+      if (role === 'strix-halo') {
+        const req = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+        return envelope({
+          caller: req.caller, candidate_id_or_run_id: req.candidate_id_or_run_id,
+          reviewed_diff_digest: req.reviewed_diff_digest,
+          acceptance_criteria_digest: req.acceptance_criteria_digest,
+          plan_version: req.plan_version, evidence_basis: req.evidence_basis,
+          verdict: 'ACCEPT', findings: [],
+        });
+      }
+      const c = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+      return envelope({
+        milestone_id: c.milestone_id, plan_version: c.plan_version, status: 'DONE',
+        changes_made: c.bounded_scope, verification_evidence: observed,
+        unresolved_unknowns: [], scope_deviations: [], candidate_artifact_ref: 'sha256:never',
+      });
+    },
+    invokeZen: async (req) => ({
+      milestone_id: req.milestone_id, plan_version: req.plan_version,
+      result_ref: req.result_ref, verdict: 'GO', verification_evidence: observed,
+    }),
+  });
+  assert.equal(neverRes.code, 0);
+  assert.equal(neverCalls.includes('piledriver'), false);
+  assert.equal(neverRes.out.state.evidence.initial_planning.v1.status, 'SKIPPED');
+  assert.equal(neverRes.out.state.evidence.initial_planning.v1.decision_reason, 'explicit_never_override');
+
+  // 4. NEEDS_DEEP escalation remains completely intact after initial SKIPPED pass
+  const deepLedger = join(cliDir, 'deep-ledger.json');
+  await main(['init', '--ledger', deepLedger, '--plan', cliPlan], { handleSignals: false });
+  const deepCalls = [];
+  const deepRun = await main(['run', '--ledger', deepLedger, '--track', 'S'], {
+    handleSignals: false,
+    invokeRole: async (role, packet) => {
+      deepCalls.push(role);
+      const c = JSON.parse(packet.task.slice(packet.task.indexOf('\n') + 1));
+      return envelope({
+        milestone_id: c.milestone_id,
+        plan_version: c.plan_version,
+        status: 'NEEDS_DEEP',
+        changes_made: [],
+        verification_evidence: [],
+        unresolved_unknowns: ['Hidden architectural constraint discovered during implementation'],
+        scope_deviations: [],
+      });
+    },
+    invokeZen: async () => assert.fail('Zen must not run on NEEDS_DEEP'),
+  });
+  assert.equal(deepRun.code, 2);
+  assert.equal(deepRun.out.results[0].status, 'NEEDS_DEEP');
+  assert.deepEqual(deepRun.out.state.completed_milestones, []);
+  assert.equal(deepRun.out.state.evidence.initial_planning.v1.status, 'SKIPPED');
+  assert.equal(deepCalls.includes('piledriver'), false);
+
+  // Follow-up `plan` routes through Steamroller to Piledriver and returns advisory (adopted: false)
+  const planAdvice = await main(['plan', '--ledger', deepLedger, '--task', 'Resolve NEEDS_DEEP architectural constraint'], {
+    handleSignals: false,
+    invokeRole: async (role) => {
+      deepCalls.push(role);
+      return envelope({ recommendation: 'Split into two milestones with migration guard', risks: [] });
+    },
+  });
+  assert.equal(planAdvice.code, 0);
+  assert.equal(planAdvice.out.adopted, false);
+  assert.equal(deepCalls.at(-1), 'piledriver');
+
+  // 5. Regression: direct ensureInitialPlanningPass({ milestoneId }) inherits milestoneDef.cross_file_dependency
+  const crossDir = mkdtempSync(join(tmpdir(), 'ntg-selective-crossdep-'));
+  t.after(() => rmSync(crossDir, { recursive: true, force: true }));
+  const crossPlan = {
+    goal: 'Update helper',
+    constraints: [],
+    decision_invariants: [],
+    plan_version: 'v1',
+    track: 'S',
+    milestones: [
+      {
+        id: 'one',
+        title: 'one',
+        objective: 'Update helper',
+        bounded_scope: ['one.txt'],
+        acceptance_criteria: ['content matches'],
+        non_goals: [],
+        dependencies: [],
+        cross_file_dependency: true,
+      },
+    ],
+  };
+  let crossPlannerCalls = 0;
+  const crossController = new SteamrollerController({
+    ledgerPath: join(crossDir, 'ledger.json'),
+    plan: crossPlan,
+    cwd: crossDir,
+    invokePlanner: async () => {
+      crossPlannerCalls += 1;
+      return { recommendation: 'cross-file dependency reviewed', risks: [] };
+    },
+  });
+  t.after(() => crossController.close());
+  const crossOutcome = await crossController.ensureInitialPlanningPass({ milestoneId: 'one' });
+  assert.equal(crossPlannerCalls, 1, 'ensureInitialPlanningPass must inherit milestoneDef.cross_file_dependency');
+  assert.equal(crossOutcome.invoked, true);
+  assert.equal(crossOutcome.record.status, 'COMPLETED');
+  assert.equal(crossOutcome.decision_reason, 'architectural_or_cross_cutting_scope');
+  assert.equal(crossOutcome.decision_signals.needs_coordinator, true);
+
+  // 6. Runtime backward-compat: requireInitialPlanning: true on SteamrollerController & standalone TrackRunner,
+  //    and standalone TrackRunner with invokePlanner defaulting to 'auto'.
+  const compatDir = mkdtempSync(join(tmpdir(), 'ntg-selective-compat-'));
+  t.after(() => rmSync(compatDir, { recursive: true, force: true }));
+  writeFileSync(join(compatDir, 'readme.md'), 'hello\n');
+
+  let scCompatPlannerCalls = 0;
+  const scCompat = new SteamrollerController({
+    ledgerPath: join(compatDir, 'ledger.json'),
+    plan: plan('v1', ['one']),
+    requireInitialPlanning: true,
+    cwd: compatDir,
+    invokePlanner: async () => {
+      scCompatPlannerCalls += 1;
+      return { recommendation: 'legacy requireInitialPlanning=true', risks: [] };
+    },
+  });
+  t.after(() => scCompat.close());
+  const scCompatOutcome = await scCompat.ensureInitialPlanningPass({ track: 'S', milestoneId: 'one' });
+  assert.equal(scCompatPlannerCalls, 1);
+  assert.equal(scCompatOutcome.record.status, 'COMPLETED');
+  assert.equal(scCompatOutcome.decision_reason, 'explicit_always_override');
+
+  const { TrackRunner } = await import('../src/runtime/track-runner.mjs');
+  let autoRunnerPlannerCalls = 0;
+  const autoRunner = new TrackRunner({
+    lightweightLogPath: join(compatDir, 'auto-lw.jsonl'),
+    cwd: compatDir,
+    invokePlanner: async () => {
+      autoRunnerPlannerCalls += 1;
+      return { recommendation: 'auto track runner planned', risks: [] };
+    },
+    invokeWorker: async () => ({ status: 'READY', changes_made: ['readme.md'], verification_evidence: ['checked'] }),
+    invokeHalo: async (req) => ({
+      caller: req.caller, candidate_id_or_run_id: req.candidate_id_or_run_id,
+      reviewed_diff_digest: req.reviewed_diff_digest,
+      acceptance_criteria_digest: req.acceptance_criteria_digest,
+      plan_version: req.plan_version, evidence_basis: req.evidence_basis,
+      verdict: 'ACCEPT', findings: [],
+    }),
+  });
+  const autoSkipRes = await autoRunner.runTrackL({
+    runId: 'tr-auto-skip',
+    task: 'Fix typo in readme.md',
+    boundedScope: ['readme.md'],
+    acceptanceCriteria: ['typo fixed'],
+  });
+  assert.equal(autoRunnerPlannerCalls, 0, 'Standalone TrackRunner with invokePlanner must default to auto and skip bounded Track L');
+  assert.equal(autoSkipRes.planning_pass.status, 'SKIPPED');
+
+  const autoInvokeRes = await autoRunner.runTrackL({
+    runId: 'tr-auto-invoke',
+    task: 'Explore approaches and trade-offs for readme layout',
+    boundedScope: ['readme.md'],
+    acceptanceCriteria: ['decision documented'],
+  });
+  assert.equal(autoRunnerPlannerCalls, 1, 'Standalone TrackRunner auto mode must invoke Piledriver on ambiguous tasks');
+  assert.equal(autoInvokeRes.planning_pass.status, 'COMPLETED');
+  assert.equal(autoInvokeRes.planning_pass.decision_reason, 'ambiguous_task_or_plan');
+
+  let legacyRunnerPlannerCalls = 0;
+  const legacyRunner = new TrackRunner({
+    lightweightLogPath: join(compatDir, 'legacy-lw.jsonl'),
+    cwd: compatDir,
+    requireInitialPlanning: true,
+    invokePlanner: async () => {
+      legacyRunnerPlannerCalls += 1;
+      return { recommendation: 'legacy requireInitialPlanning=true track-l', risks: [] };
+    },
+    invokeWorker: async () => ({ status: 'READY', changes_made: ['readme.md'], verification_evidence: ['checked'] }),
+    invokeHalo: async (req) => ({
+      caller: req.caller, candidate_id_or_run_id: req.candidate_id_or_run_id,
+      reviewed_diff_digest: req.reviewed_diff_digest,
+      acceptance_criteria_digest: req.acceptance_criteria_digest,
+      plan_version: req.plan_version, evidence_basis: req.evidence_basis,
+      verdict: 'ACCEPT', findings: [],
+    }),
+  });
+  const legacyRes = await legacyRunner.runTrackL({
+    runId: 'tr-legacy-true',
+    task: 'Fix typo in readme.md',
+    boundedScope: ['readme.md'],
+    acceptanceCriteria: ['typo fixed'],
+  });
+  assert.equal(legacyRunnerPlannerCalls, 1, 'Standalone TrackRunner with requireInitialPlanning: true must map to always');
+  assert.equal(legacyRes.planning_pass.status, 'COMPLETED');
+  assert.equal(legacyRes.planning_pass.decision_reason, 'explicit_always_override');
 });

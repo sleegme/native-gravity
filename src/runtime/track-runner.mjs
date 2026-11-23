@@ -36,7 +36,7 @@ function unwrapPacket(res) {
 
 export class InitialPlanningRequiredError extends Error {
   constructor(message, details = {}) {
-    super(message || "Mandatory initial Piledriver planning pass failed or is unavailable");
+    super(message || "Initial Piledriver planning pass failed or is unavailable");
     this.name = "InitialPlanningRequiredError";
     this.code = "PILEDRIVER_PLANNING_UNAVAILABLE";
     this.ok = false;
@@ -44,6 +44,234 @@ export class InitialPlanningRequiredError extends Error {
       Object.assign(this, details);
     }
   }
+}
+
+export const PILEDRIVER_MODES = Object.freeze(["auto", "always", "never"]);
+
+const PLANNING_PATH_TOKEN_RE =
+  /(?:^|(?<=[\s(\["'`]))(?:[A-Za-z0-9_.-]*\/+[A-Za-z0-9_./-]+|[A-Za-z0-9_.-]+\.(?:md|mdx|txt|rst|adoc|json|ya?ml|toml|ini|cfg|conf|mjs|cjs|js|jsx|ts|tsx|py|sh|bash|css|scss|html|xml|svg))(?=$|[\s)\]"'`,.:;!?])/gi;
+
+const ARCHITECTURAL_PLANNING_RE =
+  /\b(?:architectur(?:e|al)|cross[- ]cutting|system[- ]wide|kernel\s+rewrite|redesign|overhaul|security(?:\s+(?:boundary|model|audit|fix|hardening|policy|guard|bypass))?|auth(?:entication|orization)?\s+(?:model|flow|schema|boundary|redesign|migration)|migration|migrate|concurrency|race\s+condition|deadlock|mutex|schema[- ]change|schema\s+(?:migration|redesign|change|overhaul)|breaking[- ]change|breaking\s+api)\b/i;
+
+const AMBIGUOUS_PLANNING_RE =
+  /\b(?:ambiguous|unclear|tbd|to\s+be\s+determined|investigate\s+options|explore\s+approaches|trade[- ]?offs?|design\s+decisions?|undecided|open\s+questions?)\b/i;
+
+/**
+ * Normalizes initial Piledriver planning mode (`auto | always | never`).
+ * Explicit `mode` takes precedence; otherwise boolean `requireInitialPlanning`
+ * maps `true -> "always"` and `false -> "never"`; otherwise `defaultMode`.
+ */
+export function normalizePiledriverMode(
+  mode,
+  { requireInitialPlanning = undefined, defaultMode = "auto" } = {}
+) {
+  if (mode !== undefined && mode !== null) {
+    const normalized = String(mode).trim().toLowerCase();
+    if (!PILEDRIVER_MODES.includes(normalized)) {
+      throw new Error(
+        `Invalid piledriver mode '${mode}'; expected one of: ${PILEDRIVER_MODES.join(", ")}`
+      );
+    }
+    return normalized;
+  }
+  if (requireInitialPlanning !== undefined) {
+    return requireInitialPlanning ? "always" : "never";
+  }
+  const normalizedDefault = String(defaultMode ?? "auto").trim().toLowerCase();
+  if (!PILEDRIVER_MODES.includes(normalizedDefault)) {
+    throw new Error(
+      `Invalid default piledriver mode '${defaultMode}'; expected one of: ${PILEDRIVER_MODES.join(", ")}`
+    );
+  }
+  return normalizedDefault;
+}
+
+/**
+ * Evaluates whether an initial Piledriver advisory planning pass is warranted
+ * for the given task/plan context, returning `{ invoke, mode, decision_reason, decision_signals }`.
+ */
+export function evaluateInitialPlanningNeed({
+  mode = undefined,
+  piledriverMode = undefined,
+  requireInitialPlanning = undefined,
+  defaultMode = "auto",
+  track = null,
+  task = "",
+  goal = "",
+  milestones = [],
+  milestoneCount = undefined,
+  hasDependencies = undefined,
+  targetFiles = [],
+  boundedScope = [],
+  highRisk = false,
+  highRiskEscalation = false,
+  riskClass = null,
+  ambiguous = false,
+  requiresMutation = undefined,
+  requiresShell = false,
+  requiresSubstantiveCode = false,
+  isMechanicalEdit = undefined,
+  crossFileDependency = false,
+  requiresCoordinator = false,
+  recoveryMode = false,
+} = {}) {
+  const effectiveMode = normalizePiledriverMode(mode ?? piledriverMode, {
+    requireInitialPlanning,
+    defaultMode,
+  });
+  const milestoneList = Array.isArray(milestones) ? milestones : [];
+  const effectiveMilestoneCount =
+    typeof milestoneCount === "number" && Number.isFinite(milestoneCount)
+      ? Math.max(0, Math.floor(milestoneCount))
+      : Math.max(milestoneList.length, 1);
+  const effectiveHasDependencies =
+    hasDependencies !== undefined
+      ? Boolean(hasDependencies)
+      : milestoneList.some((m) => Array.isArray(m?.dependencies) && m.dependencies.length > 0);
+  const normalizedTrack =
+    track !== null && track !== undefined && String(track).trim()
+      ? String(track).trim().toUpperCase()
+      : effectiveMilestoneCount > 1
+        ? "M"
+        : "S";
+
+  const explicitFiles = [
+    ...(Array.isArray(targetFiles) ? targetFiles : []),
+    ...(Array.isArray(boundedScope) ? boundedScope : []),
+  ].filter((f) => typeof f === "string" && f.trim());
+  const milestoneFiles =
+    explicitFiles.length > 0
+      ? []
+      : milestoneList
+          .flatMap((m) => (Array.isArray(m?.bounded_scope) ? m.bounded_scope : []))
+          .filter((f) => typeof f === "string" && f.trim());
+  const combinedFiles = [...new Set([...explicitFiles, ...milestoneFiles])];
+
+  const textParts = [];
+  const pushText = (value) => {
+    if (typeof value === "string" && value.trim()) {
+      const trimmed = value.trim();
+      if (!textParts.includes(trimmed)) textParts.push(trimmed);
+    }
+  };
+  pushText(task);
+  pushText(goal);
+  for (const m of milestoneList) {
+    pushText(m?.objective);
+  }
+  const rawText = textParts.join(" ");
+  const cleanText = rawText.replace(PLANNING_PATH_TOKEN_RE, " ").replace(/\s+/g, " ").trim();
+
+  const semantics = analyzeWorkSemantics({
+    task: rawText,
+    targetFiles: combinedFiles,
+    milestoneCount: Math.max(effectiveMilestoneCount, 1),
+    requiresMutation,
+    requiresShell: Boolean(requiresShell),
+    requiresSubstantiveCode: Boolean(requiresSubstantiveCode),
+    isMechanicalEdit,
+    crossFileDependency: Boolean(crossFileDependency),
+    requiresCoordinator: Boolean(requiresCoordinator),
+    recoveryMode: Boolean(recoveryMode),
+    highRisk: Boolean(highRisk || highRiskEscalation),
+    riskClass,
+  });
+
+  const isHighRisk = Boolean(highRisk || highRiskEscalation || semantics.highRisk);
+  const isArchitectural = !semantics.isReadOnlyDiscovery && ARCHITECTURAL_PLANNING_RE.test(cleanText);
+  const isAmbiguous = Boolean(ambiguous || AMBIGUOUS_PLANNING_RE.test(cleanText));
+
+  const decision_signals = {
+    mode: effectiveMode,
+    track: normalizedTrack,
+    milestone_count: effectiveMilestoneCount,
+    has_dependencies: effectiveHasDependencies,
+    file_count: semantics.effectiveFiles.length,
+    high_risk: isHighRisk,
+    needs_coordinator: Boolean(semantics.needsCoordinator),
+    architectural: isArchitectural,
+    ambiguous: isAmbiguous,
+    is_read_only_discovery: Boolean(semantics.isReadOnlyDiscovery),
+    is_mechanical: Boolean(semantics.isMechanical),
+    recommended_track: semantics.recommendedTrack,
+  };
+
+  if (effectiveMode === "always") {
+    return {
+      invoke: true,
+      mode: effectiveMode,
+      decision_reason: "explicit_always_override",
+      decision_signals,
+    };
+  }
+  if (effectiveMode === "never") {
+    return {
+      invoke: false,
+      mode: effectiveMode,
+      decision_reason: "explicit_never_override",
+      decision_signals,
+    };
+  }
+
+  if (normalizedTrack === "M") {
+    return {
+      invoke: true,
+      mode: effectiveMode,
+      decision_reason: "track_m_requires_planning",
+      decision_signals,
+    };
+  }
+  if (effectiveMilestoneCount > 1) {
+    return {
+      invoke: true,
+      mode: effectiveMode,
+      decision_reason: "multi_milestone_plan",
+      decision_signals,
+    };
+  }
+  if (effectiveHasDependencies) {
+    return {
+      invoke: true,
+      mode: effectiveMode,
+      decision_reason: "milestone_dependencies_present",
+      decision_signals,
+    };
+  }
+  if (isHighRisk) {
+    return {
+      invoke: true,
+      mode: effectiveMode,
+      decision_reason: "high_risk_task",
+      decision_signals,
+    };
+  }
+  if (semantics.needsCoordinator || isArchitectural) {
+    return {
+      invoke: true,
+      mode: effectiveMode,
+      decision_reason: "architectural_or_cross_cutting_scope",
+      decision_signals,
+    };
+  }
+  if (isAmbiguous) {
+    return {
+      invoke: true,
+      mode: effectiveMode,
+      decision_reason: "ambiguous_task_or_plan",
+      decision_signals,
+    };
+  }
+
+  return {
+    invoke: false,
+    mode: effectiveMode,
+    decision_reason:
+      normalizedTrack === "L"
+        ? "bounded_clear_track_l_task"
+        : "bounded_clear_single_milestone_track_s",
+    decision_signals,
+  };
 }
 
 const BLOCKING_ADVISORY_STATUSES = Object.freeze([
@@ -402,7 +630,7 @@ export class TrackRunner {
   #invokeWorker;
   #invokeHalo;
   #invokeZen;
-  #requireInitialPlanning;
+  #piledriverMode;
 
   constructor({
     ledger = null,
@@ -413,6 +641,7 @@ export class TrackRunner {
     invokeWorker = null,
     invokeHalo = null,
     invokeZen = null,
+    piledriverMode = undefined,
     requireInitialPlanning = undefined,
     cwd = process.cwd(),
   } = {}) {
@@ -423,10 +652,10 @@ export class TrackRunner {
     this.#invokeWorker = invokeWorker;
     this.#invokeHalo = invokeHalo;
     this.#invokeZen = invokeZen;
-    this.#requireInitialPlanning =
-      requireInitialPlanning !== undefined
-        ? Boolean(requireInitialPlanning)
-        : typeof invokePlanner === "function";
+    this.#piledriverMode = normalizePiledriverMode(piledriverMode, {
+      requireInitialPlanning,
+      defaultMode: typeof invokePlanner === "function" ? "auto" : "never",
+    });
     this.cwd = cwd;
   }
 
@@ -448,7 +677,10 @@ export class TrackRunner {
     boundedScope = [],
     acceptanceCriteria = [],
     planVersion = 1,
+    highRisk = false,
     highRiskEscalation = false,
+    riskClass = null,
+    ambiguous = false,
     escalateHalo = false,
     reviewAttempt = null,
     previousVerdict = null,
@@ -456,6 +688,7 @@ export class TrackRunner {
     reviewPlanningAdvice = null,
     planningDecision = null,
     requirePlanningDecision = false,
+    piledriverMode = undefined,
     requireInitialPlanning = undefined,
     evidenceBasis = undefined,
     caller = "steamroller",
@@ -470,10 +703,10 @@ export class TrackRunner {
       throw new Error("Track L execution requires a non-empty runId");
     }
 
-    const enforcePlanning =
-      requireInitialPlanning !== undefined
-        ? Boolean(requireInitialPlanning)
-        : this.#requireInitialPlanning;
+    const effectiveMode = normalizePiledriverMode(piledriverMode, {
+      requireInitialPlanning,
+      defaultMode: this.#piledriverMode,
+    });
     const acceptanceCriteriaDigest = computeAcceptanceDigest(acceptanceCriteria);
     const planningInputDigest = computePlanningInputDigest({
       task,
@@ -486,74 +719,129 @@ export class TrackRunner {
     const persistedPlanningPass = this.lightweightLog.getPlanningPass(runId, planVersion, {
       planningInputDigest,
     });
-    const alreadyPlanned =
+    const hasUsablePassed =
       resolvedPlanningPass?.status === "COMPLETED" ||
-      persistedPlanningPass !== null;
-    if (enforcePlanning && !alreadyPlanned) {
-      if (typeof this.#invokePlanner !== "function") {
-        throw new InitialPlanningRequiredError(
-          `Track L run '${runId}' (plan_version=${planVersion}) requires a bounded Piledriver advisory pass before execution, but no planner handler is available.`
-        );
-      }
-      let rawPlan;
-      try {
-        rawPlan = unwrapPacket(
-          await this.#invokePlanner({
-            run_id: runId,
-            track: "L",
-            task: task || goal,
-            goal: goal || task,
-            bounded_scope: boundedScope,
-            acceptance_criteria: acceptanceCriteria,
-            plan_version: planVersion,
-          })
-        );
-      } catch (err) {
-        if (err instanceof InitialPlanningRequiredError) throw err;
-        throw new InitialPlanningRequiredError(
-          `Mandatory initial Piledriver planning pass failed for Track L run '${runId}': ${err?.message ?? err}`,
-          { cause: err, run_id: runId, plan_version: planVersion }
-        );
-      }
-      if (!rawPlan || rawPlan.ok === false) {
-        throw new InitialPlanningRequiredError(
-          `Mandatory initial Piledriver planning pass failed for Track L run '${runId}': ${rawPlan?.error || "UNAVAILABLE"}`,
-          { run_id: runId, plan_version: planVersion, details: rawPlan ?? null }
-        );
-      }
-      validatePiledriverAdvisory(rawPlan, { run_id: runId, plan_version: planVersion });
-      const advisoryDigest = computeAdvisoryDigest(rawPlan, { planVersion });
-      resolvedPlanningPass = {
-        role: "piledriver",
-        status: "COMPLETED",
-        plan_version: String(planVersion),
-        slug: rawPlan.slug ?? null,
-        adopted: false,
-        advisory_digest: advisoryDigest,
-        planning_input_digest: planningInputDigest,
-        acceptance_criteria_digest: acceptanceCriteriaDigest,
-        advice: rawPlan,
-        timestamp: new Date().toISOString(),
-      };
-      // Persist standalone append-only planning receipt BEFORE worker execution so
-      // worker failures or Halo REVISE retries never re-run Piledriver for the same
-      // (runId, planVersion, planningInputDigest).
-      this.lightweightLog.recordPlanningPass({
-        run_id: runId,
-        plan_version: planVersion,
-        goal: goal || task,
-        caller,
-        planning_input_digest: planningInputDigest,
-        acceptance_criteria_digest: acceptanceCriteriaDigest,
-        planning_pass: resolvedPlanningPass,
-      });
-    } else if (!resolvedPlanningPass && persistedPlanningPass) {
+      (resolvedPlanningPass?.status === "SKIPPED" && effectiveMode !== "always");
+    const hasUsablePersisted =
+      persistedPlanningPass?.status === "COMPLETED" ||
+      (persistedPlanningPass?.status === "SKIPPED" && effectiveMode !== "always");
+
+    if (!hasUsablePassed && hasUsablePersisted) {
       resolvedPlanningPass = persistedPlanningPass;
+    } else if (!hasUsablePassed) {
+      const evaluation = evaluateInitialPlanningNeed({
+        mode: effectiveMode,
+        track: "L",
+        task,
+        goal,
+        milestoneCount: 1,
+        hasDependencies: false,
+        boundedScope,
+        highRisk: Boolean(highRisk),
+        highRiskEscalation: Boolean(highRiskEscalation),
+        riskClass,
+        ambiguous: Boolean(ambiguous),
+        requiresMutation,
+        requiresShell: Boolean(requiresShell),
+        requiresSubstantiveCode: Boolean(requiresSubstantiveCode),
+        isMechanicalEdit,
+        crossFileDependency: Boolean(crossFileDependency),
+        requiresCoordinator: Boolean(requiresCoordinator),
+      });
+      if (!evaluation.invoke) {
+        resolvedPlanningPass = {
+          role: "piledriver",
+          status: "SKIPPED",
+          invoked: false,
+          plan_version: String(planVersion),
+          slug: null,
+          adopted: false,
+          advisory_digest: null,
+          planning_input_digest: planningInputDigest,
+          acceptance_criteria_digest: acceptanceCriteriaDigest,
+          advice: null,
+          mode: evaluation.mode,
+          decision_reason: evaluation.decision_reason,
+          decision_signals: evaluation.decision_signals,
+          timestamp: new Date().toISOString(),
+        };
+        this.lightweightLog.recordPlanningPass({
+          run_id: runId,
+          plan_version: planVersion,
+          goal: goal || task,
+          caller,
+          planning_input_digest: planningInputDigest,
+          acceptance_criteria_digest: acceptanceCriteriaDigest,
+          planning_pass: resolvedPlanningPass,
+        });
+      } else {
+        if (typeof this.#invokePlanner !== "function") {
+          throw new InitialPlanningRequiredError(
+            `Track L run '${runId}' (plan_version=${planVersion}) requires a bounded Piledriver advisory pass before execution, but no planner handler is available.`
+          );
+        }
+        let rawPlan;
+        try {
+          rawPlan = unwrapPacket(
+            await this.#invokePlanner({
+              run_id: runId,
+              track: "L",
+              task: task || goal,
+              goal: goal || task,
+              bounded_scope: boundedScope,
+              acceptance_criteria: acceptanceCriteria,
+              plan_version: planVersion,
+            })
+          );
+        } catch (err) {
+          if (err instanceof InitialPlanningRequiredError) throw err;
+          throw new InitialPlanningRequiredError(
+            `Initial Piledriver planning pass failed for Track L run '${runId}': ${err?.message ?? err}`,
+            { cause: err, run_id: runId, plan_version: planVersion }
+          );
+        }
+        if (!rawPlan || rawPlan.ok === false) {
+          throw new InitialPlanningRequiredError(
+            `Initial Piledriver planning pass failed for Track L run '${runId}': ${rawPlan?.error || "UNAVAILABLE"}`,
+            { run_id: runId, plan_version: planVersion, details: rawPlan ?? null }
+          );
+        }
+        validatePiledriverAdvisory(rawPlan, { run_id: runId, plan_version: planVersion });
+        const advisoryDigest = computeAdvisoryDigest(rawPlan, { planVersion });
+        resolvedPlanningPass = {
+          role: "piledriver",
+          status: "COMPLETED",
+          invoked: true,
+          plan_version: String(planVersion),
+          slug: rawPlan.slug ?? null,
+          adopted: false,
+          advisory_digest: advisoryDigest,
+          planning_input_digest: planningInputDigest,
+          acceptance_criteria_digest: acceptanceCriteriaDigest,
+          advice: rawPlan,
+          mode: evaluation.mode,
+          decision_reason: evaluation.decision_reason,
+          decision_signals: evaluation.decision_signals,
+          timestamp: new Date().toISOString(),
+        };
+        // Persist standalone append-only planning receipt BEFORE worker execution so
+        // worker failures or Halo REVISE retries never re-run Piledriver for the same
+        // (runId, planVersion, planningInputDigest).
+        this.lightweightLog.recordPlanningPass({
+          run_id: runId,
+          plan_version: planVersion,
+          goal: goal || task,
+          caller,
+          planning_input_digest: planningInputDigest,
+          acceptance_criteria_digest: acceptanceCriteriaDigest,
+          planning_pass: resolvedPlanningPass,
+        });
+      }
     }
 
     // Supervisory review of non-authoritative Piledriver advice: never silently ignore blocking plan defects.
     let supervisorDecision = null;
-    if (resolvedPlanningPass?.advice) {
+    if (resolvedPlanningPass?.status === "COMPLETED" && resolvedPlanningPass?.advice) {
       const advisoryDigest =
         resolvedPlanningPass.advisory_digest ||
         computeAdvisoryDigest(resolvedPlanningPass.advice, { planVersion });
@@ -681,7 +969,9 @@ export class TrackRunner {
           bounded_scope: boundedScope,
           acceptance_criteria: acceptanceCriteria,
           plan_version: planVersion,
-          ...(resolvedPlanningPass?.advice ? { planning_advisory: resolvedPlanningPass.advice } : {}),
+          ...(resolvedPlanningPass?.status === "COMPLETED" && resolvedPlanningPass?.advice
+            ? { planning_advisory: resolvedPlanningPass.advice }
+            : {}),
           harness,
         })
       );

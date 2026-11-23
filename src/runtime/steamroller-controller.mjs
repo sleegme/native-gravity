@@ -59,21 +59,27 @@ import {
 } from "../../scripts/telemetry.mjs";
 import {
   InitialPlanningRequiredError,
+  PILEDRIVER_MODES,
   TrackRunner,
   computeAdvisoryDigest,
   computePlanningInputDigest,
+  evaluateInitialPlanningNeed,
   hasBlockingProse,
   inspectPlanningAdvisory,
+  normalizePiledriverMode,
   resolveSupervisorPlanningDecision,
   validatePiledriverAdvisory,
 } from "./track-runner.mjs";
 
 export {
   InitialPlanningRequiredError,
+  PILEDRIVER_MODES,
   computeAdvisoryDigest,
   computePlanningInputDigest,
+  evaluateInitialPlanningNeed,
   hasBlockingProse,
   inspectPlanningAdvisory,
+  normalizePiledriverMode,
   resolveSupervisorPlanningDecision,
   validatePiledriverAdvisory,
 };
@@ -288,7 +294,7 @@ export class SteamrollerController {
   #reviewPlanningAdvice;
   #planningDecision;
   #requirePlanningDecision;
-  #requireInitialPlanning;
+  #piledriverMode;
   #runnerOptions;
   #explicitCwd = false;
   #busy = false;
@@ -313,7 +319,8 @@ export class SteamrollerController {
     invokeSpecialist = null,
     invokeHalo = null,
     invokeZen = null,
-    requireInitialPlanning = true,
+    piledriverMode = undefined,
+    requireInitialPlanning = undefined,
     runnerOptions = {},
     handleSignals = true,
     acquireLock = false,
@@ -344,7 +351,10 @@ export class SteamrollerController {
     this.#invokeSpecialist = invokeSpecialist;
     this.#invokeHalo = invokeHalo;
     this.#invokeZen = invokeZen;
-    this.#requireInitialPlanning = Boolean(requireInitialPlanning);
+    this.#piledriverMode = normalizePiledriverMode(piledriverMode, {
+      requireInitialPlanning,
+      defaultMode: "auto",
+    });
     this.#runnerOptions = runnerOptions ?? {};
     this.#explicitCwd = Boolean(cwd ?? this.#runnerOptions.coverageCwd);
     this.cwd = cwd ?? this.#runnerOptions.coverageCwd ?? process.cwd();
@@ -360,7 +370,7 @@ export class SteamrollerController {
         invokeWorker: invokeSpecialist ?? invokeRole ?? invoke,
         invokeHalo: (req) => this.#invokeHaloGate(req),
         invokeZen: this.#invokeZen,
-        requireInitialPlanning: this.#requireInitialPlanning,
+        piledriverMode: this.#piledriverMode,
         cwd: this.cwd,
       });
 
@@ -945,8 +955,13 @@ export class SteamrollerController {
       riskClass: options.riskClass ?? null,
       resolveModel: !blockedByTestRefusal,
     });
+    const effectivePiledriverMode = normalizePiledriverMode(options.piledriverMode, {
+      requireInitialPlanning: options.requireInitialPlanning,
+      defaultMode: this.#piledriverMode,
+    });
     return this.trackRunner.runTrackL({
       ...options,
+      piledriverMode: effectivePiledriverMode,
       reviewPlanningAdvice: options.reviewPlanningAdvice ?? this.#reviewPlanningAdvice,
       planningDecision: options.planningDecision ?? this.#planningDecision,
       requirePlanningDecision:
@@ -1593,18 +1608,32 @@ export class SteamrollerController {
   }
 
   /**
-   * Enforces the mandatory initial Piledriver planning/advisory pass once per
-   * plan_version before durable milestone execution. Validates advisory shape
-   * before persisting a non-authoritative (`adopted: false`) marker in
-   * `ledger.evidence.initial_planning[plan_version]` so resumes, retries, and
-   * later milestones of the same plan_version skip re-running Piledriver, while
-   * tactical/material replans (new plan_version) trigger one fresh pass.
-   * Returns a supervisory decision (`PROCEED | REPLAN_REQUIRED | REJECT`) or
-   * `awaiting_decision: true` when interactive Steamroller review is required.
+   * Evaluates and executes the selective initial Piledriver planning/advisory
+   * pass once per plan_version before durable milestone execution.
+   * Persists a non-authoritative (`adopted: false`) marker (`COMPLETED` or
+   * `SKIPPED`) with explicit `invoked`, `decision_reason`, and `decision_signals`
+   * in `ledger.evidence.initial_planning[plan_version]` so resumes, retries, and
+   * later milestones of the same plan_version reuse the outcome without
+   * re-running Piledriver, while tactical/material replans (new plan_version)
+   * re-evaluate freshly.
    */
   async ensureInitialPlanningPass({
     task = null,
     force = false,
+    piledriverMode = undefined,
+    requireInitialPlanning = undefined,
+    track = null,
+    targetFiles = null,
+    highRisk = false,
+    riskClass = null,
+    ambiguous = false,
+    requiresMutation = undefined,
+    requiresShell = undefined,
+    requiresSubstantiveCode = undefined,
+    isMechanicalEdit = undefined,
+    crossFileDependency = undefined,
+    requiresCoordinator = undefined,
+    recoveryMode = false,
     reviewPlanningAdvice = null,
     planningDecision = null,
     requirePlanningDecision = undefined,
@@ -1612,27 +1641,110 @@ export class SteamrollerController {
   } = {}) {
     this.#open();
     const planVersion = this.#ledger.plan_version;
+    const effectiveMode = normalizePiledriverMode(piledriverMode, {
+      requireInitialPlanning,
+      defaultMode: this.#piledriverMode,
+    });
+
     if (!force && this.#ledger.hasInitialPlanningPass(planVersion)) {
       const existing = this.#ledger.getInitialPlanningPass(planVersion);
-      const supervisor_decision = await this.#evaluatePlanningDecision(existing, {
-        reviewPlanningAdvice,
-        planningDecision,
-        requirePlanningDecision,
-        milestoneId,
-      });
-      const latestRecord = this.#ledger.getInitialPlanningPass(planVersion) ?? existing;
-      return {
-        skipped: true,
-        reason: "ALREADY_COMPLETED_FOR_PLAN_VERSION",
-        record: latestRecord,
-        supervisor_decision,
-      };
+      if (existing?.status === "SKIPPED") {
+        if (effectiveMode !== "always") {
+          return {
+            skipped: true,
+            invoked: false,
+            reason: "ALREADY_SKIPPED_FOR_PLAN_VERSION",
+            decision_reason: existing.decision_reason ?? null,
+            decision_signals: existing.decision_signals ?? null,
+            record: existing,
+            supervisor_decision: null,
+          };
+        }
+      } else if (existing?.status === "COMPLETED") {
+        const supervisor_decision = await this.#evaluatePlanningDecision(existing, {
+          reviewPlanningAdvice,
+          planningDecision,
+          requirePlanningDecision,
+          milestoneId,
+        });
+        const latestRecord = this.#ledger.getInitialPlanningPass(planVersion) ?? existing;
+        return {
+          skipped: true,
+          invoked: false,
+          reason: "ALREADY_COMPLETED_FOR_PLAN_VERSION",
+          decision_reason: latestRecord?.decision_reason ?? null,
+          decision_signals: latestRecord?.decision_signals ?? null,
+          record: latestRecord,
+          supervisor_decision,
+        };
+      }
     }
 
+    const milestoneDef = milestoneId
+      ? this.#ledger.milestones.find((m) => m.id === milestoneId) ?? null
+      : null;
     const planningTask =
       (typeof task === "string" && task.trim()) ||
       this.#ledger.goal ||
+      milestoneDef?.objective ||
       "Initial bounded planning advisory pass";
+    const resolvedFiles =
+      Array.isArray(targetFiles) && targetFiles.length > 0
+        ? targetFiles
+        : Array.isArray(milestoneDef?.bounded_scope) && milestoneDef.bounded_scope.length > 0
+          ? milestoneDef.bounded_scope
+          : this.#ledger.milestones.flatMap((m) =>
+              Array.isArray(m?.bounded_scope) ? m.bounded_scope : []
+            );
+    const resolvedTrack =
+      track ??
+      this.#track ??
+      this.#ledger.track ??
+      (this.#ledger.milestones.length > 1 ? "M" : "S");
+
+    const evaluation = evaluateInitialPlanningNeed({
+      mode: effectiveMode,
+      track: resolvedTrack,
+      task: planningTask,
+      goal: this.#ledger.goal || "",
+      milestones: this.#ledger.milestones,
+      targetFiles: resolvedFiles,
+      highRisk: Boolean(highRisk),
+      riskClass,
+      ambiguous: Boolean(ambiguous),
+      requiresMutation,
+      requiresShell: Boolean(requiresShell ?? milestoneDef?.requires_shell),
+      requiresSubstantiveCode: Boolean(
+        requiresSubstantiveCode ?? milestoneDef?.requires_substantive_code
+      ),
+      isMechanicalEdit: isMechanicalEdit ?? milestoneDef?.is_mechanical_edit,
+      crossFileDependency: Boolean(crossFileDependency ?? milestoneDef?.cross_file_dependency),
+      requiresCoordinator: Boolean(requiresCoordinator ?? milestoneDef?.requires_coordinator),
+      recoveryMode: Boolean(recoveryMode),
+    });
+
+    if (!force && !evaluation.invoke) {
+      const record = this.#ledger.recordInitialPlanningPass({
+        plan_version: planVersion,
+        status: "SKIPPED",
+        invoked: false,
+        task: planningTask,
+        mode: evaluation.mode,
+        decision_reason: evaluation.decision_reason,
+        decision_signals: evaluation.decision_signals,
+      });
+      this.#saveLedger();
+      return {
+        skipped: true,
+        invoked: false,
+        reason: "SELECTIVE_PLANNING_SKIPPED",
+        decision_reason: evaluation.decision_reason,
+        decision_signals: evaluation.decision_signals,
+        record,
+        supervisor_decision: null,
+      };
+    }
+
     let advice;
     try {
       advice = await this.#invokeInitialPiledriver({
@@ -1643,7 +1755,7 @@ export class SteamrollerController {
     } catch (error) {
       if (error instanceof InitialPlanningRequiredError) throw error;
       throw new InitialPlanningRequiredError(
-        `Mandatory initial Piledriver planning pass failed for plan_version '${planVersion}': ${error?.message ?? error}`,
+        `Initial Piledriver planning pass failed for plan_version '${planVersion}': ${error?.message ?? error}`,
         { cause: error, plan_version: planVersion }
       );
     }
@@ -1653,10 +1765,15 @@ export class SteamrollerController {
 
     const record = this.#ledger.recordInitialPlanningPass({
       plan_version: planVersion,
+      status: "COMPLETED",
+      invoked: true,
       slug: advice?.slug ?? null,
       task: planningTask,
       advice,
       advisory_digest: advisoryDigest,
+      mode: evaluation.mode,
+      decision_reason: evaluation.invoke ? evaluation.decision_reason : "forced_initial_planning",
+      decision_signals: evaluation.decision_signals,
     });
     this.#saveLedger();
     const supervisor_decision = await this.#evaluatePlanningDecision(record, {
@@ -1668,6 +1785,9 @@ export class SteamrollerController {
     const latestRecord = this.#ledger.getInitialPlanningPass(planVersion) ?? record;
     return {
       skipped: false,
+      invoked: true,
+      decision_reason: latestRecord?.decision_reason ?? record.decision_reason,
+      decision_signals: latestRecord?.decision_signals ?? record.decision_signals,
       record: latestRecord,
       supervisor_decision,
     };
@@ -1680,58 +1800,87 @@ export class SteamrollerController {
   async runMilestone(milestoneId, options = {}) {
     this.#idle();
     const milestoneDef = this.#ledger.milestones.find((m) => m.id === milestoneId) ?? null;
-    const enforceInitialPlanning =
-      options.requireInitialPlanning !== undefined
-        ? Boolean(options.requireInitialPlanning)
-        : this.#requireInitialPlanning;
-    let planningOutcome = null;
-    if (enforceInitialPlanning) {
-      planningOutcome = await this.ensureInitialPlanningPass({
-        task: this.#ledger.goal || milestoneDef?.objective || milestoneId,
-        reviewPlanningAdvice: options.reviewPlanningAdvice ?? null,
-        planningDecision: options.planningDecision ?? null,
-        requirePlanningDecision: options.requirePlanningDecision,
-        milestoneId,
-      });
-      if (planningOutcome?.supervisor_decision?.awaiting_decision) {
-        const digest = planningOutcome.supervisor_decision.advisory_digest;
-        return {
-          status: "AWAITING_PLANNING_DECISION",
-          verified: false,
-          milestone_id: milestoneId,
-          plan_version: this.#ledger.plan_version,
-          advisory_digest: digest,
-          planning_pass: planningOutcome.record,
-          safety_gate: planningOutcome.supervisor_decision.safety_gate,
-          supervisor_decision: planningOutcome.supervisor_decision,
-          required_action: `Review planning_pass.advice as Steamroller and re-run with --planning-decision <PROCEED|REPLAN_REQUIRED|REJECT> --planning-decision-digest ${digest}`,
-        };
-      }
-      const decision = planningOutcome?.supervisor_decision?.decision;
-      if (decision === "REPLAN_REQUIRED" || decision === "REPLAN" || decision === "REJECT") {
-        return {
-          status: "NEEDS_REPLAN",
-          verified: false,
-          milestone_id: milestoneId,
-          plan_version: this.#ledger.plan_version,
-          advisory_digest: planningOutcome.supervisor_decision.advisory_digest,
-          planning_pass: planningOutcome.record,
-          supervisor_decision: planningOutcome.supervisor_decision,
-        };
-      }
-    }
-    let contract = this.#ledger.delegate(milestoneId);
-    if (planningOutcome?.record?.advice) {
-      contract.planning_advisory = planningOutcome.record.advice;
-    }
-    let coverageCwd = this.#resolveScopeCwd(contract.bounded_scope);
     const classification = this.classifyTrack({
-      task: contract.objective || this.#ledger.goal,
-      targetFiles: contract.bounded_scope,
+      task: milestoneDef?.objective || this.#ledger.goal || "",
+      targetFiles: Array.isArray(milestoneDef?.bounded_scope) ? milestoneDef.bounded_scope : [],
       milestoneCount: this.#ledger.milestones.length,
+      highRisk: Boolean(options.highRisk),
+      riskClass: options.riskClass ?? null,
+      requiresMutation: options.requiresMutation,
+      requiresShell: Boolean(options.requiresShell ?? milestoneDef?.requires_shell),
+      requiresSubstantiveCode: Boolean(
+        options.requiresSubstantiveCode ?? milestoneDef?.requires_substantive_code
+      ),
+      isMechanicalEdit: options.isMechanicalEdit ?? milestoneDef?.is_mechanical_edit,
+      crossFileDependency: Boolean(
+        options.crossFileDependency ?? milestoneDef?.cross_file_dependency
+      ),
+      requiresCoordinator: Boolean(
+        options.requiresCoordinator || milestoneDef?.requires_coordinator
+      ),
       trackOverride: options.track ?? this.#track ?? this.#ledger.track ?? null,
     });
     const effectiveTrack = classification.track === "L" ? "S" : classification.track;
+
+    const planningOutcome = await this.ensureInitialPlanningPass({
+      task: this.#ledger.goal || milestoneDef?.objective || milestoneId,
+      piledriverMode: options.piledriverMode,
+      requireInitialPlanning: options.requireInitialPlanning,
+      track: effectiveTrack,
+      targetFiles: Array.isArray(milestoneDef?.bounded_scope) ? milestoneDef.bounded_scope : [],
+      highRisk: Boolean(options.highRisk),
+      riskClass: options.riskClass ?? null,
+      ambiguous: Boolean(options.ambiguous),
+      requiresMutation: options.requiresMutation,
+      requiresShell: Boolean(options.requiresShell ?? milestoneDef?.requires_shell),
+      requiresSubstantiveCode: Boolean(
+        options.requiresSubstantiveCode ?? milestoneDef?.requires_substantive_code
+      ),
+      isMechanicalEdit: options.isMechanicalEdit ?? milestoneDef?.is_mechanical_edit,
+      crossFileDependency: Boolean(
+        options.crossFileDependency ?? milestoneDef?.cross_file_dependency
+      ),
+      requiresCoordinator: Boolean(
+        options.requiresCoordinator || milestoneDef?.requires_coordinator
+      ),
+      recoveryMode: Boolean(options.recoveryMode),
+      reviewPlanningAdvice: options.reviewPlanningAdvice ?? null,
+      planningDecision: options.planningDecision ?? null,
+      requirePlanningDecision: options.requirePlanningDecision,
+      milestoneId,
+    });
+    if (planningOutcome?.supervisor_decision?.awaiting_decision) {
+      const digest = planningOutcome.supervisor_decision.advisory_digest;
+      return {
+        status: "AWAITING_PLANNING_DECISION",
+        verified: false,
+        milestone_id: milestoneId,
+        plan_version: this.#ledger.plan_version,
+        advisory_digest: digest,
+        planning_pass: planningOutcome.record,
+        safety_gate: planningOutcome.supervisor_decision.safety_gate,
+        supervisor_decision: planningOutcome.supervisor_decision,
+        required_action: `Review planning_pass.advice as Steamroller and re-run with --planning-decision <PROCEED|REPLAN_REQUIRED|REJECT> --planning-decision-digest ${digest}`,
+      };
+    }
+    const decision = planningOutcome?.supervisor_decision?.decision;
+    if (decision === "REPLAN_REQUIRED" || decision === "REPLAN" || decision === "REJECT") {
+      return {
+        status: "NEEDS_REPLAN",
+        verified: false,
+        milestone_id: milestoneId,
+        plan_version: this.#ledger.plan_version,
+        advisory_digest: planningOutcome.supervisor_decision.advisory_digest,
+        planning_pass: planningOutcome.record,
+        supervisor_decision: planningOutcome.supervisor_decision,
+      };
+    }
+
+    let contract = this.#ledger.delegate(milestoneId);
+    if (planningOutcome?.record?.status === "COMPLETED" && planningOutcome?.record?.advice) {
+      contract.planning_advisory = planningOutcome.record.advice;
+    }
+    let coverageCwd = this.#resolveScopeCwd(contract.bounded_scope);
     const requireHalo =
       options.requireHalo !== undefined ? Boolean(options.requireHalo) : effectiveTrack === "M";
     const coverageProbes = Array.isArray(contract.coverage) ? contract.coverage : [];
