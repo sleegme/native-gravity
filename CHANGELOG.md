@@ -3,6 +3,36 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.0.0](https://github.com/sleegme/native-gravity/compare/native-gravity-v2.1.2...native-gravity-v2.0.0) (2026-11-23)
+
+
+### ⚠ BREAKING CHANGES
+
+* Replaces 1.x MinimalSpine runtime with interactive SteamrollerController, LedgerKernel, TrackRunner, and ModelRouter while preserving 1.x state/config compatibility via v1-compat.
+
+### Features
+
+* **graph:** /ntg graph opens a live DAG beside the user ([#222](https://github.com/sleegme/native-gravity/issues/222)) ([f112a73](https://github.com/sleegme/native-gravity/commit/f112a73866d3004c7f20dbd76f51aa19b733e9dc))
+* **model-router:** NTG v2.1.0 — Gemini 4 Neon integration & model routing optimization ([#239](https://github.com/sleegme/native-gravity/issues/239)) ([09fb3e0](https://github.com/sleegme/native-gravity/commit/09fb3e0a83c032b04032017ec7dc2ed9383901da))
+* Native Gravity 2.0 (Season 2) architecture and runtime ([#231](https://github.com/sleegme/native-gravity/issues/231)) ([08fb4b2](https://github.com/sleegme/native-gravity/commit/08fb4b27415fb5a8d0c973d86fdd21386e09612e))
+* NTG 2.1.2 — ntg update conflict/version checks & selective Piledriver invocation ([#242](https://github.com/sleegme/native-gravity/issues/242)) ([48b1023](https://github.com/sleegme/native-gravity/commit/48b1023d4f4dd9267f5a4aba37c7c3cbf2a163dd))
+* **ntg:** ntg update upgrades NTG before reinstalling ([#212](https://github.com/sleegme/native-gravity/issues/212)) ([f203e8a](https://github.com/sleegme/native-gravity/commit/f203e8a54bdbdaedb9110cb74bf19cdd7051dde7))
+* **release:** versioning — single version source, /ntg version, release-please ([#213](https://github.com/sleegme/native-gravity/issues/213)) ([39bfc58](https://github.com/sleegme/native-gravity/commit/39bfc581508e7153e5604750932ffa0c59887bf1))
+* **snap:** read-only ntg-state-snap and hook-snap tools ([#183](https://github.com/sleegme/native-gravity/issues/183)) ([#229](https://github.com/sleegme/native-gravity/issues/229)) ([32f0ada](https://github.com/sleegme/native-gravity/commit/32f0adad3002d70491518fb3ad197de02198da93))
+* **stage0:** test hygiene, per-role timeouts, gate-only review, Argon breaker ([#225](https://github.com/sleegme/native-gravity/issues/225)) ([3d8f873](https://github.com/sleegme/native-gravity/commit/3d8f8733530303f085a246a56fce7bc68f4c9e13))
+* **stage1:** thin bounded crew, coverage probes, salvage ([#226](https://github.com/sleegme/native-gravity/issues/226)) ([6d6b0db](https://github.com/sleegme/native-gravity/commit/6d6b0db1a665c90bab17d61b2b80f8ab968dafa3))
+* **stage2:** pre-Zen CHECK, bounded automatic repair, Strix gate flag ([#227](https://github.com/sleegme/native-gravity/issues/227)) ([6b34ad4](https://github.com/sleegme/native-gravity/commit/6b34ad465775f6b657ca80688816a81cc7fffe3f))
+
+
+### Bug Fixes
+
+* **install:** auto-apply agy plugin on npm/bun install ([#237](https://github.com/sleegme/native-gravity/issues/237)) ([63926bc](https://github.com/sleegme/native-gravity/commit/63926bcf2cf25035e51bbe3c58a8a49a3fa00fe3))
+* **ledger:** accept pre-[#211](https://github.com/sleegme/native-gravity/issues/211) verdicts on restore ([#217](https://github.com/sleegme/native-gravity/issues/217)) ([c09fd7d](https://github.com/sleegme/native-gravity/commit/c09fd7d0cb898e20d7a23b858de671cdbf19cd33))
+* ntg update on Windows, single plugin install, 0.0.0 fallback, Zen criterion text ([#215](https://github.com/sleegme/native-gravity/issues/215)) ([8823b48](https://github.com/sleegme/native-gravity/commit/8823b48b2ecfa9216d380637d3342bea15ccf174))
+* **spine,ledger,runner:** gate Zen GO on criterion-covered evidence; type finished_reason failures ([#211](https://github.com/sleegme/native-gravity/issues/211)) ([0ca357c](https://github.com/sleegme/native-gravity/commit/0ca357c8adf13e281c647bf7cca2147c9f1e91b1))
+* **vnext:** honor --timeout for Zen reviews ([#214](https://github.com/sleegme/native-gravity/issues/214)) ([f4cc5f2](https://github.com/sleegme/native-gravity/commit/f4cc5f2df77405fc6f57bde1ec869b7a6c23e1c2))
+* **zen:** Zen must run guard-allowed tests; allow whole-suite run ([#223](https://github.com/sleegme/native-gravity/issues/223)) ([2c72a1a](https://github.com/sleegme/native-gravity/commit/2c72a1aa8ba1fbe579dd5faa5209a8db0ac7af13))
+
 ## [2.1.0](https://github.com/sleegme/native-gravity/compare/native-gravity-v2.0.0...native-gravity-v2.1.0) (2026-11-23)
 
 
