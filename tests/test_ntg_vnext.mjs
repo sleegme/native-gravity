@@ -3227,3 +3227,137 @@ test('selective Piledriver: idempotency, always override over SKIPPED, Tactical/
   assert.equal(legacyRes.planning_pass.status, 'COMPLETED');
   assert.equal(legacyRes.planning_pass.decision_reason, 'explicit_always_override');
 });
+
+test('selective Piledriver: SKIPPED re-evaluates on runtime signal changes and monotonically promotes to COMPLETED on same plan_version', async t => {
+  const { SteamrollerController } = await import('../src/runtime/steamroller-controller.mjs');
+  const { TrackRunner } = await import('../src/runtime/track-runner.mjs');
+  // 1. Durable Track S: initial SKIPPED re-evaluates when highRisk / ambiguous / recoveryMode / crossFileDependency newly emerges
+  for (const [label, signalPatch, expectedReason] of [
+    ['highRisk', { highRisk: true }, 'high_risk_task'],
+    ['ambiguous', { ambiguous: true }, 'ambiguous_task_or_plan'],
+    ['recoveryMode', { recoveryMode: true }, 'architectural_or_cross_cutting_scope'],
+    ['crossFileDependency', { crossFileDependency: true }, 'architectural_or_cross_cutting_scope'],
+  ]) {
+    const dir = mkdtempSync(join(tmpdir(), `ntg-mono-promote-${label}-`));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const ledgerPath = join(dir, 'ledger.json');
+    let plannerCalls = 0;
+
+    const controller = new SteamrollerController({
+      ledgerPath,
+      cwd: dir,
+      plan: {
+        goal: 'Fix one formatting issue in readme.md',
+        plan_version: 'v1',
+        constraints: [],
+        milestones: [{
+          id: 'one',
+          title: 'Fix typo',
+          objective: 'Fix one typo in readme.md',
+          acceptance_criteria: ['typo fixed'],
+          non_goals: [],
+          dependencies: [],
+          bounded_scope: ['readme.md'],
+        }],
+      },
+      invokePlanner: async () => {
+        plannerCalls += 1;
+        return { recommendation: `promoted on ${label}`, risks: [] };
+      },
+    });
+    t.after(() => controller.close());
+
+    // First call: bounded Track S -> SKIPPED
+    const first = await controller.ensureInitialPlanningPass({ track: 'S', milestoneId: 'one' });
+    assert.equal(first.record.status, 'SKIPPED', `${label}: initial call must skip`);
+    assert.equal(plannerCalls, 0);
+
+    // Repeat with unchanged signals -> still SKIPPED (no redundant planner call)
+    const repeat = await controller.ensureInitialPlanningPass({ track: 'S', milestoneId: 'one' });
+    assert.equal(repeat.reason, 'ALREADY_SKIPPED_FOR_PLAN_VERSION');
+    assert.equal(plannerCalls, 0);
+
+    // Same plan_version with newly emerged runtime signal -> monotonically promotes SKIPPED -> COMPLETED
+    const promoted = await controller.ensureInitialPlanningPass({
+      track: 'S',
+      milestoneId: 'one',
+      ...signalPatch,
+    });
+    assert.equal(promoted.skipped, false, `${label}: must invoke Piledriver on emerging signal`);
+    assert.equal(promoted.invoked, true);
+    assert.equal(promoted.record.status, 'COMPLETED');
+    assert.equal(promoted.decision_reason, expectedReason);
+    assert.equal(plannerCalls, 1);
+    assert.equal(controller.state.evidence.initial_planning.v1.status, 'COMPLETED');
+
+    // Subsequent call with cleared signals -> COMPLETED stays cached (monotonic, never downgraded to SKIPPED)
+    const cached = await controller.ensureInitialPlanningPass({ track: 'S', milestoneId: 'one' });
+    assert.equal(cached.reason, 'ALREADY_COMPLETED_FOR_PLAN_VERSION');
+    assert.equal(cached.record.status, 'COMPLETED');
+    assert.equal(plannerCalls, 1);
+  }
+
+  // 2. Track L: persisted SKIPPED re-evaluates when highRisk newly emerges on retry and promotes to COMPLETED
+  const lwDir = mkdtempSync(join(tmpdir(), 'ntg-mono-promote-trackl-'));
+  t.after(() => rmSync(lwDir, { recursive: true, force: true }));
+  writeFileSync(join(lwDir, 'readme.md'), 'hello\n');
+  const lwLogPath = join(lwDir, 'lightweight-runs.jsonl');
+  let lwPlannerCalls = 0;
+
+  const runner = new TrackRunner({
+    lightweightLogPath: lwLogPath,
+    cwd: lwDir,
+    invokePlanner: async () => {
+      lwPlannerCalls += 1;
+      return { recommendation: 'promoted track-l on highRisk', risks: [] };
+    },
+    invokeWorker: async () => ({ status: 'READY', changes_made: ['readme.md'], verification_evidence: ['checked'] }),
+    invokeHalo: async (req) => ({
+      caller: req.caller, candidate_id_or_run_id: req.candidate_id_or_run_id,
+      reviewed_diff_digest: req.reviewed_diff_digest,
+      acceptance_criteria_digest: req.acceptance_criteria_digest,
+      plan_version: req.plan_version, evidence_basis: req.evidence_basis,
+      verdict: 'ACCEPT', findings: [],
+    }),
+    invokeZen: async (req) => ({
+      milestone_id: req.milestone_id ?? 'track-l',
+      plan_version: req.plan_version ?? 1,
+      result_ref: req.result_ref ?? 'track-l-ref',
+      verdict: 'GO',
+      verification_evidence: [{ classification: 'OBSERVED', criterion: 'typo fixed', result: 'ok' }],
+    }),
+  });
+
+  // First run: bounded Track L -> SKIPPED
+  const lwFirst = await runner.runTrackL({
+    runId: 'tr-mono-1',
+    task: 'Fix typo in readme.md',
+    boundedScope: ['readme.md'],
+    acceptanceCriteria: ['typo fixed'],
+  });
+  assert.equal(lwPlannerCalls, 0);
+  assert.equal(lwFirst.planning_pass.status, 'SKIPPED');
+
+  // Same runId & planVersion with highRisk newly true -> promotes SKIPPED -> COMPLETED
+  const lwPromoted = await runner.runTrackL({
+    runId: 'tr-mono-1',
+    task: 'Fix typo in readme.md',
+    boundedScope: ['readme.md'],
+    acceptanceCriteria: ['typo fixed'],
+    highRisk: true,
+  });
+  assert.equal(lwPlannerCalls, 1, 'Track L must promote persisted SKIPPED to COMPLETED when highRisk emerges');
+  assert.equal(lwPromoted.planning_pass.status, 'COMPLETED');
+  assert.equal(lwPromoted.planning_pass.decision_reason, 'high_risk_task');
+
+  // Subsequent run with highRisk false -> COMPLETED stays cached
+  const lwCached = await runner.runTrackL({
+    runId: 'tr-mono-1',
+    task: 'Fix typo in readme.md',
+    boundedScope: ['readme.md'],
+    acceptanceCriteria: ['typo fixed'],
+    highRisk: false,
+  });
+  assert.equal(lwPlannerCalls, 1, 'Track L COMPLETED pass must stay cached once promoted');
+  assert.equal(lwCached.planning_pass.status, 'COMPLETED');
+});

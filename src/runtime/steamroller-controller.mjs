@@ -1612,9 +1612,11 @@ export class SteamrollerController {
    * pass once per plan_version before durable milestone execution.
    * Persists a non-authoritative (`adopted: false`) marker (`COMPLETED` or
    * `SKIPPED`) with explicit `invoked`, `decision_reason`, and `decision_signals`
-   * in `ledger.evidence.initial_planning[plan_version]` so resumes, retries, and
-   * later milestones of the same plan_version reuse the outcome without
-   * re-running Piledriver, while tactical/material replans (new plan_version)
+   * in `ledger.evidence.initial_planning[plan_version]`: `COMPLETED` passes are
+   * cached for the same `plan_version`, while `SKIPPED` passes are re-evaluated
+   * against current runtime signals so newly emerging risk/ambiguity/recovery/
+   * cross-file signals monotonically promote `SKIPPED -> COMPLETED` on the same
+   * `plan_version`. Tactical/material replans (new `plan_version`) always
    * re-evaluate freshly.
    */
   async ensureInitialPlanningPass({
@@ -1646,38 +1648,28 @@ export class SteamrollerController {
       defaultMode: this.#piledriverMode,
     });
 
-    if (!force && this.#ledger.hasInitialPlanningPass(planVersion)) {
-      const existing = this.#ledger.getInitialPlanningPass(planVersion);
-      if (existing?.status === "SKIPPED") {
-        if (effectiveMode !== "always") {
-          return {
-            skipped: true,
-            invoked: false,
-            reason: "ALREADY_SKIPPED_FOR_PLAN_VERSION",
-            decision_reason: existing.decision_reason ?? null,
-            decision_signals: existing.decision_signals ?? null,
-            record: existing,
-            supervisor_decision: null,
-          };
-        }
-      } else if (existing?.status === "COMPLETED") {
-        const supervisor_decision = await this.#evaluatePlanningDecision(existing, {
-          reviewPlanningAdvice,
-          planningDecision,
-          requirePlanningDecision,
-          milestoneId,
-        });
-        const latestRecord = this.#ledger.getInitialPlanningPass(planVersion) ?? existing;
-        return {
-          skipped: true,
-          invoked: false,
-          reason: "ALREADY_COMPLETED_FOR_PLAN_VERSION",
-          decision_reason: latestRecord?.decision_reason ?? null,
-          decision_signals: latestRecord?.decision_signals ?? null,
-          record: latestRecord,
-          supervisor_decision,
-        };
-      }
+    const existing =
+      !force && this.#ledger.hasInitialPlanningPass(planVersion)
+        ? this.#ledger.getInitialPlanningPass(planVersion)
+        : null;
+
+    if (existing?.status === "COMPLETED") {
+      const supervisor_decision = await this.#evaluatePlanningDecision(existing, {
+        reviewPlanningAdvice,
+        planningDecision,
+        requirePlanningDecision,
+        milestoneId,
+      });
+      const latestRecord = this.#ledger.getInitialPlanningPass(planVersion) ?? existing;
+      return {
+        skipped: true,
+        invoked: false,
+        reason: "ALREADY_COMPLETED_FOR_PLAN_VERSION",
+        decision_reason: latestRecord?.decision_reason ?? null,
+        decision_signals: latestRecord?.decision_signals ?? null,
+        record: latestRecord,
+        supervisor_decision,
+      };
     }
 
     const milestoneDef = milestoneId
@@ -1724,6 +1716,17 @@ export class SteamrollerController {
     });
 
     if (!force && !evaluation.invoke) {
+      if (existing?.status === "SKIPPED") {
+        return {
+          skipped: true,
+          invoked: false,
+          reason: "ALREADY_SKIPPED_FOR_PLAN_VERSION",
+          decision_reason: existing.decision_reason ?? evaluation.decision_reason ?? null,
+          decision_signals: existing.decision_signals ?? evaluation.decision_signals ?? null,
+          record: existing,
+          supervisor_decision: null,
+        };
+      }
       const record = this.#ledger.recordInitialPlanningPass({
         plan_version: planVersion,
         status: "SKIPPED",

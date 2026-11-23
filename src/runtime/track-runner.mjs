@@ -719,16 +719,12 @@ export class TrackRunner {
     const persistedPlanningPass = this.lightweightLog.getPlanningPass(runId, planVersion, {
       planningInputDigest,
     });
-    const hasUsablePassed =
-      resolvedPlanningPass?.status === "COMPLETED" ||
-      (resolvedPlanningPass?.status === "SKIPPED" && effectiveMode !== "always");
-    const hasUsablePersisted =
-      persistedPlanningPass?.status === "COMPLETED" ||
-      (persistedPlanningPass?.status === "SKIPPED" && effectiveMode !== "always");
+    const hasCompletedPassed = resolvedPlanningPass?.status === "COMPLETED";
+    const hasCompletedPersisted = persistedPlanningPass?.status === "COMPLETED";
 
-    if (!hasUsablePassed && hasUsablePersisted) {
+    if (!hasCompletedPassed && hasCompletedPersisted) {
       resolvedPlanningPass = persistedPlanningPass;
-    } else if (!hasUsablePassed) {
+    } else if (!hasCompletedPassed) {
       const evaluation = evaluateInitialPlanningNeed({
         mode: effectiveMode,
         track: "L",
@@ -749,31 +745,37 @@ export class TrackRunner {
         requiresCoordinator: Boolean(requiresCoordinator),
       });
       if (!evaluation.invoke) {
-        resolvedPlanningPass = {
-          role: "piledriver",
-          status: "SKIPPED",
-          invoked: false,
-          plan_version: String(planVersion),
-          slug: null,
-          adopted: false,
-          advisory_digest: null,
-          planning_input_digest: planningInputDigest,
-          acceptance_criteria_digest: acceptanceCriteriaDigest,
-          advice: null,
-          mode: evaluation.mode,
-          decision_reason: evaluation.decision_reason,
-          decision_signals: evaluation.decision_signals,
-          timestamp: new Date().toISOString(),
-        };
-        this.lightweightLog.recordPlanningPass({
-          run_id: runId,
-          plan_version: planVersion,
-          goal: goal || task,
-          caller,
-          planning_input_digest: planningInputDigest,
-          acceptance_criteria_digest: acceptanceCriteriaDigest,
-          planning_pass: resolvedPlanningPass,
-        });
+        if (resolvedPlanningPass?.status === "SKIPPED") {
+          // Reuse caller-supplied SKIPPED pass when current signals still skip
+        } else if (persistedPlanningPass?.status === "SKIPPED") {
+          resolvedPlanningPass = persistedPlanningPass;
+        } else {
+          resolvedPlanningPass = {
+            role: "piledriver",
+            status: "SKIPPED",
+            invoked: false,
+            plan_version: String(planVersion),
+            slug: null,
+            adopted: false,
+            advisory_digest: null,
+            planning_input_digest: planningInputDigest,
+            acceptance_criteria_digest: acceptanceCriteriaDigest,
+            advice: null,
+            mode: evaluation.mode,
+            decision_reason: evaluation.decision_reason,
+            decision_signals: evaluation.decision_signals,
+            timestamp: new Date().toISOString(),
+          };
+          this.lightweightLog.recordPlanningPass({
+            run_id: runId,
+            plan_version: planVersion,
+            goal: goal || task,
+            caller,
+            planning_input_digest: planningInputDigest,
+            acceptance_criteria_digest: acceptanceCriteriaDigest,
+            planning_pass: resolvedPlanningPass,
+          });
+        }
       } else {
         if (typeof this.#invokePlanner !== "function") {
           throw new InitialPlanningRequiredError(
