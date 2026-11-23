@@ -12,7 +12,7 @@ export class LightweightLogError extends Error {
   }
 }
 
-function canonicalString(value) {
+export function canonicalString(value) {
   if (value === null || typeof value !== 'object') {
     return JSON.stringify(value);
   }
@@ -163,7 +163,10 @@ export class LightweightLog {
       worker_role: entry.worker_role || null,
       reviewed_diff_digest: entry.reviewed_diff_digest ?? null,
       acceptance_criteria_digest: entry.acceptance_criteria_digest ?? null,
+      ...(entry.planning_input_digest !== undefined ? { planning_input_digest: entry.planning_input_digest ?? null } : {}),
       halo_review: entry.halo_review ? structuredClone(entry.halo_review) : null,
+      ...(entry.planning_pass ? { planning_pass: structuredClone(entry.planning_pass) } : {}),
+      ...(entry.supervisor_decision ? { supervisor_decision: structuredClone(entry.supervisor_decision) } : {}),
       escalated_to_ledger: entry.escalated_to_ledger ?? null,
       timestamp: entry.timestamp || new Date().toISOString(),
     });
@@ -197,5 +200,115 @@ export class LightweightLog {
       if (all[i]?.run_id === runId) return all[i];
     }
     return null;
+  }
+
+  /**
+   * Appends a standalone Track L Piledriver planning receipt BEFORE worker
+   * execution (`status: 'PLANNING_COMPLETED'`, never marking execution complete).
+   * Ensures worker failures or Halo REVISE retries do not re-run Piledriver for
+   * the same `(runId, planVersion, planningInputDigest)`.
+   */
+  recordPlanningPass({
+    run_id,
+    plan_version = 1,
+    goal = '',
+    caller = 'steamroller',
+    planning_pass,
+    planning_input_digest = null,
+    acceptance_criteria_digest = null,
+    supervisor_decision = null,
+  }) {
+    if (!planning_pass || typeof planning_pass !== 'object' || planning_pass.status !== 'COMPLETED') {
+      throw new LightweightLogError('recordPlanningPass requires a COMPLETED planning_pass object');
+    }
+    return this.recordRun({
+      run_id,
+      track: 'L',
+      status: 'PLANNING_COMPLETED',
+      plan_version,
+      goal,
+      caller,
+      acceptance_criteria_digest,
+      planning_input_digest: planning_input_digest ?? planning_pass.planning_input_digest ?? null,
+      planning_pass,
+      ...(supervisor_decision ? { supervisor_decision } : {}),
+    });
+  }
+
+  /**
+   * Appends Steamroller's bounded supervisory decision for an already-persisted
+   * Track L Piledriver planning pass so retries/resumes do not re-prompt.
+   */
+  recordPlanningDecision({
+    run_id,
+    plan_version = 1,
+    goal = '',
+    caller = 'steamroller',
+    planning_pass,
+    planning_input_digest = null,
+    acceptance_criteria_digest = null,
+    supervisor_decision,
+  }) {
+    if (!planning_pass || typeof planning_pass !== 'object' || planning_pass.status !== 'COMPLETED') {
+      throw new LightweightLogError('recordPlanningDecision requires a COMPLETED planning_pass object');
+    }
+    if (!supervisor_decision || typeof supervisor_decision !== 'object') {
+      throw new LightweightLogError('recordPlanningDecision requires a supervisor_decision object');
+    }
+    const mergedPass = {
+      ...planning_pass,
+      adopted: false,
+      supervisor_decision: {
+        ...supervisor_decision,
+        adopted: false,
+        timestamp: supervisor_decision.timestamp || new Date().toISOString(),
+      },
+    };
+    return this.recordRun({
+      run_id,
+      track: 'L',
+      status: 'PLANNING_DECISION_RECORDED',
+      plan_version,
+      goal,
+      caller,
+      acceptance_criteria_digest,
+      planning_input_digest: planning_input_digest ?? mergedPass.planning_input_digest ?? null,
+      planning_pass: mergedPass,
+      supervisor_decision: mergedPass.supervisor_decision,
+    });
+  }
+
+  getPlanningPass(runId, planVersion = 1, { planningInputDigest = null } = {}) {
+    const all = this.readAll();
+    const pv = String(planVersion);
+    for (let i = all.length - 1; i >= 0; i -= 1) {
+      const rec = all[i];
+      if (
+        rec?.run_id === runId &&
+        String(rec?.plan_version) === pv &&
+        rec?.planning_pass?.status === 'COMPLETED'
+      ) {
+        if (planningInputDigest) {
+          const recDigest = rec.planning_input_digest ?? rec.planning_pass?.planning_input_digest ?? null;
+          if (recDigest && recDigest !== planningInputDigest) {
+            continue;
+          }
+          if (!recDigest) {
+            continue;
+          }
+        }
+        return rec.planning_pass;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Returns true if a non-authoritative Piledriver planning pass has already
+   * been persisted for `(runId, planVersion, planningInputDigest)` so
+   * resumes/retries do not rerun it while changed planning inputs do.
+   */
+  hasPlanningPass(runId, planVersion = 1, options = {}) {
+    return this.getPlanningPass(runId, planVersion, options) !== null;
   }
 }

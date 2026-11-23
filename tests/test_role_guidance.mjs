@@ -17,15 +17,14 @@ const ROLE_FILES = [
   "agents/zen.md",
 ];
 
-// NTG 2.0 re-baselined prefix lengths and SHA-256 hashes (m2 role update):
-// Bulldozer receives general run_command access (Excavator retired); Strix Halo
-// accepts Steamroller, Bulldozer, and Bobcat callers; Jaguar & Puma retain
-// 3.8 Flash Low Lightweight Worker Harness boundaries; Bobcat targets Hydrogen
-// Medium; Zen enforces NTG_ACTIVE_ROLE=zen across shell and file boundaries.
+// NTG v2.1.0 re-baselined prefix lengths and SHA-256 hashes (Neon integration):
+// Bulldozer targets Neon High (XHigh when needed); Strix Halo targets Neon Medium
+// (High when needed) with independent artifact-based review; Jaguar & Puma retain
+// 3.8 Flash Low; Bobcat retains Hydrogen Medium; Zen targets Sonnet 5.5 High.
 const BASE_PREFIXES = {
   "agents/bulldozer.md": {
-    length: 4143,
-    sha256: "092eecf22c21525f0976d3c191a4e68af6cba3ea105c9d7f8e710bf1dd94f55e",
+    length: 4248,
+    sha256: "4e2075a8e97126e906f5ca0ae6dae91aa21a371a7da2d04fdfa92879bbc097f3",
   },
   "agents/jaguar.md": {
     length: 1404,
@@ -40,12 +39,12 @@ const BASE_PREFIXES = {
     sha256: "4625cbd42a851137f4c646d5016ac2e4aef9b3239bdb815b9711d0098404c079",
   },
   "agents/strix-halo.md": {
-    length: 2444,
-    sha256: "9e60678abe862e187cd22ded49bd897d08892bd7ecf8e32ee4ca93a9ee8a1949",
+    length: 2840,
+    sha256: "93ea0c29e3da63bb01c9536385b22fe33194e55d54e7831b4cce85bce472e96c",
   },
   "agents/zen.md": {
-    length: 2384,
-    sha256: "c5001f0081f2777bd5e5c0876bd523c321dfac1f6450eab065476115df983443",
+    length: 2388,
+    sha256: "f2572c10606aab950dd329cf8e9c3015b82920db97b4f5e15c6cf013ff846d40",
   },
 };
 

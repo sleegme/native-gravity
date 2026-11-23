@@ -87,6 +87,7 @@ test('run emits paired start/end events for execution and review matching ledger
 
   const lines = readEvents(h.ledger);
   assert.deepEqual(lines.map(l => `${l.role}:${l.event}:${l.milestone}`), [
+    'piledriver:start:null', 'piledriver:end:null',
     'bulldozer:start:one', 'bulldozer:end:one', 'zen:start:one', 'zen:end:one',
   ], 'one start/end pair per runner-dispatched invocation, in dispatch order');
   assertLineShapes(lines);
@@ -106,6 +107,7 @@ test('run emits paired start/end events for execution and review matching ledger
 test('specialist adapter invocations emit events; declared native delegations emit none', async t => {
   const h = harness(t, { deps: {
     invokeRole: async (role, packet, runnerOptions = {}) => {
+      if (role === 'piledriver') return { ok: true, response: JSON.stringify({ recommendation: 'advisory' }) };
       if (role !== 'bulldozer') return { ok: true, response: '{}' };
       if (runnerOptions.invokeSpecialist) {
         await runnerOptions.invokeSpecialist('bobcat', { task: 'implement' });
@@ -160,6 +162,8 @@ test('specialist adapter invocations emit events; declared native delegations em
 
   const lines = readEvents(h.ledger);
   assert.deepEqual(lines.map(l => `${l.role}:${l.event}:${l.status ?? ''}`), [
+    'piledriver:start:',
+    'piledriver:end:SUCCESS',
     'bulldozer:start:',
     'bobcat:start:',
     'bobcat:end:READY',
@@ -186,6 +190,7 @@ test('transport failures and thrown invocation errors emit an end whose status m
   // Transport-level failure: the runner resolves {ok:false, error:'TIMEOUT'}.
   {
     const h = harness(t, { deps: {
+      requireInitialPlanning: false,
       invokeRole: async () => ({ ok: false, error: 'TIMEOUT', role: 'bulldozer', slug: 'gemini-3.8-flash-high' }),
     } });
     await h.cli('init', '--plan', h.write('plan.json', plan()));
@@ -202,6 +207,7 @@ test('transport failures and thrown invocation errors emit an end whose status m
   // Thrown error: the invocation rejects and the error code becomes the status.
   {
     const h = harness(t, { deps: {
+      requireInitialPlanning: false,
       invokeRole: async () => {
         throw Object.assign(new Error('agy spawn killed'), { code: 'ETIMEDOUT' });
       },
@@ -220,6 +226,7 @@ test('transport failures and thrown invocation errors emit an end whose status m
 
 test('event strings pass through telemetry redaction at the runner seam', async t => {
   const h = harness(t, { deps: {
+    requireInitialPlanning: false,
     invokeRole: async () => ({
       ok: false,
       error: 'transport failed after sk-TESTKEY0123456789 at /home/someone/secret/path',
@@ -312,7 +319,7 @@ const invokeRole = () => {
   process.send({ executor: executor.pid });
   return new Promise(() => {});
 };
-main(['run', '--ledger', process.argv[2]], { invokeRole, invokeZen: () => {}, handleSignals: false });
+main(['run', '--ledger', process.argv[2]], { invokeRole, invokeZen: () => {}, handleSignals: false, requireInitialPlanning: false });
 setInterval(() => {}, 1 << 30);
 `);
   const child = fork(holder, [h.ledger], { stdio: 'ignore' });

@@ -23,7 +23,7 @@ export const ROLE_DIRECTIVE_TABLE = Object.freeze({
   }),
   bulldozer: Object.freeze({
     role: "bulldozer",
-    summary: "Selective execution coordinator and primary recovery lead (Hydrogen XHigh).",
+    summary: "Selective execution coordinator and primary recovery lead (Neon High, XHigh when needed).",
     boundaries: Object.freeze([
       "Coordinate Jaguar, Puma, Bobcat, and Strix Halo within the assigned milestone scope.",
       "General run_command access is governed across shell and file tools by hooks/shell-safety-guard.py.",
@@ -42,7 +42,7 @@ export const ROLE_DIRECTIVE_TABLE = Object.freeze({
   }),
   "strix-halo": Object.freeze({
     role: "strix-halo",
-    summary: "READ_ONLY cross-caller implementation reviewer and quality advisor (Hydrogen High).",
+    summary: "READ_ONLY cross-caller implementation reviewer and quality advisor (Neon Medium, High when needed).",
     boundaries: Object.freeze([
       "Accept unified ReviewRequest from steamroller, bulldozer, or bobcat only.",
       "Return ACCEPT | REVISE | ESCALATE bound to candidate_id_or_run_id, reviewed_diff_digest, acceptance_criteria_digest, plan_version, and evidence_basis.",
@@ -67,7 +67,7 @@ export const ROLE_DIRECTIVE_TABLE = Object.freeze({
   }),
   zen: Object.freeze({
     role: "zen",
-    summary: "Independent non-mutating summative verifier (Opus 5.5 High / Argon High fallback).",
+    summary: "Independent non-mutating summative verifier (Sonnet 5.5 High / Argon High fallback).",
     boundaries: Object.freeze([
       "Enforced non-mutating across shell and file tools via NTG_ACTIVE_ROLE=zen.",
       "Return GO or NO-GO with criterion-linked OBSERVED evidence.",
@@ -75,14 +75,14 @@ export const ROLE_DIRECTIVE_TABLE = Object.freeze({
   }),
   instinct: Object.freeze({
     role: "instinct",
-    summary: "READ_ONLY autonomous alternate-framing advisor (Sonnet 5.5 High / Opus 5.5 High).",
+    summary: "READ_ONLY autonomous alternate-framing advisor (Opus 5.5 Low).",
     boundaries: Object.freeze([
       "Provide competing causal hypotheses and discriminating tests; never edit, run shell, or adopt plans.",
     ]),
   }),
   navi: Object.freeze({
     role: "navi",
-    summary: "Isolated Linux desktop observation and bounded GUI leaf (Argon Medium).",
+    summary: "Isolated Linux desktop observation and bounded GUI leaf (Neon Medium experimental, Argon Medium fallback).",
     boundaries: Object.freeze([
       "Private per-process HOME with cu MCP only; return NEEDS_CONFIRMATION before external/irreversible actions.",
     ]),
@@ -102,6 +102,10 @@ export function buildHaloReviewRequest({
   track = "M",
   acceptance_criteria = [],
   context_digest = null,
+  escalate = false,
+  high_risk = false,
+  review_attempt = null,
+  previous_verdict = null,
 }) {
   const normalizedCaller = normalizeRoleName(caller);
   if (!HALO_CALLERS.includes(normalizedCaller)) {
@@ -124,6 +128,10 @@ export function buildHaloReviewRequest({
     evidence_basis: evidence_basis ?? [],
     acceptance_criteria: [...acceptance_criteria],
     context_digest,
+    ...(escalate ? { escalate: true } : {}),
+    ...(high_risk ? { high_risk: true } : {}),
+    ...(typeof review_attempt === "number" ? { review_attempt } : {}),
+    ...(previous_verdict ? { previous_verdict } : {}),
   });
 }
 

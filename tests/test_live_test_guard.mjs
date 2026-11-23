@@ -23,15 +23,21 @@ import { ZenReviewPendingError, nativeZen } from '../scripts/ntg-vnext.mjs';
 // SKIP_LIVE_TESTS=1, and an exhausted Argon pool trips a run-scoped breaker.
 
 const INSTALLED = [
+  { slug: 'gemini-4-neon-medium', description: 'Gemini 4 Neon (Medium)' },
+  { slug: 'gemini-4-neon-high', description: 'Gemini 4 Neon (High)' },
+  { slug: 'gemini-4-neon-xhigh', description: 'Gemini 4 Neon (XHigh)' },
   { slug: 'gemini-4-argon-high', description: 'Gemini 4 Argon (High)' },
   { slug: 'gemini-4-argon-medium', description: 'Gemini 4 Argon (Medium)' },
+  { slug: 'gemini-4-hydrogen-medium', description: 'Gemini 4 Hydrogen (Medium)' },
   { slug: 'gemini-4-hydrogen-xhigh', description: 'Gemini 4 Hydrogen (XHigh)' },
   { slug: 'gemini-3.8-flash-high', description: 'Gemini 3.8 Flash (High)' },
+  { slug: 'claude-sonnet-5-5-high', description: 'Claude Sonnet 5.5 (High)' },
+  { slug: 'claude-opus-5-5-low', description: 'Claude Opus 5.5 (Low)' },
   { slug: 'claude-opus-5-5-high', description: 'Claude Opus 5.5 (High)' },
 ];
 
 /** Real tab/newline `agy models` surface for the two zen policy models. */
-const ZEN_SURFACE = 'claude-opus-5-5-high\tClaude Opus 5.5 (High)\ngemini-4-argon-high\tGemini 4 Argon (High)\n';
+const ZEN_SURFACE = 'claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)\ngemini-4-argon-high\tGemini 4 Argon (High)\n';
 
 function withEnv(t, patch) {
   const saved = {};
@@ -134,7 +140,7 @@ test('listInstalledModels refuses the ambient agy under node --test; an explicit
 
   const models = listInstalledModels({ agyPath: mock.agy });
   assert.equal(models.length, INSTALLED.length);
-  assert.equal(models[0].slug, 'gemini-4-argon-high');
+  assert.equal(models[0].slug, INSTALLED[0].slug);
   assert.deepEqual(mock.calls(), ['models']);
 });
 
@@ -228,7 +234,7 @@ test('an Argon quota failure trips the breaker; later Argon seats fail fast, Fla
   // Non-Argon seats are unaffected by the Argon breaker.
   const flash = await invoke('bulldozer', { task: 'TASK_MARKER' }, opts);
   assert.equal(flash.ok, true, JSON.stringify(flash));
-  assert.deepEqual(mock.calls(), ['gemini-4-argon-high', 'gemini-4-hydrogen-xhigh']);
+  assert.deepEqual(mock.calls(), ['gemini-4-argon-high', 'gemini-4-neon-high']);
 });
 
 test('zen stops review-pending when the Argon fallback pool is also exhausted', t => {
@@ -247,7 +253,7 @@ if (argv[0] === 'models') {
 }
 const slug = argv[argv.indexOf('--model') + 1];
 appendFileSync(${JSON.stringify(callsFile)}, slug + '\\n');
-if (slug === 'claude-opus-5-5-high') {
+if (slug === 'claude-sonnet-5-5-high') {
   process.stderr.write('AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429}\\n');
   process.exit(3);
 }
@@ -262,7 +268,7 @@ process.exit(3);
     && err.reset_seconds === 18000
     && /review/.test(err.message));
   assert.deepEqual(readFileSync(callsFile, 'utf8').split('\n').filter(Boolean),
-    ['claude-opus-5-5-high', 'gemini-4-argon-high']);
+    ['claude-sonnet-5-5-high', 'gemini-4-argon-high']);
   assert.equal(argonQuotaBreakerState().seat, 'zen');
 });
 
@@ -282,7 +288,7 @@ if (argv[0] === 'models') {
 }
 const slug = argv[argv.indexOf('--model') + 1];
 appendFileSync(${JSON.stringify(callsFile)}, slug + '\\n');
-if (slug === 'claude-opus-5-5-high') {
+if (slug === 'claude-sonnet-5-5-high') {
   process.stderr.write('AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429}\\n');
   process.exit(3);
 }
@@ -291,6 +297,128 @@ process.exit(0);
   withEnv(t, { NTG_ZEN_MODEL: undefined, AGY_PATH: undefined, NTG_LIVE_TESTS: undefined });
 
   assert.throws(() => nativeZen({}, { agyPath: agy }), ZenReviewPendingError);
-  // The Argon fallback was never spawned: only the exhausted Opus attempt.
-  assert.deepEqual(readFileSync(callsFile, 'utf8').split('\n').filter(Boolean), ['claude-opus-5-5-high']);
+  // The Argon fallback was never spawned: only the exhausted Sonnet attempt.
+  assert.deepEqual(readFileSync(callsFile, 'utf8').split('\n').filter(Boolean), ['claude-sonnet-5-5-high']);
+});
+
+test('Transparent quota failover is restricted to strictly READ_ONLY undelegating roles (Piledriver); effectful Steamroller never replays', async t => {
+  t.after(() => resetArgonQuotaBreaker());
+  resetArgonQuotaBreaker();
+
+  // 1. Piledriver (READ_ONLY, undelegating, non-ledger-writing) transparently fails over Carbon High -> Argon High on quota exhaustion.
+  const withCarbonHigh = [
+    ...INSTALLED,
+    { slug: 'carbon-high-preview', description: 'Carbon (High)' },
+  ];
+  const mockPiledriverQuota = mockAgy(t, {
+    quotaSlugs: ['carbon-high-preview'],
+    quotaStderr: 'AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429}\n',
+  });
+  const pdRes = await invoke('piledriver', { task: 'TASK_MARKER' }, {
+    agyPath: mockPiledriverQuota.agy,
+    installedModels: withCarbonHigh,
+  });
+  assert.equal(pdRes.ok, true, JSON.stringify(pdRes));
+  assert.equal(pdRes.slug, 'gemini-4-argon-high');
+  assert.equal(pdRes.fallback_from, 'carbon-high-preview');
+  assert.equal(pdRes.attempts, 2);
+  assert.deepEqual(mockPiledriverQuota.calls(), ['carbon-high-preview', 'gemini-4-argon-high']);
+
+  // 2. Duplicate/ambiguous lower-priority fallback never breaks a healthy primary (Piledriver Carbon High healthy, two Argon High entries).
+  const dupArgonCatalog = [
+    { slug: 'carbon-high-preview', description: 'Carbon (High)' },
+    { slug: 'gemini-4-argon-high-a', description: 'Gemini 4 Argon (High)' },
+    { slug: 'gemini-4-argon-high-b', description: 'Gemini 4 Argon (High)' },
+  ];
+  const mockHealthyCarbon = mockAgy(t, { quotaSlugs: [] });
+  const healthyPd = await invoke('piledriver', { task: 'TASK_MARKER' }, {
+    agyPath: mockHealthyCarbon.agy,
+    installedModels: dupArgonCatalog,
+  });
+  assert.equal(healthyPd.ok, true, JSON.stringify(healthyPd));
+  assert.equal(healthyPd.slug, 'carbon-high-preview');
+  assert.equal(healthyPd.attempts, 1);
+
+  // 3. Explicit modelOverride does not silently fail over.
+  const mockPinned = mockAgy(t, {
+    quotaSlugs: ['carbon-high-preview'],
+    quotaStderr: 'AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429}\n',
+  });
+  const pinnedRes = await invoke('piledriver', { task: 'TASK_MARKER' }, {
+    agyPath: mockPinned.agy,
+    installedModels: withCarbonHigh,
+    modelOverride: 'carbon-high-preview',
+  });
+  assert.equal(pinnedRes.ok, false);
+  assert.deepEqual(mockPinned.calls(), ['carbon-high-preview']);
+
+  // 4. Tripped Argon breaker prevents falling over to Argon.
+  tripArgonQuotaBreaker({ seat: 'piledriver', slug: 'gemini-4-argon-high', text: 'Resets in 1h0m0s' });
+  const mockBlockedArgon = mockAgy(t, {
+    quotaSlugs: ['carbon-high-preview'],
+    quotaStderr: 'AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429}\n',
+  });
+  const blockedRes = await invoke('piledriver', { task: 'TASK_MARKER' }, {
+    agyPath: mockBlockedArgon.agy,
+    installedModels: withCarbonHigh,
+  });
+  assert.equal(blockedRes.ok, false);
+  assert.deepEqual(mockBlockedArgon.calls(), ['carbon-high-preview']);
+
+  // 5. Effectful Steamroller (canWriteLedger + allowedDelegations) NEVER transparently replays on quota exhaustion;
+  //    instead it fails closed after 1 attempt with a state-aware handoff hint.
+  resetArgonQuotaBreaker();
+  const effectDir = mkdtempSync(join(tmpdir(), 'ntg-steamroller-effect-'));
+  t.after(() => rmSync(effectDir, { recursive: true, force: true }));
+  const effectLog = join(effectDir, 'effects.txt');
+  const effectAgy = join(effectDir, 'agy');
+  writeFileSync(effectAgy, `#!/usr/bin/env node
+const { appendFileSync } = require('node:fs');
+const argv = process.argv.slice(2);
+const slug = argv[argv.indexOf('--model') + 1];
+appendFileSync(${JSON.stringify(effectLog)}, 'effect:' + slug + '\\n');
+process.stderr.write('AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429}\\n');
+process.exit(3);
+`, { mode: 0o755 });
+  const srRes = await invoke('steamroller', { task: 'TASK_MARKER' }, {
+    agyPath: effectAgy,
+    installedModels: INSTALLED,
+  });
+  assert.equal(srRes.ok, false);
+  assert.equal(srRes.attempts, 1, 'Effectful Steamroller must never be transparently replayed');
+  assert.equal(srRes.requires_state_aware_handoff, true);
+  assert.equal(srRes.fallback_candidate, 'gemini-4-argon-medium');
+  assert.deepEqual(readFileSync(effectLog, 'utf8').trim().split('\n'), ['effect:gemini-4-neon-medium']);
+
+  // 6. Effectful Steamroller NEVER retries on empty SUCCESS response either (no side-effect replay).
+  const emptyDir = mkdtempSync(join(tmpdir(), 'ntg-steamroller-empty-'));
+  t.after(() => rmSync(emptyDir, { recursive: true, force: true }));
+  const emptyEffectLog = join(emptyDir, 'empty-effects.txt');
+  const emptyAgy = join(emptyDir, 'agy');
+  writeFileSync(emptyAgy, `#!/usr/bin/env node
+const { appendFileSync } = require('node:fs');
+appendFileSync(${JSON.stringify(emptyEffectLog)}, 'empty-call\\n');
+console.log(JSON.stringify({ status: 'SUCCESS', response: '' }));
+`, { mode: 0o755 });
+  const emptySrRes = await invoke('steamroller', { task: 'TASK_MARKER' }, {
+    agyPath: emptyAgy,
+    installedModels: INSTALLED,
+  });
+  assert.equal(emptySrRes.ok, false);
+  assert.equal(emptySrRes.error, 'EMPTY_RESPONSE');
+  assert.equal(emptySrRes.attempts, 1, 'Effectful Steamroller must never retry on empty response');
+  assert.deepEqual(readFileSync(emptyEffectLog, 'utf8').trim().split('\n'), ['empty-call']);
+
+  // 7. Mutating role (bulldozer) never replays on quota failure.
+  const mockBulldozer = mockAgy(t, {
+    quotaSlugs: ['gemini-4-neon-high'],
+    quotaStderr: 'AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429}\n',
+  });
+  const bdRes = await invoke('bulldozer', { task: 'TASK_MARKER' }, {
+    agyPath: mockBulldozer.agy,
+    installedModels: INSTALLED,
+  });
+  assert.equal(bdRes.ok, false);
+  assert.equal(bdRes.attempts, 1);
+  assert.deepEqual(mockBulldozer.calls(), ['gemini-4-neon-high']);
 });

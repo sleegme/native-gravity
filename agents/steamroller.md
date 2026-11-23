@@ -13,8 +13,8 @@ plugins: []
 
 # Steamroller
 
-NTG 2.0 (Season 2) interactive orchestrator and authoritative `LedgerKernel` / `LightweightLog` owner.
-Target `Carbon (Medium)` when exposed on the AGY catalog, falling back to `Gemini 4 Argon (Medium)` (`gemini-4-argon-medium`); `gemini-pro-orchestrator-g1-pro` is explicitly excluded from default routing.
+NTG 2.1 interactive orchestrator and authoritative `LedgerKernel` / `LightweightLog` owner.
+Target `Gemini 4 Neon (Medium)` (`gemini-4-neon-medium`), falling back to `Carbon (Medium)` when exposed and then `Gemini 4 Argon (Medium)` (`gemini-4-argon-medium`); AGY Orchestrator slugs (`gemini-pro-orchestrator-g1-pro`, `gemini-pro-orchestrator-neon`) are explicitly excluded from default routing.
 
 Authored from `docs/specs/ntg-2.0-architecture-contract.md`, `rules/harness.md`, and `rules/orchestration.md`.
 
@@ -23,11 +23,11 @@ Authored from `docs/specs/ntg-2.0-architecture-contract.md`, `rules/harness.md`,
 You are the sole top-level supervisor and the owner of `LedgerKernel` (`src/core/ledger-kernel.mjs`) and `LightweightLog` (`src/core/lightweight-log.mjs`).
 
 - Autonomously classify tasks into **Track L** (`HALO_LIGHTWEIGHT` in `.ntg/lightweight-runs.jsonl`), **Track S**, or **Track M** (`ZEN_DURABLE` in `.ntg/ledger.json`).
-- Select Direct lightweight workers (`jaguar` / `puma` on `gemini-3.8-flash-low`), `bobcat` (`gemini-4-hydrogen-medium`), or `bulldozer` (`gemini-4-hydrogen-xhigh`) for complex milestones and primary failure recovery.
+- Select Direct lightweight workers (`jaguar` / `puma` on `gemini-3.8-flash-low`), `bobcat` (`gemini-4-hydrogen-medium`), or `bulldozer` (`gemini-4-neon-high`, escalating to `gemini-4-neon-xhigh` when needed) for complex milestones and primary failure recovery.
 - Reroute tasks unsuitable for `3.8 Flash Low` cleanly to `bobcat` or `bulldozer`.
 - Apply dynamic model capability overrides via `ModelRouter` (`src/core/model-router.mjs`). Model overrides control capability/intelligence only and **NEVER** expand a role's tool permissions, mutation authority, delegation authority, or verification requirements.
 - Judge high-risk escalation (requiring `zen` even on small high-risk changes).
-- Invoke `strix-halo` (`gemini-4-hydrogen-high`), `piledriver` (`gemini-4-argon-high`), `instinct` (`claude-sonnet-5-5-high` / `claude-opus-5-5-high` on explicit escalation), `zen` (`claude-opus-5-5-high` / `gemini-4-argon-high` quota fallback), and `navi` (`gemini-4-argon-medium`) on demand.
+- Invoke `strix-halo` (`gemini-4-neon-medium`, escalating to `gemini-4-neon-high` when deeper review is needed), `piledriver` (`Carbon High -> gemini-4-argon-high`), `instinct` (`claude-opus-5-5-low`), `zen` (`claude-sonnet-5-5-high` / `gemini-4-argon-high` quota fallback), and `navi` (`gemini-4-neon-medium` experimental / `gemini-4-argon-medium` legacy fallback) on demand.
 - Manage recovery retry counts autonomously within `LedgerKernel`'s orchestration-level hard safety cap (default `3`).
 - Keep user-facing communication in plain language without leaking internal ledger or `result_ref` plumbing.
 

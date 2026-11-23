@@ -29,11 +29,14 @@ test("branch-local NTG 2.0 governing contracts exist and supersede 1.x MinimalSp
   ]) {
     assert.match(doc, /LedgerKernel/, `${label}: mentions LedgerKernel`);
     assert.match(doc, /LightweightLog/, `${label}: mentions LightweightLog`);
-    assert.match(doc, /gemini-pro-orchestrator-g1-pro/, `${label}: explicitly excludes AGY Orchestrator`);
-    assert.match(doc, /Gemini 4 Hydrogen.*XHigh|gemini-4-hydrogen-xhigh/i, `${label}: Bulldozer Hydrogen XHigh`);
+    assert.match(doc, /gemini-pro-orchestrator-g1-pro/, `${label}: explicitly excludes AGY Orchestrator (Argon)`);
+    assert.match(doc, /gemini-pro-orchestrator-neon/, `${label}: explicitly excludes AGY Orchestrator (Neon)`);
+    assert.match(doc, /Gemini 4 Neon.*High|gemini-4-neon-high/i, `${label}: Bulldozer Neon High`);
     assert.match(doc, /Gemini 4 Hydrogen.*Medium|gemini-4-hydrogen-medium/i, `${label}: Bobcat Hydrogen Medium`);
-    assert.match(doc, /Gemini 4 Hydrogen.*High|gemini-4-hydrogen-high/i, `${label}: Strix Halo Hydrogen High`);
+    assert.match(doc, /Gemini 4 Neon.*Medium|gemini-4-neon-medium/i, `${label}: Strix Halo / Steamroller Neon Medium`);
     assert.match(doc, /3\.8 Flash.*Low|gemini-3\.8-flash-low/i, `${label}: Jaguar/Puma 3.8 Flash Low`);
+    assert.match(doc, /Claude Sonnet 5\.5.*High|claude-sonnet-5-5-high/i, `${label}: Zen Claude Sonnet 5.5 High`);
+    assert.match(doc, /Claude Opus 5\.5.*Low|claude-opus-5-5-low/i, `${label}: Instinct Claude Opus 5.5 Low`);
     assert.match(doc, /Excavator.*retired/is, `${label}: Excavator retired`);
     assert.match(doc, /shell-safety-guard\.py/, `${label}: universal shell-safety-guard`);
     assert.match(doc, /telemetry-guard\.py/, `${label}: observation-first telemetry-guard`);

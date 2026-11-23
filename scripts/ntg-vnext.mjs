@@ -31,12 +31,13 @@
  * 2 on a NO-GO/BLOCKED/NEEDS_DEEP outcome, 1 on errors.
  */
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, realpathSync, unlinkSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { SteamrollerController, recommendNeedsAlt } from '../src/runtime/steamroller-controller.mjs';
-import { TrackRunner } from '../src/runtime/track-runner.mjs';
+import { TrackRunner, computePlanningInputDigest } from '../src/runtime/track-runner.mjs';
 import { createEventLog, makeEvent } from './events.mjs';
 import { AuthoritativeLedger, computeUsageRollup } from './ledger.mjs';
 import { countProbeHits, MAX_PROBE_HITS } from './coverage.mjs';
@@ -103,12 +104,33 @@ const USAGE = 'usage: ntg-vnext <init|plan|run|replan|tactical-replan|recover|al
 
 function parseArgs(argv) {
   const [command, ...rest] = argv;
-  const opts = { command, all: false, escalate: false, track: null };
+  const opts = {
+    command,
+    all: false,
+    escalate: false,
+    track: null,
+    requirePlanningDecision: false,
+    planningDecision: null,
+    planningDecisionDigest: null,
+    planningDecisionNote: null,
+  };
   for (let i = 0; i < rest.length; i += 1) {
     const arg = rest[i];
     if (arg === '--all') { opts.all = true; continue; }
     if (arg === '--escalate') { opts.escalate = true; continue; }
-    const key = { '--ledger': 'ledger', '--plan': 'plan', '--task': 'task', '--milestone': 'milestone', '--evidence': 'evidence', '--timeout': 'timeout', '--track': 'track' }[arg];
+    if (arg === '--require-planning-decision') { opts.requirePlanningDecision = true; continue; }
+    const key = {
+      '--ledger': 'ledger',
+      '--plan': 'plan',
+      '--task': 'task',
+      '--milestone': 'milestone',
+      '--evidence': 'evidence',
+      '--timeout': 'timeout',
+      '--track': 'track',
+      '--planning-decision': 'planningDecision',
+      '--planning-decision-digest': 'planningDecisionDigest',
+      '--planning-decision-note': 'planningDecisionNote',
+    }[arg];
     if (!key || rest[i + 1] === undefined) throw new Error(`Unknown or incomplete option: ${arg}\n${USAGE}`);
     opts[key] = rest[i + 1];
     i += 1;
@@ -318,7 +340,7 @@ export function nativeZen(request, { agyPath = process.env.AGY_PATH || 'agy', cw
  * Native specialist invocation for direct workers (Bobcat, Jaguar, Puma) and
  * cross-caller Strix Halo review when running live without injected test adapters.
  */
-export function nativeSpecialist(role, slice, { agyPath: explicitAgyPath, cwd = process.cwd(), timeout = 600000, installedModels } = {}) {
+export function nativeSpecialist(role, slice, { agyPath: explicitAgyPath, cwd = process.cwd(), timeout = 600000, installedModels, escalate = false } = {}) {
   const normalizedRole = typeof role === 'string' && role.trim().toLowerCase() === 'strix_halo'
     ? 'strix-halo'
     : String(role || '').trim().toLowerCase();
@@ -328,7 +350,16 @@ export function nativeSpecialist(role, slice, { agyPath: explicitAgyPath, cwd = 
   }
   const agyPath = explicitAgyPath || process.env.AGY_PATH || 'agy';
   const startTime = Date.now();
-  const slug = resolveSlug(normalizedRole, { agyPath, installedModels });
+  const shouldEscalate = normalizedRole === 'strix-halo'
+    ? Boolean(
+      escalate
+      || slice?.escalate
+      || slice?.high_risk
+      || (typeof slice?.review_attempt === 'number' && slice.review_attempt >= 2)
+      || slice?.previous_verdict === 'REVISE'
+    )
+    : Boolean(escalate);
+  const slug = resolveSlug(normalizedRole, { agyPath, installedModels, ...(shouldEscalate ? { escalate: true } : {}) });
   const instruction = normalizedRole === 'strix-halo'
     ? 'Review the candidate deliverable against the acceptance criteria and return only a bare JSON '
       + 'Halo review packet with caller, candidate_id_or_run_id, reviewed_diff_digest, '
@@ -878,6 +909,21 @@ export async function main(argv, deps = {}) {
     return result;
   };
 
+  const effectiveEnv = deps.env ?? process.env;
+  const resolvedPlanningDecisionValue =
+    opts.planningDecision ?? effectiveEnv.NTG_PLANNING_DECISION ?? null;
+  const resolvedPlanningDecision = resolvedPlanningDecisionValue
+    ? {
+        decision: resolvedPlanningDecisionValue,
+        digest: opts.planningDecisionDigest ?? effectiveEnv.NTG_PLANNING_DECISION_DIGEST ?? null,
+        notes: opts.planningDecisionNote ?? effectiveEnv.NTG_PLANNING_DECISION_NOTE ?? null,
+      }
+    : (deps.planningDecision ?? null);
+  const resolvedRequirePlanningDecision =
+    deps.requirePlanningDecision !== undefined
+      ? Boolean(deps.requirePlanningDecision)
+      : (opts.requirePlanningDecision || effectiveEnv.NTG_REQUIRE_PLANNING_DECISION === '1');
+
   controller = new SteamrollerController({
     ledgerPath: opts.ledger,
     lightweightLogPath: deps.lightweightLogPath ?? join(dirname(resolve(opts.ledger)), 'lightweight-runs.jsonl'),
@@ -885,6 +931,10 @@ export async function main(argv, deps = {}) {
     invokeRole: wrappedInvokeRole,
     invokeSpecialist: wrappedInvokeSpecialist,
     invokeZen: wrappedInvokeZen,
+    ...(typeof deps.reviewPlanningAdvice === 'function' ? { reviewPlanningAdvice: deps.reviewPlanningAdvice } : {}),
+    ...(resolvedPlanningDecision ? { planningDecision: resolvedPlanningDecision } : {}),
+    requirePlanningDecision: resolvedRequirePlanningDecision,
+    ...(deps.requireInitialPlanning !== undefined ? { requireInitialPlanning: deps.requireInitialPlanning } : {}),
     runnerOptions: spineRunnerOptions,
     ...(spineRunnerOptions.coverageCwd ? { cwd: spineRunnerOptions.coverageCwd } : {}),
   });
@@ -901,20 +951,62 @@ export async function main(argv, deps = {}) {
   if (isTrackLRun) {
     const planDoc = opts.plan && existsSync(opts.plan) ? readJson(opts.plan) : null;
     const planMilestone = planDoc?.milestones?.find(m => !opts.milestone || m.id === opts.milestone) ?? null;
-    const lResult = await controller.runTrackL({
-      runId: opts.milestone ?? `track-l-${Date.now()}`,
-      task: opts.task || planMilestone?.objective || planDoc?.goal || 'Lightweight Track L task',
-      goal: planDoc?.goal || opts.task || '',
-      workerRole: deps.workerRole ?? null,
-      boundedScope: planMilestone?.bounded_scope ?? [],
-      acceptanceCriteria: planMilestone?.acceptance_criteria ?? [],
-      planVersion: planDoc?.plan_version ?? 1,
-      highRiskEscalation: Boolean(opts.escalate),
+    const taskText = opts.task || planMilestone?.objective || planDoc?.goal || 'Lightweight Track L task';
+    const goalText = planDoc?.goal || opts.task || '';
+    const boundedScope = planMilestone?.bounded_scope ?? [];
+    const acceptanceCriteria = planMilestone?.acceptance_criteria ?? [];
+    const planVersion = planDoc?.plan_version ?? 1;
+    const planningInputDigest = computePlanningInputDigest({
+      task: taskText,
+      goal: goalText,
+      boundedScope,
+      acceptanceCriteria,
+      planVersion,
     });
+    const stableRunId =
+      opts.milestone ??
+      `track-l-${createHash('sha256')
+        .update(planningInputDigest)
+        .digest('hex')
+        .slice(0, 12)}`;
+    const lResult = await controller.runTrackL({
+      runId: stableRunId,
+      task: taskText,
+      goal: goalText,
+      workerRole: deps.workerRole ?? null,
+      boundedScope,
+      acceptanceCriteria,
+      planVersion,
+      highRiskEscalation: Boolean(opts.escalate),
+      ...(typeof deps.reviewPlanningAdvice === 'function' ? { reviewPlanningAdvice: deps.reviewPlanningAdvice } : {}),
+      ...(resolvedPlanningDecision ? { planningDecision: resolvedPlanningDecision } : {}),
+      requirePlanningDecision: resolvedRequirePlanningDecision,
+    });
+    if (
+      lResult.status === 'AWAITING_PLANNING_DECISION' ||
+      lResult.status === 'NEEDS_REPLAN' ||
+      lResult.verified === false
+    ) {
+      return {
+        code: 2,
+        out: {
+          track: 'L',
+          status: lResult.status ?? 'NEEDS_REPLAN',
+          run_id: lResult.run_id,
+          ...(lResult.advisory_digest ? { advisory_digest: lResult.advisory_digest } : {}),
+          planning_pass: lResult.planning_pass ?? null,
+          ...(lResult.safety_gate ? { safety_gate: lResult.safety_gate } : {}),
+          supervisor_decision: lResult.supervisor_decision ?? null,
+          ...(lResult.required_action ? { required_action: lResult.required_action } : {}),
+          results: [lResult],
+        },
+      };
+    }
     return {
       code: 0,
       out: {
         track: 'L',
+        run_id: lResult.run_id,
         assurance_badge: lResult.assurance_badge,
         results: [lResult],
         record: lResult.record,
@@ -1014,6 +1106,16 @@ export async function main(argv, deps = {}) {
                 track: effectiveTrack,
                 assurance_badge: 'ZEN_DURABLE',
                 halo_status: result.halo_status ?? null,
+                ...(result.status === 'AWAITING_PLANNING_DECISION' || result.status === 'NEEDS_REPLAN'
+                  ? {
+                      status: result.status,
+                      advisory_digest: result.advisory_digest ?? null,
+                      planning_pass: result.planning_pass ?? null,
+                      ...(result.safety_gate ? { safety_gate: result.safety_gate } : {}),
+                      supervisor_decision: result.supervisor_decision ?? null,
+                      ...(result.required_action ? { required_action: result.required_action } : {}),
+                    }
+                  : {}),
                 results,
                 state: controller.state,
               },

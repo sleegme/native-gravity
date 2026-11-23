@@ -119,6 +119,7 @@ function fixture(t, { output, review, initialPlan = plan(), invokeSpecialist, ru
     invokeRole,
     invokeZen,
     invokeSpecialist: invokeSpecialist ?? defaultInvokeSpecialist,
+    requireInitialPlanning: false,
     ...(runnerOptions ? { runnerOptions } : {}),
   };
   spine = new MinimalSpine({ ...options, plan: initialPlan });
@@ -361,7 +362,7 @@ console.log(JSON.stringify({ status: 'SUCCESS', response: '' }));
     invokeRole: invoke,
     runnerOptions: {
       agyPath: script,
-      installedModels: [{ slug: 'gemini-4-hydrogen-xhigh', description: 'Gemini 4 Hydrogen (XHigh)' }],
+      installedModels: [{ slug: 'gemini-4-neon-high', description: 'Gemini 4 Neon (High)' }],
       env: { MUTATIONS_FILE: mutations },
     },
   });
@@ -736,6 +737,7 @@ test('SIGKILL between durable delegation and candidate requires observed crash r
     import { MinimalSpine } from ${JSON.stringify(new URL('../scripts/spine.mjs', import.meta.url).href)};
     const spine = new MinimalSpine({
       ledgerPath: process.argv[1],
+      requireInitialPlanning: false,
       invokeRole: async () => {
         const released = new Promise(resolve => process.once('message', resolve));
         process.send('delegated');
@@ -2063,6 +2065,9 @@ test('repairStopQuestion names the milestone and offers plain choices', () => {
 test('SteamrollerController: Track L/S/M classification, authority-decoupled routing, and 3.8 Flash Low rerouting', () => {
   assert.equal(SteamrollerSpine, MinimalSpine);
   const installedModels = [
+    { slug: 'gemini-4-neon-medium', description: 'Gemini 4 Neon (Medium)' },
+    { slug: 'gemini-4-neon-high', description: 'Gemini 4 Neon (High)' },
+    { slug: 'gemini-4-neon-xhigh', description: 'Gemini 4 Neon (XHigh)' },
     { slug: 'gemini-4-argon-medium', description: 'Gemini 4 Argon (Medium)' },
     { slug: 'gemini-4-argon-high', description: 'Gemini 4 Argon (High)' },
     { slug: 'gemini-4-hydrogen-medium', description: 'Gemini 4 Hydrogen (Medium)' },
@@ -2070,6 +2075,7 @@ test('SteamrollerController: Track L/S/M classification, authority-decoupled rou
     { slug: 'gemini-4-hydrogen-xhigh', description: 'Gemini 4 Hydrogen (XHigh)' },
     { slug: 'gemini-3.8-flash-low', description: 'Gemini 3.8 Flash (Low)' },
     { slug: 'claude-sonnet-5-5-high', description: 'Claude Sonnet 5.5 (High)' },
+    { slug: 'claude-opus-5-5-low', description: 'Claude Opus 5.5 (Low)' },
     { slug: 'claude-opus-5-5-high', description: 'Claude Opus 5.5 (High)' },
   ];
   const controller = new SteamrollerController({
@@ -2100,7 +2106,7 @@ test('SteamrollerController: Track L/S/M classification, authority-decoupled rou
     targetFiles: ['a.mjs', 'b.mjs', 'c.mjs'],
   });
   assert.equal(mRoute.role, 'bulldozer');
-  assert.equal(mRoute.slug, 'gemini-4-hydrogen-xhigh');
+  assert.equal(mRoute.slug, 'gemini-4-neon-high');
 
   const overriddenPuma = controller.resolveRoleModel('puma', { modelOverride: 'gemini-4-hydrogen-medium' });
   assert.equal(overriddenPuma.overridden, true);
@@ -2308,10 +2314,12 @@ test('TrackRunner: Track L Halo binding, staleness rejection, high-risk Zen esca
   assert.equal(sRes.verified, true);
 });
 
-test('SteamrollerController.recoverMilestone: Bulldozer (Hydrogen XHigh) + on-demand Instinct bounded by max_recovery_retries = 3', async () => {
+test('SteamrollerController.recoverMilestone: Bulldozer (Neon High) + on-demand Instinct bounded by max_recovery_retries = 3', async () => {
   const installedModels = [
-    { slug: 'gemini-4-hydrogen-xhigh', description: 'Gemini 4 Hydrogen (XHigh)' },
+    { slug: 'gemini-4-neon-high', description: 'Gemini 4 Neon (High)' },
+    { slug: 'gemini-4-neon-xhigh', description: 'Gemini 4 Neon (XHigh)' },
     { slug: 'claude-sonnet-5-5-high', description: 'Claude Sonnet 5.5 (High)' },
+    { slug: 'claude-opus-5-5-low', description: 'Claude Opus 5.5 (Low)' },
     { slug: 'claude-opus-5-5-high', description: 'Claude Opus 5.5 (High)' },
   ];
   const ledger = new AuthoritativeLedger({
@@ -2350,7 +2358,7 @@ test('SteamrollerController.recoverMilestone: Bulldozer (Hydrogen XHigh) + on-de
     },
   });
   assert.equal(rec1.recovery_lead, 'bulldozer');
-  assert.equal(rec1.bulldozer_slug, 'gemini-4-hydrogen-xhigh');
+  assert.equal(rec1.bulldozer_slug, 'gemini-4-neon-high');
   assert.equal(rec1.attempt, 1);
   assert.equal(rec1.instinct_invoked, false);
 
@@ -2367,10 +2375,24 @@ test('SteamrollerController.recoverMilestone: Bulldozer (Hydrogen XHigh) + on-de
     },
   });
   assert.equal(rec2.attempt, 2);
+  assert.equal(rec2.bulldozer_slug, 'gemini-4-neon-xhigh');
   assert.equal(rec2.instinct_invoked, true);
-  assert.equal(rec2.instinct_slug, 'claude-sonnet-5-5-high');
+  assert.equal(rec2.instinct_slug, 'claude-opus-5-5-low');
   assert.equal(ledger.getState().evidence.alt_framing.length, 1);
   assert.equal(ledger.getState().evidence.alt_framing[0].adopted, false);
+  assert.equal(calls.find(c => c[0] === 'bulldozer' && c[2] === 1)[1], 'gemini-4-neon-high');
+  assert.equal(calls.find(c => c[0] === 'bulldozer' && c[2] === 2)[1], 'gemini-4-neon-xhigh');
+
+  // selectWorkerRoute escalates Bulldozer to Neon XHigh on high-risk recovery or explicit escalateBulldozer
+  const escalatedRoute = controller.selectWorkerRoute({
+    track: 'M',
+    task: 'Recover high-risk milestone',
+    recoveryMode: true,
+    highRisk: true,
+  });
+  assert.equal(escalatedRoute.role, 'bulldozer');
+  assert.equal(escalatedRoute.escalated, true);
+  assert.equal(escalatedRoute.slug, 'gemini-4-neon-xhigh');
 
   const rec3 = await controller.recoverMilestone({
     milestoneId: 'm-rec',
@@ -2836,6 +2858,8 @@ test('Issue #233: TrackRunner Zen verification enforces LedgerKernel strict bind
 
 test('Issue #235: SteamrollerController semantic routing selects Puma/Jaguar/Bobcat/Bulldozer without lexical false promotions', () => {
   const installedModels = [
+    { slug: 'gemini-4-neon-medium', description: 'Gemini 4 Neon (Medium)' },
+    { slug: 'gemini-4-neon-high', description: 'Gemini 4 Neon (High)' },
     { slug: 'gemini-4-argon-medium', description: 'Gemini 4 Argon (Medium)' },
     { slug: 'gemini-4-hydrogen-medium', description: 'Gemini 4 Hydrogen (Medium)' },
     { slug: 'gemini-4-hydrogen-xhigh', description: 'Gemini 4 Hydrogen (XHigh)' },
@@ -2960,6 +2984,7 @@ test('Issue #235 / PR #231 Finding 1: Durable runMilestone routes Track S direct
         calls.push(role);
         return typeof workerReply === 'function' ? workerReply(role, packet, dir) : workerReply;
       },
+      requireInitialPlanning: false,
       invokeRole: async (role, packet) => {
         calls.push(role);
         assert.equal(role, 'bulldozer');
@@ -3173,6 +3198,7 @@ test('PR #231 Finding 2: delivered_tree_digest is durably bound before Zen and r
     cwd: dir,
     acquireLock: true,
     handleSignals: false,
+    requireInitialPlanning: false,
     invokeSpecialist: async (_role, packet) => {
       writeFileSync(join(dir, 'src.mjs'), 'export const v = 1;\n');
       return {
@@ -3248,4 +3274,94 @@ test('PR #231 Finding 2: delivered_tree_digest is durably bound before Zen and r
     err => err instanceof StaleVerdictError && /marked STALE/.test(err.message)
   );
   assert.equal(gateRetryZenCalls, 0);
+});
+
+test('runMilestone forwards Bulldozer Neon XHigh escalation through #exact to real invokeTransport on high-risk recovery', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'ntg-run-milestone-xhigh-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'one.txt'), 'initial\n');
+  const ledgerPath = join(dir, 'ledger.json');
+  const callsFile = join(dir, 'agy-calls.txt');
+  const agy = join(dir, 'agy.mjs');
+  writeFileSync(agy, `#!/usr/bin/env node
+import { appendFileSync } from 'node:fs';
+const argv = process.argv.slice(2);
+const slug = argv[argv.indexOf('--model') + 1];
+appendFileSync(${JSON.stringify(callsFile)}, slug + '\\n');
+console.log(JSON.stringify({
+  status: 'SUCCESS',
+  response: JSON.stringify({
+    milestone_id: 'one',
+    plan_version: 'v1',
+    status: 'DONE',
+    changes_made: ['one.txt'],
+    verification_evidence: [{ classification: 'OBSERVED', criterion: 'content matches', result: 'inspected' }],
+    unresolved_unknowns: [],
+    scope_deviations: [],
+    candidate_artifact_ref: 'sha256:one',
+  }),
+}));
+`);
+  chmodSync(agy, 0o755);
+
+  const installedModels = [
+    { slug: 'gemini-4-neon-high', description: 'Gemini 4 Neon (High)' },
+    { slug: 'gemini-4-neon-xhigh', description: 'Gemini 4 Neon (XHigh)' },
+    { slug: 'gemini-4-argon-high', description: 'Gemini 4 Argon (High)' },
+  ];
+  const controller = new SteamrollerController({
+    ledgerPath,
+    plan: {
+      goal: 'Escalated recovery delivery',
+      constraints: [],
+      decision_invariants: [],
+      plan_version: 'v1',
+      track: 'M',
+      milestones: [
+        {
+          id: 'one',
+          title: 'one',
+          objective: 'Recover high-risk milestone',
+          bounded_scope: ['one.txt'],
+          acceptance_criteria: ['content matches'],
+          non_goals: [],
+          dependencies: [],
+        },
+      ],
+    },
+    modelRouter: new ModelRouter({ installedModels }),
+    invokeRole: invoke,
+    invokeHalo: async (req) => ({
+      caller: req.caller ?? 'steamroller',
+      candidate_id_or_run_id: req.candidate_id_or_run_id,
+      reviewed_diff_digest: req.reviewed_diff_digest,
+      acceptance_criteria_digest: req.acceptance_criteria_digest,
+      plan_version: req.plan_version,
+      evidence_basis: req.evidence_basis,
+      verdict: 'ACCEPT',
+      findings: [],
+    }),
+    invokeZen: async (req) => ({
+      milestone_id: req.milestone_id,
+      plan_version: req.plan_version,
+      result_ref: req.result_ref,
+      verdict: 'GO',
+      verification_evidence: [{ classification: 'OBSERVED', criterion: 'content matches', result: 'inspected' }],
+    }),
+    requireInitialPlanning: false,
+    runnerOptions: { agyPath: agy, installedModels, coverageCwd: dir },
+    cwd: dir,
+  });
+  t.after(() => controller.close());
+
+  const res = await controller.runMilestone('one', {
+    track: 'M',
+    recoveryMode: true,
+    highRisk: true,
+  });
+  assert.equal(res.verified, true);
+  assert.deepEqual(
+    readFileSync(callsFile, 'utf8').trim().split('\n'),
+    ['gemini-4-neon-xhigh']
+  );
 });

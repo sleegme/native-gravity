@@ -52,10 +52,12 @@ function mockSpawn(t, envelope = { status: 'SUCCESS', response: 'ok' }) {
   return calls;
 }
 
-test('Navi resolves Argon Medium and fails closed without that model', () => {
-  const installedModels = ['gemini-4-argon-high', 'gemini-4-argon-medium'];
-  assert.equal(resolveSlug('navi', { installedModels }), 'gemini-4-argon-medium');
-  assert.throws(() => resolveSlug('navi', { installedModels: installedModels.slice(0, 1) }),
+test('Navi resolves Neon Medium (Experimental), reverts to Argon Medium on legacyFallback, and fails closed without target model', () => {
+  const installedModels = ['gemini-4-neon-high', 'gemini-4-neon-medium', 'gemini-4-argon-high', 'gemini-4-argon-medium'];
+  assert.equal(resolveSlug('navi', { installedModels }), 'gemini-4-neon-medium');
+  assert.equal(resolveSlug('navi', { installedModels, legacyFallback: true }), 'gemini-4-argon-medium');
+  assert.equal(resolveSlug('navi', { installedModels, env: { NTG_NAVI_EXPERIMENTAL_NEON: '0' } }), 'gemini-4-argon-medium');
+  assert.throws(() => resolveSlug('navi', { installedModels: ['gemini-4-neon-high', 'gemini-4-argon-medium'] }),
     { error: 'UNRESOLVED_MODEL_SLUG' });
 });
 
@@ -241,11 +243,11 @@ test('runner gives the private HOME only to role navi and leaves other roles unt
   assert.equal(calls.filter(call => call.command === 'bwrap').length, 1, 'no other role is sandboxed');
 });
 
-test('Navi contract invocation resolves Argon Medium and runs sandboxed without replay', t => {
+test('Navi contract invocation resolves Neon Medium (Experimental) and runs sandboxed without replay', t => {
   const { env } = fixtureOwner(t);
   const calls = mockSpawn(t);
   const result = invoke('navi', { task: 'Observe desktop' }, {
-    installedModels: ['gemini-4-argon-medium'],
+    installedModels: ['gemini-4-neon-medium', 'gemini-4-argon-medium'],
     env,
     agyPath: 'agy',
     timeout: 60000,
@@ -254,7 +256,7 @@ test('Navi contract invocation resolves Argon Medium and runs sandboxed without 
   assert.equal(result.attempts, 1, 'Navi is never retried');
   assert.equal(calls.length, 2);
   assert.equal(calls[1].command, 'bwrap');
-  assert.equal(calls[1].args[calls[1].args.indexOf('--model') + 1], 'gemini-4-argon-medium');
+  assert.equal(calls[1].args[calls[1].args.indexOf('--model') + 1], 'gemini-4-neon-medium');
   assert.ok(!calls[1].args.includes('--agent'));
 });
 
